@@ -5,7 +5,7 @@ on run {input, parameters}
        set trackName to name of currentTrack
        set trackArtist to artist of currentTrack
        set trackTime to player position
-       set trackTimeString to (time string of trackTime) as string
+       set trackTimeString to (format "%M:%S" trackTime) as string
 
        -- Construct CSV data
        set csvData to trackName & "," & trackArtist & "," & trackTimeString & return
