@@ -1,34 +1,34 @@
 on run {input, parameters}
 	tell application "Music"
-   if player state is playing then
-       set currentTrack to current track
-       set trackName to name of currentTrack
-       set trackArtist to artist of currentTrack
-       set trackTime to player position
-       set trackTimeString to (format "%M:%S" trackTime) as string
-
-       -- Construct CSV data
-       set csvData to trackName & "," & trackArtist & "," & trackTimeString & return
-
-       -- Append data to CSV file (replace "MusicLog.csv" with your desired file name)
-       set filePath to (path to desktop as text) & "MusicLog.csv"
-       try
-           set fileHandle to open for access file filePath with write permission
-           write csvData to fileHandle starting at eof
-           close access fileHandle
-       on error
-           try
-               -- Create the file if it doesn't exist
-               set fileHandle to open for access file filePath with write permission
-               write csvData to fileHandle
-               close access fileHandle
-           end try
-       end try
-
-       next track
-   else
-       say "Music is not currently playing."
-   end if
+		if player state is playing then
+			set currentTrack to current track
+			set trackName to name of currentTrack
+			set trackArtist to artist of currentTrack
+			set trackTime to player position
+			set trackTimeString to (round trackTime) as string
+			
+			-- Construct CSV data
+			set csvData to trackName & "," & trackArtist & "," & trackTimeString & return
+			
+			-- Append data to CSV file (replace "MusicLog.csv" with your desired file name)
+			set filePath to (path to desktop as text) & "MusicLog.csv"
+			try
+				set fileHandle to open for access file filePath with write permission
+				write csvData to fileHandle starting at eof
+				close access fileHandle
+			on error
+				try
+					-- Create the file if it doesn't exist
+					set fileHandle to open for access file filePath with write permission
+					write csvData to fileHandle
+					close access fileHandle
+				end try
+			end try
+			
+			next track
+		else
+			say "Music is not currently playing."
+		end if
 	end tell
 	return input
 end run
