@@ -6,11 +6,8 @@ on run {input, parameters}
 			
 			-- Retrieve track information and log to console for verification
 			set trackName to my replaceCommas(name of currentTrack)
-			log "Track Name: " & trackName
 			set trackArtist to my replaceCommas(artist of currentTrack)
-			log "Track Artist: " & trackArtist
 			set trackAlbum to my replaceCommas(album of currentTrack)
-			log "Track Album: " & trackAlbum
 			
 			set trackTime to player position
 			set trackTimeString to (round trackTime) as string
@@ -23,7 +20,6 @@ on run {input, parameters}
 			try
 				set fileHandle to open for access file filePath with write permission
 				write csvData to fileHandle starting at eof
-				log "CSV data appended successfully."
 			on error errMsg number errNum
 				log ("Error appending CSV data: " & errMsg & " (" & errNum as text) & ")"
 			end try
