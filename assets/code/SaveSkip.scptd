@@ -1,47 +1,48 @@
 on run {input, parameters}
-    tell application "Music"
-        if player state is playing then
-            set currentTrack to current track
-            
-            -- Retrieve track information and log to console for verification
-            set trackName to my replaceCommas(name of currentTrack)
-            log "Track Name: " & trackName
-            set trackArtist to my replaceCommas(artist of currentTrack)
-            log "Track Artist: " & trackArtist
-            set trackAlbum to my replaceCommas(album of currentTrack)
-            log "Track Album: " & trackAlbum
-            
-            set trackTime to player position
-            set trackTimeString to (round trackTime) as string
-            
-            -- Construct CSV data
-            set csvData to trackName & "," & trackArtist & "," & trackAlbum & "," & trackTimeString & return
-            
-            -- Append data to CSV file with logging for errors
-            set filePath to (path to desktop as text) & "MusicLog.csv"
-            try
-                set fileHandle to open for access file filePath with write permission
-                write csvData to fileHandle starting at eof
-                log "CSV data appended successfully."
-            on error errMsg number errNum
-                log "Error appending CSV data: " & errMsg & " (" & errNum as text & ")"
-            end try
-            close access fileHandle
-            
-            next track
-        else
-            say "Music is not currently playing."
-        end if
-    end tell
-    return input
+	tell application "Music"
+		global fileHandle
+		if player state is playing then
+			set currentTrack to current track
+			
+			-- Retrieve track information and log to console for verification
+			set trackName to my replaceCommas(name of currentTrack)
+			log "Track Name: " & trackName
+			set trackArtist to my replaceCommas(artist of currentTrack)
+			log "Track Artist: " & trackArtist
+			set trackAlbum to my replaceCommas(album of currentTrack)
+			log "Track Album: " & trackAlbum
+			
+			set trackTime to player position
+			set trackTimeString to (round trackTime) as string
+			
+			-- Construct CSV data
+			set csvData to trackName & "," & trackArtist & "," & trackAlbum & "," & trackTimeString & return
+			
+			-- Append data to CSV file with logging for errors
+			set filePath to (path to desktop as text) & "MusicLog.csv"
+			try
+				set fileHandle to open for access file filePath with write permission
+				write csvData to fileHandle starting at eof
+				log "CSV data appended successfully."
+			on error errMsg number errNum
+				log ("Error appending CSV data: " & errMsg & " (" & errNum as text) & ")"
+			end try
+			close access fileHandle
+			
+			next track
+		else
+			say "Music is not currently playing."
+		end if
+	end tell
+	return input
 end run
 
 -- Function to replace commas with Single Low-9 Quotation Mark (ASCII 145, ‚)
 on replaceCommas(textString)
-    set AppleScript's text item delimiters to ","
-    set textItems to text items of textString
-    set AppleScript's text item delimiters to "‚"
-    set newString to textItems as string
-    set AppleScript's text item delimiters to ""
-    return newString
+	set AppleScript's text item delimiters to ","
+	set textItems to text items of textString
+	set AppleScript's text item delimiters to "‚"
+	set newString to textItems as string
+	set AppleScript's text item delimiters to ""
+	return newString
 end replaceCommas
