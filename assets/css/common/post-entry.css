@@ -108,3 +108,11 @@
     color: var(--secondary);
     box-shadow: 0 1px 0 var(--primary);
 }
+
+.main h2 {
+    margin-top: 2em !important;
+  }
+  
+  .main h3 {
+    margin-top: 1em !important;
+  }
