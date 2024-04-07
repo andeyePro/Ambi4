@@ -1,6 +1,6 @@
 {{ define "main" }}
   {{ range .Site.Sections }}
-    <h2>{{ .Name | title }}</h2>
+    <h2>{{ .File.BaseFileName | title }}</h2>
     {{ range .Pages }}
       <h3><a href="{{ .Permalink }}">{{ .Title }}</a></h3>
       <p>{{ .Summary }}</p>
