@@ -2,3 +2,5 @@ baseURL: https://Ambi4.work
 languageCode: en-us
 title: "Ambi4: Ambience for Work"
 theme: PaperMod
+params:
+  pluralizeListTitles: false
