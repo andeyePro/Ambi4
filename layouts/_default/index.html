@@ -2,7 +2,7 @@
   {{ range .Site.Sections }}
     <h2>{{ .Title }}</h2>
     {{ range .Pages }}
-      <h3><a href="{{ .Permalink }}">{{ .Title }}</a></h3>
+      <h3 class="link-title"><a href="{{ .Permalink }}">{{ .Title }}</a></h3>
       <p>{{ .Summary }}</p>
     {{ end }}
   {{ end }}
