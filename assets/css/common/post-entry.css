@@ -116,3 +116,12 @@
   .main h3 {
     margin-top: 1em !important;
   }
+
+  .main .link-title a {
+    color: #007BFF; /* A shade of blue */
+    text-decoration: underline;
+  }
+  
+  .main .link-title a:hover {
+    color: #0056b3; /* A darker shade of blue for hover effect */
+  }
