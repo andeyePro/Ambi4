@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Ambients on Ambi4: Ambience for Work</title>
+    <link>https://Ambi4.work/ambient/</link>
+    <description>Recent content in Ambients on Ambi4: Ambience for Work</description>
+    <generator>Hugo -- 0.122.0</generator>
+    <language>en-us</language>
+    <lastBuildDate>Tue, 30 Jan 2024 17:41:26 +0000</lastBuildDate>
+    <atom:link href="https://Ambi4.work/ambient/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Eno</title>
+      <link>https://Ambi4.work/ambient/eno/</link>
+      <pubDate>Tue, 30 Jan 2024 17:41:26 +0000</pubDate>
+      <guid>https://Ambi4.work/ambient/eno/</guid>
+      <description>The three genre-defining albums &amp;amp; more from Brian Eno.</description>
+    </item>
+  </channel>
+</rss>
