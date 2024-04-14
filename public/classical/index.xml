@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
   <channel>
     <title>Classicals on Ambi4: Ambience for Work</title>
     <link>https://Ambi4.work/classical/</link>
     <description>Recent content in Classicals on Ambi4: Ambience for Work</description>
-    <generator>Hugo -- gohugo.io</generator>
+    <generator>Hugo -- 0.122.0</generator>
     <language>en-us</language>
     <lastBuildDate>Sat, 27 Jan 2024 16:24:26 +0000</lastBuildDate>
     <atom:link href="https://Ambi4.work/classical/index.xml" rel="self" type="application/rss+xml" />
@@ -13,7 +13,7 @@
       <link>https://Ambi4.work/classical/mozart/</link>
       <pubDate>Sat, 27 Jan 2024 16:24:26 +0000</pubDate>
       <guid>https://Ambi4.work/classical/mozart/</guid>
-      <description> </description>
+      <description>Given the &amp;lsquo;Mozart Effect&amp;rsquo;, we thought we would kick off with a carefully curated set of concertos and other works that help us get into a flow state.</description>
     </item>
   </channel>
 </rss>
