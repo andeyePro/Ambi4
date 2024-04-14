@@ -125,3 +125,9 @@
   .main .link-title a:hover {
     color: #0056b3; /* A darker shade of blue for hover effect */
   }
+
+.thumbnail {
+    height: 240px;
+    width: auto;
+    object-fit: cover;
+}
