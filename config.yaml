@@ -3,4 +3,4 @@ languageCode: en-us
 title: "Ambi4: Ambience for Work"
 theme: PaperMod
 params:
-  pluralizeListTitles: false
+pluralizeListTitles: false
