@@ -1,0 +1,3 @@
+{{ if .Page.Params.thumbnail }}
+<img src="{{ .Site.BaseURL }}/{{ .Page.Params.thumbnail }}" alt="{{ .Page.Title }}" style="width: 100%;">
+{{ end }}

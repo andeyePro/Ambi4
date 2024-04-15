@@ -3,6 +3,9 @@
     <h2>{{ .Title }}</h2>
     {{ range .Pages }}
       <h3 class="link-title"><a href="{{ .Permalink }}">{{ .Title }}</a></h3>
+      <a href="{{ .Permalink }}">
+        <img src="/{{ .Params.thumbnail }}" alt="{{ .Title }}" class="thumbnail" onerror="imgError(this);">
+      </a>
       <p>{{ .Summary }}</p>
     {{ end }}
   {{ end }}
