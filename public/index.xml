@@ -1,19 +1,33 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
   <channel>
-    <title>Ambi4: Ambience for Work</title>
+    <title>Home on Ambi4: Ambience for Work</title>
     <link>https://Ambi4.work/</link>
-    <description>Recent content on Ambi4: Ambience for Work</description>
-    <generator>Hugo -- gohugo.io</generator>
+    <description>Recent content in Home on Ambi4: Ambience for Work</description>
+    <generator>Hugo -- 0.122.0</generator>
     <language>en-us</language>
-    <lastBuildDate>Sat, 27 Jan 2024 16:24:26 +0000</lastBuildDate>
+    <lastBuildDate>Mon, 08 Apr 2024 00:49:00 +0000</lastBuildDate>
     <atom:link href="https://Ambi4.work/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>xander.</title>
+      <link>https://Ambi4.work/instrumental/xander/</link>
+      <pubDate>Mon, 08 Apr 2024 00:49:00 +0000</pubDate>
+      <guid>https://Ambi4.work/instrumental/xander/</guid>
+      <description>Does anyone know who &amp;lsquo;xander.&amp;rsquo; is? We loved a couple of his tracks that we found in Apple&amp;rsquo;s BEATstrumentals playlist, so we added his albums here (minus any tracks we consider less conducive to work&amp;hellip;)</description>
+    </item>
+    <item>
+      <title>Eno</title>
+      <link>https://Ambi4.work/ambient/eno/</link>
+      <pubDate>Tue, 30 Jan 2024 17:41:26 +0000</pubDate>
+      <guid>https://Ambi4.work/ambient/eno/</guid>
+      <description>The three genre-defining albums &amp;amp; more from Brian Eno.</description>
+    </item>
     <item>
       <title>Mozart</title>
       <link>https://Ambi4.work/classical/mozart/</link>
       <pubDate>Sat, 27 Jan 2024 16:24:26 +0000</pubDate>
       <guid>https://Ambi4.work/classical/mozart/</guid>
-      <description> </description>
+      <description>Given the &amp;lsquo;Mozart Effect&amp;rsquo;, we thought we would kick off with a carefully curated set of concertos and other works that help us get into a flow state.</description>
     </item>
   </channel>
 </rss>
