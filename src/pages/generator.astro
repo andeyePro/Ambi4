@@ -1,0 +1,344 @@
+---
+import Base from '../layouts/Base.astro';
+
+const modes: [string, string][] = [
+  ['majorPentatonic', 'Major pentatonic'],
+  ['minorPentatonic', 'Minor pentatonic'],
+  ['dorian', 'Dorian'],
+  ['lydian', 'Lydian'],
+  ['aeolian', 'Aeolian'],
+  ['wholeTone', 'Whole tone'],
+];
+
+const roots = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
+---
+<Base title="Generator" description="An endless ambient music generator that runs entirely in your browser.">
+  <h1>Generator</h1>
+  <p>
+    Endless generated ambience to work to. Everything runs in your browser
+    &mdash; nothing is uploaded or downloaded.
+  </p>
+
+  <div id="generator-app" hidden>
+    <button
+      id="toggle-play"
+      type="button"
+      class="play-toggle"
+      aria-pressed="false"
+    >
+      <span class="play-toggle-label">Play</span>
+    </button>
+
+    <div class="control">
+      <div class="control-label-row">
+        <label for="speed">Speed</label>
+        <span class="end-label">Slower &ndash; Faster</span>
+      </div>
+      <input type="range" id="speed" min="0.25" max="2" step="0.01" value="1" />
+    </div>
+
+    <div class="control">
+      <div class="control-label-row">
+        <label for="complexity">Complexity</label>
+        <span class="end-label">Calm &ndash; Busy</span>
+      </div>
+      <input type="range" id="complexity" min="0" max="1" step="0.01" value="0.5" />
+    </div>
+
+    <div class="control">
+      <div class="control-label-row">
+        <label for="repetition">Repetition</label>
+        <span class="end-label">Evolving &ndash; Repetitive</span>
+      </div>
+      <input type="range" id="repetition" min="0" max="1" step="0.01" value="0.5" />
+    </div>
+
+    <div class="control">
+      <div class="control-label-row">
+        <label for="volume">Volume</label>
+      </div>
+      <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" />
+    </div>
+
+    <details class="advanced">
+      <summary>Advanced</summary>
+
+      <div class="control">
+        <label for="root">Root</label>
+        <select id="root">
+          {roots.map((r) => <option value={r}>{r}</option>)}
+        </select>
+      </div>
+
+      <div class="control">
+        <label for="mode">Scale</label>
+        <select id="mode">
+          {modes.map(([value, label]) => <option value={value}>{label}</option>)}
+        </select>
+      </div>
+
+      <div class="control">
+        <label for="timeSignature">Time signature</label>
+        <select id="timeSignature">
+          {timeSignatures.map((t) => <option value={t}>{t}</option>)}
+        </select>
+      </div>
+
+      <div class="control">
+        <div class="control-label-row">
+          <label for="bpm">BPM</label>
+          <span class="value-readout"><output for="bpm" id="bpm-value">60</output></span>
+        </div>
+        <input type="range" id="bpm" min="40" max="120" step="1" value="60" />
+      </div>
+
+      <div class="control">
+        <div class="control-label-row">
+          <label for="voices">Voices</label>
+          <span class="value-readout"><output for="voices" id="voices-value">4</output></span>
+        </div>
+        <input type="range" id="voices" min="1" max="4" step="1" value="4" />
+        <p class="hint" id="voices-hint">
+          1 = pad only &middot; 2 = +bass &middot; 3 = +melody &middot; 4 = +texture
+        </p>
+      </div>
+    </details>
+  </div>
+
+  <p id="generator-unavailable" hidden>
+    Sorry &mdash; this browser can&rsquo;t run the generator (Web Audio isn&rsquo;t
+    available, or the audio engine failed to load). Try a recent version of
+    Chrome, Firefox, Safari or Edge.
+  </p>
+
+  <script>
+    const app = document.getElementById('generator-app');
+    const unavailable = document.getElementById('generator-unavailable');
+
+    const STORAGE_KEY = 'ambi4-generator-settings';
+
+    const DEFAULTS = {
+      speed: 1,
+      complexity: 0.5,
+      repetition: 0.5,
+      volume: 0.8,
+      root: 'C',
+      mode: 'majorPentatonic',
+      timeSignature: '4/4',
+      bpm: 60,
+      voices: 4,
+    };
+
+    function loadSettings() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { ...DEFAULTS };
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULTS, ...parsed };
+      } catch {
+        return { ...DEFAULTS };
+      }
+    }
+
+    function saveSettings(settings) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      } catch {
+        // localStorage unavailable (private browsing etc); non-fatal.
+      }
+    }
+
+    async function init() {
+      if (typeof window.AudioContext === 'undefined' && typeof window.webkitAudioContext === 'undefined') {
+        unavailable.hidden = false;
+        return;
+      }
+
+      let createEngine;
+      try {
+        ({ createEngine } = await import('../scripts/ambient-engine.js'));
+      } catch {
+        unavailable.hidden = false;
+        return;
+      }
+
+      const engine = createEngine();
+      const settings = loadSettings();
+
+      const toggleButton = document.getElementById('toggle-play');
+      const playLabel = toggleButton.querySelector('.play-toggle-label');
+
+      const inputs = {
+        speed: document.getElementById('speed'),
+        complexity: document.getElementById('complexity'),
+        repetition: document.getElementById('repetition'),
+        volume: document.getElementById('volume'),
+        root: document.getElementById('root'),
+        mode: document.getElementById('mode'),
+        timeSignature: document.getElementById('timeSignature'),
+        bpm: document.getElementById('bpm'),
+        voices: document.getElementById('voices'),
+      };
+
+      const bpmValue = document.getElementById('bpm-value');
+      const voicesValue = document.getElementById('voices-value');
+
+      for (const key of Object.keys(inputs)) {
+        inputs[key].value = String(settings[key]);
+      }
+      bpmValue.textContent = String(settings.bpm);
+      voicesValue.textContent = String(settings.voices);
+
+      engine.setParams({ ...settings });
+
+      function paramFromInput(key, input) {
+        if (key === 'root' || key === 'mode' || key === 'timeSignature') {
+          return input.value;
+        }
+        if (key === 'bpm' || key === 'voices') {
+          return parseInt(input.value, 10);
+        }
+        return parseFloat(input.value);
+      }
+
+      for (const [key, input] of Object.entries(inputs)) {
+        input.addEventListener('input', () => {
+          const value = paramFromInput(key, input);
+          settings[key] = value;
+          engine.setParams({ [key]: value });
+          saveSettings(settings);
+
+          if (key === 'bpm') bpmValue.textContent = String(value);
+          if (key === 'voices') voicesValue.textContent = String(value);
+        });
+      }
+
+      function setPlayingUI(playing) {
+        toggleButton.setAttribute('aria-pressed', String(playing));
+        playLabel.textContent = playing ? 'Stop' : 'Play';
+      }
+
+      toggleButton.addEventListener('click', async () => {
+        if (engine.running) {
+          engine.stop();
+          setPlayingUI(false);
+        } else {
+          toggleButton.disabled = true;
+          try {
+            await engine.start();
+            setPlayingUI(true);
+          } finally {
+            toggleButton.disabled = false;
+          }
+        }
+      });
+
+      app.hidden = false;
+    }
+
+    init();
+  </script>
+
+  <style>
+    #generator-app {
+      max-width: 480px;
+    }
+
+    .play-toggle {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      margin-bottom: 28px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--bg);
+      background: var(--link);
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .play-toggle:hover {
+      background: var(--link-hover);
+    }
+
+    .play-toggle:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 3px;
+    }
+
+    .play-toggle[aria-pressed='true'] {
+      background: var(--secondary);
+    }
+
+    .control {
+      margin-bottom: 20px;
+    }
+
+    .control-label-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+
+    .control label {
+      font-weight: 700;
+    }
+
+    .end-label,
+    .value-readout {
+      color: var(--secondary);
+      font-size: 14px;
+    }
+
+    .control input[type='range'] {
+      width: 100%;
+    }
+
+    .control select {
+      width: 100%;
+      padding: 8px;
+      font-size: 16px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .control input:focus-visible,
+    .control select:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    .hint {
+      margin-top: 6px;
+      color: var(--secondary);
+      font-size: 14px;
+    }
+
+    details.advanced {
+      margin-top: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    details.advanced summary {
+      cursor: pointer;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    details.advanced[open] summary {
+      margin-bottom: 20px;
+    }
+
+    #generator-unavailable {
+      color: var(--secondary);
+    }
+  </style>
+</Base>
