@@ -1,0 +1,42 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+
+const entries = await getCollection('playlists');
+const sections = [...new Set(entries.map((e) => e.id.split('/')[0]))].sort();
+
+const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+// Plain-text summary: body without markdown link syntax.
+const summary = (body: string | undefined) =>
+  (body ?? '').trim().split('\n\n')[0].replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+---
+<Base title="Ambi4: Ambience for Work">
+  {sections.map((section) => (
+    <>
+      <h2>{titleCase(section)}</h2>
+      {entries
+        .filter((e) => e.id.split('/')[0] === section)
+        .sort((a, b) => a.data.date.valueOf() - b.data.date.valueOf())
+        .map((e) => (
+          <>
+            <h3 class="link-title"><a href={`/${e.id}/`}>{e.data.title}</a></h3>
+            {e.data.thumbnail && (
+              <a href={`/${e.id}/`}>
+                <img src={e.data.thumbnail} alt={e.data.title} class="thumbnail" />
+              </a>
+            )}
+            <p>{summary(e.body)}</p>
+          </>
+        ))}
+    </>
+  ))}
+  <div class="additional-text">
+    <h2>Coming sometime</h2>
+    <p>Customisable endless music to help you work.  Generated live, just for you.</p>
+
+    <h2>Available now</h2>
+    <p>A (soon to be growing) list of work-optimised music playlists.
+    Apple Music now, Spotify and perhaps others to follow.
+    Click one of the links above to launch a playlist:</p>
+  </div>
+</Base>

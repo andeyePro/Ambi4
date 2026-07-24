@@ -1,0 +1,29 @@
+---
+interface Props {
+  title: string;
+  description?: string;
+}
+const { title, description = 'Customisable endless music generated just for you, to help you work.' } = Astro.props;
+import '../styles/global.css';
+---
+<html lang="en-gb">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-title" href="/">Ambi4: Ambience for Work</a>
+    </header>
+    <main>
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <span>&copy; 2024 <a href="/">Ambi4: Ambience for Work</a></span>
+      <span> · Powered by <a href="https://astro.build/" rel="noopener noreferrer" target="_blank">Astro</a></span>
+    </footer>
+  </body>
+</html>
