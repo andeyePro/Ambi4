@@ -204,3 +204,76 @@ Patch = {
   "combined complexity" estimate (structure preset intensity mean, arp manual density,
   fraction of tracks forced on — document the exact formula in the UI code) without
   overwriting the user's advanced choices.
+
+---
+
+# v4 addendum (site restructure wave — runs WITH wave 3; ownership below)
+
+File ownership for this wave (nobody touches another's files):
+- **Engine v3** (wave 3): src/scripts/ambient-engine.js, tests/engine-smoke.mjs
+- **Voices v3** (wave 3): src/scripts/engine-voices.js, tests/voices-smoke.mjs
+- **Generator page**: src/pages/index.astro, src/pages/generator.astro
+- **Playlists/site**: src/pages/playlists.astro, src/layouts/Base.astro, astro.config.mjs,
+  src/content.config.ts, src/content/playlists/**, src/components/**, README.md,
+  and DELETING src/pages/[...slug].astro (replaced by /playlists/)
+- **Prefs/consent**: src/scripts/prefs.js, tests/prefs-smoke.mjs
+
+## Site map (v4)
+
+- `/` = the generator (was homepage listing). Old `/generator/` → redirect to `/`.
+- `/playlists/` = single page: all playlists grouped by genre heading, with a service
+  selector. Old `/ambient/eno/`, `/classical/mozart/`, `/instrumental/xander/` → redirect
+  to `/playlists/` (astro.config.mjs `redirects`, owned by Playlists/site agent).
+- Base.astro header gains nav: "Generator" (/) · "Playlists" (/playlists/).
+
+## Streaming services (free tiers CAN create playlists)
+
+ids: `youtube`, `spotify`, `deezer`, `soundcloud`, `apple` (legacy — needs paid sub).
+Content frontmatter replaces `playlist:` with:
+```yaml
+services:
+  apple: 'ambi4-work-ambient-eno/pl.u-oZyl4BYtRpW092'  # keep existing values
+  youtube: null      # PL… playlist id (also serves YouTube Music)
+  spotify: null      # playlist id
+  deezer: null       # numeric playlist id
+  soundcloud: null   # user/sets/slug path
+```
+Embed URL templates (ServiceEmbed component, replaces AppleMusicEmbed):
+- youtube: `https://www.youtube-nocookie.com/embed/videoseries?list=<id>` (h≈360)
+- spotify: `https://open.spotify.com/embed/playlist/<id>` (h≈380)
+- deezer: `https://widget.deezer.com/widget/auto/playlist/<id>` (h≈380)
+- soundcloud: `https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2F<encoded path>` (h≈380)
+- apple: existing embed.music.apple.com iframe (h=450)
+Selector: pill buttons; default = first service for which ANY playlist has an id, else
+youtube. Playlists lacking the chosen service show a "Not on <service> yet" note instead
+of an iframe. Service choice → `prefs.set('service', id)` (consent flow below).
+
+## Consent + storage — src/scripts/prefs.js (contract)
+
+No third-party cookies anywhere; this governs OUR persistence (cookies/localStorage are
+"similar technologies" — same consent bar). API:
+```js
+export const prefs = {
+  consent(),                 // 'granted' | 'denied' | null (unasked)
+  setConsent(granted),       // persists the consent decision itself (tiny cookie 'ambi4-consent')
+  get(key), set(key, value), remove(key),  // JSON values in localStorage, namespaced 'ambi4:'.
+                             // Without granted consent: set() writes to an in-memory map only
+                             // (session-scoped) and returns false; get() reads memory first.
+}
+export function consentPrompt(container, message) // renders an inline ask (not a banner):
+  // message + [Save on this device] [No thanks] buttons, returns Promise<boolean>,
+  // calls setConsent() accordingly. Idempotent per container. Theme via CSS vars.
+```
+Rules: nothing persistent is written before setConsent(true) — INCLUDING the generator's
+existing settings localStorage (Generator agent migrates: on first settings change with
+consent unasked, show consentPrompt "Remember your settings and presets on this device?";
+denied → memory-only for the session, never re-ask that session, re-ask next visit).
+`ambi4-generator-settings-v2` key migrates to `ambi4:generator` via prefs.
+
+## Generator presets (Generator page agent, using prefs)
+
+- "Presets" row: name input + Save (→ prefs `ambi4:presets` array, consent-gated),
+  load select, delete. A preset = full v2/v3 params snapshot + name.
+- "Submit preset" button → opens `https://contact.andeye.com/?subject=<enc>&message=<enc JSON>`
+  in a new tab AND offers a copy-to-clipboard of the JSON (the domain may not exist yet —
+  the copy path is the reliable one; keep the URL in ONE const at the top of the page script).
