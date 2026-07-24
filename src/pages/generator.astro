@@ -13,6 +13,78 @@ const modes: [string, string][] = [
 const roots = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
+
+const structures: [string, string][] = [
+  ['auto', 'Auto'],
+  ['drone', 'Drone'],
+  ['waves', 'Waves'],
+  ['build', 'Build'],
+  ['abab', 'ABAB'],
+  ['journey', 'Journey'],
+  ['custom', 'Custom'],
+];
+
+const arpPatterns: [string, string][] = [
+  ['up', 'Up'],
+  ['down', 'Down'],
+  ['updown', 'Up-down'],
+  ['random', 'Random'],
+];
+
+const arpRates: [string, string][] = [
+  ['1/4', '1/4'],
+  ['1/8', '1/8'],
+  ['1/16', '1/16'],
+  ['1/8T', '1/8 triplet'],
+];
+
+// Hardcoded from the engine v2 contract's VOICES table. The UI never imports
+// engine-voices.js — the voice implementations aren't relevant here, only
+// the ids/labels the <select> options need.
+const TRACKS: [string, string][] = [
+  ['pad', 'Pad'],
+  ['bass', 'Bass'],
+  ['melody', 'Melody'],
+  ['texture', 'Texture'],
+  ['arp', 'Arp'],
+  ['percussion', 'Percussion'],
+];
+
+const VOICES: Record<string, [string, string][]> = {
+  pad: [
+    ['warm', 'Warm'],
+    ['glass', 'Glass'],
+    ['strings', 'Strings'],
+    ['choir', 'Choir'],
+  ],
+  bass: [
+    ['sub', 'Sub'],
+    ['round', 'Round'],
+    ['breath', 'Breath'],
+  ],
+  melody: [
+    ['pluck', 'Pluck'],
+    ['bell', 'Bell'],
+    ['flute', 'Flute'],
+    ['keys', 'Keys'],
+  ],
+  texture: [
+    ['sparkle', 'Sparkle'],
+    ['grains', 'Grains'],
+    ['chimes', 'Chimes'],
+    ['wash', 'Wash'],
+  ],
+  arp: [
+    ['softPluck', 'Soft pluck'],
+    ['crystal', 'Crystal'],
+    ['marimba', 'Marimba'],
+  ],
+  percussion: [
+    ['soft', 'Soft kit'],
+    ['hand', 'Hand drum'],
+    ['tick', 'Ticks'],
+  ],
+};
 ---
 <Base title="Generator" description="An endless ambient music generator that runs entirely in your browser.">
   <h1>Generator</h1>
@@ -30,6 +102,11 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
     >
       <span class="play-toggle-label">Play</span>
     </button>
+
+    <canvas
+      id="track-visualiser"
+      aria-label="Live visualisation of each track's activity"
+    ></canvas>
 
     <div class="control">
       <div class="control-label-row">
@@ -60,6 +137,28 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
         <label for="volume">Volume</label>
       </div>
       <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" />
+    </div>
+
+    <div class="tracks-section">
+      <h2 class="tracks-heading">Tracks</h2>
+      <div class="track-rows">
+        {TRACKS.map(([id, label]) => (
+          <div class="track-row" data-track={id}>
+            <span class="track-name">{label}</span>
+            <div class="segmented track-state" role="radiogroup" aria-label={`${label} state`}>
+              <input type="radio" name={`track-state-${id}`} id={`track-${id}-off`} value="off" />
+              <label for={`track-${id}-off`}>Off</label>
+              <input type="radio" name={`track-state-${id}`} id={`track-${id}-auto`} value="auto" checked />
+              <label for={`track-${id}-auto`}>Auto</label>
+              <input type="radio" name={`track-state-${id}`} id={`track-${id}-on`} value="on" />
+              <label for={`track-${id}-on`}>On</label>
+            </div>
+            <select id={`track-voice-${id}`} class="track-voice" aria-label={`${label} voice`}>
+              {VOICES[id].map(([value, voiceLabel]) => <option value={value}>{voiceLabel}</option>)}
+            </select>
+          </div>
+        ))}
+      </div>
     </div>
 
     <details class="advanced">
@@ -95,14 +194,65 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
       </div>
 
       <div class="control">
+        <label for="structure">Structure</label>
+        <select id="structure">
+          {structures.map(([value, label]) => <option value={value}>{label}</option>)}
+        </select>
+      </div>
+
+      <div id="custom-structure-builder" class="custom-structure" hidden>
+        <div id="structure-blocks" class="structure-blocks"></div>
+        <button type="button" id="add-structure-block" class="secondary-button">Add block</button>
+        <p class="hint">Loops forever, in order. Up to 8 blocks.</p>
+      </div>
+
+      <div class="control arp-control">
         <div class="control-label-row">
-          <label for="voices">Voices</label>
-          <span class="value-readout"><output for="voices" id="voices-value">4</output></span>
+          <span class="control-heading">Arpeggiator</span>
         </div>
-        <input type="range" id="voices" min="1" max="4" step="1" value="4" />
-        <p class="hint" id="voices-hint">
-          1 = pad only &middot; 2 = +bass &middot; 3 = +melody &middot; 4 = +texture
-        </p>
+        <div class="segmented" role="radiogroup" aria-label="Arpeggiator mode">
+          <input type="radio" name="arp-mode" id="arp-mode-auto" value="auto" checked />
+          <label for="arp-mode-auto">Auto</label>
+          <input type="radio" name="arp-mode" id="arp-mode-manual" value="manual" />
+          <label for="arp-mode-manual">Manual</label>
+        </div>
+
+        <div id="arp-manual-controls" hidden>
+          <div class="control">
+            <label for="arp-pattern">Pattern</label>
+            <select id="arp-pattern">
+              {arpPatterns.map(([value, label]) => <option value={value}>{label}</option>)}
+            </select>
+          </div>
+
+          <div class="control">
+            <label for="arp-rate">Rate</label>
+            <select id="arp-rate">
+              {arpRates.map(([value, label]) => <option value={value}>{label}</option>)}
+            </select>
+          </div>
+
+          <div class="control">
+            <div class="control-label-row">
+              <label for="arp-octaves">Octaves</label>
+              <span class="value-readout"><output for="arp-octaves" id="arp-octaves-value">2</output></span>
+            </div>
+            <input type="range" id="arp-octaves" min="1" max="3" step="1" value="2" />
+          </div>
+
+          <div class="control">
+            <div class="control-label-row">
+              <label for="arp-gate">Gate</label>
+              <span class="value-readout"><output for="arp-gate" id="arp-gate-value">0.6</output></span>
+            </div>
+            <input type="range" id="arp-gate" min="0.1" max="1" step="0.01" value="0.6" />
+          </div>
+
+          <div class="control">
+            <span class="control-heading">Steps</span>
+            <div id="arp-steps" class="step-grid" role="group" aria-label="Arpeggiator step pattern"></div>
+          </div>
+        </div>
       </div>
     </details>
   </div>
@@ -117,7 +267,9 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
     const app = document.getElementById('generator-app');
     const unavailable = document.getElementById('generator-unavailable');
 
-    const STORAGE_KEY = 'ambi4-generator-settings';
+    const STORAGE_KEY = 'ambi4-generator-settings-v2';
+
+    const TRACK_IDS = ['pad', 'bass', 'melody', 'texture', 'arp', 'percussion'];
 
     const DEFAULTS = {
       speed: 1,
@@ -128,17 +280,57 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
       mode: 'majorPentatonic',
       timeSignature: '4/4',
       bpm: 60,
-      voices: 4,
+      structure: 'auto',
+      customStructure: [
+        { label: 'A', bars: 8, intensity: 0.4 },
+        { label: 'B', bars: 8, intensity: 0.7 },
+      ],
+      arp: {
+        mode: 'auto',
+        pattern: 'up',
+        rate: '1/8',
+        octaves: 2,
+        gate: 0.6,
+        steps: new Array(16).fill(true),
+      },
+      tracks: {
+        pad: { state: 'auto', voice: 'warm' },
+        bass: { state: 'auto', voice: 'sub' },
+        melody: { state: 'auto', voice: 'pluck' },
+        texture: { state: 'auto', voice: 'sparkle' },
+        arp: { state: 'auto', voice: 'softPluck' },
+        percussion: { state: 'auto', voice: 'soft' },
+      },
     };
+
+    function isPlainObject(value) {
+      return value !== null && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    /** Deep-merge `saved` over `defaults`; arrays are replaced wholesale, not merged. */
+    function deepMerge(defaults, saved) {
+      if (Array.isArray(defaults)) {
+        return Array.isArray(saved) ? saved : defaults;
+      }
+      if (isPlainObject(defaults)) {
+        if (!isPlainObject(saved)) return defaults;
+        const out = {};
+        for (const key of Object.keys(defaults)) {
+          out[key] = deepMerge(defaults[key], saved[key]);
+        }
+        return out;
+      }
+      return saved === undefined ? defaults : saved;
+    }
 
     function loadSettings() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return { ...DEFAULTS };
+        if (!raw) return structuredClone(DEFAULTS);
         const parsed = JSON.parse(raw);
-        return { ...DEFAULTS, ...parsed };
+        return deepMerge(DEFAULTS, parsed);
       } catch {
-        return { ...DEFAULTS };
+        return structuredClone(DEFAULTS);
       }
     }
 
@@ -167,8 +359,18 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
       const engine = createEngine();
       const settings = loadSettings();
 
+      const canvas = document.getElementById('track-visualiser');
+      try {
+        const { initVisualiser } = await import('../scripts/visualiser.js');
+        initVisualiser(canvas, engine);
+      } catch {
+        // Visualiser is optional decoration; the generator works without it.
+      }
+
       const toggleButton = document.getElementById('toggle-play');
       const playLabel = toggleButton.querySelector('.play-toggle-label');
+
+      // ---- simple range/select controls -----------------------------------
 
       const inputs = {
         speed: document.getElementById('speed'),
@@ -179,25 +381,20 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
         mode: document.getElementById('mode'),
         timeSignature: document.getElementById('timeSignature'),
         bpm: document.getElementById('bpm'),
-        voices: document.getElementById('voices'),
       };
 
       const bpmValue = document.getElementById('bpm-value');
-      const voicesValue = document.getElementById('voices-value');
 
       for (const key of Object.keys(inputs)) {
         inputs[key].value = String(settings[key]);
       }
       bpmValue.textContent = String(settings.bpm);
-      voicesValue.textContent = String(settings.voices);
-
-      engine.setParams({ ...settings });
 
       function paramFromInput(key, input) {
         if (key === 'root' || key === 'mode' || key === 'timeSignature') {
           return input.value;
         }
-        if (key === 'bpm' || key === 'voices') {
+        if (key === 'bpm') {
           return parseInt(input.value, 10);
         }
         return parseFloat(input.value);
@@ -211,9 +408,251 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
           saveSettings(settings);
 
           if (key === 'bpm') bpmValue.textContent = String(value);
-          if (key === 'voices') voicesValue.textContent = String(value);
         });
       }
+
+      // ---- tracks section ---------------------------------------------------
+
+      for (const id of TRACK_IDS) {
+        const track = settings.tracks[id];
+        const stateRadios = document.querySelectorAll(`input[name="track-state-${id}"]`);
+        const voiceSelect = document.getElementById(`track-voice-${id}`);
+
+        for (const radio of stateRadios) {
+          radio.checked = radio.value === track.state;
+          radio.addEventListener('change', () => {
+            if (!radio.checked) return;
+            settings.tracks[id].state = radio.value;
+            engine.setParams({ tracks: { [id]: { state: radio.value } } });
+            saveSettings(settings);
+          });
+        }
+
+        voiceSelect.value = track.voice;
+        voiceSelect.addEventListener('change', () => {
+          settings.tracks[id].voice = voiceSelect.value;
+          engine.setParams({ tracks: { [id]: { voice: voiceSelect.value } } });
+          saveSettings(settings);
+        });
+      }
+
+      // ---- structure + custom structure builder -----------------------------
+
+      const structureSelect = document.getElementById('structure');
+      const customBuilder = document.getElementById('custom-structure-builder');
+      const structureBlocks = document.getElementById('structure-blocks');
+      const addBlockButton = document.getElementById('add-structure-block');
+      const blockLabels = ['A', 'B', 'C', 'D'];
+
+      function renderStructureBlocks() {
+        structureBlocks.innerHTML = '';
+        settings.customStructure.forEach((block, index) => {
+          const row = document.createElement('div');
+          row.className = 'structure-block';
+
+          const labelSelect = document.createElement('select');
+          labelSelect.setAttribute('aria-label', `Block ${index + 1} label`);
+          for (const l of blockLabels) {
+            const opt = document.createElement('option');
+            opt.value = l;
+            opt.textContent = l;
+            if (l === block.label) opt.selected = true;
+            labelSelect.append(opt);
+          }
+          labelSelect.addEventListener('change', () => {
+            settings.customStructure[index].label = labelSelect.value;
+            commitCustomStructure();
+          });
+
+          const barsInput = document.createElement('input');
+          barsInput.type = 'number';
+          barsInput.min = '1';
+          barsInput.max = '32';
+          barsInput.value = String(block.bars);
+          barsInput.setAttribute('aria-label', `Block ${index + 1} bars`);
+          barsInput.addEventListener('input', () => {
+            const bars = parseInt(barsInput.value, 10);
+            settings.customStructure[index].bars = Number.isFinite(bars) ? bars : block.bars;
+            commitCustomStructure();
+          });
+
+          const intensityInput = document.createElement('input');
+          intensityInput.type = 'range';
+          intensityInput.min = '0';
+          intensityInput.max = '1';
+          intensityInput.step = '0.01';
+          intensityInput.value = String(block.intensity);
+          intensityInput.setAttribute('aria-label', `Block ${index + 1} intensity`);
+          intensityInput.addEventListener('input', () => {
+            settings.customStructure[index].intensity = parseFloat(intensityInput.value);
+            commitCustomStructure();
+          });
+
+          const upButton = document.createElement('button');
+          upButton.type = 'button';
+          upButton.className = 'block-move';
+          upButton.textContent = '↑';
+          upButton.setAttribute('aria-label', `Move block ${index + 1} up`);
+          upButton.disabled = index === 0;
+          upButton.addEventListener('click', () => {
+            if (index === 0) return;
+            const blocks = settings.customStructure;
+            [blocks[index - 1], blocks[index]] = [blocks[index], blocks[index - 1]];
+            commitCustomStructure();
+            renderStructureBlocks();
+          });
+
+          const downButton = document.createElement('button');
+          downButton.type = 'button';
+          downButton.className = 'block-move';
+          downButton.textContent = '↓';
+          downButton.setAttribute('aria-label', `Move block ${index + 1} down`);
+          downButton.disabled = index === settings.customStructure.length - 1;
+          downButton.addEventListener('click', () => {
+            const blocks = settings.customStructure;
+            if (index === blocks.length - 1) return;
+            [blocks[index + 1], blocks[index]] = [blocks[index], blocks[index + 1]];
+            commitCustomStructure();
+            renderStructureBlocks();
+          });
+
+          const removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.className = 'block-remove';
+          removeButton.textContent = 'Remove';
+          removeButton.setAttribute('aria-label', `Remove block ${index + 1}`);
+          removeButton.disabled = settings.customStructure.length <= 1;
+          removeButton.addEventListener('click', () => {
+            if (settings.customStructure.length <= 1) return;
+            settings.customStructure.splice(index, 1);
+            commitCustomStructure();
+            renderStructureBlocks();
+          });
+
+          row.append(labelSelect, barsInput, intensityInput, upButton, downButton, removeButton);
+          structureBlocks.append(row);
+        });
+
+        addBlockButton.disabled = settings.customStructure.length >= 8;
+      }
+
+      function commitCustomStructure() {
+        engine.setParams({ customStructure: settings.customStructure });
+        saveSettings(settings);
+      }
+
+      addBlockButton.addEventListener('click', () => {
+        if (settings.customStructure.length >= 8) return;
+        settings.customStructure.push({ label: 'A', bars: 8, intensity: 0.4 });
+        commitCustomStructure();
+        renderStructureBlocks();
+      });
+
+      function updateCustomBuilderVisibility() {
+        customBuilder.hidden = structureSelect.value !== 'custom';
+      }
+
+      structureSelect.value = settings.structure;
+      updateCustomBuilderVisibility();
+      renderStructureBlocks();
+
+      structureSelect.addEventListener('change', () => {
+        settings.structure = structureSelect.value;
+        updateCustomBuilderVisibility();
+        const partial = { structure: settings.structure };
+        if (settings.structure === 'custom') partial.customStructure = settings.customStructure;
+        engine.setParams(partial);
+        saveSettings(settings);
+      });
+
+      // ---- arpeggiator editor -------------------------------------------
+
+      const arpModeRadios = document.querySelectorAll('input[name="arp-mode"]');
+      const arpManualControls = document.getElementById('arp-manual-controls');
+      const arpPattern = document.getElementById('arp-pattern');
+      const arpRate = document.getElementById('arp-rate');
+      const arpOctaves = document.getElementById('arp-octaves');
+      const arpOctavesValue = document.getElementById('arp-octaves-value');
+      const arpGate = document.getElementById('arp-gate');
+      const arpGateValue = document.getElementById('arp-gate-value');
+      const arpSteps = document.getElementById('arp-steps');
+
+      function updateArpManualVisibility() {
+        arpManualControls.hidden = settings.arp.mode !== 'manual';
+      }
+
+      for (const radio of arpModeRadios) {
+        radio.checked = radio.value === settings.arp.mode;
+        radio.addEventListener('change', () => {
+          if (!radio.checked) return;
+          settings.arp.mode = radio.value;
+          updateArpManualVisibility();
+          engine.setParams({ arp: { mode: radio.value } });
+          saveSettings(settings);
+        });
+      }
+      updateArpManualVisibility();
+
+      arpPattern.value = settings.arp.pattern;
+      arpPattern.addEventListener('change', () => {
+        settings.arp.pattern = arpPattern.value;
+        engine.setParams({ arp: { pattern: arpPattern.value } });
+        saveSettings(settings);
+      });
+
+      arpRate.value = settings.arp.rate;
+      arpRate.addEventListener('change', () => {
+        settings.arp.rate = arpRate.value;
+        engine.setParams({ arp: { rate: arpRate.value } });
+        saveSettings(settings);
+      });
+
+      arpOctaves.value = String(settings.arp.octaves);
+      arpOctavesValue.textContent = String(settings.arp.octaves);
+      arpOctaves.addEventListener('input', () => {
+        const value = parseInt(arpOctaves.value, 10);
+        settings.arp.octaves = value;
+        arpOctavesValue.textContent = String(value);
+        engine.setParams({ arp: { octaves: value } });
+        saveSettings(settings);
+      });
+
+      arpGate.value = String(settings.arp.gate);
+      arpGateValue.textContent = String(settings.arp.gate);
+      arpGate.addEventListener('input', () => {
+        const value = parseFloat(arpGate.value);
+        settings.arp.gate = value;
+        arpGateValue.textContent = String(value);
+        engine.setParams({ arp: { gate: value } });
+        saveSettings(settings);
+      });
+
+      function renderArpSteps() {
+        arpSteps.innerHTML = '';
+        settings.arp.steps.forEach((on, index) => {
+          const step = document.createElement('button');
+          step.type = 'button';
+          step.className = 'step-cell';
+          const stepNumber = index + 1;
+          step.textContent = stepNumber % 4 === 1 ? String(stepNumber) : '•';
+          step.setAttribute('aria-label', `Step ${stepNumber}`);
+          step.setAttribute('aria-pressed', String(on));
+          if (stepNumber % 4 === 1) step.classList.add('step-cell-marked');
+          step.addEventListener('click', () => {
+            const next = !settings.arp.steps[index];
+            settings.arp.steps[index] = next;
+            step.setAttribute('aria-pressed', String(next));
+            engine.setParams({ arp: { steps: settings.arp.steps } });
+            saveSettings(settings);
+          });
+          arpSteps.append(step);
+        });
+      }
+      renderArpSteps();
+
+      // ---- initial engine sync + transport ------------------------------
+
+      engine.setParams(structuredClone(settings));
 
       function setPlayingUI(playing) {
         toggleButton.setAttribute('aria-pressed', String(playing));
@@ -243,14 +682,14 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
 
   <style>
     #generator-app {
-      max-width: 480px;
+      max-width: 640px;
     }
 
     .play-toggle {
       display: block;
       width: 100%;
       padding: 16px;
-      margin-bottom: 28px;
+      margin-bottom: 20px;
       font-size: 18px;
       font-weight: 700;
       color: var(--bg);
@@ -273,6 +712,16 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
       background: var(--secondary);
     }
 
+    #track-visualiser {
+      display: block;
+      width: 100%;
+      height: 200px;
+      margin-bottom: 28px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
     .control {
       margin-bottom: 20px;
     }
@@ -285,7 +734,8 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
       margin-bottom: 6px;
     }
 
-    .control label {
+    .control label,
+    .control-heading {
       font-weight: 700;
     }
 
@@ -335,6 +785,193 @@ const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
 
     details.advanced[open] summary {
       margin-bottom: 20px;
+    }
+
+    /* -- segmented control (3-state track state / 2-state arp mode) -- */
+
+    .segmented {
+      display: inline-flex;
+      flex-wrap: wrap;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .segmented input[type='radio'] {
+      position: absolute;
+      opacity: 0;
+      width: 1px;
+      height: 1px;
+      pointer-events: none;
+    }
+
+    .segmented label {
+      padding: 6px 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text);
+      border-right: 1px solid var(--border);
+    }
+
+    .segmented label:last-of-type {
+      border-right: none;
+    }
+
+    .segmented input[type='radio']:checked + label {
+      background: var(--link);
+      color: var(--bg);
+    }
+
+    .segmented input[type='radio']:focus-visible + label {
+      outline: 3px solid var(--link);
+      outline-offset: -3px;
+    }
+
+    /* -- tracks section -- */
+
+    .tracks-section {
+      margin-bottom: 24px;
+    }
+
+    .tracks-heading {
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+
+    .track-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .track-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .track-name {
+      width: 84px;
+      flex-shrink: 0;
+      font-weight: 600;
+    }
+
+    .track-voice {
+      flex: 1 1 140px;
+      min-width: 120px;
+      padding: 6px 8px;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    /* -- custom structure builder -- */
+
+    .custom-structure {
+      margin: -8px 0 20px;
+    }
+
+    .structure-blocks {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .structure-block {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .structure-block select {
+      width: auto;
+      padding: 6px;
+    }
+
+    .structure-block input[type='number'] {
+      width: 64px;
+      padding: 6px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .structure-block input[type='range'] {
+      flex: 1 1 100px;
+    }
+
+    .structure-block button {
+      padding: 4px 8px;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .structure-block button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .secondary-button {
+      padding: 8px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    /* -- arpeggiator step grid -- */
+
+    .arp-control {
+      margin-top: 24px;
+    }
+
+    .step-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .step-cell {
+      padding: 10px 0;
+      font-size: 12px;
+      color: var(--secondary);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .step-cell-marked {
+      font-weight: 700;
+    }
+
+    .step-cell[aria-pressed='true'] {
+      background: var(--link);
+      color: var(--bg);
+      border-color: var(--link);
+    }
+
+    .step-cell:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
     }
 
     #generator-unavailable {

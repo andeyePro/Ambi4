@@ -1,19 +1,20 @@
 /**
- * ambient-engine.js — procedural four-track ambient generator.
+ * ambient-engine.js — procedural six-track ambient generator.
  *
  * Pure Web Audio API, no dependencies, no assets, no network. Import from an
  * Astro page's <script type="module"> and drive it with createEngine().
  *
  * Importing this module in a non-browser environment is safe: nothing touches
- * AudioContext until start() is called.
+ * AudioContext until start() is called, and the voice library is pulled in with
+ * a dynamic import from start() (falling back to the built-in sine voices below
+ * if it is missing).
  *
  * Layout of this file:
  *   1. music theory tables + pure helpers (unit-testable, no audio)
  *   2. parameter validation
- *   3. phrase / harmony generators (pure)
- *   4. audio graph construction
- *   5. per-track voices
- *   6. scheduler + public engine
+ *   3. phrase / harmony / structure / arp / percussion generators (pure)
+ *   4. fallback voices + audio graph
+ *   5. scheduler + public engine
  */
 
 // ---------------------------------------------------------------------------
@@ -50,7 +51,24 @@ export const TIME_SIGNATURES = Object.freeze({
   '7/8': [1, 1, 1.5],
 });
 
+/** Fixed track order — also the order auto-tracks switch themselves on in. */
+export const TRACK_ORDER = Object.freeze(['pad', 'bass', 'melody', 'texture', 'arp', 'percussion']);
+
+export const TRACK_STATES = Object.freeze(['off', 'auto', 'on']);
+
+export const STRUCTURES = Object.freeze([
+  'auto', 'drone', 'waves', 'build', 'abab', 'journey', 'custom',
+]);
+
+export const STRUCTURE_LABELS = Object.freeze(['A', 'B', 'C', 'D']);
+
+export const ARP_PATTERNS = Object.freeze(['up', 'down', 'updown', 'random']);
+
+/** Arp step length in quarter notes. */
+export const ARP_RATES = Object.freeze({ '1/4': 1, '1/8': 0.5, '1/16': 0.25, '1/8T': 1 / 3 });
+
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const round3 = (v) => Math.round(v * 1000) / 1000;
 
 /** Equal temperament, A4 = 440 Hz, MIDI 69. */
 export function midiToFreq(midi) {
@@ -115,6 +133,42 @@ export function beatsPerBar(timeSignature) {
 // 2. Parameters
 // ---------------------------------------------------------------------------
 
+const DEFAULT_TRACK_VOICES = Object.freeze({
+  pad: 'warm',
+  bass: 'sub',
+  melody: 'pluck',
+  texture: 'sparkle',
+  arp: 'softPluck',
+  percussion: 'soft',
+});
+
+const ARP_MODES = ['auto', 'manual'];
+const ARP_STEP_COUNT = 16;
+
+function defaultTracks() {
+  const tracks = {};
+  for (const name of TRACK_ORDER) tracks[name] = { state: 'auto', voice: DEFAULT_TRACK_VOICES[name] };
+  return tracks;
+}
+
+function defaultArp() {
+  return {
+    mode: 'auto',
+    pattern: 'up',
+    rate: '1/8',
+    octaves: 2,
+    gate: 0.6,
+    steps: new Array(ARP_STEP_COUNT).fill(true),
+  };
+}
+
+function defaultCustomStructure() {
+  return [
+    { label: 'A', bars: 8, intensity: 0.4 },
+    { label: 'B', bars: 8, intensity: 0.7 },
+  ];
+}
+
 export const DEFAULT_PARAMS = Object.freeze({
   speed: 1,
   complexity: 0.5,
@@ -123,8 +177,13 @@ export const DEFAULT_PARAMS = Object.freeze({
   mode: 'majorPentatonic',
   timeSignature: '4/4',
   bpm: 60,
-  voices: 4,
   volume: 0.8,
+  structure: 'auto',
+  customStructure: Object.freeze(defaultCustomStructure().map(Object.freeze)),
+  arp: Object.freeze({ ...defaultArp(), steps: Object.freeze(new Array(ARP_STEP_COUNT).fill(true)) }),
+  tracks: Object.freeze(
+    Object.fromEntries(Object.entries(defaultTracks()).map(([k, v]) => [k, Object.freeze(v)])),
+  ),
 });
 
 const NUMERIC_RANGES = {
@@ -132,47 +191,122 @@ const NUMERIC_RANGES = {
   complexity: [0, 1],
   repetition: [0, 1],
   bpm: [40, 120],
-  voices: [1, 4],
   volume: [0, 1],
 };
 
+function numberIn(value, range, fallback) {
+  const num = typeof value === 'number' ? value : Number(value);
+  if (value === undefined || value === null || value === '' || !Number.isFinite(num)) return fallback;
+  return clamp(num, range[0], range[1]);
+}
+
+function oneOf(value, allowed, fallback) {
+  return typeof value === 'string' && allowed.includes(value) ? value : fallback;
+}
+
+/** 16 booleans; short arrays are padded with `true`, long ones truncated. */
+function sanitiseSteps(value, base) {
+  const source = Array.isArray(value) ? value : Array.isArray(base) ? base : null;
+  const steps = new Array(ARP_STEP_COUNT);
+  for (let i = 0; i < ARP_STEP_COUNT; i++) {
+    steps[i] = source && i < source.length ? Boolean(source[i]) : true;
+  }
+  return steps;
+}
+
+function sanitiseArp(value, base) {
+  const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.arp;
+  const v = value && typeof value === 'object' ? value : null;
+  const at = (key) => (v && key in v ? v[key] : undefined);
+  return {
+    mode: oneOf(at('mode'), ARP_MODES, oneOf(from.mode, ARP_MODES, 'auto')),
+    pattern: oneOf(at('pattern'), ARP_PATTERNS, oneOf(from.pattern, ARP_PATTERNS, 'up')),
+    rate: oneOf(at('rate'), Object.keys(ARP_RATES), oneOf(from.rate, Object.keys(ARP_RATES), '1/8')),
+    octaves: Math.round(numberIn(at('octaves'), [1, 3], numberIn(from.octaves, [1, 3], 2))),
+    gate: numberIn(at('gate'), [0.1, 1], numberIn(from.gate, [0.1, 1], 0.6)),
+    steps: sanitiseSteps(at('steps'), from.steps),
+  };
+}
+
+function sanitiseTracks(value, base) {
+  const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.tracks;
+  const v = value && typeof value === 'object' ? value : null;
+  const tracks = {};
+  for (const name of TRACK_ORDER) {
+    const baseTrack = from[name] && typeof from[name] === 'object' ? from[name] : {};
+    const partial = v && v[name] && typeof v[name] === 'object' ? v[name] : null;
+    const voiceCandidate = partial && typeof partial.voice === 'string' && partial.voice.trim()
+      ? partial.voice.trim()
+      : typeof baseTrack.voice === 'string' && baseTrack.voice.trim()
+        ? baseTrack.voice.trim()
+        : DEFAULT_TRACK_VOICES[name];
+    tracks[name] = {
+      state: oneOf(partial && partial.state, TRACK_STATES,
+        oneOf(baseTrack.state, TRACK_STATES, 'auto')),
+      voice: voiceCandidate,
+    };
+  }
+  return tracks;
+}
+
+/**
+ * Custom structure blocks. Anything that is not a usable block is dropped; a
+ * non-array keeps whatever the base had. An empty result is legal and makes
+ * `structure: 'custom'` fall back to the auto preset at play time.
+ */
+function sanitiseCustomStructure(value, base) {
+  const source = Array.isArray(value) ? value : Array.isArray(base) ? base : [];
+  const blocks = [];
+  for (const raw of source) {
+    if (!raw || typeof raw !== 'object') continue;
+    const label = typeof raw.label === 'string' ? raw.label.trim().toUpperCase() : '';
+    if (!STRUCTURE_LABELS.includes(label)) continue;
+    blocks.push({
+      label,
+      bars: Math.round(numberIn(raw.bars, [1, 32], 8)),
+      intensity: numberIn(raw.intensity, [0, 1], 0.5),
+    });
+    if (blocks.length === 8) break;
+  }
+  return blocks;
+}
+
 /**
  * Merge `partial` over `base`, clamping numbers, rejecting unknown enum values
- * and silently ignoring unknown keys. Always returns a complete params object.
+ * and silently ignoring unknown keys (including v1's `voices`). `arp`, `tracks`
+ * and `customStructure` merge deeply. Always returns a complete, freshly
+ * allocated params object.
  */
 export function sanitiseParams(partial, base = DEFAULT_PARAMS) {
-  const out = { ...DEFAULT_PARAMS, ...(base && typeof base === 'object' ? base : null) };
-  if (partial && typeof partial === 'object') {
-    for (const key of Object.keys(partial)) {
-      const value = partial[key];
-      if (key in NUMERIC_RANGES) {
-        const num = typeof value === 'number' ? value : Number(value);
-        if (Number.isFinite(num)) {
-          const [lo, hi] = NUMERIC_RANGES[key];
-          out[key] = clamp(num, lo, hi);
-        }
-      } else if (key === 'root') {
-        const root = normaliseRoot(value);
-        if (root) out.root = root;
-      } else if (key === 'mode') {
-        if (typeof value === 'string' && value in SCALES) out.mode = value;
-      } else if (key === 'timeSignature') {
-        if (typeof value === 'string' && value in TIME_SIGNATURES) out.timeSignature = value;
-      }
-      // anything else: ignored
-    }
-  }
-  // Re-clamp inherited values too, so a bad `base` can never leak through.
+  const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS;
+  const p = partial && typeof partial === 'object' ? partial : null;
+  const at = (key) => (p && key in p ? p[key] : undefined);
+
+  const out = {};
   for (const key of Object.keys(NUMERIC_RANGES)) {
-    const num = Number(out[key]);
-    const [lo, hi] = NUMERIC_RANGES[key];
-    out[key] = Number.isFinite(num) ? clamp(num, lo, hi) : DEFAULT_PARAMS[key];
+    const range = NUMERIC_RANGES[key];
+    // Re-clamping the inherited value too means a bad `base` can never leak.
+    out[key] = numberIn(at(key), range, numberIn(from[key], range, DEFAULT_PARAMS[key]));
   }
-  out.voices = Math.round(out.voices);
-  out.root = normaliseRoot(out.root) ?? DEFAULT_PARAMS.root;
-  if (!(out.mode in SCALES)) out.mode = DEFAULT_PARAMS.mode;
-  if (!(out.timeSignature in TIME_SIGNATURES)) out.timeSignature = DEFAULT_PARAMS.timeSignature;
+  out.root = normaliseRoot(at('root')) ?? normaliseRoot(from.root) ?? DEFAULT_PARAMS.root;
+  out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
+  out.timeSignature = oneOf(at('timeSignature'), Object.keys(TIME_SIGNATURES),
+    oneOf(from.timeSignature, Object.keys(TIME_SIGNATURES), DEFAULT_PARAMS.timeSignature));
+  out.structure = oneOf(at('structure'), STRUCTURES, oneOf(from.structure, STRUCTURES, 'auto'));
+  out.customStructure = sanitiseCustomStructure(at('customStructure'), from.customStructure);
+  out.arp = sanitiseArp(at('arp'), from.arp);
+  out.tracks = sanitiseTracks(at('tracks'), from.tracks);
   return out;
+}
+
+/** Deep copy of a sanitised params object — what getParams() hands out. */
+function copyParams(params) {
+  return {
+    ...params,
+    customStructure: params.customStructure.map((block) => ({ ...block })),
+    arp: { ...params.arp, steps: params.arp.steps.slice() },
+    tracks: Object.fromEntries(TRACK_ORDER.map((name) => [name, { ...params.tracks[name] }])),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -298,8 +432,158 @@ export function generatePhrase({
   return { bars, notes };
 }
 
+// -- song structure ---------------------------------------------------------
+
+const WAVES_PERIOD = 16;
+const BUILD_BARS = 32;
+const BUILD_RELEASE_BARS = 8;
+
+const PRESET_BLOCKS = Object.freeze({
+  abab: [
+    { label: 'A', bars: 8, intensity: 0.4 },
+    { label: 'B', bars: 8, intensity: 0.7 },
+  ],
+  journey: [
+    { label: 'A', bars: 8, intensity: 0.35 },
+    { label: 'A', bars: 8, intensity: 0.45 },
+    { label: 'B', bars: 8, intensity: 0.65 },
+    { label: 'A', bars: 8, intensity: 0.45 },
+    { label: 'C', bars: 8, intensity: 0.8 },
+    { label: 'B', bars: 8, intensity: 0.6 },
+  ],
+});
+
+/**
+ * Which preset actually plays. 'auto' picks from complexity; 'custom' with no
+ * usable blocks degrades to that same auto choice rather than going silent.
+ */
+export function resolveStructure(structure, complexity = 0.5, customStructure = []) {
+  const c = clamp(Number.isFinite(Number(complexity)) ? Number(complexity) : 0.5, 0, 1);
+  const auto = c < 0.33 ? 'drone' : c < 0.55 ? 'waves' : c < 0.75 ? 'abab' : 'journey';
+  if (structure === 'custom') {
+    return Array.isArray(customStructure) && customStructure.length ? 'custom' : auto;
+  }
+  if (typeof structure !== 'string' || !STRUCTURES.includes(structure) || structure === 'auto') {
+    return auto;
+  }
+  return structure;
+}
+
+/**
+ * The section in force during `bar` (0-based, counted from the moment the
+ * structure was last (re)started). Pure, so the sequencing is unit-testable.
+ */
+export function sectionAtBar(preset, bar, customStructure = []) {
+  const index = Math.max(0, Math.floor(Number(bar) || 0));
+  if (preset === 'drone') return { label: 'A', intensity: 0.35 };
+  if (preset === 'waves') {
+    const phase = (index % WAVES_PERIOD) / WAVES_PERIOD;
+    return { label: 'A', intensity: round3(0.5 - 0.25 * Math.cos(2 * Math.PI * phase)) };
+  }
+  if (preset === 'build') {
+    const b = index % (BUILD_BARS + BUILD_RELEASE_BARS);
+    if (b < BUILD_BARS) {
+      return { label: 'A', intensity: round3(0.2 + 0.65 * (b / (BUILD_BARS - 1))) };
+    }
+    const t = (b - BUILD_BARS + 1) / BUILD_RELEASE_BARS;
+    return { label: 'B', intensity: round3(0.85 - 0.55 * t) };
+  }
+  const blocks = preset === 'custom' ? customStructure : PRESET_BLOCKS[preset];
+  if (!Array.isArray(blocks) || !blocks.length) return { label: 'A', intensity: 0.35 };
+  const total = blocks.reduce((sum, block) => sum + block.bars, 0);
+  let pos = index % total;
+  for (const block of blocks) {
+    if (pos < block.bars) return { label: block.label, intensity: block.intensity };
+    pos -= block.bars;
+  }
+  return { label: blocks[0].label, intensity: blocks[0].intensity };
+}
+
+/**
+ * Which 'auto' tracks play at this section intensity and complexity. The
+ * thresholds rise along TRACK_ORDER, so the active set is always a prefix of
+ * it: pad first, arp and percussion last to join.
+ */
+const AUTO_THRESHOLDS = Object.freeze({
+  pad: 0, bass: 0.12, melody: 0.3, texture: 0.45, arp: 0.62, percussion: 0.78,
+});
+
+export function autoActiveTracks(intensity = 0.5, complexity = 0.5) {
+  const energy = 0.55 * clamp(Number(intensity) || 0, 0, 1) + 0.45 * clamp(Number(complexity) || 0, 0, 1);
+  return TRACK_ORDER.filter((name) => energy >= AUTO_THRESHOLDS[name]);
+}
+
+// -- arpeggiator ------------------------------------------------------------
+
+/** Pattern/rate/octaves/density the arp uses in `mode: 'auto'`. */
+export function autoArpSettings(complexity = 0.5) {
+  const c = clamp(Number(complexity) || 0, 0, 1);
+  return {
+    mode: 'auto',
+    pattern: c < 0.35 ? 'up' : c < 0.65 ? 'updown' : c < 0.85 ? 'down' : 'random',
+    rate: c < 0.3 ? '1/4' : c < 0.55 ? '1/8' : c < 0.8 ? '1/8T' : '1/16',
+    octaves: c < 0.4 ? 1 : c < 0.75 ? 2 : 3,
+    density: round3(0.3 + c * 0.55),
+  };
+}
+
+/**
+ * The note order the arp walks. 'random' returns the plain ascending pool and
+ * the caller draws from it; 'updown' folds back without repeating the top and
+ * bottom notes.
+ */
+export function buildArpSequence(chordMidis, pattern = 'up', octaves = 1) {
+  const base = Array.from(new Set(chordMidis)).sort((a, b) => a - b);
+  if (!base.length) return [];
+  const span = clamp(Math.round(octaves) || 1, 1, 3);
+  const pool = [];
+  for (let o = 0; o < span; o++) {
+    for (const midi of base) pool.push(midi + 12 * o);
+  }
+  if (pattern === 'down') return pool.slice().reverse();
+  if (pattern === 'updown') {
+    if (pool.length < 3) return pool.slice();
+    return pool.concat(pool.slice(1, -1).reverse());
+  }
+  return pool;
+}
+
+/**
+ * One bar of ambient percussion: a soft low pulse near the bar start, at most
+ * one more low later in the bar, and a couple of mid/high accents. Never a
+ * groove — the hit count is capped at five however dense things get.
+ */
+export function generatePercussionPattern({ pulses = [1, 1, 1, 1], density = 0.5, rng = Math.random } = {}) {
+  const d = clamp(Number(density) || 0, 0, 1);
+  const count = Array.isArray(pulses) && pulses.length ? pulses.length : 4;
+  const hits = [];
+  if (rng() < 0.55 + d * 0.4) {
+    hits.push({ pulse: 0, offset: rng() * 0.05, kind: 'low', velocity: round3(0.55 + rng() * 0.25) });
+  }
+  if (count > 2 && rng() < d * 0.55) {
+    hits.push({
+      pulse: 1 + Math.floor(rng() * (count - 1)),
+      offset: rng() * 0.05,
+      kind: 'low',
+      velocity: round3(0.35 + rng() * 0.2),
+    });
+  }
+  const accents = Math.round(d * 3);
+  for (let i = 0; i < accents; i++) {
+    if (rng() > 0.35 + d * 0.5) continue;
+    hits.push({
+      pulse: Math.floor(rng() * count) % count,
+      offset: rng() * 0.5,
+      kind: rng() < 0.45 ? 'mid' : 'high',
+      velocity: round3(0.25 + rng() * 0.35),
+    });
+  }
+  hits.sort((a, b) => a.pulse - b.pulse || a.offset - b.offset);
+  return hits;
+}
+
 // ---------------------------------------------------------------------------
-// 4. Audio graph
+// 4. Fallback voices + audio graph
 // ---------------------------------------------------------------------------
 
 const LOOKAHEAD = 0.12;      // seconds of audio scheduled ahead of the clock
@@ -309,19 +593,87 @@ const FADE_IN = 1.2;         // start() fade
 const SILENCE = 0.0001;      // exponential ramps cannot reach zero
 const MASTER_HEADROOM = 0.7; // keeps volume=1 comfortably clear of clipping
 
+/** Pitches the fallback percussion voice uses for each hit kind. */
+const PERCUSSION_TONES = { low: 72, mid: 220, high: 1500 };
+
 /**
- * Dry level and effect-send amounts per track. Tracks that sit further back in
- * the mix (texture, melody) get more reverb and delay; the sub bass gets almost
- * none so the low end stays defined.
+ * Minimal single-oscillator voice used when engine-voices.js cannot be loaded
+ * (a bare Node import, a failed chunk fetch). Deliberately plain: it keeps the
+ * engine audible and testable without pretending to be the real voice library.
+ */
+function fallbackVoice(config) {
+  return {
+    label: config.label,
+    play(ctx, destination, note) {
+      const freq = note.freq ?? PERCUSSION_TONES[note.kind] ?? 220;
+      const when = Number.isFinite(note.when) ? note.when : ctx.currentTime;
+      const duration = Math.max(0.05, note.duration || 0.3);
+      const attack = Math.min(config.attack, duration * 0.5);
+      const sustain = Math.max(attack, duration);
+      const peak = Math.max(config.peak * clamp(note.velocity ?? 0.7, 0, 1), SILENCE * 2);
+      const end = when + sustain + config.release;
+
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = clamp(note.pan ?? 0, -1, 1);
+      panner.connect(destination);
+
+      const amp = ctx.createGain();
+      amp.connect(panner);
+      amp.gain.setValueAtTime(SILENCE, when);
+      amp.gain.exponentialRampToValueAtTime(peak, when + attack);
+      amp.gain.setValueAtTime(peak, when + sustain);
+      amp.gain.exponentialRampToValueAtTime(SILENCE, end);
+
+      const osc = ctx.createOscillator();
+      osc.type = config.type;
+      osc.frequency.setValueAtTime(freq, when);
+      if (config.pitchDrop) {
+        osc.frequency.exponentialRampToValueAtTime(
+          Math.max(freq * config.pitchDrop, 20), when + sustain,
+        );
+      }
+      osc.connect(amp);
+      osc.onended = () => {
+        osc.disconnect();
+        amp.disconnect();
+        panner.disconnect();
+      };
+      osc.start(when);
+      osc.stop(end + 0.02);
+
+      return { cancel() { osc.stop(ctx.currentTime); } };
+    },
+  };
+}
+
+export const FALLBACK_VOICES = Object.freeze({
+  pad: { warm: fallbackVoice({ label: 'Warm', type: 'sine', peak: 0.22, attack: 1.5, release: 2.5 }) },
+  bass: { sub: fallbackVoice({ label: 'Sub', type: 'sine', peak: 0.3, attack: 0.08, release: 0.6 }) },
+  melody: { pluck: fallbackVoice({ label: 'Pluck', type: 'triangle', peak: 0.18, attack: 0.01, release: 0.5 }) },
+  texture: { sparkle: fallbackVoice({ label: 'Sparkle', type: 'sine', peak: 0.1, attack: 0.01, release: 2 }) },
+  arp: { softPluck: fallbackVoice({ label: 'Soft pluck', type: 'triangle', peak: 0.14, attack: 0.008, release: 0.35 }) },
+  percussion: {
+    soft: fallbackVoice({
+      label: 'Soft kit', type: 'sine', peak: 0.24, attack: 0.004, release: 0.14, pitchDrop: 0.5,
+    }),
+  },
+});
+
+/**
+ * Dry level, tone ceiling and effect-send amounts per track. Levels are lower
+ * than v1's four-track set: six sources sum, so pad/bass keep the bulk of the
+ * budget and the four decorative tracks each sit well under it. Worst case
+ * (every track on, velocity 1) lands under unity before the master's 0.7
+ * headroom and the glue compressor.
  */
 const TRACK_MIX = {
-  pad: { level: 0.5, dry: 0.8, reverb: 0.45, delay: 0.1 },
-  bass: { level: 0.55, dry: 1.0, reverb: 0.1, delay: 0.0 },
-  melody: { level: 0.4, dry: 0.75, reverb: 0.5, delay: 0.3 },
-  texture: { level: 0.3, dry: 0.6, reverb: 0.7, delay: 0.35 },
+  pad: { level: 0.36, dry: 0.8, reverb: 0.45, delay: 0.1, tone: 4000 },
+  bass: { level: 0.44, dry: 1.0, reverb: 0.08, delay: 0.0, tone: 12000 },
+  melody: { level: 0.28, dry: 0.75, reverb: 0.5, delay: 0.28, tone: 6000 },
+  texture: { level: 0.2, dry: 0.6, reverb: 0.7, delay: 0.35, tone: 12000 },
+  arp: { level: 0.2, dry: 0.7, reverb: 0.45, delay: 0.25, tone: 6500 },
+  percussion: { level: 0.24, dry: 0.85, reverb: 0.3, delay: 0.12, tone: 9000 },
 };
-
-const TRACK_ORDER = ['pad', 'bass', 'melody', 'texture'];
 
 function audioContextCtor() {
   const g = globalThis;
@@ -396,49 +748,64 @@ function buildGraph(ctx) {
     const mix = TRACK_MIX[name];
     const input = ctx.createGain();
     input.gain.value = SILENCE;
+    // Section intensity opens and closes this filter — the "brightness" the
+    // structure asks for, applied engine-side because voices own their timbre.
+    const tone = ctx.createBiquadFilter();
+    tone.type = 'lowpass';
+    tone.frequency.value = mix.tone;
+    tone.Q.value = 0.4;
     const dry = ctx.createGain();
     dry.gain.value = mix.dry;
     const reverbSend = ctx.createGain();
     reverbSend.gain.value = mix.reverb;
     const delaySend = ctx.createGain();
     delaySend.gain.value = mix.delay;
-    input.connect(dry);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.75;
+
+    input.connect(tone);
+    tone.connect(dry);
     dry.connect(master);
-    input.connect(reverbSend);
+    tone.connect(reverbSend);
     reverbSend.connect(convolver);
     if (mix.delay > 0) {
-      input.connect(delaySend);
+      tone.connect(delaySend);
       delaySend.connect(delay);
     }
-    tracks[name] = { input, dry, reverbSend, delaySend };
+    tone.connect(analyser);
+    tracks[name] = { input, tone, dry, reverbSend, delaySend, analyser };
   }
 
   return { master, compressor, convolver, delay, feedback, tracks };
-}
-
-/**
- * Attack / hold / release on a gain, entirely with exponential ramps so nothing
- * clicks. Returns the absolute time at which the envelope has finished, which
- * is when it is safe to stop the source nodes.
- */
-function envelope(param, start, { attack, hold, release, peak }) {
-  const top = Math.max(peak, SILENCE * 2);
-  param.setValueAtTime(SILENCE, start);
-  param.exponentialRampToValueAtTime(top, start + attack);
-  param.setValueAtTime(top, start + attack + hold);
-  param.exponentialRampToValueAtTime(SILENCE, start + attack + hold + release);
-  return start + attack + hold + release;
 }
 
 // ---------------------------------------------------------------------------
 // 5. Public engine
 // ---------------------------------------------------------------------------
 
+let voicesPromise = null;
+
+/**
+ * The voice library, or the fallback set if it is unavailable. Cached across
+ * engines; the import is deliberately inside a function so importing this
+ * module stays side-effect free.
+ */
+function loadVoices() {
+  if (!voicesPromise) {
+    voicesPromise = import('./engine-voices.js')
+      .then((mod) => (mod && mod.VOICES && typeof mod.VOICES === 'object' ? mod.VOICES : FALLBACK_VOICES))
+      .catch(() => FALLBACK_VOICES);
+  }
+  return voicesPromise;
+}
+
 export function createEngine(initialParams) {
   let params = sanitiseParams(initialParams);
 
   let ctx = null;
   let graph = null;
+  let voices = null;
   let isRunning = false;
   let tickTimer = null;
   let suspendTimer = null;
@@ -447,7 +814,14 @@ export function createEngine(initialParams) {
   let nextPulseTime = 0;
   let pulseIndex = 0;
   let bar = null;              // tempo/metre snapshot, refreshed at each bar start
+  let barIndex = 0;            // bars since start(), for events
   let delayTarget = 0;
+
+  // Structure state
+  let structureKey = '';
+  let structureBar = 0;        // bars since this structure started
+  let currentSection = { label: 'A', intensity: 0.35 };
+  let sectionAnnounced = false;
 
   // Harmonic state
   let progression = [];
@@ -461,27 +835,90 @@ export function createEngine(initialParams) {
   let phraseBarIndex = 0;
   let phraseBarsLeft = 0;
 
+  // Arp + percussion state
+  let arpPlan = [];
+  let arpStep = 0;             // position in the 16-step mask, continuous across bars
+  let arpCursor = 0;           // position in the note sequence
+  let autoArpSteps = null;
+  let percussionPlan = [];
+  let percussionBank = [];
+
+  const listeners = new Map();
   const rng = Math.random;
   const scale = () => SCALES[params.mode];
-  const trackEnabled = (name) => params.voices >= TRACK_ORDER.indexOf(name) + 1;
+
+  // -- events ----------------------------------------------------------------
+
+  function on(type, callback) {
+    if (typeof type !== 'string' || typeof callback !== 'function') return () => {};
+    if (!listeners.has(type)) listeners.set(type, new Set());
+    listeners.get(type).add(callback);
+    return () => {
+      const set = listeners.get(type);
+      if (set) set.delete(callback);
+    };
+  }
+
+  function emit(type, payload) {
+    const set = listeners.get(type);
+    if (!set || !set.size) return;
+    for (const callback of [...set]) {
+      try {
+        callback(payload);
+      } catch {
+        // A faulty listener must never take the scheduler down with it.
+      }
+    }
+  }
+
+  // -- track activity --------------------------------------------------------
+
+  function sectionIntensity() {
+    return currentSection ? currentSection.intensity : 0.5;
+  }
+
+  function isActive(name) {
+    const state = params.tracks[name].state;
+    if (state === 'on') return true;
+    if (state === 'off') return false;
+    return autoActiveTracks(sectionIntensity(), params.complexity).includes(name);
+  }
+
+  /** Effective harmonic colour: complexity, opened up by section intensity. */
+  function colour() {
+    return clamp(params.complexity * (0.6 + sectionIntensity() * 0.6), 0, 1);
+  }
 
   // -- live parameter application -------------------------------------------
 
+  /**
+   * Track gains and brightness. Written with setTargetAtTime so it can be
+   * scheduled at a future bar boundary without cancelling the master fade or
+   * jumping from whatever value the ramp happens to be passing through.
+   */
+  function applyTracks(rampSeconds, when = null) {
+    if (!ctx || !graph) return;
+    const time = when ?? ctx.currentTime;
+    const intensity = sectionIntensity();
+    const constant = Math.max(rampSeconds / 3, 0.02);
+    for (const name of TRACK_ORDER) {
+      const track = graph.tracks[name];
+      const level = isActive(name) ? TRACK_MIX[name].level : SILENCE;
+      track.input.gain.setTargetAtTime(Math.max(level, SILENCE), time, constant);
+      const brightness = clamp(TRACK_MIX[name].tone * (0.55 + intensity * 0.75), 300, 18000);
+      track.tone.frequency.setTargetAtTime(brightness, time, constant);
+    }
+  }
+
   function applyLevels(rampSeconds) {
-    if (!graph) return;
+    if (!ctx || !graph) return;
     const now = ctx.currentTime;
     const target = Math.max(params.volume * MASTER_HEADROOM, SILENCE);
     graph.master.gain.cancelScheduledValues(now);
     graph.master.gain.setValueAtTime(Math.max(graph.master.gain.value, SILENCE), now);
     graph.master.gain.exponentialRampToValueAtTime(isRunning ? target : SILENCE, now + rampSeconds);
 
-    for (const name of TRACK_ORDER) {
-      const gain = graph.tracks[name].input.gain;
-      const level = trackEnabled(name) ? TRACK_MIX[name].level : SILENCE;
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(Math.max(gain.value, SILENCE), now);
-      gain.exponentialRampToValueAtTime(Math.max(level, SILENCE), now + rampSeconds);
-    }
+    applyTracks(rampSeconds);
 
     // Feedback rises a little with complexity but never past the safe ceiling.
     const feedback = 0.18 + params.complexity * 0.17;
@@ -495,6 +932,50 @@ export function createEngine(initialParams) {
     // setTargetAtTime glides rather than jumps: a delay-line jump would pitch-
     // shift whatever is still echoing.
     graph.delay.delayTime.setTargetAtTime(wanted, time, 0.25);
+  }
+
+  // -- note dispatch ---------------------------------------------------------
+
+  function voiceFor(track) {
+    const wanted = params.tracks[track].voice;
+    const bank = voices && voices[track] && Object.keys(voices[track]).length
+      ? voices[track]
+      : FALLBACK_VOICES[track];
+    // A voice id the library does not know (stale localStorage, renamed voice)
+    // falls back to that track's first voice rather than going silent.
+    const chosen = bank[wanted] ?? bank[Object.keys(bank)[0]];
+    if (chosen && typeof chosen.play === 'function') return chosen;
+    const spare = FALLBACK_VOICES[track][Object.keys(FALLBACK_VOICES[track])[0]];
+    return spare ?? null;
+  }
+
+  function playNote(track, note) {
+    const midi = note.midi ?? null;
+    const full = {
+      midi,
+      freq: note.freq ?? (midi === null ? null : midiToFreq(midi)),
+      velocity: clamp(Number(note.velocity) || 0.7, 0.01, 1),
+      duration: Math.max(0.02, Number(note.duration) || 0.3),
+      when: note.when,
+      pan: clamp(Number(note.pan) || 0, -1, 1),
+      kind: note.kind ?? null,
+    };
+    const voice = voiceFor(track);
+    if (voice) {
+      try {
+        voice.play(ctx, graph.tracks[track].input, full);
+      } catch {
+        // A broken voice loses its note, not the whole performance.
+      }
+    }
+    emit('note', {
+      track,
+      midi: full.midi,
+      kind: full.kind,
+      velocity: full.velocity,
+      time: full.when,
+      duration: full.duration,
+    });
   }
 
   // -- harmony / phrase choice ----------------------------------------------
@@ -543,179 +1024,114 @@ export function createEngine(initialParams) {
     return phrase;
   }
 
-  // -- voices ----------------------------------------------------------------
-
-  /**
-   * Pad: two slightly detuned oscillators per note (sine + triangle) through a
-   * lowpass, with multi-second attack and release so voicings cross-fade into
-   * each other rather than arriving.
-   */
-  function playPad(midi, time, duration, level) {
-    const bus = graph.tracks.pad.input;
-    const amp = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = clamp(midiToFreq(midi) * 5, 400, 2600);
-    filter.Q.value = 0.6;
-    amp.connect(filter);
-    filter.connect(bus);
-
-    const attack = clamp(between(2, 5, rng), 0.5, duration * 0.5);
-    const release = clamp(between(2, 5, rng), 1, 6);
-    const hold = Math.max(0.1, duration - attack);
-    const end = envelope(amp.gain, time, { attack, hold, release, peak: level });
-
-    const detune = between(3, 9, rng);
-    for (const [type, gainValue, cents] of [['sine', 0.65, -detune], ['triangle', 0.35, detune]]) {
-      const osc = ctx.createOscillator();
-      osc.type = type;
-      osc.frequency.value = midiToFreq(midi);
-      osc.detune.value = cents;
-      const mix = ctx.createGain();
-      mix.gain.value = gainValue;
-      osc.connect(mix);
-      mix.connect(amp);
-      osc.start(time);
-      osc.stop(end + 0.05);
-    }
-  }
-
-  function playChordVoicing(time, duration) {
-    const degrees = buildChord(chordDegree, params.complexity);
-    const maxNotes = params.complexity > 0.5 ? 4 : 3;
+  /** The current chord, voiced upward from `baseOctave` with no crossings. */
+  function chordMidis(baseOctave, maxNotes) {
+    const degrees = buildChord(chordDegree, colour()).slice(0, maxNotes);
     const midis = [];
     let previous = -Infinity;
-    for (const degree of degrees.slice(0, maxNotes)) {
-      let midi = scaleDegreeToMidi(degree, scale(), pitchClass(params.root), 3);
+    for (const degree of degrees) {
+      let midi = scaleDegreeToMidi(degree, scale(), pitchClass(params.root), baseOctave);
       while (midi <= previous) midi += 12;
       previous = midi;
       midis.push(midi);
     }
-    // Level per note shrinks as the voicing thickens, keeping the pad's total
-    // contribution roughly constant.
-    const level = 0.22 / Math.sqrt(midis.length);
-    for (const midi of midis) playPad(midi, time, duration, level);
+    return midis;
   }
 
-  /** Bass: sub sine plus a whisper of triangle for definition on small speakers. */
-  function playBass(midi, time, duration) {
-    const bus = graph.tracks.bass.input;
-    const amp = ctx.createGain();
-    amp.connect(bus);
-    const end = envelope(amp.gain, time, {
-      attack: 0.25,
-      hold: Math.max(0.1, duration - 0.25),
-      release: 0.8,
-      peak: 0.3,
+  // -- per-track bar planning ------------------------------------------------
+
+  function playChordVoicing(time, duration) {
+    const midis = chordMidis(3, colour() > 0.5 ? 4 : 3);
+    // Velocity per note shrinks as the voicing thickens, keeping the pad's
+    // total contribution roughly constant.
+    const velocity = clamp(0.85 / Math.sqrt(midis.length), 0.15, 1);
+    midis.forEach((midi, i) => {
+      const spread = midis.length > 1 ? (i / (midis.length - 1) - 0.5) * 0.5 : 0;
+      playNote('pad', { midi, when: time, duration, velocity, pan: spread });
     });
-    for (const [type, gainValue] of [['sine', 1], ['triangle', 0.12]]) {
-      const osc = ctx.createOscillator();
-      osc.type = type;
-      osc.frequency.value = midiToFreq(midi);
-      const mix = ctx.createGain();
-      mix.gain.value = gainValue;
-      osc.connect(mix);
-      mix.connect(amp);
-      osc.start(time);
-      osc.stop(end + 0.05);
-    }
   }
 
   function scheduleBass(time, barDuration) {
     const root = scaleDegreeToMidi(chordDegree, scale(), pitchClass(params.root), 2);
-    const twoNotes = rng() < 0.35 + params.complexity * 0.3;
+    const twoNotes = rng() < 0.25 + params.complexity * 0.3 + sectionIntensity() * 0.2;
     if (!twoNotes) {
-      playBass(root, time, barDuration * 0.9);
+      playNote('bass', { midi: root, when: time, duration: barDuration * 0.9, velocity: 0.8 });
       return;
     }
-    playBass(root, time, barDuration * 0.45);
+    playNote('bass', { midi: root, when: time, duration: barDuration * 0.45, velocity: 0.8 });
     // Second note is usually the fifth above, snapped back into the mode.
     const second = rng() < 0.6
       ? quantiseToScale(root + 7, scale(), pitchClass(params.root))
       : root;
-    playBass(second, time + barDuration * 0.5, barDuration * 0.45);
+    playNote('bass', {
+      midi: second,
+      when: time + barDuration * 0.5,
+      duration: barDuration * 0.45,
+      velocity: 0.7,
+    });
   }
 
-  /**
-   * Melody: two-operator FM bell. The modulator's own decaying envelope gives
-   * the bright attack and mellow tail of a struck tone.
-   */
-  function playMelody(midi, time, duration, velocity) {
-    const bus = graph.tracks.melody.input;
-    const freq = midiToFreq(midi);
-    const amp = ctx.createGain();
-    amp.connect(bus);
-
-    const carrier = ctx.createOscillator();
-    carrier.type = 'sine';
-    carrier.frequency.value = freq;
-    carrier.connect(amp);
-
-    const modulator = ctx.createOscillator();
-    modulator.type = 'sine';
-    modulator.frequency.value = freq * (rng() < 0.5 ? 2 : 3.5);
-    const modDepth = ctx.createGain();
-    const index = freq * (0.6 + params.complexity * 1.6);
-    modDepth.gain.setValueAtTime(index, time);
-    modDepth.gain.exponentialRampToValueAtTime(Math.max(index * 0.02, SILENCE), time + 0.6);
-    modulator.connect(modDepth);
-    modDepth.connect(carrier.frequency);
-
-    const peak = 0.16 * velocity;
-    const attack = 0.015;
-    amp.gain.setValueAtTime(SILENCE, time);
-    amp.gain.exponentialRampToValueAtTime(peak, time + attack);
-    amp.gain.exponentialRampToValueAtTime(SILENCE, time + attack + duration);
-    const end = time + attack + duration + 0.05;
-
-    carrier.start(time);
-    carrier.stop(end);
-    modulator.start(time);
-    modulator.stop(end);
-  }
-
-  /** Texture: high sparkle, randomly panned, long tail, mostly reverb. */
-  function playTexture(time) {
-    const bus = graph.tracks.texture.input;
-    const degree = Math.floor(rng() * scale().length * 2);
-    let midi = scaleDegreeToMidi(degree, scale(), pitchClass(params.root), 6);
-    while (midi > 100) midi -= 12;
-    while (midi < 79) midi += 12;
-
-    const panner = ctx.createStereoPanner();
-    panner.pan.value = between(-0.8, 0.8, rng);
-    panner.connect(bus);
-
-    const amp = ctx.createGain();
-    amp.connect(panner);
-
-    const decay = between(3, 6, rng);
-    const peak = between(0.05, 0.11, rng);
-    amp.gain.setValueAtTime(SILENCE, time);
-    amp.gain.exponentialRampToValueAtTime(peak, time + 0.01);
-    amp.gain.exponentialRampToValueAtTime(SILENCE, time + 0.01 + decay);
-    const end = time + decay + 0.1;
-
-    for (const [type, gainValue, ratio] of [['sine', 1, 1], ['triangle', 0.18, 2.01]]) {
-      const osc = ctx.createOscillator();
-      osc.type = type;
-      osc.frequency.value = midiToFreq(midi) * ratio;
-      const mix = ctx.createGain();
-      mix.gain.value = gainValue;
-      osc.connect(mix);
-      mix.connect(amp);
-      osc.start(time);
-      osc.stop(end);
+  /** Manual arp settings verbatim, or the complexity-derived auto ones. */
+  function effectiveArp(intensity) {
+    if (params.arp.mode === 'manual') return params.arp;
+    const auto = autoArpSettings(params.complexity);
+    const density = clamp(auto.density * (0.45 + intensity * 0.8), 0, 1);
+    // Repetition decides how often the auto step mask is rewritten.
+    if (!autoArpSteps || rng() > params.repetition) {
+      autoArpSteps = new Array(ARP_STEP_COUNT);
+      for (let i = 0; i < ARP_STEP_COUNT; i++) {
+        const weight = i % 4 === 0 ? 0.35 : i % 2 === 0 ? 0.15 : 0;
+        autoArpSteps[i] = rng() < clamp(density + weight, 0, 1);
+      }
     }
+    return { ...auto, gate: params.arp.gate, steps: autoArpSteps };
+  }
+
+  /** Grid positions for one bar of arpeggio. Swing-free by construction. */
+  function planArp(intensity) {
+    const cfg = effectiveArp(intensity);
+    const stepBeats = ARP_RATES[cfg.rate] ?? 0.5;
+    const sequence = buildArpSequence(chordMidis(4, 4), cfg.pattern, cfg.octaves);
+    if (!sequence.length) return [];
+    const plan = [];
+    let steps = 0;
+    for (let beat = 0; beat < bar.beats - 1e-6; beat += stepBeats) {
+      const maskIndex = (arpStep + steps) % ARP_STEP_COUNT;
+      steps += 1;
+      if (!cfg.steps[maskIndex]) continue;
+      const midi = cfg.pattern === 'random'
+        ? sequence[Math.floor(rng() * sequence.length) % sequence.length]
+        : sequence[(arpCursor + steps - 1) % sequence.length];
+      const accent = maskIndex % 4 === 0;
+      plan.push({
+        beat,
+        midi: Math.min(midi, 96),
+        duration: Math.max(0.05, stepBeats * cfg.gate * bar.secPerBeat),
+        velocity: clamp((accent ? 0.62 : 0.45) * (0.6 + intensity * 0.55) + rng() * 0.08, 0.05, 1),
+        pan: (((maskIndex % 4) - 1.5) / 1.5) * 0.3,
+      });
+    }
+    arpStep = (arpStep + steps) % ARP_STEP_COUNT;
+    arpCursor = (arpCursor + steps) % sequence.length;
+    return plan;
+  }
+
+  function choosePercussion(intensity) {
+    const density = clamp(0.15 + intensity * params.complexity * 1.2, 0, 1);
+    if (percussionBank.length && rng() < params.repetition) return pick(percussionBank, rng);
+    const pattern = generatePercussionPattern({ pulses: bar.pulses, density, rng });
+    percussionBank.push(pattern);
+    if (percussionBank.length > 6) percussionBank.shift();
+    return pattern;
   }
 
   // -- scheduler -------------------------------------------------------------
 
   /**
-   * Snapshot tempo and metre for the bar about to start, then schedule the
-   * bar-level events (chord change, pad voicing, bass). bpm, speed, time
-   * signature, root and mode are read here and nowhere else, which is what
-   * quantises those changes to bar boundaries.
+   * Snapshot tempo, metre and section for the bar about to start, then schedule
+   * the bar-level events (chord change, pad voicing, bass, arp and percussion
+   * plans). bpm, speed, time signature, root, mode and structure are read here
+   * and nowhere else, which is what quantises those changes to bar boundaries.
    */
   function beginBar(time) {
     const pulses = TIME_SIGNATURES[params.timeSignature];
@@ -730,17 +1146,44 @@ export function createEngine(initialParams) {
 
     retuneDelay(time, secPerBeat);
 
+    const preset = resolveStructure(params.structure, params.complexity, params.customStructure);
+    const key = preset === 'custom'
+      ? `custom:${params.customStructure.map((b) => `${b.label}${b.bars}${b.intensity}`).join(',')}`
+      : preset;
+    if (key !== structureKey) {
+      // A new structure starts from its own bar zero rather than mid-cycle.
+      structureKey = key;
+      structureBar = 0;
+    }
+    const section = sectionAtBar(preset, structureBar, params.customStructure);
+
+    emit('bar', { bar: barIndex, beatsPerBar: bar.beats, time });
+    // The opening section is always announced, so a listener that subscribes
+    // before start() learns where the piece begins.
+    const changed = section.label !== currentSection.label
+      || section.intensity !== currentSection.intensity;
+    if (changed || !sectionAnnounced) {
+      sectionAnnounced = true;
+      currentSection = section;
+      applyTracks(0.4, time);
+      emit('section', {
+        label: section.label,
+        intensity: section.intensity,
+        bar: barIndex,
+        time,
+      });
+    }
+    const intensity = sectionIntensity();
+
     if (chordBarsLeft <= 0) {
       chordDegree = chooseChord();
       // Slower harmonic rhythm when the listener wants repetition.
       chordBarsLeft = rng() < 0.5 + params.repetition * 0.2 ? 2 : 1;
-      if (trackEnabled('pad')) {
-        playChordVoicing(time, bar.duration * chordBarsLeft);
-      }
+      if (isActive('pad')) playChordVoicing(time, bar.duration * chordBarsLeft);
     }
     chordBarsLeft -= 1;
 
-    if (trackEnabled('bass')) scheduleBass(time, bar.duration);
+    if (isActive('bass')) scheduleBass(time, bar.duration);
 
     if (phraseBarsLeft <= 0) {
       currentPhrase = choosePhrase();
@@ -750,16 +1193,26 @@ export function createEngine(initialParams) {
       phraseBarIndex += 1;
     }
     phraseBarsLeft -= 1;
+
+    arpPlan = isActive('arp') ? planArp(intensity) : [];
+    percussionPlan = isActive('percussion') ? choosePercussion(intensity) : [];
+
+    barIndex += 1;
+    structureBar += 1;
   }
 
   /** Schedule the events that fall inside one pulse of the current bar. */
   function schedulePulse(time, index) {
     const from = bar.starts[index];
-    const to = from + bar.pulses[index];
+    const length = bar.pulses[index];
+    const to = from + length;
+    const intensity = sectionIntensity();
 
-    if (trackEnabled('melody') && currentPhrase) {
+    if (currentPhrase && isActive('melody')) {
       for (const note of currentPhrase.notes) {
         if (note.bar !== phraseBarIndex || note.beat < from || note.beat >= to) continue;
+        // Quieter sections thin the line out rather than muting it.
+        if (rng() > 0.55 + intensity * 0.45) continue;
         const at = time + (note.beat - from) * bar.secPerBeat;
         let midi = scaleDegreeToMidi(
           chordDegree + note.degree, scale(), pitchClass(params.root), 4,
@@ -767,16 +1220,56 @@ export function createEngine(initialParams) {
         // keep the melody in octaves 4–5
         while (midi > 83) midi -= 12;
         while (midi < 60) midi += 12;
-        const duration = clamp(note.duration * bar.secPerBeat * 1.6, 0.6, 3);
-        playMelody(midi, at, duration, note.velocity);
+        playNote('melody', {
+          midi,
+          when: at,
+          duration: clamp(note.duration * bar.secPerBeat * 1.6, 0.6, 3),
+          velocity: note.velocity,
+          pan: between(-0.25, 0.25, rng),
+        });
       }
     }
 
-    if (trackEnabled('texture')) {
-      const chance = 0.05 + params.complexity * 0.3;
+    if (isActive('texture')) {
+      const chance = clamp((0.05 + params.complexity * 0.3) * (0.5 + intensity), 0, 1);
       if (rng() < chance) {
-        playTexture(time + rng() * bar.pulses[index] * bar.secPerBeat);
+        const degree = Math.floor(rng() * scale().length * 2);
+        let midi = scaleDegreeToMidi(degree, scale(), pitchClass(params.root), 6);
+        while (midi > 100) midi -= 12;
+        while (midi < 79) midi += 12;
+        playNote('texture', {
+          midi,
+          when: time + rng() * length * bar.secPerBeat,
+          duration: between(3, 6, rng),
+          velocity: between(0.3, 0.6, rng),
+          pan: between(-0.8, 0.8, rng),
+        });
       }
+    }
+
+    for (const step of arpPlan) {
+      if (step.beat < from || step.beat >= to) continue;
+      playNote('arp', {
+        midi: step.midi,
+        when: time + (step.beat - from) * bar.secPerBeat,
+        duration: step.duration,
+        velocity: step.velocity,
+        pan: step.pan,
+      });
+    }
+
+    for (const hit of percussionPlan) {
+      if (hit.pulse !== index) continue;
+      const offset = Math.min(hit.offset, length * 0.9);
+      playNote('percussion', {
+        midi: null,
+        freq: null,
+        kind: hit.kind,
+        when: time + offset * bar.secPerBeat,
+        duration: hit.kind === 'low' ? 0.4 : hit.kind === 'mid' ? 0.22 : 0.14,
+        velocity: hit.velocity,
+        pan: hit.kind === 'low' ? 0 : between(-0.6, 0.6, rng),
+      });
     }
   }
 
@@ -809,6 +1302,7 @@ export function createEngine(initialParams) {
     const Ctor = audioContextCtor();
     if (!Ctor) throw new Error('ambient-engine: Web Audio API is not available in this environment');
 
+    if (!voices) voices = await loadVoices();
     if (!ctx) {
       ctx = new Ctor();
       graph = buildGraph(ctx);
@@ -824,7 +1318,20 @@ export function createEngine(initialParams) {
     phraseBarsLeft = 0;
     chordBarsLeft = 0;
     pulseIndex = 0;
+    barIndex = 0;
+    structureBar = 0;
+    structureKey = '';
+    sectionAnnounced = false;
+    arpStep = 0;
+    arpCursor = 0;
+    arpPlan = [];
+    percussionPlan = [];
     delayTarget = 0;
+    currentSection = sectionAtBar(
+      resolveStructure(params.structure, params.complexity, params.customStructure),
+      0,
+      params.customStructure,
+    );
     nextPulseTime = ctx.currentTime + 0.15;
     if (!progression.length) {
       progression = generateProgression(scale().length, params.complexity, rng);
@@ -834,6 +1341,7 @@ export function createEngine(initialParams) {
     applyLevels(FADE_IN);
     tickTimer = setInterval(tick, TICK_MS);
     tick();
+    emit('state', { running: true });
   }
 
   function stop() {
@@ -843,6 +1351,7 @@ export function createEngine(initialParams) {
     }
     if (!isRunning) return;
     isRunning = false;
+    emit('state', { running: false });
     if (!ctx || !graph) return;
     applyLevels(FADE_OUT);
     suspendTimer = setTimeout(() => {
@@ -859,7 +1368,17 @@ export function createEngine(initialParams) {
   }
 
   function getParams() {
-    return { ...params };
+    return copyParams(params);
+  }
+
+  function getAnalysers() {
+    return Object.fromEntries(
+      TRACK_ORDER.map((name) => [name, graph ? graph.tracks[name].analyser : null]),
+    );
+  }
+
+  function now() {
+    return ctx ? ctx.currentTime : 0;
   }
 
   return {
@@ -870,6 +1389,9 @@ export function createEngine(initialParams) {
     },
     setParams,
     getParams,
+    getAnalysers,
+    on,
+    now,
   };
 }
 
