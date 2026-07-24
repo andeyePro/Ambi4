@@ -1,0 +1,28 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import AppleMusicEmbed from '../components/AppleMusicEmbed.astro';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('playlists');
+  return entries.map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+---
+<Base title={entry.data.title}>
+  <article class="playlist-page">
+    <h1>{entry.data.title}</h1>
+    <AppleMusicEmbed playlist={entry.data.playlist} title={entry.data.title} />
+    <div class="post-content">
+      <Content />
+    </div>
+    {entry.data.thumbnail && (
+      <img src={entry.data.thumbnail} alt={entry.data.title} style="width: 100%;" />
+    )}
+  </article>
+</Base>

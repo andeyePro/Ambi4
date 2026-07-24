@@ -1,0 +1,2 @@
+# False positive: the Claude local-settings filename in .gitignore is not an mDNS hostname
+^\.claude/settings\.local\.json$
