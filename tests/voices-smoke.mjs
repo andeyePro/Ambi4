@@ -350,8 +350,11 @@ const test = (name, fn) => tests.push([name, fn]);
 const EXPECTED = {
   pad: { warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir' },
   bass: { sub: 'Sub', round: 'Round', breath: 'Breath' },
-  melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys' },
-  texture: { sparkle: 'Sparkle', grains: 'Grains', chimes: 'Chimes', wash: 'Wash' },
+  melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call' },
+  texture: {
+    sparkle: 'Sparkle', grains: 'Grains', chimes: 'Chimes', wash: 'Wash',
+    colour: 'Coloured noise', cloud: 'Grain cloud', call: 'Call',
+  },
   arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba' },
   percussion: { soft: 'Soft kit', hand: 'Hand drum', tick: 'Ticks' },
 };
@@ -556,9 +559,49 @@ const PERCUSSION_SOURCE = {
   noise: { range: [0, 1] },
 };
 
-const schemaFor = (track) => (
-  track === 'percussion' ? { ...SCHEMA, source: PERCUSSION_SOURCE } : SCHEMA
-);
+/**
+ * v19: the two field families the sculpting surface adds. They ride on TOP of
+ * the ordinary source schema — an octave switch and the morph fields stay
+ * published either way — and a voice carries one family, the other, or
+ * neither, never both.
+ */
+const SCULPT_SOURCE = {
+  tilt: { range: [-1, 1] },
+  bandCentre: { range: [60, 8000] },
+  bandWidth: { range: [0.1, 4] },
+  sweepRate: { range: [0, 0.5] },
+  sweepDepth: { range: [0, 1] },
+  gust: { range: [0, 1] },
+  gustRate: { range: [0.02, 0.5] },
+  burst: { range: [0, 1] },
+  burstSharp: { range: [0, 1] },
+  swell: { range: [0, 1] },
+};
+
+const CALL_SOURCE = {
+  glide: { range: [-24, 24] },
+  glideCurve: { range: [0, 1] },
+  formant1: { range: [60, 8000] },
+  formant2: { range: [60, 8000] },
+  cadence: { range: [0.5, 8] },
+  irregular: { range: [0, 1] },
+};
+
+/** Which voices carry which v19 family — the "only on the right voices" rule. */
+const SCULPT_VOICES = [['texture', 'colour'], ['texture', 'cloud']];
+const CALL_VOICES = [['melody', 'call'], ['texture', 'call']];
+const carries = (list, track, id) => list.some(([t, i]) => t === track && i === id);
+
+function schemaFor(track, id) {
+  if (track === 'percussion') return { ...SCHEMA, source: PERCUSSION_SOURCE };
+  if (carries(SCULPT_VOICES, track, id)) {
+    return { ...SCHEMA, source: { ...SCHEMA.source, ...SCULPT_SOURCE } };
+  }
+  if (carries(CALL_VOICES, track, id)) {
+    return { ...SCHEMA, source: { ...SCHEMA.source, ...CALL_SOURCE } };
+  }
+  return SCHEMA;
+}
 
 /** Every corner of the schema at once, plus the awkward ends of it. */
 const EXTREME = {
@@ -645,7 +688,7 @@ test('every voice publishes a complete, in-range default patch', () => {
       assert.ok(defaults && typeof defaults === 'object', `${where}: missing`);
       assert.deepEqual(Object.keys(defaults).sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
-      for (const [group, fields] of Object.entries(schemaFor(track))) {
+      for (const [group, fields] of Object.entries(schemaFor(track, id))) {
         assert.deepEqual(Object.keys(defaults[group]).sort(), Object.keys(fields).sort(),
           `${where}.${group}: wrong fields`);
         for (const [field, rule] of Object.entries(fields)) {
@@ -740,8 +783,12 @@ const rampAt = (events, time) => attackRamps(events).some((at) => Math.abs(at - 
 const V2_ATTACK = {
   pad: { warm: 3.2, glass: 2.8, strings: 2.6, choir: 3.5 },
   bass: { sub: 0.12, round: 0.05, breath: 0.18 },
-  melody: { pluck: 0.006, bell: 0.005, flute: 0.09, keys: 0.004 },
-  texture: { sparkle: 0.02, grains: null, chimes: 0.008, wash: 3 },
+  melody: { pluck: 0.006, bell: 0.005, flute: 0.09, keys: 0.004, call: 0.006 },
+  // v19: the three new voices have no v2 past to keep, so their unpatched
+  // envelope IS their published default — which is what these numbers say.
+  texture: {
+    sparkle: 0.02, grains: null, chimes: 0.008, wash: 3, colour: 2.6, cloud: 1.2, call: 0.008,
+  },
   arp: { softPluck: 0.006, crystal: 0.003, marimba: 0.003 },
   percussion: { soft: 0.008, hand: 0.005, tick: 0.003 },
 };
@@ -856,7 +903,10 @@ test('an octave patch really moves the pitch', () => {
         // Grains has no oscillator to transpose: its pitch lives in the centre
         // frequency of the band each grain is filtered through. The patch's own
         // filter sits at its published cutoff and is not one of those bands.
-        const oscs = run.graph.filter((n) => n.kind === 'oscillator');
+        // Control-rate oscillators (wash's Q wobble) are not pitch and must
+        // not stand in for it; a voice whose only oscillator is one of those
+        // is measured on its bands like a voice with no oscillator at all.
+        const oscs = run.graph.filter((n) => n.kind === 'oscillator' && n.frequency.max >= 20);
         const bands = run.graph.filter((n) => n.kind === 'biquad'
           && n.frequency.max !== VOICES[track][id].defaults.filter.cutoff);
         const pitched = oscs.length ? oscs : bands;
@@ -873,6 +923,9 @@ test('an inapplicable source field never silences a voice', () => {
   const ignoring = [
     ['pad', 'glass'], ['melody', 'bell'], ['melody', 'flute'], ['melody', 'keys'],
     ['texture', 'sparkle'], ['texture', 'grains'], ['texture', 'chimes'],
+    // v19: two voices with no oscillator at all, and a call whose one
+    // oscillator answers shape1 but has nothing to blend against.
+    ['texture', 'colour'], ['texture', 'cloud'], ['texture', 'call'], ['melody', 'call'],
     ['arp', 'crystal'], ['arp', 'marimba'],
     ['percussion', 'soft'], ['percussion', 'hand'], ['percussion', 'tick'],
   ];
@@ -1018,9 +1071,16 @@ const SOURCE_FIELDS = ['shape1', 'shape2', 'mix', 'detune', 'octave'];
 const PERCUSSION_SOURCE_FIELDS = ['shape1', 'shape2', 'mix', 'detune', 'pitch', 'noise'];
 const FILTER_FIELDS = ['type', 'cutoff', 'q', 'envAmount'];
 
-const sourceFieldsFor = (track) => (
-  track === 'percussion' ? PERCUSSION_SOURCE_FIELDS : SOURCE_FIELDS
-);
+/** v19: the sculpting and call families are additions, not replacements. */
+const SCULPT_FIELDS = Object.keys(SCULPT_SOURCE);
+const CALL_FIELDS = Object.keys(CALL_SOURCE);
+
+function sourceFieldsFor(track, id) {
+  if (track === 'percussion') return PERCUSSION_SOURCE_FIELDS;
+  if (carries(SCULPT_VOICES, track, id)) return [...SOURCE_FIELDS, ...SCULPT_FIELDS];
+  if (carries(CALL_VOICES, track, id)) return [...SOURCE_FIELDS, ...CALL_FIELDS];
+  return SOURCE_FIELDS;
+}
 
 /** true|false|string[] against the field list its group is allowed to name. */
 function checkControlShape(where, value, allowed) {
@@ -1044,7 +1104,7 @@ test('controls: schema shape, and every applicable field exists in defaults', ()
       assert.ok(controls && typeof controls === 'object', `${where}: missing`);
       assert.deepEqual(Object.keys(controls).sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
-      const sourceFields = sourceFieldsFor(track);
+      const sourceFields = sourceFieldsFor(track, id);
       checkControlShape(`${where}.source`, controls.source, sourceFields);
       checkControlShape(`${where}.filter`, controls.filter, FILTER_FIELDS);
       assert.equal(controls.adsr, true, `${where}.adsr: every voice's own envelope honours a patch`);
@@ -1098,12 +1158,27 @@ function graphSignature(run) {
   ].join(':')).join('|');
 }
 
+/** The v19 fields that are a plain 0–1 amount, so they share a wild value. */
+const UNIT_FIELDS = [
+  'sweepDepth', 'gust', 'burst', 'burstSharp', 'swell', 'glideCurve', 'irregular',
+];
+
 function wildSourceValue(field, base) {
   if (field === 'shape1' || field === 'shape2') return base === 0 ? 2 : 0;
   if (field === 'mix') return base > 0.5 ? 0 : 1;
   if (field === 'detune') return base > 25 ? 0 : 50;
   if (field === 'pitch') return base > 0 ? -12 : 12;
   if (field === 'noise') return base > 0.5 ? 0 : 1;
+  if (UNIT_FIELDS.includes(field)) return base > 0.5 ? 0 : 1;
+  if (field === 'tilt') return base > 0 ? -1 : 1;
+  if (field === 'bandCentre' || field === 'formant1' || field === 'formant2') {
+    return base > 1000 ? 120 : 5000;
+  }
+  if (field === 'bandWidth') return base > 2 ? 0.2 : 3.6;
+  if (field === 'sweepRate') return base > 0.25 ? 0.02 : 0.45;
+  if (field === 'gustRate') return base > 0.25 ? 0.03 : 0.45;
+  if (field === 'glide') return base > 0 ? -24 : 24;
+  if (field === 'cadence') return base > 4 ? 0.5 : 8;
   return base === 1 ? -1 : 1; // octave
 }
 
@@ -1129,6 +1204,14 @@ function honestyNoteFor(track) {
  * For every field named in the schema, plays the voice's own defaults against
  * the same patch with just that one field pushed to a wild, far-from-default
  * value, and checks the scheduled graph moved iff `controls` says it should.
+ *
+ * The comparison is renderSignature(), not graphSignature(): the latter sees
+ * only each param's observed min and max, which is blind to a field that
+ * reshapes the path BETWEEN them — v19's glideCurve moves the midpoint of a
+ * chirp's sweep without touching either end of it, and that is an audible
+ * change to the sound with an inaudible effect on a min/max pair. The whole
+ * schedule catches it, and stays exactly as strict for the fields a voice is
+ * supposed to ignore: an unread field schedules nothing differently at all.
  */
 function checkFieldHonesty(track, id, group, fields, wildValueFor) {
   const voice = VOICES[track][id];
@@ -1142,7 +1225,7 @@ function checkFieldHonesty(track, id, group, fields, wildValueFor) {
     const wild = wildValueFor(field, value);
     const varied = withSeed(seed, () => playAndCheck(`${track}.${id} ${group}.${field}=${wild}`, voice,
       note, { patch: { ...voice.defaults, [group]: { ...voice.defaults[group], [field]: wild } } }));
-    const identical = graphSignature(base) === graphSignature(varied);
+    const identical = renderSignature(base) === renderSignature(varied);
     const applies = controlsApplies(voice.controls[group], field);
     if (applies) {
       assert.ok(!identical,
@@ -1157,7 +1240,7 @@ function checkFieldHonesty(track, id, group, fields, wildValueFor) {
 for (const [track, patches] of Object.entries(EXPECTED)) {
   for (const id of Object.keys(patches)) {
     test(`controls honesty: ${track}.${id} source`, () => {
-      checkFieldHonesty(track, id, 'source', sourceFieldsFor(track), wildSourceValue);
+      checkFieldHonesty(track, id, 'source', sourceFieldsFor(track, id), wildSourceValue);
     });
     test(`controls honesty: ${track}.${id} filter`, () => {
       checkFieldHonesty(track, id, 'filter', FILTER_FIELDS, wildFilterValue);
@@ -1380,6 +1463,454 @@ test('v18: noise 1 is the kit as built — the dial only ever takes noise away',
 });
 
 // --------------------------------------------------------------------------
+// v19 — the parametric noise-sculpting surface, and the call primitive
+// --------------------------------------------------------------------------
+
+/** A texture note long enough for a bed to reach the top of its own attack. */
+const bedNote = (duration = 8, velocity = 0.8) => ({
+  midi: 79, freq: null, kind: null, duration, when: 0.5, velocity, pan: 0,
+});
+
+/** A patch of one voice's defaults with `source` fields overridden. */
+const sculpt = (track, id, source) => ({
+  ...VOICES[track][id].defaults,
+  source: { ...VOICES[track][id].defaults.source, ...source },
+});
+
+/** The grain ceiling the voices impose so a density dial cannot outgrow the budget. */
+const BURST_CAP = 14;
+
+const biquads = (run) => run.graph.filter((n) => n.kind === 'biquad');
+const noiseSources = (run) => run.graph.filter((n) => n.kind === 'bufferSource');
+const oscillators = (run) => run.graph.filter((n) => n.kind === 'oscillator');
+
+test('v19: the sculpting fields land only on the voices that declare them', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const { defaults, controls } = VOICES[track][id];
+      const sculpts = carries(SCULPT_VOICES, track, id);
+      const calls = carries(CALL_VOICES, track, id);
+      // `source: true` means "every field this voice publishes", so a voice
+      // that publishes no sculpting fields cannot be offering their dials.
+      const offers = (field) => field in defaults.source && controlsApplies(controls.source, field);
+      for (const field of SCULPT_FIELDS) {
+        assert.equal(field in defaults.source, sculpts,
+          `${track}.${id}: defaults.source.${field} present is ${field in defaults.source}, `
+          + `but the voice ${sculpts ? 'does' : 'does not'} sculpt`);
+        assert.equal(offers(field), sculpts,
+          `${track}.${id}: controls.source disagrees with the library over ${field}`);
+      }
+      for (const field of CALL_FIELDS) {
+        assert.equal(field in defaults.source, calls,
+          `${track}.${id}: defaults.source.${field} present is ${field in defaults.source}, `
+          + `but the voice ${calls ? 'is' : 'is not'} a call`);
+        assert.equal(offers(field), calls,
+          `${track}.${id}: controls.source disagrees with the library over ${field}`);
+      }
+      // No voice carries both families, and a sculpting voice keeps the
+      // ordinary tuning switch rather than growing a kit's semitones.
+      assert.ok(!(sculpts && calls), `${track}.${id}: claims both v19 families`);
+      if (sculpts || calls) {
+        assert.ok('octave' in defaults.source, `${track}.${id}: lost its octave switch`);
+        assert.equal(defaults.source.pitch, undefined, `${track}.${id}: took a kit's pitch`);
+      }
+    }
+  }
+});
+
+test('v19: the new voices are noise and hybrid, and the mix defaults are unobtrusive', () => {
+  assert.equal(VOICES.texture.colour.engineType, 'noise');
+  assert.equal(VOICES.texture.cloud.engineType, 'noise');
+  assert.equal(VOICES.melody.call.engineType, 'hybrid');
+  assert.equal(VOICES.texture.call.engineType, 'hybrid');
+  // Unobtrusive means: at its own defaults, a new voice reaches the bus no
+  // harder than the LOUDEST voice already on its track, so a listener trying
+  // one out never gets a jump in the mix for their trouble.
+  const NEW = { texture: ['colour', 'cloud', 'call'], melody: ['call'] };
+  for (const [track, added] of Object.entries(NEW)) {
+    const note = track === 'melody' ? attackNote('melody') : bedNote(6);
+    const level = (id) => withSeed(70, () => playAndCheck(`${track}.${id}`,
+      VOICES[track][id], note)).sum;
+    const existing = Object.keys(VOICES[track]).filter((id) => !added.includes(id));
+    const loudest = Math.max(...existing.map(level));
+    for (const id of added) {
+      assert.ok(level(id) <= loudest * 1.1,
+        `${track}.${id} reaches the bus at ${level(id).toFixed(3)} where the loudest voice `
+        + `already on the track reaches ${loudest.toFixed(3)} — that is a jump on switching voice`);
+    }
+  }
+});
+
+test('v19: tilt extremes shape the bed into measurably different spectra', () => {
+  for (const id of ['colour', 'cloud']) {
+    const dark = withSeed(51, () => playAndCheck(`texture.${id} tilt -1`, VOICES.texture[id],
+      bedNote(), { patch: sculpt('texture', id, { tilt: -1 }) }));
+    const bright = withSeed(51, () => playAndCheck(`texture.${id} tilt 1`, VOICES.texture[id],
+      bedNote(), { patch: sculpt('texture', id, { tilt: 1 }) }));
+    const config = (run) => biquads(run).map((n) => `${n.type}@${Math.round(n.frequency.max)}`);
+    assert.notDeepEqual(config(dark), config(bright),
+      `texture.${id}: both ends of the tilt dial configured the same filters`);
+    // The dial's shape: one end lowpasses low, the other highpasses high.
+    const lows = biquads(dark).filter((n) => n.type === 'lowpass');
+    const highs = biquads(bright).filter((n) => n.type === 'highpass');
+    assert.ok(lows.length >= 1, `texture.${id}: tilt -1 built no lowpass`);
+    assert.ok(highs.length >= 1, `texture.${id}: tilt +1 built no highpass`);
+    assert.ok(Math.min(...lows.map((n) => n.frequency.max)) < 200,
+      `texture.${id}: tilt -1 left the bed bright`);
+    assert.ok(Math.max(...highs.map((n) => n.frequency.max)) > 4000,
+      `texture.${id}: tilt +1 left the bed dark`);
+    // And the middle of the dial is transparent, not a third colour.
+    const flat = withSeed(51, () => playAndCheck(`texture.${id} tilt 0`, VOICES.texture[id],
+      bedNote(), { patch: sculpt('texture', id, { tilt: 0 }) }));
+    const corner = biquads(flat).filter((n) => n.type === 'highpass' || n.type === 'lowpass');
+    assert.ok(corner.some((n) => n.frequency.max <= 25),
+      `texture.${id}: tilt 0 is not a transparent middle`);
+  }
+});
+
+test('v19: bandCentre and bandWidth place and open the band', () => {
+  for (const id of ['colour', 'cloud']) {
+    for (const [low, high] of [[120, 5000], [400, 2000]]) {
+      const under = withSeed(52, () => playAndCheck(`texture.${id} centre ${low}`,
+        VOICES.texture[id], bedNote(), { patch: sculpt('texture', id, { bandCentre: low }) }));
+      const over = withSeed(52, () => playAndCheck(`texture.${id} centre ${high}`,
+        VOICES.texture[id], bedNote(), { patch: sculpt('texture', id, { bandCentre: high }) }));
+      const top = (run) => Math.max(...biquads(run)
+        .filter((n) => n.type === 'bandpass').map((n) => n.frequency.max));
+      assert.ok(top(under) < top(over),
+        `texture.${id}: bandCentre ${low} did not sit below ${high}`);
+    }
+    // A narrow band is a resonance, a wide one is a bed: Q falls as it opens.
+    const qOf = (width) => {
+      const run = withSeed(52, () => playAndCheck(`texture.${id} width ${width}`,
+        VOICES.texture[id], bedNote(), { patch: sculpt('texture', id, { bandWidth: width }) }));
+      return Math.max(...biquads(run).filter((n) => n.type === 'bandpass').map((n) => n.Q.max));
+    };
+    assert.ok(qOf(0.1) > qOf(1) && qOf(1) > qOf(4),
+      `texture.${id}: bandWidth does not open the band (${qOf(0.1)}, ${qOf(1)}, ${qOf(4)})`);
+  }
+});
+
+test('v19: the sweep moves the band, and its depth sets how far', () => {
+  const centre = 800;
+  const spread = (depth) => {
+    const run = withSeed(53, () => playAndCheck(`texture.colour sweep ${depth}`,
+      VOICES.texture.colour, bedNote(12), {
+        patch: sculpt('texture', 'colour', {
+          bandCentre: centre, sweepRate: 0.4, sweepDepth: depth, gust: 0, swell: 0,
+        }),
+      }));
+    const band = biquads(run).find((n) => n.type === 'bandpass');
+    return band.frequency.max / band.frequency.min;
+  };
+  assert.ok(Math.abs(spread(0) - 1) < 1e-9, 'sweepDepth 0 still moved the band');
+  assert.ok(spread(0.3) > 1.2, `sweepDepth 0.3 barely moved the band (×${spread(0.3).toFixed(2)})`);
+  assert.ok(spread(1) > spread(0.3), 'sweepDepth 1 does not sweep further than 0.3');
+});
+
+test('v19: gust walks the bed and never adds gain to it', () => {
+  const run = (gust) => withSeed(54, () => playAndCheck(`texture.colour gust ${gust}`,
+    VOICES.texture.colour, bedNote(12), {
+      patch: sculpt('texture', 'colour', { gust, sweepDepth: 0, sweepRate: 0, swell: 0 }),
+    }));
+  const calm = run(0);
+  const gusty = run(1);
+  const band = (r) => biquads(r).find((n) => n.type === 'bandpass');
+  assert.ok(Math.abs(band(calm).frequency.max / band(calm).frequency.min - 1) < 1e-9,
+    'gust 0 still wandered the brightness');
+  assert.ok(band(gusty).frequency.max / band(gusty).frequency.min > 1.2,
+    'gust 1 did not wander the brightness');
+  // The level dial-safety rule: gusts duck the bed, they never lift it.
+  assert.ok(gusty.sum <= calm.sum + 1e-9,
+    `gust made the bed louder (${gusty.sum.toFixed(4)} vs ${calm.sum.toFixed(4)})`);
+});
+
+test('v19: burst density scales the grains scheduled, and burstSharp tightens them', () => {
+  for (const [id, floor] of [['colour', 0], ['cloud', 1]]) {
+    const counts = [0, 0.15, 0.4, 1].map((burst) => {
+      const run = withSeed(55, () => playAndCheck(`texture.${id} burst ${burst}`,
+        VOICES.texture[id], bedNote(6), { patch: sculpt('texture', id, { burst }) }));
+      // colour's bed is a noise source too; the grains are the rest of them.
+      return noiseSources(run).length - (id === 'colour' ? 1 : 0);
+    });
+    assert.equal(counts[0], floor, `texture.${id}: burst 0 scheduled ${counts[0]} grains`);
+    for (let i = 1; i < counts.length; i++) {
+      assert.ok(counts[i] > counts[i - 1],
+        `texture.${id}: burst density is not monotonic (${counts.join(', ')})`);
+    }
+    assert.ok(counts[counts.length - 1] <= BURST_CAP,
+      `texture.${id}: burst 1 scheduled ${counts[counts.length - 1]} grains, over the cap`);
+
+    // Sharper grains are shorter and brighter: the same count, tighter.
+    const grainsAt = (burstSharp) => withSeed(55, () => playAndCheck(
+      `texture.${id} sharp ${burstSharp}`, VOICES.texture[id], bedNote(6),
+      { patch: sculpt('texture', id, { burst: 0.6, burstSharp }) },
+    ));
+    const soft = grainsAt(0);
+    const sharp = grainsAt(1);
+    assert.equal(noiseSources(sharp).length, noiseSources(soft).length,
+      `texture.${id}: burstSharp changed the grain COUNT`);
+    assert.ok(sharp.tail < soft.tail || sharp.tail === soft.tail,
+      `texture.${id}: sharper grains ran longer than soft ones`);
+    const top = (run) => Math.max(...biquads(run).filter((n) => n.type === 'bandpass')
+      .map((n) => n.frequency.max));
+    assert.ok(top(sharp) > top(soft), `texture.${id}: burstSharp did not brighten the grains`);
+  }
+});
+
+/**
+ * How long the BED's own attack ramp is. A sculpting voice schedules grain
+ * envelopes as well as its own, and a grain landing early would otherwise be
+ * read as the attack — so this takes the ramp that climbs highest, which is
+ * the one carrying the whole voice rather than one droplet of it.
+ */
+function attackLength(run, when) {
+  const rises = run.events.filter((e) => e.name === 'gain.gain'
+    && e.kind === 'exponential' && e.value > 2e-4 && e.time > when);
+  assert.ok(rises.length > 0, 'no attack ramp was scheduled at all');
+  const top = Math.max(...rises.map((e) => e.value));
+  return Math.min(...rises.filter((e) => e.value === top).map((e) => e.time)) - when;
+}
+
+test('v19: swell stretches the attack automation and starts the band below its centre', () => {
+  for (const id of ['colour', 'cloud']) {
+    const note = bedNote(12);
+    const lengths = [0, 0.5, 1].map((swell) => {
+      const run = withSeed(56, () => playAndCheck(`texture.${id} swell ${swell}`,
+        VOICES.texture[id], note, {
+          patch: sculpt('texture', id, { swell, burst: 0.5, gust: 0, sweepDepth: 0 }),
+        }));
+      return { swell, run, attack: attackLength(run, note.when) };
+    });
+    for (let i = 1; i < lengths.length; i++) {
+      assert.ok(lengths[i].attack > lengths[i - 1].attack * 1.2,
+        `texture.${id}: swell ${lengths[i].swell} did not lengthen the attack `
+        + `(${lengths.map((l) => l.attack.toFixed(3)).join(', ')})`);
+    }
+    // swell 0 is the identity: the attack is exactly what the ADSR asked for.
+    assert.ok(Math.abs(lengths[0].attack - VOICES.texture[id].defaults.adsr.attack) < 1e-6,
+      `texture.${id}: swell 0 is not the patch's own attack`);
+    // The band starts below its centre and opens as the crescendo rises: for
+    // the bed that is its own band, for the cloud it is the grains that fall
+    // inside the (now much longer) attack.
+    const floor = (run) => Math.min(...biquads(run)
+      .filter((n) => n.type === 'bandpass').map((n) => n.frequency.min));
+    assert.ok(floor(lengths[2].run) < floor(lengths[0].run) * 0.9,
+      `texture.${id}: a crescendo did not start below its own band centre `
+      + `(${floor(lengths[2].run).toFixed(1)} vs ${floor(lengths[0].run).toFixed(1)})`);
+  }
+});
+
+test('v19: a sculpting voice stays inside its steady node budget at every dial', () => {
+  // Everything that can add a steady node, all at once, with the grains off.
+  const heavy = {
+    tilt: 1, bandCentre: 8000, bandWidth: 0.1, sweepRate: 0.5, sweepDepth: 1,
+    gust: 1, gustRate: 0.5, burst: 0, burstSharp: 1, swell: 1,
+  };
+  for (const id of ['colour', 'cloud']) {
+    const run = withSeed(57, () => playAndCheck(`texture.${id} heavy`, VOICES.texture[id],
+      bedNote(12), { patch: sculpt('texture', id, heavy) }));
+    const grains = noiseSources(run).length - (id === 'colour' ? 1 : 0);
+    assert.equal(grains, id === 'cloud' ? 1 : 0, `texture.${id}: burst 0 still scheduled grains`);
+    // Minus the rig's own output gain and panner, which every voice pays.
+    assert.ok(run.nodes - 2 - grains * 4 <= 8,
+      `texture.${id}: ${run.nodes - 2} steady nodes, over the budget of 8`);
+    assert.equal(oscillators(run).length, 0,
+      `texture.${id}: a noise voice built an oscillator to modulate with`);
+  }
+});
+
+test('v19: call glides from the note to its interval, along the curve it is given', () => {
+  const note = { midi: 69, freq: 440, kind: null, duration: 2, when: 0.5, velocity: 0.8, pan: 0 };
+  for (const [track, id] of CALL_VOICES) {
+    for (const glide of [-24, -7, 12, 24]) {
+      const run = withSeed(58, () => playAndCheck(`${track}.${id} glide ${glide}`,
+        VOICES[track][id], note, {
+          patch: sculpt(track, id, { glide, cadence: 1, irregular: 0, octave: 0 }),
+        }));
+      const oscs = oscillators(run);
+      assert.equal(oscs.length, 1, `${track}.${id}: cadence 1 built ${oscs.length} chirps`);
+      const to = 440 * Math.pow(2, glide / 12);
+      const [lo, hi] = glide > 0 ? [440, to] : [to, 440];
+      assert.ok(Math.abs(oscs[0].frequency.min - lo) < 0.5,
+        `${track}.${id}: glide ${glide} started/ended at ${oscs[0].frequency.min}, not ${lo}`);
+      assert.ok(Math.abs(oscs[0].frequency.max - hi) < 0.5,
+        `${track}.${id}: glide ${glide} started/ended at ${oscs[0].frequency.max}, not ${hi}`);
+    }
+    // The curve moves the halfway pitch between those fixed endpoints.
+    const midAt = (glideCurve) => {
+      const run = withSeed(58, () => playAndCheck(`${track}.${id} curve ${glideCurve}`,
+        VOICES[track][id], note, {
+          patch: sculpt(track, id, { glide: 12, glideCurve, cadence: 1, irregular: 0, octave: 0 }),
+        }));
+      const sweep = run.events.filter((e) => e.name === 'oscillator.frequency');
+      return sweep[sweep.length - 2].value;
+    };
+    assert.ok(midAt(0) < midAt(0.5) && midAt(0.5) < midAt(1),
+      `${track}.${id}: glideCurve does not bend the sweep (${midAt(0)}, ${midAt(0.5)}, ${midAt(1)})`);
+    assert.ok(midAt(0) > 440 && midAt(1) < 880,
+      `${track}.${id}: a bent sweep left its own endpoints`);
+  }
+});
+
+test('v19: cadence counts the calls in a note, and irregular unsettles them', () => {
+  for (const [track, id] of CALL_VOICES) {
+    for (const [duration, cadence, expected] of [
+      [2, 1, 1], [2, 2, 2], [2, 3, 3], [4, 2, 4], [4, 3, 6], [1, 4, 2], [12, 8, 6],
+    ]) {
+      const note = {
+        midi: 69, freq: 440, kind: null, duration, when: 0.5, velocity: 0.8, pan: 0,
+      };
+      const run = withSeed(59, () => playAndCheck(`${track}.${id} cadence ${cadence}`,
+        VOICES[track][id], note, { patch: sculpt(track, id, { cadence, irregular: 0 }) }));
+      assert.equal(oscillators(run).length, expected,
+        `${track}.${id}: ${cadence} calls/bar over ${duration}s gave `
+        + `${oscillators(run).length} chirps, not ${expected}`);
+    }
+    // Regular calls are evenly spaced and identically pitched; irregular ones
+    // are neither, and the count is untouched either way.
+    const note = { midi: 69, freq: 440, kind: null, duration: 4, when: 0.5, velocity: 0.8, pan: 0 };
+    const starts = (irregular) => {
+      const run = withSeed(60, () => playAndCheck(`${track}.${id} irregular ${irregular}`,
+        VOICES[track][id], note, {
+          patch: sculpt(track, id, { cadence: 3, irregular, glide: 12 }),
+        }));
+      return oscillators(run).map((n) => ({ at: n.startedAt, from: n.frequency.min }));
+    };
+    const strict = starts(0);
+    const loose = starts(1);
+    assert.equal(loose.length, strict.length, `${track}.${id}: irregular changed the call count`);
+    assert.equal(new Set(strict.map((c) => c.from.toFixed(4))).size, 1,
+      `${track}.${id}: irregular 0 still scattered the starting pitch`);
+    assert.ok(new Set(loose.map((c) => c.from.toFixed(4))).size > 1,
+      `${track}.${id}: irregular 1 did not scatter the starting pitch`);
+    const gaps = (calls) => calls.slice(1).map((c, i) => c.at - calls[i].at);
+    assert.ok(new Set(gaps(strict).map((g) => g.toFixed(4))).size === 1,
+      `${track}.${id}: irregular 0 did not space the calls evenly`);
+    assert.ok(new Set(gaps(loose).map((g) => g.toFixed(4))).size > 1,
+      `${track}.${id}: irregular 1 did not unsettle the timing`);
+  }
+});
+
+test('v19: a call is a chirp AND a breath through two formants it can move', () => {
+  const note = { midi: 69, freq: 440, kind: null, duration: 2, when: 0.5, velocity: 0.8, pan: 0 };
+  for (const [track, id] of CALL_VOICES) {
+    const run = withSeed(61, () => playAndCheck(`${track}.${id} formants`, VOICES[track][id],
+      note, { patch: sculpt(track, id, { formant1: 700, formant2: 2600, cadence: 2 }) }));
+    const bands = biquads(run).filter((n) => n.type === 'bandpass');
+    assert.equal(bands.length, 2, `${track}.${id}: ${bands.length} formants, not 2`);
+    const centres = bands.map((n) => Math.round(n.frequency.max)).sort((a, b) => a - b);
+    assert.deepEqual(centres, [700, 2600].sort((a, b) => a - b),
+      `${track}.${id}: the formant dials did not reach the filters`);
+    // A formant is a resonance of the body, so the octave switch moves the
+    // pitch the call sweeps from and leaves the formants where they were set.
+    for (const octave of [-2, 2]) {
+      const shifted = withSeed(61, () => playAndCheck(`${track}.${id} octave ${octave}`,
+        VOICES[track][id], note, {
+          patch: sculpt(track, id, { formant1: 700, formant2: 2600, cadence: 2, octave }),
+        }));
+      assert.deepEqual(
+        biquads(shifted).filter((n) => n.type === 'bandpass')
+          .map((n) => Math.round(n.frequency.max)).sort((a, b) => a - b),
+        centres,
+        `${track}.${id}: the octave switch dragged the formants with it`,
+      );
+      assert.notEqual(oscillators(shifted)[0].frequency.min, oscillators(run)[0].frequency.min,
+        `${track}.${id}: the octave switch did not move the call's own pitch`);
+    }
+    // The hybrid claim: an oscillator and a noise source, both sustained
+    // through the call rather than one being a transient on the other.
+    assert.ok(oscillators(run).length >= 1, `${track}.${id}: no chirp oscillator`);
+    assert.equal(noiseSources(run).length, 1,
+      `${track}.${id}: the breath must be one shared source, not one per call`);
+    // Both engines feed the same formants — that is what makes them formants.
+    for (const source of [oscillators(run)[0], noiseSources(run)[0]]) {
+      const reaches = source.outputs.some((g) => g.outputs.some((f) => bands.includes(f)));
+      assert.ok(reaches, `${track}.${id}: a source bypassed the formant pair`);
+    }
+  }
+});
+
+/**
+ * Every voice that existed before v19, and the hash of one unpatched note of
+ * it — graph AND automation schedule, the same renderHash the v18 percussion
+ * table uses.
+ *
+ * The numbers were taken from a differential run: the v19 library rendered
+ * side by side with a copy of the module with every v19 addition stripped back
+ * out, over 12 notes × 7 patches for all 21 voices, and every pair came back
+ * identical. This table is what stops that drifting later — the sculpting
+ * surface shares patchFor() with the whole library, and a field added to the
+ * wrong side of `sculpted(defaults)` would be silent here and audible on air.
+ */
+const PRE_V19_GOLDEN = {
+  'pad.warm': '57ade4cc:897',
+  'pad.glass': '52aea4af:1797',
+  'pad.strings': 'e88e44c0:1667',
+  'pad.choir': '2e46116b:1392',
+  'bass.sub': '248b2680:461',
+  'bass.round': 'fa1614d8:547',
+  'bass.breath': 'bf2bc38e:722',
+  'melody.pluck': '89c34a44:769',
+  'melody.bell': 'ab468f77:698',
+  'melody.flute': '36f71c12:834',
+  'melody.keys': '8415b5a6:715',
+  'texture.sparkle': '1f776706:811',
+  'texture.grains': 'ac0db90c:1875',
+  'texture.chimes': '08d42b19:1212',
+  'texture.wash': 'aede9fe9:744',
+  'arp.softPluck': 'd1490ebf:534',
+  'arp.crystal': '16f5c50d:705',
+  'arp.marimba': '336b527f:993',
+  // These three are the same seed, note and velocity the v18 table already
+  // pins from BEFORE v18 landed, and they still hash to the same values —
+  // which is the cross-check that this table and that one agree.
+  'percussion.soft': 'cfbcf5b3:633',
+  'percussion.hand': '2de49603:853',
+  'percussion.tick': 'ea55a535:589',
+};
+
+test('v19: every voice that predates the surface renders exactly what it did', () => {
+  for (const [key, expected] of Object.entries(PRE_V19_GOLDEN)) {
+    const [track, id] = key.split('.');
+    const note = honestyNoteFor(track);
+    const run = withSeed(4711, () => playAndCheck(key, VOICES[track][id], note));
+    assert.equal(renderHash(run), expected, `${key}: an unpatched note no longer renders what it did`);
+  }
+});
+
+test('v19: every new voice survives both ends of every new dial at once', () => {
+  const ends = {
+    tilt: [-1, 1], bandCentre: [60, 8000], bandWidth: [0.1, 4], sweepRate: [0, 0.5],
+    sweepDepth: [0, 1], gust: [0, 1], gustRate: [0.02, 0.5], burst: [0, 1],
+    burstSharp: [0, 1], swell: [0, 1], glide: [-24, 24], glideCurve: [0, 1],
+    formant1: [60, 8000], formant2: [60, 8000], cadence: [0.5, 8], irregular: [0, 1],
+  };
+  for (const [track, id] of [...SCULPT_VOICES, ...CALL_VOICES]) {
+    const fields = Object.keys(VOICES[track][id].defaults.source).filter((f) => f in ends);
+    for (const corner of [0, 1]) {
+      const source = Object.fromEntries(fields.map((f) => [f, ends[f][corner]]));
+      for (const note of notesFor(track)) {
+        playAndCheck(`${track}.${id} corner ${corner}`, VOICES[track][id], note,
+          { patch: sculpt(track, id, source) });
+        playAndCheck(`${track}.${id} corner ${corner} cancel`, VOICES[track][id], note,
+          { patch: sculpt(track, id, source), cancelAfter: true });
+      }
+    }
+    // And one dial at each end while the rest stay at the voice's own values —
+    // the combination a listener actually makes when sculpting.
+    for (const field of fields) {
+      for (const value of ends[field]) {
+        for (const note of notesFor(track)) {
+          playAndCheck(`${track}.${id} ${field}=${value}`, VOICES[track][id], note,
+            { patch: sculpt(track, id, { [field]: value }) });
+        }
+      }
+    }
+  }
+});
+
+// --------------------------------------------------------------------------
 // v18 — engineType: the synthesis class the selector shows as "custom [engine]"
 // --------------------------------------------------------------------------
 
@@ -1397,7 +1928,8 @@ test('v18: every voice declares an engineType from the contract\'s five classes'
       declared += 1;
     }
   }
-  assert.equal(declared, 21, `${declared} voices carry an engineType, not 21`);
+  // 21 at v18, plus v19's colour, cloud and the two readings of call.
+  assert.equal(declared, 25, `${declared} voices carry an engineType, not 25`);
 });
 
 

@@ -25,7 +25,8 @@
  *   1b. waveform morphing (the continuous sine→triangle→saw→square dial)
  *   2. the per-note rig (node bookkeeping, envelopes, teardown, cancel)
  *   3. building blocks shared by several voices (FM, LFO, drum primitives)
- *   3b. the patch model, and every voice's published defaults
+ *   3b. v19 noise sculpting: the primitives the texture noise voices share
+ *   3c. the patch model, and every voice's published defaults
  *   4. voices: pad, bass, melody, texture, arp, percussion
  *   5. VOICES export
  */
@@ -593,7 +594,188 @@ function noiseBurst(rig, dest, {
 }
 
 // ---------------------------------------------------------------------------
-// 3b. The patch model
+// 3b. v19 noise sculpting — the primitives the two texture noise voices share
+// ---------------------------------------------------------------------------
+
+/** How far `sweepDepth` 1 swings the band, either side of its centre. */
+const SWEEP_OCTAVES = 1.5;
+/** How far a gust at `gust` 1 can walk the brightness. */
+const GUST_OCTAVES = 0.6;
+/** `swell` 1 makes the attack four times as long… */
+const SWELL_STRETCH = 3;
+/** …and starts the band this far below its centre, opening as it rises. */
+const SWELL_OCTAVES = 1.6;
+/** Grains per second at `burst` 1, and the ceiling the node budget imposes. */
+const BURST_RATE = 1.6;
+const BURST_MAX = 14;
+
+/**
+ * `cadence` is calls per bar and a voice never sees a bar, so it is counted
+ * against a 4/4 bar at 120 bpm and scaled by the note's own length. The cap is
+ * the node budget again: the top of the dial is a phrase, not a swarm.
+ */
+const CALL_BAR = 2;
+const CALL_MAX = 6;
+
+/** The corners the tilt dial reaches, and the settings that leave it inaudible. */
+const TILT_DARK = 90;
+const TILT_BRIGHT = 9000;
+const TILT_FLAT_LOW = 18000;
+const TILT_FLAT_HIGH = 18;
+
+/**
+ * A bandpass wide enough to be a bed rather than a whistle: `octaves` of
+ * bandwidth as the Q a biquad wants. 0.1 octaves is a resonance (Q ~14), 4 is
+ * most of the spectrum (Q ~0.27).
+ */
+function bandQ(octaves) {
+  const width = Math.pow(2, clamp(octaves, 0.1, 4));
+  return clamp(Math.sqrt(width) / (width - 1), 0.1, 20);
+}
+
+/**
+ * The tilt dial as one biquad on a pink bed: below zero a lowpass walks down
+ * to a brown rumble, above it a highpass walks up to a blue hiss, and either
+ * side of zero the filter is wide open — so the dial is continuous through the
+ * middle instead of switching noise sources under the listener.
+ */
+function tiltFilter(rig, tilt, shift) {
+  const t = clamp(tilt, -1, 1);
+  const freq = t < 0
+    ? TILT_FLAT_LOW * Math.pow(TILT_DARK / TILT_FLAT_LOW, -t)
+    : TILT_FLAT_HIGH * Math.pow(TILT_BRIGHT / TILT_FLAT_HIGH, t);
+  return rig.filter(t < 0 ? 'lowpass' : 'highpass', clamp(freq * shift, 20, 18000), 0.7);
+}
+
+/**
+ * Both ends of the tilt dial throw most of the bed away, so both need a little
+ * back. Bounded at 2× because the level guarantee outranks the loudness match:
+ * a dial may never make a voice hot, only closer to where it started.
+ */
+const tiltMakeup = (tilt) => 1 + Math.abs(clamp(tilt, -1, 1));
+
+/**
+ * The weather over one note: where the band sits and how loud the bed is, at a
+ * handful of scheduled instants rather than on an LFO. Two things move it — the
+ * periodic sweep, and a bounded random walk for the gusts — and the grid is
+ * dense enough for whichever of the two is asking for more. Automation is free
+ * where a node is not, which is what keeps a steady voice inside its budget.
+ *
+ * `level` only ever ducks: a gust must not be able to add gain.
+ */
+function bedMotion(t0, { attack, span, sweepRate, sweepDepth, gust, gustRate, swell }) {
+  const rate = clamp(sweepRate * 6 + gustRate * 3, 0.08, 8);
+  const count = clamp(Math.ceil(span * rate), 1, 32);
+  const points = [];
+  let walk = 0;
+  for (let i = 1; i <= count; i++) {
+    const elapsed = Math.min(i / rate, span);
+    walk = clamp(walk + (Math.random() - 0.5) * 0.9, -1, 1);
+    // The crescendo shaper is spent once the attack is over; past it only the
+    // sweep and the gusts are left moving.
+    const rising = attack > 0 && elapsed < attack ? 1 - elapsed / attack : 0;
+    points.push({
+      at: t0 + elapsed,
+      level: 1 - gust * 0.55 * (walk * 0.5 + 0.5),
+      octaves: sweepDepth * SWEEP_OCTAVES * Math.sin(2 * Math.PI * sweepRate * elapsed)
+        + gust * GUST_OCTAVES * walk
+        - swell * SWELL_OCTAVES * rising,
+    });
+  }
+  return points;
+}
+
+/** Where the weather had got to at `when`; flat calm before the first point. */
+function motionAt(points, when) {
+  let found = null;
+  for (const point of points) {
+    if (point.at > when) break;
+    found = point;
+  }
+  return found ?? { level: 1, octaves: 0 };
+}
+
+/** The widest the band ever gets, which is where its makeup has to be measured. */
+const motionTop = (s) => s.sweepDepth * SWEEP_OCTAVES + s.gust * GUST_OCTAVES;
+
+/** The band's centre frequency across the note, swell first and gusts after. */
+function bandMotion(param, t0, centre, swell, points) {
+  const at = (octaves) => clamp(centre * Math.pow(2, octaves), 20, 18000);
+  param.setValueAtTime(at(-swell * SWELL_OCTAVES), t0);
+  for (const point of points) param.exponentialRampToValueAtTime(at(point.octaves), point.at);
+}
+
+/**
+ * adsrEnv()'s shape with the sustain segment walked by the gusts instead of
+ * held flat. Same currency (all exponential), same return value — the moment
+ * the tail has finished — so a bed answers the release dial like any other
+ * voice, and the attack ramp lands where the patch asked for it.
+ */
+function bedEnv(param, t0, { attack, hold, release, peak }, adsr, points) {
+  const top = Math.max(peak, SILENCE * 2);
+  const decayEnd = t0 + attack + Math.max(adsr.decay, 0.002);
+  param.setValueAtTime(SILENCE, t0);
+  param.exponentialRampToValueAtTime(top, t0 + attack);
+  const sustain = top * adsr.sustain;
+  if (sustain <= SILENCE * 2) {
+    param.exponentialRampToValueAtTime(SILENCE, decayEnd);
+    return decayEnd;
+  }
+  param.exponentialRampToValueAtTime(sustain, decayEnd);
+  const sustainEnd = Math.max(decayEnd, t0 + attack + Math.max(hold, 0));
+  let last = sustain;
+  for (const point of points) {
+    if (point.at <= decayEnd || point.at >= sustainEnd) continue;
+    last = Math.max(sustain * point.level, SILENCE * 2);
+    param.exponentialRampToValueAtTime(last, point.at);
+  }
+  param.setValueAtTime(last, sustainEnd);
+  param.exponentialRampToValueAtTime(SILENCE, sustainEnd + release);
+  return sustainEnd + release;
+}
+
+/**
+ * The granular half of the surface: `burst` grains per second of short filtered
+ * noise, scattered across the note and through the band the weather has moved
+ * to. `burstSharp` runs them from soft damp droplets to a dry bright crackle.
+ *
+ * Each grain is trimmed by 1/√count, because incoherent sources sum in power —
+ * so turning the density up makes the cloud louder by the square root rather
+ * than by the grain, and no setting of the dial can run the mix away.
+ */
+function grainField(rig, dest, {
+  t, span, centre, q, peak, s, motion, min = 0,
+}) {
+  const count = clamp(Math.round(s.burst * BURST_RATE * span), min, BURST_MAX);
+  if (count <= 0) return t;
+  const trim = 1 / Math.sqrt(count);
+  const decay = 0.02 + (1 - s.burstSharp) * 0.16;
+  const attack = 0.0012 + (1 - s.burstSharp) * 0.02;
+  // A sharper grain is a brighter one: a droplet has body, a crackle has none.
+  const bright = Math.pow(2, s.burstSharp * 1.2);
+  const scatter = s.bandWidth / 2;
+  let end = t;
+  for (let i = 0; i < count; i++) {
+    const at = t + (i + Math.random()) * (span / count);
+    const octaves = motionAt(motion, at).octaves + between(-scatter, scatter);
+    const panner = rig.panner(between(-0.4, 0.4));
+    panner.connect(dest);
+    const done = noiseBurst(rig, panner, {
+      t: at,
+      colour: 'pink',
+      freq: clamp(centre * Math.pow(2, octaves) * bright, 60, 12000),
+      q,
+      decay: decay * between(0.7, 1.3),
+      attack,
+      peak: peak * trim * between(0.6, 1),
+    });
+    if (done > end) end = done;
+  }
+  return end;
+}
+
+// ---------------------------------------------------------------------------
+// 3c. The patch model
 // ---------------------------------------------------------------------------
 
 /**
@@ -647,6 +829,39 @@ function shapeOf(shape, osc, fallback, nullable) {
 const semitoned = (defaults) => defaults.source.pitch !== undefined;
 
 /**
+ * True for the v19 voices that read the noise-sculpting dials, and for the one
+ * that reads the call dials. Declared the same way `semitoned` is: by what the
+ * voice publishes, so nothing here has to know which track it came from, and a
+ * voice that has no use for a family never grows its fields.
+ */
+const sculpted = (defaults) => defaults.source.tilt !== undefined;
+const calling = (defaults) => defaults.source.cadence !== undefined;
+
+/** The noise-sculpting half of a v19 source, clamped to the schema. */
+const sculptFields = (source, d) => ({
+  tilt: inRange(source.tilt, -1, 1, d.source.tilt),
+  bandCentre: inRange(source.bandCentre, 60, 8000, d.source.bandCentre),
+  bandWidth: inRange(source.bandWidth, 0.1, 4, d.source.bandWidth),
+  sweepRate: inRange(source.sweepRate, 0, 0.5, d.source.sweepRate),
+  sweepDepth: inRange(source.sweepDepth, 0, 1, d.source.sweepDepth),
+  gust: inRange(source.gust, 0, 1, d.source.gust),
+  gustRate: inRange(source.gustRate, 0.02, 0.5, d.source.gustRate),
+  burst: inRange(source.burst, 0, 1, d.source.burst),
+  burstSharp: inRange(source.burstSharp, 0, 1, d.source.burstSharp),
+  swell: inRange(source.swell, 0, 1, d.source.swell),
+});
+
+/** The call-synthesis half of a v19 source, clamped to the schema. */
+const callFields = (source, d) => ({
+  glide: inRange(source.glide, -24, 24, d.source.glide),
+  glideCurve: inRange(source.glideCurve, 0, 1, d.source.glideCurve),
+  formant1: inRange(source.formant1, 60, 8000, d.source.formant1),
+  formant2: inRange(source.formant2, 60, 8000, d.source.formant2),
+  cadence: inRange(source.cadence, 0.5, 8, d.source.cadence),
+  irregular: inRange(source.irregular, 0, 1, d.source.irregular),
+});
+
+/**
  * A percussion patch's transposition, in semitones. A patch stored before v18
  * carries the octave switch instead, which is the same move ×12 — so a saved
  * kit tuned an octave down still comes back an octave down.
@@ -689,6 +904,8 @@ function patchFor(defaults, patch) {
       ...(semitoned(d)
         ? { pitch: pitchOf(source, d), noise: inRange(source.noise, 0, 1, d.source.noise) }
         : { octave: oneOf(source.octave, OCTAVES, d.source.octave) }),
+      ...(sculpted(d) ? sculptFields(source, d) : {}),
+      ...(calling(d) ? callFields(source, d) : {}),
     },
     filter: {
       type: oneOf(filter.type, FILTER_TYPES, d.filter.type),
@@ -945,6 +1162,17 @@ const DEFAULTS = {
       adsr: { attack: 0.004, decay: 1.7, sustain: 0, release: 0.05 },
       sends: { reverb: 0.35, delay: 0.3 },
     },
+    // v19 call synthesis. The melody reading is a small bright bird: a rising
+    // fifth, three calls to the bar, formants up where a whistle lives.
+    call: {
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0,
+        glide: 7, glideCurve: 0.55, formant1: 1900, formant2: 3400, cadence: 3, irregular: 0.25,
+      },
+      filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
+      adsr: { attack: 0.006, decay: 0.05, sustain: 1, release: 0.4 },
+      sends: { reverb: 0.5, delay: 0.3 },
+    },
   },
   texture: {
     sparkle: {
@@ -970,6 +1198,43 @@ const DEFAULTS = {
       filter: { type: 'bandpass', cutoff: 320, q: 1.2, envAmount: 1 },
       adsr: { attack: 2.4, decay: 0.01, sustain: 1, release: 3.25 },
       sends: { reverb: 0.85, delay: 0.3 },
+    },
+    // v19. The two sculpting voices open on the quietest useful corner of the
+    // surface — a wide, slightly dark bed that drifts, and a slow cloud — so
+    // that switching a texture track to either changes the timbre without
+    // changing the balance. `swell: 0` is deliberate: the crescendo shaper is
+    // a stretch of the attack the patch asks for, and at rest it must leave
+    // that attack exactly where the ADSR put it.
+    colour: {
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0,
+        tilt: -0.35, bandCentre: 480, bandWidth: 2.2, sweepRate: 0.05, sweepDepth: 0.12,
+        gust: 0.2, gustRate: 0.07, burst: 0.06, burstSharp: 0.5, swell: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
+      adsr: { attack: 2.6, decay: 0.01, sustain: 1, release: 3.5 },
+      sends: { reverb: 0.8, delay: 0.25 },
+    },
+    cloud: {
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0,
+        tilt: 0.1, bandCentre: 1200, bandWidth: 1.4, sweepRate: 0.08, sweepDepth: 0.2,
+        gust: 0.25, gustRate: 0.09, burst: 0.45, burstSharp: 0.55, swell: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
+      adsr: { attack: 1.2, decay: 0.01, sustain: 1, release: 2.4 },
+      sends: { reverb: 0.75, delay: 0.4 },
+    },
+    // The texture reading of the same call primitive: slow, low and falling,
+    // where melody's is quick, high and rising.
+    call: {
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0,
+        glide: -9, glideCurve: 0.4, formant1: 620, formant2: 1400, cadence: 1.5, irregular: 0.35,
+      },
+      filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
+      adsr: { attack: 0.008, decay: 0.05, sustain: 1, release: 1.4 },
+      sends: { reverb: 0.85, delay: 0.35 },
     },
   },
   arp: {
@@ -1067,6 +1332,21 @@ Object.freeze(DEFAULTS);
  * and sends are the engine's to apply outside play() entirely, so no voice
  * can decline them.
  */
+/**
+ * The two v19 families, written once because more than one voice declares each
+ * of them. Every field here is read by the play() that names it: the sculpting
+ * list drives the bed's colour, band, weather and grains; the call list drives
+ * the chirp's sweep, its two formants and its phrasing. `shape1` is on the call
+ * list alone — a chirp has an oscillator to re-type, a noise bed does not.
+ */
+const SCULPT_CONTROLS = [
+  'octave', 'tilt', 'bandCentre', 'bandWidth', 'sweepRate', 'sweepDepth',
+  'gust', 'gustRate', 'burst', 'burstSharp', 'swell',
+];
+const CALL_CONTROLS = [
+  'shape1', 'octave', 'glide', 'glideCurve', 'formant1', 'formant2', 'cadence', 'irregular',
+];
+
 const CONTROLS = {
   pad: {
     warm: { source: true, filter: true, adsr: true, sends: true },
@@ -1086,6 +1366,7 @@ const CONTROLS = {
     bell: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     flute: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     keys: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    call: { source: CALL_CONTROLS, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   texture: {
     sparkle: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
@@ -1094,6 +1375,13 @@ const CONTROLS = {
     // SPEC-CRITIC: shape1 only reaches the quiet 0.14-weight anchor tone
     // under the noise sweep — mechanically real, audibly marginal.
     wash: { source: ['shape1', 'octave'], filter: true, adsr: true, sends: true },
+    // v19: no oscillator anywhere in either voice, so the morph dials, the mix
+    // and the detune have nothing to act on — but every sculpting dial does,
+    // and `octave` moves the whole spectral picture (band, tilt corner and
+    // grain centres together) rather than a pitch.
+    colour: { source: SCULPT_CONTROLS, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    cloud: { source: SCULPT_CONTROLS, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    call: { source: CALL_CONTROLS, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   arp: {
     softPluck: { source: true, filter: true, adsr: true, sends: true },
@@ -1183,6 +1471,10 @@ const ENGINE_TYPES = {
     flute: 'hybrid',
     // Sine carrier at ratio 1 with a velocity-scaled index: an FM tine.
     keys: 'fm',
+    // A gliding oscillator and a band of breath, both running the length of
+    // every chirp through the same pair of formants: two engines, each
+    // carrying a real share, which is the line the class draws.
+    call: 'hybrid',
   },
   texture: {
     // Two or three sine carriers, each with a ratio-7.1 modulator.
@@ -1195,6 +1487,14 @@ const ENGINE_TYPES = {
     // Two decorrelated pink layers through a sweeping band; the 0.14 anchor
     // sine only tells the wash which chord it is in.
     wash: 'noise',
+    // A tilted pink bed through one moving band, with droplets over it. Not an
+    // oscillator in the voice.
+    colour: 'noise',
+    // The same surface with the bed taken away and the grains left: still
+    // nothing but filtered noise.
+    cloud: 'noise',
+    // The melody voice's own body, at the texture track's level.
+    call: 'hybrid',
   },
   arp: {
     // Triangle and sine octave under a resonant lowpass that falls.
@@ -1966,6 +2266,212 @@ function textureWash(ctx, destination, note, patch) {
   return rig.finish(end + 0.05);
 }
 
+/**
+ * Coloured noise (v19): a steady spectrally-shaped bed. Pink noise through the
+ * tilt dial's single filter, then through one band the sculpting dials own —
+ * where it sits, how wide it is, how far and how fast it sweeps — with the
+ * gusts walking level and brightness and `burst` dropping the occasional
+ * droplet over the top.
+ *
+ * Nothing here is pitched, so the note's own frequency is not read at all: a
+ * bed sounds the same whichever chord tone triggered it, and `octave` moves
+ * the whole spectral picture instead of a pitch.
+ *
+ * Steady cost: noise, tilt, band, amp, and the patch's own filter — six nodes,
+ * whatever the dials say. The sweep and the gusts are scheduled automation.
+ */
+function textureColour(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const d = DEFAULTS.texture.colour;
+  const p = patchFor(d, patch);
+  const s = p ? p.source : d.source;
+  const adsr = p ? p.adsr : d.adsr;
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 6);
+  const shift = shifted(p, 1);
+
+  const attack = Math.max(adsr.attack, 0.001) * (1 + s.swell * SWELL_STRETCH);
+  const hold = Math.max(0.3, dur - attack);
+  const centre = clamp(s.bandCentre * shift, 40, 16000);
+  const q = bandQ(s.bandWidth);
+  const out = insertFilter(rig, p, rig.out);
+
+  const noise = rig.noise(t, { colour: 'pink', rate: 1 });
+  const tilt = tiltFilter(rig, s.tilt, shift);
+  const band = rig.filter('bandpass', centre, q);
+  const amp = rig.gain(SILENCE);
+  noise.connect(tilt);
+  tilt.connect(band);
+  band.connect(amp);
+  amp.connect(out);
+
+  // Measured at the TOP of the sweep, where the band is widest and passes
+  // most: makeup taken at the centre would let a swept band come out hotter
+  // than the level it was aimed at.
+  const makeup = noiseMakeup(
+    clamp(centre * Math.pow(2, motionTop(s)), 20, 18000), q, rig.sampleRate,
+  ) * tiltMakeup(s.tilt);
+  const span = attack + hold + adsr.release;
+  const motion = bedMotion(t, { ...s, attack, span });
+  bandMotion(band.frequency, t, centre, s.swell, motion);
+  const end = bedEnv(amp.gain, t, {
+    attack, hold, release: adsr.release, peak: level(PEAK.texture * 0.9, v) * makeup,
+  }, adsr, motion);
+
+  // Droplets sit ON the bed rather than in it: their own one-shot envelopes,
+  // and the bed's weather only tells them where to land in the spectrum.
+  const drops = grainField(rig, out, {
+    t, span, centre, q: bandQ(Math.min(s.bandWidth, 1.2)), motion, s,
+    peak: level(PEAK.texture * 0.45, v),
+  });
+  return rig.finish(Math.max(end, drops) + 0.05);
+}
+
+/**
+ * Grain cloud (v19): the same surface with the bed taken away. Every sound in
+ * the voice is a short filtered grain, so `burst` is the whole density dial
+ * and the ADSR shapes the cloud rather than anything inside it — grains keep
+ * falling through the release, which is what makes a long release a fade
+ * rather than a cut.
+ *
+ * At least one grain always sounds: a cloud dialled to nothing is silence, and
+ * silence with a scheduled envelope over it is a leak waiting to happen.
+ */
+function textureCloud(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const d = DEFAULTS.texture.cloud;
+  const p = patchFor(d, patch);
+  const s = p ? p.source : d.source;
+  const adsr = p ? p.adsr : d.adsr;
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 4);
+  const shift = shifted(p, 1);
+
+  const attack = Math.max(adsr.attack, 0.001) * (1 + s.swell * SWELL_STRETCH);
+  const hold = Math.max(0.3, dur - attack);
+  const centre = clamp(s.bandCentre * shift, 40, 16000);
+  const out = insertFilter(rig, p, rig.out);
+
+  const tilt = tiltFilter(rig, s.tilt, shift);
+  const amp = rig.gain(SILENCE);
+  tilt.connect(amp);
+  amp.connect(out);
+
+  const span = attack + hold + adsr.release;
+  const motion = bedMotion(t, { ...s, attack, span });
+  // Unity at the top: the grains already carry the velocity, so the contour
+  // only ever shapes the cloud.
+  const end = bedEnv(amp.gain, t, { attack, hold, release: adsr.release, peak: 1 }, adsr, motion);
+  const grains = grainField(rig, tilt, {
+    t, span, centre, q: bandQ(s.bandWidth), motion, s, min: 1,
+    peak: level(PEAK.texture * 0.9, v) * tiltMakeup(s.tilt),
+  });
+  return rig.finish(Math.max(end, grains) + 0.05);
+}
+
+/**
+ * Call (v19): the pitched half of the surface, offered to melody and texture
+ * alike. A note becomes `cadence` gliding chirps, each one an oscillator
+ * sweeping `glide` semitones along a curve `glideCurve` bends, with a band of
+ * breath beside it — both through the same two formants, which is where the
+ * character lives. `irregular` unsettles the timing and the starting pitch.
+ *
+ * Cadence is calls per BAR and a voice cannot see bars, so it is counted
+ * against a two-second reference bar (a 4/4 bar at 120 bpm) and scaled by the
+ * note's own length. The count is capped: the dial's top end is a phrase, not
+ * a licence to schedule a hundred oscillators inside one note.
+ *
+ * Steady cost: two formants and their balance, the amp, one breath source, and
+ * the patch's own filter — eight nodes; three more per chirp.
+ */
+function callVoice(ctx, destination, note, patch, d, basePeak) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(d, patch);
+  const s = p ? p.source : d.source;
+  const adsr = p ? p.adsr : d.adsr;
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 1.5);
+  const base = clamp(shifted(p, freqOf(note, 660)), 40, 8000);
+
+  const hold = Math.max(0.15, dur - adsr.attack);
+  const span = adsr.attack + hold;
+  const out = insertFilter(rig, p, rig.out);
+
+  const amp = rig.gain(SILENCE);
+  amp.connect(out);
+  // A formant is a resonance of the body, not of the note: `octave` moves the
+  // pitch the chirp sweeps from and leaves these exactly where the dials put
+  // them, so what a listener sets is what they hear. (The noise voices read
+  // `octave` the other way round — with no pitch to move, it can only mean
+  // "move the whole spectrum" — and both readings are the honest one for the
+  // voice that makes them.)
+  const formants = [[s.formant1, 3.5, 0.6], [s.formant2, 4.5, 0.4]].map(([freq, q, weight]) => {
+    const node = rig.filter('bandpass', clamp(freq, 60, 12000), q);
+    const gain = rig.gain(weight);
+    node.connect(gain);
+    gain.connect(amp);
+    return node;
+  });
+  // The breath runs the length of the note and is gated per chirp, which costs
+  // one source rather than one per call.
+  const breath = rig.noise(t, { colour: 'pink', rate: 1 });
+  const breathMakeup = noiseMakeup(
+    clamp(Math.max(s.formant1, s.formant2), 60, 12000), 4.5, rig.sampleRate,
+  );
+
+  // Cadence is a RATE, so it sets the gap between calls and the note's length
+  // sets how many of them fit. Past the cap the phrase simply stops early
+  // rather than stretching: a quick bird gives a quick phrase and then a rest,
+  // it does not slow down because the note it was handed was a long one.
+  const spacing = clamp(CALL_BAR / s.cadence, 0.05, 8);
+  const count = clamp(Math.round(span / spacing), 1, CALL_MAX);
+  const peak = level(basePeak, v);
+  let end = t;
+  for (let i = 0; i < count; i++) {
+    const at = Math.max(t, t + i * spacing + s.irregular * between(-0.35, 0.35) * spacing);
+    const length = clamp(spacing * 0.55, 0.04, 1.4) * (1 + s.irregular * between(-0.3, 0.3));
+    const from = clamp(base * Math.pow(2, s.irregular * between(-2, 2) / 12), 40, 9000);
+    const to = clamp(from * Math.pow(2, s.glide / 12), 30, 12000);
+    // The curve is where the sweep is at half time: near the start pitch is a
+    // slow lift into a fast one, near the arrival pitch is the other way round.
+    const mid = clamp(from * Math.pow(to / from, 0.15 + 0.7 * s.glideCurve), 30, 12000);
+
+    const osc = rig.osc(s.shape1, from, at);
+    osc.frequency.setValueAtTime(from, at);
+    osc.frequency.exponentialRampToValueAtTime(mid, at + length * 0.5);
+    osc.frequency.exponentialRampToValueAtTime(to, at + length);
+    const tone = rig.gain(SILENCE);
+    osc.connect(tone);
+    const air = rig.gain(SILENCE);
+    breath.connect(air);
+    for (const formant of formants) {
+      tone.connect(formant);
+      air.connect(formant);
+    }
+    const shape = { attack: length * 0.2, hold: length * 0.3, release: length * 0.5 };
+    const done = env(tone.gain, at, { ...shape, peak });
+    env(air.gain, at, { ...shape, peak: peak * 0.35 * breathMakeup });
+    rig.stopAt(osc, done + 0.02);
+    if (done > end) end = done;
+  }
+
+  const gate = adsrEnv(amp.gain, t, { hold, peak: 1 }, adsr);
+  return rig.finish(Math.max(end, gate) + 0.05);
+}
+
+/** Call, as melody hears it: bright, quick, and at the melody track's level. */
+function melodyCall(ctx, destination, note, patch) {
+  return callVoice(ctx, destination, note, patch, DEFAULTS.melody.call, PEAK.melody * 0.45);
+}
+
+/** Call, as texture hears it: the same body, sitting back in the bed. */
+function textureCall(ctx, destination, note, patch) {
+  return callVoice(ctx, destination, note, patch, DEFAULTS.texture.call, PEAK.texture * 0.5);
+}
+
 // ---------------------------------------------------------------------------
 // 4e. Arpeggiator — short tails, so 1/16 at 120 bpm still articulates
 // ---------------------------------------------------------------------------
@@ -2327,6 +2833,13 @@ export const VOICES = {
       defaults: DEFAULTS.melody.keys,
       controls: CONTROLS.melody.keys,
     },
+    call: {
+      label: 'Call',
+      play: melodyCall,
+      engineType: ENGINE_TYPES.melody.call,
+      defaults: DEFAULTS.melody.call,
+      controls: CONTROLS.melody.call,
+    },
   },
   texture: {
     sparkle: {
@@ -2356,6 +2869,27 @@ export const VOICES = {
       engineType: ENGINE_TYPES.texture.wash,
       defaults: DEFAULTS.texture.wash,
       controls: CONTROLS.texture.wash,
+    },
+    colour: {
+      label: 'Coloured noise',
+      play: textureColour,
+      engineType: ENGINE_TYPES.texture.colour,
+      defaults: DEFAULTS.texture.colour,
+      controls: CONTROLS.texture.colour,
+    },
+    cloud: {
+      label: 'Grain cloud',
+      play: textureCloud,
+      engineType: ENGINE_TYPES.texture.cloud,
+      defaults: DEFAULTS.texture.cloud,
+      controls: CONTROLS.texture.cloud,
+    },
+    call: {
+      label: 'Call',
+      play: textureCall,
+      engineType: ENGINE_TYPES.texture.call,
+      defaults: DEFAULTS.texture.call,
+      controls: CONTROLS.texture.call,
     },
   },
   arp: {

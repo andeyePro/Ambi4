@@ -11,6 +11,24 @@
  *   mathematically (Fourier series per oscillator, each harmonic scaled by a
  *   second-order approximation of the filter magnitude), so the trace still
  *   responds to every control qualitatively.
+ *   Range-mode fields (v7 dials can carry number|{min,max}): the preview
+ *   shows the range MIDPOINT — see docs/engine-v2-contract.md v19 roadmap
+ *   "Offline waveform rule".
+ *   Percussion/noise voices (source.noise present): the oscillator (skin)
+ *   trace is summed with a deterministic broadband "noise burst through the
+ *   patch filter" (a fixed comb of partials, not fresh randomness per call),
+ *   scaled by source.noise — mirrors engine-voices.js's real noiseBurst()
+ *   layer, which is mixed under the skin oscillator rather than crossfaded
+ *   against it. source.pitch (semitones), where present, replaces octave for
+ *   the base frequency, same as the real percussion voices.
+ *
+ * export function renderPatchWaveComposite(canvas, entries)
+ *   entries: [{ id, patch, freq }] — draws the shared graticule once, then
+ *   each entry's static trace on top (thin: no glow underlay), coloured by
+ *   trackColor(canvas, id) (falls back to an evenly-spaced hue, same as
+ *   attachMultiScope). For the front oscilloscope's stopped-state composite
+ *   preview (v19 roadmap "Offline waveform rule"). Concurrent calls per
+ *   canvas coalesce (latest wins).
  *
  * export function attachLiveScope(canvas, analyser) => { destroy() }
  *   rAF time-domain trace (getFloatTimeDomainData, byte fallback) with a
@@ -179,6 +197,18 @@ function shapeCoefficients(shape) {
   return coeffs;
 }
 
+/**
+ * v7 dial fields can carry number|{min,max} (range mode) — the static
+ * preview shows the range MIDPOINT, so a range commit moves the trace
+ * exactly like a single-value commit does.
+ */
+function rangeMid(v) {
+  if (v && typeof v === 'object' && Number.isFinite(v.min) && Number.isFinite(v.max)) {
+    return (v.min + v.max) / 2;
+  }
+  return v;
+}
+
 /** Pulls the fields the scope needs out of a (possibly partial) patch. */
 function sanitisePatch(patch) {
   const source = (patch && patch.source) || {};
@@ -188,16 +218,78 @@ function sanitisePatch(patch) {
     source: {
       shape1: shapeNumber(source.shape1 !== undefined ? source.shape1 : source.osc1, 0),
       shape2: shape2Raw == null ? null : shapeNumber(shape2Raw, null),
-      mix: inRange(source.mix, 0, 1, 0.5),
-      detune: inRange(source.detune, 0, 50, 0),
+      mix: inRange(rangeMid(source.mix), 0, 1, 0.5),
+      detune: inRange(rangeMid(source.detune), 0, 50, 0),
       octave: inRange(source.octave, -1, 1, 0),
+      // v18: percussion tunes in semitones instead of by the octave switch.
+      // null (the common case — every non-percussion patch) means "use
+      // octave"; only a patch that actually carries source.pitch opts in.
+      pitch: source.pitch === undefined ? null : inRange(rangeMid(source.pitch), -24, 24, 0),
+      noise: inRange(rangeMid(source.noise), 0, 1, 0),
     },
     filter: {
       type: FILTER_TYPES.includes(filter.type) ? filter.type : 'lowpass',
-      cutoff: inRange(filter.cutoff, 40, 12000, 12000),
-      q: inRange(filter.q, 0.1, 20, 0.7),
+      cutoff: inRange(rangeMid(filter.cutoff), 40, 12000, 12000),
+      q: inRange(rangeMid(filter.q), 0.1, 20, 0.7),
     },
   };
+}
+
+/** The patch's base playback frequency: pitch (semitones) when the patch
+ * carries one, else the legacy octave switch — same precedence the real
+ * percussion voices use (engine-voices.js pitchOf()). */
+function baseFrequency(patch, freq) {
+  return typeof patch.source.pitch === 'number'
+    ? freq * Math.pow(2, patch.source.pitch / 12)
+    : freq * Math.pow(2, patch.source.octave);
+}
+
+// -- deterministic noise burst (percussion/noise voices) --------------------
+// A fixed comb of NOISE_BINS partials (frequency multiplier of fBase + a
+// phase), generated once at module load from a seeded LCG — NOT fresh
+// randomness per render, so the trace never flickers between identical
+// patches, only moves when cutoff/Q/noise/pitch actually change.
+const NOISE_BINS = 32;
+const NOISE_FREQ_LO_MULT = 1;
+const NOISE_FREQ_HI_MULT = 40;
+
+function buildNoiseBinTable() {
+  let seed = 0x9e3779b1;
+  const rnd = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const bins = [];
+  for (let i = 0; i < NOISE_BINS; i++) {
+    bins.push({
+      mult: NOISE_FREQ_LO_MULT + rnd() * (NOISE_FREQ_HI_MULT - NOISE_FREQ_LO_MULT),
+      phase: rnd() * Math.PI * 2,
+    });
+  }
+  return bins;
+}
+const NOISE_BIN_TABLE = buildNoiseBinTable();
+
+/**
+ * Adds a filtered-noise-burst layer into `samples` (in place), scaled by
+ * `patch.source.noise` — mirrors engine-voices.js's noiseBurst(), which is
+ * mixed UNDER the skin oscillator rather than crossfaded against it, so this
+ * is additive, not a blend of the existing samples.
+ */
+function addNoiseBurst(patch, fBase, samples, durationSeconds) {
+  const weight = patch.source.noise;
+  if (!(weight > 0)) return;
+  const n = samples.length;
+  const amp = 1 / Math.sqrt(NOISE_BIN_TABLE.length);
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * durationSeconds;
+    let s = 0;
+    for (const bin of NOISE_BIN_TABLE) {
+      const f = fBase * bin.mult;
+      s += filterMagnitude(patch.filter, f) * Math.sin(2 * Math.PI * f * t + bin.phase);
+    }
+    samples[i] += weight * amp * s;
+  }
 }
 
 /** Second-order filter magnitude approximation at frequency f. */
@@ -282,7 +374,7 @@ function addOscillator(ctx, destination, shape, freq, detuneCents, gainValue) {
 async function offlineRenderSamples(patch, freq) {
   const AC = offlineContextClass();
   if (!AC) return null;
-  const fBase = freq * Math.pow(2, patch.source.octave);
+  const fBase = baseFrequency(patch, freq);
   const period = OFFLINE_SR / fBase;
   const windowLen = Math.max(4, Math.round(period * 2));
   // A few thousand samples: enough cycles that the biquad's startup
@@ -318,6 +410,10 @@ async function offlineRenderSamples(patch, freq) {
   );
   const out = new Float32Array(windowLen);
   for (let i = 0; i < windowLen; i++) out[i] = data[start + i];
+  // Web Audio has no persistent seeded PRNG to hand a noise-buffer source,
+  // so the noise-burst layer is the same deterministic math model the
+  // fallback path uses, added on top of the offline-rendered oscillator.
+  addNoiseBurst(patch, fBase, out, windowLen / OFFLINE_SR);
   return out;
 }
 
@@ -326,7 +422,7 @@ async function offlineRenderSamples(patch, freq) {
 // ---------------------------------------------------------------------------
 
 function mathModelSamples(patch, freq) {
-  const fBase = freq * Math.pow(2, patch.source.octave);
+  const fBase = baseFrequency(patch, freq);
   const single = patch.source.shape2 === null;
   const mix = single ? 0 : patch.source.mix;
   const f2 = fBase * Math.pow(2, patch.source.detune / 1200);
@@ -358,6 +454,7 @@ function mathModelSamples(patch, freq) {
     }
     out[i] = s;
   }
+  addNoiseBurst(patch, fBase, out, cycles / fBase);
   return out;
 }
 
@@ -470,8 +567,11 @@ function drawGraticule(canvas, ctx, colors) {
  * Strokes one trace (glow underlay + main line) in `color` over whatever is
  * already on the canvas. No-ops on too-short/missing sample sets, so a
  * caller can skip past a silent track just by not calling this.
+ * `thin` (the front oscilloscope's multi-track composite preview) skips the
+ * glow underlay and strokes a 1px line instead of 2px, so several overlaid
+ * traces stay legible rather than blurring together.
  */
-function strokeTraceLine(ctx, samples, w, h, color, dimFactor) {
+function strokeTraceLine(ctx, samples, w, h, color, dimFactor, thin = false) {
   if (!samples || samples.length < 2) return;
 
   ctx.strokeStyle = color;
@@ -490,6 +590,14 @@ function strokeTraceLine(ctx, samples, w, h, color, dimFactor) {
     }
     ctx.stroke();
   };
+
+  if (thin) {
+    ctx.globalAlpha = dimFactor;
+    ctx.lineWidth = 1;
+    strokeTrace();
+    ctx.globalAlpha = 1;
+    return;
+  }
 
   // Phosphor glow without per-frame shadowBlur: shadowBlur forces the canvas
   // backend to rasterise a soft-mask blur on every draw call; a wide,
@@ -661,6 +769,63 @@ export function renderPatchWave(canvas, patch, opts) {
     job.waiters.push(resolve);
     if (!job.busy) pumpJobs(canvas, job);
   });
+}
+
+// -- renderPatchWaveComposite — front oscilloscope's stopped-state preview --
+// A separate, simpler token-based coalescer (not the patchJobs queue above):
+// each call fully supersedes the last, there's no live/analyser handle to
+// protect, and entries render into ONE shared drawScope pass rather than
+// draw independently (renderPatchWave per track would each clear the
+// canvas and erase the previous track's trace).
+const compositeJobs = new WeakMap(); // canvas -> { token }
+
+export function renderPatchWaveComposite(canvas, entries) {
+  if (!canvas || typeof canvas.getContext !== 'function') return Promise.resolve();
+  const job = compositeJobs.get(canvas) || { token: 0 };
+  compositeJobs.set(canvas, job);
+  const token = ++job.token;
+  return renderCompositeOnce(canvas, Array.isArray(entries) ? entries : [], job, token);
+}
+
+async function renderCompositeOnce(canvas, entries, job, token) {
+  const rendered = [];
+  for (const entry of entries) {
+    if (!entry || !entry.patch) continue;
+    const p = sanitisePatch(entry.patch);
+    const freq = inRange(entry.freq, 20, 4000, 220);
+    let samples = null;
+    try {
+      samples = await offlineRenderSamples(p, freq);
+    } catch {
+      samples = null;
+    }
+    if (!samples) {
+      try {
+        samples = mathModelSamples(p, freq);
+      } catch {
+        samples = null;
+      }
+    }
+    if (job.token !== token) return; // a newer call superseded this one mid-flight
+    if (samples) rendered.push({ samples: normalise(samples), id: entry.id });
+  }
+  if (job.token !== token) return;
+  let ctx = null;
+  try {
+    ctx = canvas.getContext('2d');
+  } catch {
+    ctx = null;
+  }
+  if (!ctx) return;
+  try {
+    const colors = readScopeColors(canvas);
+    const { w, h } = drawGraticule(canvas, ctx, colors);
+    for (const { samples, id } of rendered) {
+      strokeTraceLine(ctx, samples, w, h, trackColor(canvas, id), 1, true);
+    }
+  } catch {
+    // a draw failure must not reject the caller's promise chain
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 import { getCollection, render } from 'astro:content';
 import Base from '../layouts/Base.astro';
 import ServiceEmbed from '../components/ServiceEmbed.astro';
+import PresetCover from '../components/PresetCover.astro';
 import { SERVICE_ORDER, SERVICES, type ServiceId } from '../components/services';
 
 const entries = await getCollection('playlists');
@@ -59,8 +60,12 @@ const groups = await Promise.all(
       {items.map(({ entry, Content }) => (
         <article class="playlist">
           <h3>{entry.data.title}</h3>
-          {entry.data.thumbnail && (
-            <img src={entry.data.thumbnail} alt={entry.data.title} class="thumbnail" />
+          {entry.data.presetSeed ? (
+            <PresetCover seed={entry.data.presetSeed} title={entry.data.title} />
+          ) : (
+            entry.data.thumbnail && (
+              <img src={entry.data.thumbnail} alt={entry.data.title} class="thumbnail" />
+            )
           )}
           <div class="post-content"><Content /></div>
           <div class="playlist-embeds">

@@ -4493,6 +4493,25 @@ const RANGEABLE_PATCH_FIELDS = [
   // track-agnostic, so they sanitise here exactly as they do on a kit.
   ['source', 'pitch', { min: -18, max: 7 }],
   ['source', 'noise', { min: 0.2, max: 0.9 }],
+  // v19: every dial on the noise-sculpting surface and every dial on the call
+  // primitive. The contract makes them RangeValue-capable "everywhere", so
+  // there is no fixed member of either family.
+  ['source', 'tilt', { min: -0.6, max: 0.4 }],
+  ['source', 'bandCentre', { min: 200, max: 4000 }],
+  ['source', 'bandWidth', { min: 0.4, max: 3 }],
+  ['source', 'sweepRate', { min: 0.02, max: 0.3 }],
+  ['source', 'sweepDepth', { min: 0.1, max: 0.8 }],
+  ['source', 'gust', { min: 0.1, max: 0.7 }],
+  ['source', 'gustRate', { min: 0.04, max: 0.3 }],
+  ['source', 'burst', { min: 0.1, max: 0.9 }],
+  ['source', 'burstSharp', { min: 0.2, max: 0.8 }],
+  ['source', 'swell', { min: 0, max: 0.6 }],
+  ['source', 'glide', { min: -12, max: 9 }],
+  ['source', 'glideCurve', { min: 0.2, max: 0.9 }],
+  ['source', 'formant1', { min: 300, max: 1800 }],
+  ['source', 'formant2', { min: 900, max: 5000 }],
+  ['source', 'cadence', { min: 1, max: 6 }],
+  ['source', 'irregular', { min: 0.1, max: 0.8 }],
   ['filter', 'cutoff', { min: 400, max: 4000 }],
   ['filter', 'q', { min: 1, max: 9 }],
   ['filter', 'envAmount', { min: 0.1, max: 0.9 }],
@@ -4841,6 +4860,179 @@ test('v18: a ranged pitch/noise reaches the voice as numbers, per kind', () => h
     percussion.restore();
   }
 }));
+
+// --------------------------------------------------------------------------
+// v19 — the parametric noise-sculpting surface reaches the voices as numbers
+// --------------------------------------------------------------------------
+
+/** Every field v19 adds, with the bounds the contract gives it. */
+const V19_BOUNDS = {
+  tilt: [-1, 1],
+  bandCentre: [60, 8000],
+  bandWidth: [0.1, 4],
+  sweepRate: [0, 0.5],
+  sweepDepth: [0, 1],
+  gust: [0, 1],
+  gustRate: [0.02, 0.5],
+  burst: [0, 1],
+  burstSharp: [0, 1],
+  swell: [0, 1],
+  glide: [-24, 24],
+  glideCurve: [0, 1],
+  formant1: [60, 8000],
+  formant2: [60, 8000],
+  cadence: [0.5, 8],
+  irregular: [0, 1],
+};
+
+test('v19: each new source field clamps to its own bounds and refuses rubbish', () => {
+  const sourceOf = (source) => sanitiseParams({ patches: { texture: { colour: { source } } } })
+    .patches.texture?.colour?.source;
+
+  for (const [field, [lo, hi]] of Object.entries(V19_BOUNDS)) {
+    assert.equal(sourceOf({ [field]: lo })[field], lo, `${field} dropped its low bound`);
+    assert.equal(sourceOf({ [field]: hi })[field], hi, `${field} dropped its high bound`);
+    assert.equal(sourceOf({ [field]: 99999 })[field], hi, `${field} did not clamp above`);
+    assert.equal(sourceOf({ [field]: -99999 })[field], lo, `${field} did not clamp below`);
+    // Continuous, every one of them: a fraction survives where the octave
+    // switch would have been rounded away.
+    const mid = lo + (hi - lo) * 0.371;
+    assert.equal(sourceOf({ [field]: mid })[field], mid, `${field} rounded a continuous value`);
+    // `[]` is deliberately absent: Number([]) is 0, so an empty array coerces
+    // to a number on EVERY rangeable field in the schema, v7's included. That
+    // is the sanitiser's standing behaviour, not something v19 introduced, and
+    // pinning it here would freeze a quirk this change has no business owning.
+    for (const bad of [NaN, 'loud', null, true, undefined, {}]) {
+      assert.equal(sourceOf({ [field]: bad })?.[field], undefined,
+        `${field} accepted ${JSON.stringify(bad) ?? String(bad)}`);
+    }
+  }
+
+  // The v19 fields are additions: a patch may carry them beside the older ones
+  // and nothing is dropped in either direction.
+  const both = sourceOf({ octave: 1, detune: -12, tilt: -0.5, cadence: 4 });
+  assert.deepEqual(both, {
+    octave: 1, detune: -12, tilt: -0.5, cadence: 4,
+  }, 'the v19 fields displaced the fields already in the schema');
+});
+
+test('v19: the sculpting fields resolve to numbers per bar, inside their bounds', () => hiddenTab(async () => {
+  const texture = spyOnBank(bankFor('texture'));
+  try {
+    const ranged = {
+      tilt: { min: -0.8, max: 0.6 },
+      bandCentre: { min: 300, max: 3000 },
+      bandWidth: { min: 0.5, max: 3.5 },
+      sweepRate: { min: 0.05, max: 0.4 },
+      sweepDepth: { min: 0.2, max: 0.9 },
+      gust: { min: 0.1, max: 0.8 },
+      gustRate: { min: 0.05, max: 0.4 },
+      burst: { min: 0.2, max: 0.8 },
+      burstSharp: { min: 0.1, max: 0.9 },
+      swell: { min: 0, max: 0.7 },
+    };
+    const engine = createEngine({
+      bpm: 120,
+      speed: 2,
+      structure: 'drone',
+      complexity: 0.6,
+      tracks: {
+        ...tracksAll('off'),
+        texture: { state: 'on', randomness: 0.7, vary: { voice: 0 }, voice: 'colour' },
+      },
+      patches: { texture: { colour: { source: ranged } } },
+    }, { rng: seededRng(1907) });
+    await engine.start();
+    await advance(20, FAST);
+    engine.stop();
+
+    const sculpted = texture.plays.filter((play) => play.id === 'colour');
+    assert.ok(sculpted.length > 4, `the sculpting voice only sounded ${sculpted.length} times`);
+    for (const play of sculpted) {
+      for (const [field, range] of Object.entries(ranged)) {
+        const value = play.patch.source[field];
+        assert.equal(typeof value, 'number', `${field} reached a voice unresolved`);
+        assert.ok(value >= range.min - 1e-6 && value <= range.max + 1e-6,
+          `a resolved ${field} of ${value} is outside its ${range.min}–${range.max} bounds`);
+      }
+    }
+    // Ruling 9c: one walk per field, so they drift independently rather than
+    // all riding the same number.
+    for (const field of Object.keys(ranged)) {
+      const seen = new Set(sculpted.map((play) => play.patch.source[field].toFixed(6)));
+      assert.ok(seen.size > 1, `a ranged ${field} never drifted across bars`);
+    }
+    const walks = Object.keys(ranged).map((field) => sculpted.map(
+      (play) => play.patch.source[field].toFixed(6),
+    ).join(','));
+    assert.equal(new Set(walks).size, walks.length,
+      'two sculpting fields shared one drift walk');
+  } finally {
+    texture.restore();
+  }
+}));
+
+test('v19: the call fields resolve for melody as well as texture', () => hiddenTab(async () => {
+  const melody = spyOnBank(bankFor('melody'));
+  try {
+    const ranged = {
+      glide: { min: -18, max: 14 },
+      glideCurve: { min: 0.2, max: 0.9 },
+      formant1: { min: 400, max: 2200 },
+      formant2: { min: 1200, max: 5200 },
+      cadence: { min: 1, max: 6 },
+      irregular: { min: 0.05, max: 0.75 },
+    };
+    const engine = createEngine({
+      bpm: 120,
+      speed: 2,
+      structure: 'drone',
+      complexity: 0.7,
+      tracks: {
+        ...tracksAll('off'),
+        melody: { state: 'on', randomness: 0.7, vary: { voice: 0 }, voice: 'call' },
+      },
+      patches: { melody: { call: { source: ranged } } },
+    }, { rng: seededRng(2711) });
+    await engine.start();
+    await advance(20, FAST);
+    engine.stop();
+
+    const calls = melody.plays.filter((play) => play.id === 'call');
+    assert.ok(calls.length > 4, `the call voice only sounded ${calls.length} times`);
+    for (const play of calls) {
+      for (const [field, range] of Object.entries(ranged)) {
+        const value = play.patch.source[field];
+        assert.equal(typeof value, 'number', `${field} reached a voice unresolved`);
+        assert.ok(value >= range.min - 1e-6 && value <= range.max + 1e-6,
+          `a resolved ${field} of ${value} is outside its ${range.min}–${range.max} bounds`);
+      }
+      // A call carries no sculpting fields, and never grows them from a bank
+      // that has none of its own.
+      assert.equal(play.patch.source.tilt, undefined, 'a call patch grew a sculpting field');
+    }
+  } finally {
+    melody.restore();
+  }
+}));
+
+test('v19: adding the fields left every unpatched voice exactly where it was', () => {
+  // The schema is track-agnostic on purpose, so the one thing that must not
+  // have changed is what an UNSENT field does: nothing at all.
+  assert.deepEqual(sanitiseParams({ patches: { pad: { warm: {} } } }).patches, {},
+    'an empty patch started producing sculpting defaults');
+  for (const field of Object.keys(V19_BOUNDS)) {
+    assert.deepEqual(sanitiseParams({ patches: { pad: { warm: { source: { [field]: NaN } } } } })
+      .patches, {}, `an unusable ${field} was filled in rather than dropped`);
+  }
+  // And a voice the user HAS edited keeps only what they edited.
+  assert.deepEqual(
+    sanitiseParams({ patches: { texture: { cloud: { source: { burst: 0.8 } } } } })
+      .patches.texture.cloud,
+    { source: { burst: 0.8 } },
+    'a sparse sculpting patch was filled out with fields nobody sent',
+  );
+});
 
 // --------------------------------------------------------------------------
 // Runner

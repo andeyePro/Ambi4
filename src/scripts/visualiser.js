@@ -3,7 +3,18 @@
  * track-order/lamp/chord addendum, v15 repeat-bracket addendum, v16
  * de-overlap addendum, v17 repeat-mark redraw).
  *
- * export function initVisualiser(canvas, engine) => { destroy() }
+ * export function initVisualiser(canvas, engine) => { destroy(), setFps(fps),
+ * getFps() }
+ *
+ * setFps/getFps (governor integration, see power.js's onTierChange):
+ * setFps(fps) clamps to 1..60fps and re-caps the existing timestamp-gated
+ * rAF loop (still scheduled every tick, frames just skip draws — same shape
+ * as scope.js's createRafLoop); a missing/non-finite fps restores the 30fps
+ * default. getFps() reads the current cap back. "Lowest wins": a
+ * document.hidden/out-of-view pause always wins outright (the loop doesn't
+ * run at all), and while prefers-reduced-motion is active the effective cap
+ * is min(setFps() cap, the reduced-motion 2fps floor) rather than either one
+ * unconditionally overriding the other.
  *
  * Six horizontal lanes (pad, arp, melody, bass, texture, percussion) show
  * scheduled notes scrolling right-to-left on a time axis (right edge = now +
@@ -79,8 +90,9 @@ const WINDOW_SECONDS = HISTORY_SECONDS + LOOKAHEAD_SECONDS;
 const MAX_NOTES_PER_TRACK = 400;
 const MAX_MARKERS = 500;
 const REDUCED_MOTION_FPS = 2;
-const TARGET_FPS = 30;
-const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+const TARGET_FPS = 30; // setFps() default/reset value
+const MIN_FPS = 1;
+const MAX_FPS = 60;
 // v14 05:4xZ: MAX_DPR=2 rendered soft under browser zoom on retina (effective
 // dpr ~2.5-3). Raised to 3 — this canvas is small (device pixel count stays
 // modest even at dpr 3), and the 30fps frame-rate cap (not backing-store
@@ -339,6 +351,7 @@ export function initVisualiser(canvas, engine) {
   let dpr = 1;
   let cssWidth = 0;
   let cssHeight = 0;
+  let currentFps = TARGET_FPS; // setFps()'s current cap; read fresh each rAF tick, no loop restart needed
 
   const unsubs = [];
 
@@ -1115,19 +1128,17 @@ export function initVisualiser(canvas, engine) {
       renderFrame();
       return;
     }
-    let lastReducedFrame = 0;
     let lastFrameTs = -Infinity;
     const loop = (ts) => {
       if (destroyed || !running || isHidden() || !inView) {
         rafId = null;
         return;
       }
-      if (reducedMotion) {
-        if (ts - lastReducedFrame >= 1000 / REDUCED_MOTION_FPS) {
-          lastReducedFrame = ts;
-          renderFrame();
-        }
-      } else if (ts - lastFrameTs >= FRAME_INTERVAL_MS) {
+      // "Lowest wins": reduced-motion caps at REDUCED_MOTION_FPS, but an
+      // explicit setFps() cap below that (e.g. 1fps) must not be raised back
+      // up to REDUCED_MOTION_FPS just because reduced-motion is also active.
+      const effectiveFps = reducedMotion ? Math.min(currentFps, REDUCED_MOTION_FPS) : currentFps;
+      if (ts - lastFrameTs >= 1000 / effectiveFps) {
         // Timestamp-gated: still scheduled every rAF tick (skip frames, not
         // timers), so we never fall out of sync with the browser's compositor.
         lastFrameTs = ts;
@@ -1147,6 +1158,22 @@ export function initVisualiser(canvas, engine) {
       }
       rafId = null;
     }
+  }
+
+  /**
+   * Governor integration point (power.js's onTierChange calls
+   * visualiser.setFps?.(budget.visualFps)). Clamps to 1..60; a missing or
+   * non-finite value restores the TARGET_FPS default. Only mutates the cap
+   * the already-running rAF loop reads each tick — never restarts the loop
+   * or schedules an extra frame, so a mid-run change can't stutter or
+   * double-draw.
+   */
+  function setFps(fps) {
+    currentFps = typeof fps === 'number' && Number.isFinite(fps) ? clampRange(fps, MIN_FPS, MAX_FPS) : TARGET_FPS;
+  }
+
+  function getFps() {
+    return currentFps;
   }
 
   // -- time <-> pixel mapping -------------------------------------------
@@ -1595,7 +1622,7 @@ export function initVisualiser(canvas, engine) {
     }
   }
 
-  return { destroy };
+  return { destroy, setFps, getFps };
 }
 
 export default initVisualiser;
