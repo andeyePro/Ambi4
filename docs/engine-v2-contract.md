@@ -923,3 +923,31 @@ space, so users sculpt real-world impressions themselves:
 - Shape MODIFIER patch fields (oscillator voices): fold 0-1 — wavefolder
   (WaveShaperNode folding curve, 2x oversampling; 0 = bypass, no extra nodes);
   reserved: drive, pulseWidth. RangeValue-capable; controls tables honest.
+
+---
+
+# v21 addendum (planner-specced ahead of iterations 3-4 and the registry refactor)
+
+## Param shapes (engine, iterations 3-4)
+- tracks[t].swing: 0-1|null (null = follow global swing); same warp law.
+- tracks[t].density: 0-2|null (null = complexity-derived; scales that track's
+  event rate only, post-activation).
+- tracks[t].driftRate: 0.02-1 (scales ALL of that track's RangeValue walk step
+  sizes; default 1 = current ±0.15/bar).
+- reverbTail: 0.5-6 seconds (global preset-capturable; engine rebuilds the IR
+  async on change, crossfading sends — governor tier caps still apply on top).
+- harmony.rhythm: 'auto'|1|2|4|8 bars-per-chord (hook pass length adapts).
+- Pad breathing: swell phase locks to bar phase (existing sin contour keyed to
+  bar clock — already bar-phased; expose padBreath 0-1 depth param).
+- Modes add: ionian, mixolydian, phrygian (scale tables + chord naming).
+- Percussion lanes become DYNAMIC: sequencer.steps keyed by lane id (built-ins
+  'high','mid','low' preserved; user lanes append, each with a voice-kind map
+  and display name; cap 8 lanes). perKind keys follow lane ids.
+
+## Track-registry API (window 2 refactor target)
+engine.getTracks() → ordered [{id, label, builtin, colourToken}]; addTrack(
+{id, label, family: 'melodic'|'percussive', voiceSet}) / removeTrack(id) for
+user tracks (cap 12 total); ALL fixed six-key structures (TRACK_MIX, staging
+order, auto-activation ladder, stats, params.tracks) become registry-driven;
+events carry track ids as now; UI/visualiser/blocks build lanes from
+getTracks(). Built-ins undeletable; user tracks persist in params.
