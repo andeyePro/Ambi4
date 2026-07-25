@@ -1793,3 +1793,37 @@ alone.
   disabled control, nothing to explain.
 - Blur and tab-hide release every held key: a keyup that never arrives must
   not leave a note sounding.
+
+---
+
+# v29 addendum — share-link names (tier 1, free, display only)
+
+Module ownership: **Share names**: `src/scripts/share-name.js`
+(+ `tests/share-name-smoke.mjs`). Pure, import-safe in Node, no DOM.
+
+- Every `#p=` share link has a three-word name — `misty-harbour-lantern` —
+  computed from the fragment payload, not from anything the page stores. The
+  sender sees it when the link is copied; the receiver sees the SAME name on
+  arrival, because both ends hash the same base64url payload.
+- `shareNameFor(fragment, pool)` takes any fragment shape (`abc`, `p=abc`,
+  `#p=abc`, `#x=1&p=abc`) and returns the payload's name; `wordPoolFrom(
+  wordlist)` builds the pool from `src/data/wordlist.json` (adjectives, then
+  nouns, then verbs — 938 words, file order, verbatim, all eligible for all
+  three positions). The wordlist is not imported by the module: the page hands
+  it in (bundled at build time), the test reads it off disk.
+- Hash: FNV-1a/32 over the payload, once per position from three frozen seeds,
+  each result through a murmur3 finaliser before `% pool.length`. No Web
+  Crypto (async, and absent in an insecure context), no dependency, no clock,
+  no randomness. Positions are made distinct by stepping to the next index on
+  a collision. THE SEEDS AND THE POOL ORDER ARE FROZEN — changing either
+  renames every link ever shared; `tests/share-name-smoke.mjs` holds
+  hard-coded names that fail if they move.
+- DISPLAY ONLY. It is a handle for a wall of base64, not a claim: nothing is
+  registered, reserved or resolvable. `ambi4.work/[name]` stays the v17 paid
+  ladder (registry + Worker), and the page's hint says so.
+- Page contract (`src/pages/index.astro`): a reserved line under the Share row
+  (`#share-name-value`, em dash before there is a name, never hidden — no
+  jiggle when a name lands); the share note names the copied link; the name is
+  offered as the preset name only while that box is EMPTY, never overwriting
+  what the user typed; an arriving `#p=` link announces its name in the same
+  note and line. A `/[slug]` factory route keeps its own name and gets none.
