@@ -36,25 +36,29 @@
  *
  * export function attachMultiScope(canvas, engine, { tracks, legendContainer,
  *   onSelectionChange } = {}) => { destroy(), setTracks(ids) }
- *   One phosphor trace per selected track (default: all six, canonical UI
- *   order pad/arp/melody/bass/texture/percussion), sharing one graticule and
- *   one rAF loop. Analysers come from engine.getAnalysers(), lazily
- *   re-fetched on the engine's 'state' event and on tab-visible again (never
- *   polled per frame) — the same lazy-refetch/identity-compare shape the
- *   page uses for its single live scope. Each track gets its own auto-gain
- *   (same law as attachLiveScope) and its own reused sample buffer, so a
- *   quiet pad and a loud arp both read; a track under the silence floor
- *   draws no trace at all. Trace colour: getComputedStyle(canvas)
- *   --track-<id>, falling back to an evenly-spaced hue per track.
- *   setTracks(ids) narrows/reorders the drawn set (draw/z-order follows the
- *   given order); unknown ids are dropped.
+ *   One phosphor trace per selected track (default: every track — from
+ *   engine.getTracks() when the engine exposes it, in its order; else the
+ *   fallback canonical UI order pad/arp/melody/bass/texture/percussion —
+ *   see MULTISCOPE_ALL_TRACKS/trackRegistryFromEngine() below), sharing one
+ *   graticule and one rAF loop. Analysers come from engine.getAnalysers(),
+ *   lazily re-fetched on the engine's 'state' event and on tab-visible again
+ *   (never polled per frame) — the same lazy-refetch/identity-compare shape
+ *   the page uses for its single live scope. Each track gets its own
+ *   auto-gain (same law as attachLiveScope) and its own reused sample
+ *   buffer, so a quiet pad and a loud arp both read; a track under the
+ *   silence floor draws no trace at all. Trace colour: getComputedStyle
+ *   (canvas) on the registry's own colourToken (or the `--track-<id>`
+ *   convention without a registry), falling back to an evenly-spaced hue per
+ *   track. setTracks(ids) narrows/reorders the drawn set (draw/z-order
+ *   follows the given order); unknown ids are dropped.
  *
  *   Legend: without opts.legendContainer, a small canvas-drawn legend
  *   (colour swatch + id) runs along the bottom — labelling only, not
  *   interactive. With opts.legendContainer (a DOM element), the canvas
  *   legend is skipped and a DOM legend renders into it instead: one real
- *   <button> per track (all six, fixed canonical order), each an id label
- *   + a colour-swatch dot, aria-pressed reflecting whether that track is
+ *   <button> per track (every known track, fixed canonical/registry order),
+ *   labelled with the registry's own label when available (else the id) +
+ *   a colour-swatch dot, aria-pressed reflecting whether that track is
  *   currently drawn. Interaction: a single click toggles that track's trace
  *   on/off; a double-click SOLOS it (every other track off); a second
  *   double-click on the already-soloed track restores the selection that
@@ -141,7 +145,10 @@ const READOUT_PAD = 6;
 // -- multi-scope (attachMultiScope) --------------------------------------
 // Canonical UI track order — v13/v14 contract: "Track order everywhere:
 // pad, arp, melody, bass, texture, percussion." (Distinct from the engine's
-// own fixed pad/bass/melody/texture/arp/percussion param order.)
+// own fixed pad/bass/melody/texture/arp/percussion param order.) Fallback
+// only: attachMultiScope prefers engine.getTracks() when available — see
+// trackRegistryFromEngine() below — and this list is what it falls back to
+// for an engine that doesn't expose one.
 const MULTISCOPE_ALL_TRACKS = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
 const MULTISCOPE_LEGEND_FONT = '10px monospace';
 const MULTISCOPE_LEGEND_ALPHA = 0.85;
@@ -1205,26 +1212,65 @@ export function attachLiveScope(canvas, analyser) {
 // attachMultiScope — one phosphor trace per track, engine-driven
 // ---------------------------------------------------------------------------
 
-function fallbackTrackHue(id) {
-  const i = MULTISCOPE_ALL_TRACKS.indexOf(id);
-  return Math.round((360 * (i < 0 ? 0 : i)) / MULTISCOPE_ALL_TRACKS.length);
+// -- track registry (engine.getTracks(), feature-detected) ----------------
+//
+// attachMultiScope prefers the live engine.getTracks() list — for lane
+// count/order AND legend labels — over the hardcoded MULTISCOPE_ALL_TRACKS
+// fallback above. This module imports nothing (see the header doc), so this
+// is a local reimplementation of the same validate-or-null shape used in
+// visualiser.js's own trackRegistryFromEngine().
+
+/** Validates engine.getTracks(); any entry missing a non-empty string `id` invalidates the whole list. */
+function normaliseTrackRegistry(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  const out = [];
+  for (const entry of list) {
+    if (!entry || typeof entry.id !== 'string' || !entry.id) return null;
+    out.push({
+      id: entry.id,
+      label: typeof entry.label === 'string' && entry.label ? entry.label : entry.id,
+      colourToken: typeof entry.colourToken === 'string' && entry.colourToken
+        ? entry.colourToken
+        : `--track-${entry.id}`,
+    });
+  }
+  return out;
 }
 
-function trackColor(canvas, id) {
-  return cssColor(canvas, `--track-${id}`, `hsl(${fallbackTrackHue(id)}, 70%, 55%)`);
+/** engine.getTracks(), feature-detected and validated; null if unavailable/malformed. */
+function trackRegistryFromEngine(engine) {
+  try {
+    if (typeof engine?.getTracks === 'function') {
+      return normaliseTrackRegistry(engine.getTracks());
+    }
+  } catch {
+    // fall through to the caller's fallback
+  }
+  return null;
+}
+
+function fallbackTrackHue(id, allTracks = MULTISCOPE_ALL_TRACKS) {
+  const i = allTracks.indexOf(id);
+  return Math.round((360 * (i < 0 ? 0 : i)) / allTracks.length);
+}
+
+/** `colourTokens`, if supplied, prefers a registry track's own colourToken field over the `--track-<id>` convention. */
+function trackColor(canvas, id, allTracks = MULTISCOPE_ALL_TRACKS, colourTokens = null) {
+  const token = (colourTokens && colourTokens[id]) || `--track-${id}`;
+  return cssColor(canvas, token, `hsl(${fallbackTrackHue(id, allTracks)}, 70%, 55%)`);
 }
 
 function isDomElement(el) {
   return !!el && typeof el.appendChild === 'function' && typeof el.removeChild === 'function';
 }
 
-/** Filters/dedupes a requested track list to known ids, in caller order; falls back to all six. */
-function normaliseTracks(ids) {
-  if (!Array.isArray(ids)) return [...MULTISCOPE_ALL_TRACKS];
+/** Filters/dedupes a requested track list to known ids, in caller order; falls back to all of `allTracks`. */
+function normaliseTracks(ids, allTracks = MULTISCOPE_ALL_TRACKS) {
+  if (!Array.isArray(ids)) return [...allTracks];
   const seen = new Set();
   const out = [];
   for (const id of ids) {
-    if (typeof id === 'string' && MULTISCOPE_ALL_TRACKS.includes(id) && !seen.has(id)) {
+    if (typeof id === 'string' && allTracks.includes(id) && !seen.has(id)) {
       seen.add(id);
       out.push(id);
     }
@@ -1243,8 +1289,22 @@ export function attachMultiScope(canvas, engine, opts) {
   }
   if (!ctx) return inert;
 
+  // -- track registry (engine.getTracks(), feature-detected at attach) ----
+  //
+  // Drives the default/known track set (fallback list, legend order, colour
+  // lookup) throughout this instance — a future user track just means a
+  // different-length ALL_TRACKS here, nothing below hardcodes "six".
+  const registryTracks = trackRegistryFromEngine(engine);
+  const ALL_TRACKS = registryTracks ? registryTracks.map((t) => t.id) : MULTISCOPE_ALL_TRACKS;
+  const TRACK_LABELS = registryTracks
+    ? Object.fromEntries(registryTracks.map((t) => [t.id, t.label]))
+    : Object.fromEntries(MULTISCOPE_ALL_TRACKS.map((id) => [id, id]));
+  const TRACK_COLOUR_TOKENS = registryTracks
+    ? Object.fromEntries(registryTracks.map((t) => [t.id, t.colourToken]))
+    : Object.fromEntries(MULTISCOPE_ALL_TRACKS.map((id) => [id, `--track-${id}`]));
+
   let destroyed = false;
-  let selected = normaliseTracks(opts && opts.tracks);
+  let selected = normaliseTracks(opts && opts.tracks, ALL_TRACKS);
   const trackStates = new Map(); // track id -> createTraceState() + { analyser }
 
   liveCanvases.add(canvas);
@@ -1263,7 +1323,7 @@ export function attachMultiScope(canvas, engine, opts) {
   let trackColors = new Map();
   function refreshColors() {
     themeColors = readScopeColors(canvas);
-    trackColors = new Map(MULTISCOPE_ALL_TRACKS.map((id) => [id, trackColor(canvas, id)]));
+    trackColors = new Map(ALL_TRACKS.map((id) => [id, trackColor(canvas, id, ALL_TRACKS, TRACK_COLOUR_TOKENS)]));
     syncLegend();
   }
 
@@ -1290,7 +1350,7 @@ export function attachMultiScope(canvas, engine, opts) {
 
   /** setTracks()'s path: updates the drawn set + legend, no callback (caller-driven, not user-driven). */
   function applySelectionSilently(next) {
-    selected = normaliseTracks(next);
+    selected = normaliseTracks(next, ALL_TRACKS);
     syncLegend();
   }
 
@@ -1363,7 +1423,7 @@ export function attachMultiScope(canvas, engine, opts) {
     try {
       legendContainer.textContent = '';
       legendButtons.clear();
-      for (const id of MULTISCOPE_ALL_TRACKS) {
+      for (const id of ALL_TRACKS) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'scope-legend-track';
@@ -1373,7 +1433,7 @@ export function attachMultiScope(canvas, engine, opts) {
         dot.style.backgroundColor = trackColors.get(id) || themeColors.trace;
         const label = document.createElement('span');
         label.className = 'scope-legend-label';
-        label.textContent = id;
+        label.textContent = TRACK_LABELS[id] || id;
         btn.appendChild(dot);
         btn.appendChild(label);
         const onClick = () => onLegendClick(id);
@@ -1434,7 +1494,7 @@ export function attachMultiScope(canvas, engine, opts) {
     } catch {
       analysers = null;
     }
-    for (const id of MULTISCOPE_ALL_TRACKS) {
+    for (const id of ALL_TRACKS) {
       const st = getTrackState(id);
       const next = (analysers && analysers[id]) || null;
       if (next !== st.analyser) {

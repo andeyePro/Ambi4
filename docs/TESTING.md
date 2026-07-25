@@ -44,6 +44,15 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   Structure) shows only where `harmony.rhythm` survives the sanitiser; and the
   pad editor's Breath knob shows only where `tracks.pad.padBreath` does — and
   never on any other track's editor.
+- v21 track registry — the track rows are the ENGINE'S list, not the page's:
+  their count, their order and their labels are asserted against `getTracks()`,
+  so a page that grew a track list of its own again fails here. The one
+  hardcoded table the page keeps — `FALLBACK_TRACKS`, the branch an engine
+  bundle without `getTracks()` boots on — is read out of the page source and
+  matched against the live registry 1:1: ids, order, labels, families, and the
+  tuned/sequenced sets derived from it. Nothing else exercises that branch, so
+  a fallback that has drifted from the registry would otherwise sit there
+  silently waiting to boot the wrong six tracks.
 - Fresh install — this harness boots with empty storage and no consent, which is
   every first-time visitor: nothing is persisted before consent is granted, every
   track row builds a randomness control, and no dial read-out comes up NaN

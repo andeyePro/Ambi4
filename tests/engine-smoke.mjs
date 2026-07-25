@@ -184,6 +184,7 @@ const {
   buildArpSequence,
   autoArpSettings,
   autoActiveTracks,
+  getTracks,
   resolveStructure,
   sectionAtBar,
   beatsPerBar,
@@ -5961,6 +5962,180 @@ test('v21: getResolved() publishes the resolved swing, density and kit lanes', (
   assert.equal(engine.getResolved().tracks.percussion.lanes[0].id, PERCUSSION_LANES[0],
     'getResolved handed out the engine\'s own lane objects');
 }));
+
+// --------------------------------------------------------------------------
+// The track registry (v21) — identity proof
+//
+// The six fixed track tables (order, sequenced set, tuned set, mix, auto
+// ladder, staged entry) became views over ONE registry. Every literal below
+// was lifted from the engine as it stood BEFORE that refactor: these tests are
+// the pin that says the move changed nothing, so they must never be "updated"
+// to match a new derivation — a failure here is a behaviour change.
+// --------------------------------------------------------------------------
+
+test('identity: TRACK_ORDER, SEQUENCED_TRACKS and TUNED_TRACKS are exactly the lists they were', () => {
+  assert.deepEqual(TRACK_ORDER, ['pad', 'bass', 'melody', 'texture', 'arp', 'percussion']);
+  // The sequencer pass draws one rng() per track in SEQUENCED_TRACKS order, so
+  // this order is load-bearing, not merely cosmetic.
+  assert.deepEqual(SEQUENCED_TRACKS, ['melody', 'bass', 'arp', 'percussion']);
+  assert.deepEqual(TUNED_TRACKS, ['pad', 'bass', 'melody', 'texture', 'arp']);
+  for (const [name, list] of [['TRACK_ORDER', TRACK_ORDER], ['SEQUENCED_TRACKS', SEQUENCED_TRACKS],
+    ['TUNED_TRACKS', TUNED_TRACKS]]) {
+    assert.ok(Object.isFrozen(list), `${name} must stay frozen`);
+  }
+});
+
+test('identity: the auto-activation ladder still switches each track on at its own energy', () => {
+  // energy = 0.55·intensity + 0.45·complexity, so passing the same value for
+  // both probes the ladder at exactly that energy.
+  const THRESHOLDS = { pad: 0, bass: 0.1, melody: 0.24, texture: 0.36, arp: 0.48, percussion: 0.6 };
+  const EPSILON = 1e-6;
+  for (const [track, threshold] of Object.entries(THRESHOLDS)) {
+    const above = autoActiveTracks(threshold + EPSILON, threshold + EPSILON);
+    assert.ok(above.includes(track), `${track} stayed off at energy ${threshold}`);
+    if (threshold > 0) {
+      const below = autoActiveTracks(threshold - EPSILON, threshold - EPSILON);
+      assert.ok(!below.includes(track), `${track} joined below its ${threshold} threshold`);
+    }
+  }
+  // The set is always a prefix of TRACK_ORDER — the property the ladder's
+  // rising thresholds exist to guarantee.
+  for (let energy = 0; energy <= 1; energy += 0.05) {
+    const active = autoActiveTracks(energy, energy);
+    assert.deepEqual(active, TRACK_ORDER.slice(0, active.length),
+      `energy ${energy} activated a non-prefix set: ${active.join(',')}`);
+  }
+});
+
+test('identity: the mix table (tone, dry, sends) reaches the graph unchanged', () => hiddenTab(async () => {
+  const MIX = {
+    pad: { level: 0.36, dry: 0.8, reverb: 0.45, delay: 0.1, tone: 4000 },
+    bass: { level: 0.44, dry: 1.0, reverb: 0.08, delay: 0.0, tone: 12000 },
+    melody: { level: 0.28, dry: 0.75, reverb: 0.5, delay: 0.28, tone: 6000 },
+    texture: { level: 0.2, dry: 0.6, reverb: 0.7, delay: 0.35, tone: 12000 },
+    arp: { level: 0.2, dry: 0.7, reverb: 0.45, delay: 0.25, tone: 6500 },
+    percussion: { level: 0.24, dry: 0.85, reverb: 0.3, delay: 0.12, tone: 9000 },
+  };
+
+  // arm() builds the graph and applies the sends BEFORE the voice library has
+  // loaded, so what the nodes carry at this instant is the mix table itself,
+  // untouched by any voice default or patch. Nothing may be awaited between
+  // the arm and the reads.
+  const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' }, { rng: seededRng(2101) });
+  engine.arm();
+  const ctx = liveContexts[liveContexts.length - 1];
+  const sends = sendGains(ctx);
+  const inputs = trackGains(ctx);
+  for (const [name, mix] of Object.entries(MIX)) {
+    const tone = inputs[name].connections.find((node) => node.kind === 'biquad');
+    const dry = tone.connections.find((node) => node.kind === 'gain'
+      && node !== sends[name].reverb && node !== sends[name].delay);
+    assert.equal(tone.frequency.value, mix.tone, `${name}: tone ceiling moved`);
+    assert.equal(dry.gain.value, mix.dry, `${name}: dry level moved`);
+    assert.equal(sends[name].reverb.gain.value, mix.reverb, `${name}: default reverb send moved`);
+    assert.equal(sends[name].delay.gain.value, mix.delay, `${name}: default delay send moved`);
+  }
+  engine.stop();
+}));
+
+test('identity: the mix levels are exactly the ceiling each track had', () => hiddenTab(async () => {
+  const LEVELS = {
+    pad: 0.36, bass: 0.44, melody: 0.28, texture: 0.2, arp: 0.2, percussion: 0.24,
+  };
+  // level 1 with randomness 0 holds every walk still, so the gain the chain
+  // settles on IS the track's mix level.
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.8,
+    tracks: tracksAll('on', { level: 1, randomness: 0 }),
+  }, { rng: seededRng(2102) });
+  await engine.start();
+  await advance(10, FAST);
+  const gains = trackGains(liveContexts[liveContexts.length - 1]);
+  const settled = Object.fromEntries(TRACK_ORDER.map((name) => [name, gains[name].gain.value]));
+  engine.stop();
+  for (const [name, level] of Object.entries(LEVELS)) {
+    assert.ok(Math.abs(settled[name] - level) < 1e-9,
+      `${name}: mix level is ${settled[name]}, not ${level}`);
+  }
+}));
+
+test('identity: staged entry still lets each track in on its own bar, all six by bar 5', () => hiddenTab(async () => {
+  const STAGES = { pad: 0, bass: 1, melody: 2, texture: 3, arp: 4, percussion: 5 };
+  // Full manual lanes make the sequenced tracks sound in the first bar their
+  // stage allows, so their entry bar is the stage index itself.
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+    customStructure: [{ label: 'D', bars: 8, intensity: 1 }],
+    tracks: tracksAll('on', { sequencer: { mode: 'manual', steps: seqLane() } }),
+  }, { rng: seededRng(2103) });
+  const log = record(engine);
+  await engine.start();
+  await advance(16, FAST);
+  engine.stop();
+
+  const first = {};
+  for (const note of log.notes) {
+    const owner = log.barOf(note);
+    if (!owner) continue;
+    first[note.track] = Math.min(first[note.track] ?? Infinity, owner.bar);
+  }
+  for (const [track, stage] of Object.entries(STAGES)) {
+    assert.ok(Number.isFinite(first[track]), `${track} never played`);
+    assert.ok(first[track] >= stage, `${track} sounded in bar ${first[track]}, before stage ${stage}`);
+  }
+  for (const track of SEQUENCED_TRACKS) {
+    assert.equal(first[track], STAGES[track],
+      `${track} waited until bar ${first[track]} with every step on`);
+  }
+  // The staged entry is exactly as long as there are tracks: the silence floor
+  // takes over after bar 5 (STAGE_BARS = TRACK_ORDER.length - 1).
+  assert.equal(TRACK_ORDER.length, 6);
+  assert.equal(Math.max(...Object.values(STAGES)), TRACK_ORDER.length - 1);
+}));
+
+test('getTracks() publishes the registry in order, as a frozen public view', () => {
+  // Display order per the standing user rule, not engine/staging order.
+  const EXPECTED = [
+    { id: 'pad', label: 'Pad', builtin: true, colourToken: '--track-pad', family: 'melodic' },
+    { id: 'arp', label: 'Arp', builtin: true, colourToken: '--track-arp', family: 'melodic' },
+    { id: 'melody', label: 'Melody', builtin: true, colourToken: '--track-melody', family: 'melodic' },
+    { id: 'bass', label: 'Bass', builtin: true, colourToken: '--track-bass', family: 'melodic' },
+    { id: 'texture', label: 'Texture', builtin: true, colourToken: '--track-texture', family: 'melodic' },
+    { id: 'percussion', label: 'Percussion', builtin: true, colourToken: '--track-percussion', family: 'percussive' },
+  ];
+  const tracks = getTracks();
+  // getTracks() publishes DISPLAY order (user rule: pad, arp, melody, bass,
+  // texture, percussion) — engine/staging order is TRACK_ORDER, unchanged.
+  assert.deepEqual(tracks.map((track) => track.id),
+    ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'],
+    'getTracks() broke display order');
+  assert.deepEqual([...tracks.map((t) => t.id)].sort(), [...TRACK_ORDER].sort(),
+    'getTracks() and TRACK_ORDER cover different track sets');
+  assert.deepEqual(tracks, EXPECTED);
+  for (const track of tracks) {
+    assert.deepEqual(Object.keys(track), ['id', 'label', 'builtin', 'colourToken', 'family'],
+      `${track.id}: the public view must publish these five fields and nothing else`);
+  }
+});
+
+test('getTracks() hands out nothing a caller can edit the registry through', () => {
+  const tracks = getTracks();
+  assert.ok(Object.isFrozen(tracks), 'the track list must be frozen');
+  for (const track of tracks) assert.ok(Object.isFrozen(track), `${track.id} entry must be frozen`);
+  assert.throws(() => { getTracks()[0].label = 'wrecked'; }, TypeError);
+  assert.throws(() => { getTracks().push({ id: 'wrecked' }); }, TypeError);
+  assert.equal(getTracks()[0].label, 'Pad', 'the registry was edited through getTracks()');
+});
+
+test('the engine handle carries getTracks() beside getResolved()', () => {
+  const engine = createEngine();
+  assert.equal(typeof engine.getTracks, 'function', 'no getTracks() on the engine handle');
+  assert.deepEqual(engine.getTracks(), getTracks(),
+    'the handle must publish the same registry view as the module export');
+  assert.deepEqual([...engine.getTracks().map((track) => track.id)].sort(),
+    [...Object.keys(engine.getParams().tracks)].sort(),
+    'params.tracks and the registry disagree about which tracks exist');
+});
 
 // --------------------------------------------------------------------------
 // Runner

@@ -69,15 +69,27 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-const TRACKS = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
+// Fallback values, used when the engine handle passed to initVisualiser()
+// doesn't expose getTracks() (older engine) — see trackRegistryFromEngine()
+// below for the registry-driven path.
+const FALLBACK_TRACKS = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
 
-const TRACK_LABELS = {
+const FALLBACK_TRACK_LABELS = {
   pad: 'Pad',
   arp: 'Arp',
   melody: 'Melody',
   bass: 'Bass',
   texture: 'Texture',
   percussion: 'Percussion',
+};
+
+const FALLBACK_TRACK_FAMILY = {
+  pad: 'melodic',
+  arp: 'melodic',
+  melody: 'melodic',
+  bass: 'melodic',
+  texture: 'melodic',
+  percussion: 'percussive',
 };
 
 // Mix ratios (toward --text) used to derive a distinct fallback accent per
@@ -104,8 +116,11 @@ const MIN_LABEL_WIDTH = 36;
 const MAX_LABEL_WIDTH = 74;
 const MIN_BAR_TICK_SPACING_PX = 8;
 
-// Fallback pitch ranges used until real notes widen them. Percussion is
-// positioned by `kind` (low/mid/high), not by this map.
+// Fallback pitch ranges used until real notes widen them. Percussion (any
+// track whose family is 'percussive') is positioned by `kind` (low/mid/high),
+// not by this map. Keyed by id — a registry-supplied track not listed here
+// simply gets no seeded range and widens from its first note instead (see
+// pitchFrac()'s fallback).
 const DEFAULT_MIDI_RANGE = {
   pad: [36, 72],
   arp: [55, 90],
@@ -115,6 +130,45 @@ const DEFAULT_MIDI_RANGE = {
 };
 
 const PERCUSSION_KIND_ORDER = { low: 0, mid: 1, high: 2 };
+
+// ---------------------------------------------------------------------------
+// Track registry (engine.getTracks(), feature-detected)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates and normalises whatever engine.getTracks() returned. Any entry
+ * missing a non-empty string `id` invalidates the whole list (never a
+ * partial/garbled lane set) — the caller falls back to the hardcoded
+ * FALLBACK_* tables instead.
+ */
+function normaliseTrackRegistry(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  const out = [];
+  for (const entry of list) {
+    if (!entry || typeof entry.id !== 'string' || !entry.id) return null;
+    out.push({
+      id: entry.id,
+      label: typeof entry.label === 'string' && entry.label ? entry.label : entry.id,
+      colourToken: typeof entry.colourToken === 'string' && entry.colourToken
+        ? entry.colourToken
+        : `--track-${entry.id}`,
+      family: typeof entry.family === 'string' && entry.family ? entry.family : 'melodic',
+    });
+  }
+  return out;
+}
+
+/** engine.getTracks(), feature-detected and validated; null if unavailable/malformed. */
+function trackRegistryFromEngine(engine) {
+  try {
+    if (typeof engine?.getTracks === 'function') {
+      return normaliseTrackRegistry(engine.getTracks());
+    }
+  } catch {
+    // fall through to the caller's fallback
+  }
+  return null;
+}
 
 // Piano-roll de-overlap (v16 addendum): when two time-overlapping notes in
 // the same (non-percussion) lane land within SLOT_COLLISION_FRAC of each
@@ -245,22 +299,37 @@ const FALLBACK_THEME = {
 };
 
 /**
- * Per-lane accent colour: prefers the theme's --track-<id> custom property
- * (added by the theme agent for pad/arp/melody/bass/texture/percussion);
- * falls back to a derived mix of --link/--text when unset/unparseable.
+ * The mix-toward-text ratio for a lane's derived fallback accent. Uses the
+ * hand-picked LANE_ACCENT_RATIOS table for the first six lanes (unchanged
+ * from before the registry landed); a registry with more lanes than that
+ * (user tracks) spreads any extra ones evenly across the same 0.15..0.95
+ * span rather than reading past the table's end.
  */
-function laneAccentFor(track, idx, computed, link, text) {
-  const fallback = mixColors(link, text, LANE_ACCENT_RATIOS[idx]);
+function laneAccentRatio(idx, total) {
+  if (idx < LANE_ACCENT_RATIOS.length) return LANE_ACCENT_RATIOS[idx];
+  const lo = LANE_ACCENT_RATIOS[0];
+  const hi = LANE_ACCENT_RATIOS[LANE_ACCENT_RATIOS.length - 1];
+  return total > 1 ? lo + (hi - lo) * (idx / (total - 1)) : (lo + hi) / 2;
+}
+
+/**
+ * Per-lane accent colour: prefers the theme's --track-<id> custom property
+ * (colourToken — the registry's own token when engine.getTracks() supplied
+ * one, else the same `--track-<id>` convention as before); falls back to a
+ * derived mix of --link/--text when unset/unparseable.
+ */
+function laneAccentFor(track, idx, total, computed, link, text, colourToken) {
+  const fallback = mixColors(link, text, laneAccentRatio(idx, total));
   if (!computed) return fallback;
   try {
-    return parseColor(computed.getPropertyValue(`--track-${track}`), fallback);
+    return parseColor(computed.getPropertyValue(colourToken || `--track-${track}`), fallback);
   } catch {
     return fallback;
   }
 }
 
 /** Reads --text/--secondary/--border/--link/--accent-warm off the canvas and derives per-lane accents. */
-function readTheme(canvas) {
+function readTheme(canvas, tracks, colourTokens) {
   let computed = null;
   try {
     computed = getComputedStyle(canvas);
@@ -280,7 +349,7 @@ function readTheme(canvas) {
   const border = read('--border', FALLBACK_THEME.border);
   const link = read('--link', FALLBACK_THEME.link);
   const accentWarm = read('--accent-warm', FALLBACK_THEME.accentWarm);
-  const laneAccents = TRACKS.map((t, i) => laneAccentFor(t, i, computed, link, text));
+  const laneAccents = tracks.map((t, i) => laneAccentFor(t, i, tracks.length, computed, link, text, colourTokens[t]));
   return { text, secondary, border, link, accentWarm, laneAccents };
 }
 
@@ -320,8 +389,31 @@ export function initVisualiser(canvas, engine) {
   }
   if (!ctx2d) return { destroy() {} };
 
+  // -- track registry (engine.getTracks(), feature-detected at init) ------
+  //
+  // Lane count/order/labels/colours all derive from this list. A registry
+  // with more/fewer/different tracks than the historical six (a future user
+  // track) just means a different-length TRACKS array here — nothing below
+  // this point hardcodes "six".
+  const registryTracks = trackRegistryFromEngine(engine);
+  const TRACKS = registryTracks ? registryTracks.map((t) => t.id) : FALLBACK_TRACKS;
+  const TRACK_LABELS = registryTracks
+    ? Object.fromEntries(registryTracks.map((t) => [t.id, t.label]))
+    : FALLBACK_TRACK_LABELS;
+  const TRACK_COLOUR_TOKENS = registryTracks
+    ? Object.fromEntries(registryTracks.map((t) => [t.id, t.colourToken]))
+    : Object.fromEntries(FALLBACK_TRACKS.map((id) => [id, `--track-${id}`]));
+  const TRACK_FAMILY = registryTracks
+    ? Object.fromEntries(registryTracks.map((t) => [t.id, t.family]))
+    : FALLBACK_TRACK_FAMILY;
+
+  /** family === 'percussive' for this track, with the literal id kept as a fallback if family data is missing. */
+  function isPercussiveTrack(track) {
+    return TRACK_FAMILY[track] === 'percussive' || track === 'percussion';
+  }
+
   let destroyed = false;
-  let theme = readTheme(canvas);
+  let theme = readTheme(canvas, TRACKS, TRACK_COLOUR_TOKENS);
 
   // -- per-track state --------------------------------------------------
   const notesByTrack = new Map(TRACKS.map((t) => [t, []]));
@@ -481,7 +573,7 @@ export function initVisualiser(canvas, engine) {
    */
   function assignSlot(track, note, list) {
     note.slot = 0;
-    if (track === 'percussion' || !list || !list.length) return;
+    if (isPercussiveTrack(track) || !list || !list.length) return;
     const overlapping = list.filter(
       (other) =>
         other.time < note.time + note.duration + TIME_OVERLAP_EPS &&
@@ -632,7 +724,7 @@ export function initVisualiser(canvas, engine) {
 
   let themeMedia = null;
   function onThemeChange() {
-    theme = readTheme(canvas);
+    theme = readTheme(canvas, TRACKS, TRACK_COLOUR_TOKENS);
     positionLamps(); // lamp label colour follows the per-track theme tokens too
     renderFrame();
   }
@@ -1212,7 +1304,7 @@ export function initVisualiser(canvas, engine) {
   }
 
   function pitchY(track, note, innerTop, innerH) {
-    if (track === 'percussion') {
+    if (isPercussiveTrack(track)) {
       const idx = PERCUSSION_KIND_ORDER[note.kind] ?? 1;
       const frac = 1 - idx / 2; // low → bottom, high → top
       return innerTop + frac * innerH;

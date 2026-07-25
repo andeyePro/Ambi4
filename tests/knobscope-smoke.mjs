@@ -1949,6 +1949,127 @@ test('multiScope: degenerate inputs return inert handles, never throw', () => {
 });
 
 // --------------------------------------------------------------------------
+// Scope tests — attachMultiScope registry-driven track list (engine.getTracks())
+// --------------------------------------------------------------------------
+
+const REGISTRY_TRACKS = [
+  { id: 'pad', label: 'Pad', builtin: true, colourToken: '--track-pad', family: 'melodic' },
+  { id: 'bass', label: 'Bass', builtin: true, colourToken: '--track-bass', family: 'melodic' },
+  { id: 'melody', label: 'Melody', builtin: true, colourToken: '--track-melody', family: 'melodic' },
+  { id: 'texture', label: 'Texture', builtin: true, colourToken: '--track-texture', family: 'melodic' },
+  { id: 'arp', label: 'Arp', builtin: true, colourToken: '--track-arp', family: 'melodic' },
+  { id: 'percussion', label: 'Percussion', builtin: true, colourToken: '--track-percussion', family: 'percussive' },
+  { id: 'drone', label: 'Drone', builtin: false, colourToken: '--track-drone', family: 'melodic' },
+];
+
+function makeRegistryEngine({ running = true, analysers = {}, tracks = REGISTRY_TRACKS } = {}) {
+  const engine = makeMockEngine({ running, analysers });
+  engine.getTracks = () => tracks;
+  return engine;
+}
+
+test('multiScope: registry-driven track list — a 7-track engine.getTracks() draws 7 traces, default selection follows its order', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const trackIds = REGISTRY_TRACKS.map((t) => t.id);
+    const analysers = Object.fromEntries(trackIds.map((t) => [t, makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 })]));
+    const engine = makeRegistryEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine);
+
+    stepFrame(0);
+    const colors = traceColorsDrawn(calls);
+    assert.equal(colors.length, 7, `expected 7 distinct trace colours, got ${colors.length}: ${colors}`);
+    assert.equal(new Set(colors).size, 7, 'fallback hues must be distinct per registry track');
+    assert.deepEqual(calls.fillTexts, trackIds, 'canvas legend must label every registry track, in registry order');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: registry-driven track list — DOM legend uses registry labels, one button per registry track, in order', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const legendContainer = mockElement('div');
+  const engine = makeRegistryEngine({ analysers: {} });
+  const live = scope.attachMultiScope(canvas, engine, { legendContainer });
+
+  assert.equal(legendContainer.children.length, 7, 'one legend button per registry track');
+  assert.deepEqual(
+    legendButtonIds(legendContainer),
+    REGISTRY_TRACKS.map((t) => t.label),
+    'legend labels must prefer the registry label over the raw id',
+  );
+
+  live.destroy();
+});
+
+test('multiScope: registry-driven track list — falls back to the canonical six when the engine has no getTracks()', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = Object.fromEntries(MULTI_TRACKS.map((t) => [t, makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 })]));
+    const engine = makeMockEngine({ analysers }); // no getTracks()
+    const live = scope.attachMultiScope(canvas, engine);
+
+    stepFrame(0);
+    assert.deepEqual(calls.fillTexts, MULTI_TRACKS, 'without a registry, the legend must draw the hardcoded canonical six, in order');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: registry-driven track list — a malformed getTracks() (bad entry) falls back rather than half-applying', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = Object.fromEntries(MULTI_TRACKS.map((t) => [t, makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 })]));
+    const engine = makeMockEngine({ analysers });
+    engine.getTracks = () => [{ id: 'pad', label: 'Pad' }, { label: 'Missing id' }];
+    const live = scope.attachMultiScope(canvas, engine);
+
+    stepFrame(0);
+    assert.deepEqual(calls.fillTexts, MULTI_TRACKS, 'a malformed registry must fall back to the full hardcoded six, not a partial list');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: registry-driven track list — per-lane colour prefers entry.colourToken', () => {
+  const prevGetComputedStyle = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = () => ({
+    getPropertyValue(name) {
+      // Deliberately NOT --track-<id>: proves the fetched colour comes from
+      // the registry's own colourToken field, not a re-derived lookup.
+      return name === '--custom-drone-colour' ? '#00ff00' : '';
+    },
+  });
+  try {
+    withMockRaf(({ stepFrame }) => {
+      const calls = {};
+      const canvas = makeCanvas(calls);
+      const analysers = { drone: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 }) };
+      const engine = makeRegistryEngine({
+        analysers,
+        tracks: [{ id: 'drone', label: 'Drone', builtin: false, colourToken: '--custom-drone-colour', family: 'melodic' }],
+      });
+      const live = scope.attachMultiScope(canvas, engine);
+
+      stepFrame(0);
+      assert.ok(
+        Object.keys(calls.pointsByColor || {}).includes('#00ff00'),
+        `expected the drone trace to use its registry colourToken (#00ff00), got: ${Object.keys(calls.pointsByColor || {})}`,
+      );
+
+      live.destroy();
+    });
+  } finally {
+    if (prevGetComputedStyle === undefined) delete globalThis.getComputedStyle;
+    else globalThis.getComputedStyle = prevGetComputedStyle;
+  }
+});
+
+// --------------------------------------------------------------------------
 // Scope tests — attachMultiScope DOM legend (opts.legendContainer)
 // --------------------------------------------------------------------------
 

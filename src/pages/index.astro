@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import { resolveFactoryPresets } from '../data/factory-presets-fallback.js';
+import { getTracks } from '../scripts/ambient-engine.js';
 
 // v16: the curated presets live in src/data/factory-presets.json when that file
 // exists, and in the fallback module until it does — resolved at BUILD time so
@@ -34,19 +35,15 @@ const structures: [string, string][] = [
   ['custom', 'Custom'],
 ];
 
-// Hardcoded from the engine v2 contract's VOICES table. The UI never imports
-// engine-voices.js into frontmatter — the voice implementations aren't
-// relevant here, only the ids/labels the <select> options need. (The page
-// script lazily dynamic-imports engine-voices.js for patch defaults only.)
-// v13/v14 track order, used EVERYWHERE (rows, editors, visualiser lanes).
-const TRACKS: [string, string][] = [
-  ['pad', 'Pad'],
-  ['arp', 'Arp'],
-  ['melody', 'Melody'],
-  ['bass', 'Bass'],
-  ['texture', 'Texture'],
-  ['percussion', 'Percussion'],
-];
+// v21: the track rows are built from the ENGINE'S OWN registry, at BUILD time.
+// ambient-engine.js is import-safe outside a browser (nothing touches Web Audio
+// until createEngine() runs), so the frontmatter reads the module's static
+// getTracks() export rather than standing up a live engine — the server render
+// and the page script then agree on which tracks exist, their labels and their
+// order without either holding a list of its own.
+const TRACKS: [string, string][] = getTracks().map(
+  (track) => [track.id, track.label] as [string, string]
+);
 
 // The four main dials. They render TWICE — once on Simple, once at the foot of
 // Advanced — as two views of the same four values (page script mirrors them).
@@ -58,6 +55,10 @@ const SIMPLE_DIALS: [string, string, string, string | null, string][] = [
   ['volume', 'Volume', 'Quiet', null, 'Loud'],
 ];
 
+// Hardcoded from the engine v2 contract's VOICES table. The UI never imports
+// engine-voices.js into frontmatter — the voice implementations aren't
+// relevant here, only the ids/labels the <select> options need. (The page
+// script lazily dynamic-imports engine-voices.js for patch defaults only.)
 const VOICES: Record<string, [string, string][]> = {
   pad: [
     ['warm', 'Warm'],
@@ -511,19 +512,69 @@ const VOICES: Record<string, [string, string][]> = {
 
     const LEGACY_STORAGE_KEY = 'ambi4-generator-settings-v2';
 
-    // v13/v14 order — the same everywhere: rows, editors, visualiser lanes.
-    const TRACK_IDS = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
-    const TRACK_LABELS = {
-      pad: 'Pad',
-      arp: 'Arp',
-      melody: 'Melody',
-      bass: 'Bass',
-      texture: 'Texture',
-      percussion: 'Percussion',
-    };
-    // Tuned tracks take a Dissonance dial (v14); percussion has no chord to
-    // stray from.
-    const TUNED_TRACKS = TRACK_IDS.filter((id) => id !== 'percussion');
+    /**
+     * v21: THE TRACK LISTS ARE THE ENGINE'S, not the page's. Every list below
+     * is a view over one registry — engine.getTracks() where the engine
+     * publishes one, and this table where it does not. The literals are the
+     * registry as it stood when this page was built, kept for exactly the
+     * reason every other engineCaps probe has a fallback: an older engine
+     * bundle must still boot, on the six tracks the page has always had.
+     *
+     * `sequenced` is the one field getTracks()'s public view doesn't carry
+     * (it publishes identity and presentation only), so the fallback keeps
+     * the engine's own ordering index: a NUMBER is that track's place in the
+     * sequenced set, null means sustained, no step grid.
+     */
+    const FALLBACK_TRACKS = [
+      { id: 'pad', label: 'Pad', family: 'melodic', sequenced: null },
+      { id: 'arp', label: 'Arp', family: 'melodic', sequenced: 2 },
+      { id: 'melody', label: 'Melody', family: 'melodic', sequenced: 0 },
+      { id: 'bass', label: 'Bass', family: 'melodic', sequenced: 1 },
+      { id: 'texture', label: 'Texture', family: 'melodic', sequenced: null },
+      { id: 'percussion', label: 'Percussion', family: 'percussive', sequenced: 3 },
+    ];
+
+    /**
+     * The five views the whole page builds from, derived from one track list.
+     * `tracks` is either getTracks()'s public view or FALLBACK_TRACKS; the
+     * engine's TUNED_TRACKS / SEQUENCED_TRACKS exports are taken where the
+     * bundle has them, and where it doesn't the built-in semantics stand in:
+     * a melodic track sounds a pitch (so it takes a Dissonance dial and a
+     * Density dial), a percussive one is a kit, and the sequenced set keeps
+     * the fallback table's order — load-bearing, since the engine draws one
+     * rng() per sequenced track in exactly that order.
+     */
+    function trackListsFrom(tracks, engineExports = {}) {
+      const ids = tracks.map((track) => track.id);
+      const has = (id) => ids.includes(id);
+      const familyOf = new Map(tracks.map((track) => [track.id, track.family]));
+      const labelOf = new Map(FALLBACK_TRACKS.map((track) => [track.id, track.label]));
+      const isMelodic = (id) => familyOf.get(id) === 'melodic';
+      const exported = (list) => (Array.isArray(list) ? list.filter(has) : null);
+      const sequenced =
+        exported(engineExports.SEQUENCED_TRACKS) ||
+        FALLBACK_TRACKS.filter((track) => track.sequenced !== null)
+          .sort((a, b) => a.sequenced - b.sequenced)
+          .map((track) => track.id)
+          .filter(has);
+      return {
+        TRACK_IDS: ids,
+        TRACK_LABELS: Object.fromEntries(
+          tracks.map((track) => [track.id, track.label || labelOf.get(track.id) || track.id])
+        ),
+        // Tuned tracks take a Dissonance dial (v14); percussion has no chord
+        // to stray from.
+        TUNED_TRACKS: exported(engineExports.TUNED_TRACKS) || ids.filter(isMelodic),
+        SEQ_TRACKS: sequenced,
+        // The single-lane sequencers: percussion's grid is a kit of lanes.
+        SEQ_SINGLE_TRACKS: sequenced.filter(isMelodic),
+      };
+    }
+
+    // Seeded from the fallback so nothing depends on init() having run, then
+    // re-derived from the engine's registry inside init (see engineCaps).
+    let { TRACK_IDS, TRACK_LABELS, TUNED_TRACKS, SEQ_TRACKS, SEQ_SINGLE_TRACKS } =
+      trackListsFrom(FALLBACK_TRACKS);
 
     // Voice ids → display names, mirroring the frontmatter's <option> labels
     // (the page never imports engine-voices.js just for names).
@@ -565,8 +616,7 @@ const VOICES: Record<string, [string, string][]> = {
     const STEPS_PER_BAR = { '3/4': 12, '4/4': 16, '5/4': 20, '6/8': 12, '7/8': 14 };
     const SEQ_SLOTS = 20;
     const SEQ_MAX = 8; // sequencers per track (Markov chain size ceiling)
-    const SEQ_SINGLE_TRACKS = ['melody', 'bass', 'arp'];
-    const SEQ_TRACKS = ['melody', 'bass', 'arp', 'percussion'];
+    // SEQ_TRACKS / SEQ_SINGLE_TRACKS are registry views — see trackListsFrom.
     // v21 per-step gate: the fraction of its step a note is held for. 1 fills
     // the step exactly; above that it runs into the next one (legato).
     const SEQ_GATE_MIN = 0.1;
@@ -1478,14 +1528,32 @@ const VOICES: Record<string, [string, string][]> = {
       // it wants to offer dials for (percussion source.pitch / source.noise).
       // Absent on an older engine build, hence the separate binding.
       let sanitiseParams = null;
+      // The whole module, because the track registry is read from its exports
+      // (TUNED_TRACKS / SEQUENCED_TRACKS) as well as from the engine handle.
+      let engineModule;
       try {
-        ({ createEngine, sanitiseParams } = await import('../scripts/ambient-engine.js'));
+        engineModule = await import('../scripts/ambient-engine.js');
+        ({ createEngine, sanitiseParams } = engineModule);
       } catch {
         unavailable.hidden = false;
         return;
       }
 
       const engine = createEngine();
+
+      // ---- v21 track registry -------------------------------------------
+      // Probed like every other capability, and for the same reason: an
+      // engine bundle without getTracks() would otherwise leave every row,
+      // editor and lane with nothing to build from. Where it answers, its
+      // list wins outright — ids, order and labels; where it doesn't, the
+      // FALLBACK_TRACKS views seeded at module scope stay in force.
+      const registryTracks =
+        typeof engine.getTracks === 'function' ? engine.getTracks() : null;
+      const hasTrackRegistry = Array.isArray(registryTracks) && registryTracks.length > 0;
+      if (hasTrackRegistry) {
+        ({ TRACK_IDS, TRACK_LABELS, TUNED_TRACKS, SEQ_TRACKS, SEQ_SINGLE_TRACKS } =
+          trackListsFrom(registryTracks, engineModule));
+      }
 
       // ---- v6 capability detection --------------------------------------
       // Gating choice: the new params (hold / randomness / vary / sequencer)
@@ -1497,6 +1565,7 @@ const VOICES: Record<string, [string, string][]> = {
       // renders, because its on/off flags degrade gracefully to the legacy
       // arp.steps boolean mask that every v2+ engine honours.
       const engineCaps = {
+        trackRegistry: hasTrackRegistry,
         randomise: typeof engine.randomise === 'function',
         getResolved: typeof engine.getResolved === 'function',
         getStats: typeof engine.getStats === 'function',
@@ -6728,12 +6797,16 @@ const VOICES: Record<string, [string, string][]> = {
 
       // The two busiest generative tracks; the power governor's
       // textureDensityScale is applied to what the engine is SENT for these
-      // (see applyPowerBudget), never to the user's stored Level.
-      const DENSITY_TRACKS = ['texture', 'arp'];
+      // (see applyPowerBudget), never to the user's stored Level. This is
+      // page POLICY, not a registry view — the registry publishes identity
+      // and presentation, nothing about how many notes a track spends — so
+      // the ids stay named here, filtered against the live list so a track
+      // this engine doesn't have can never be scaled.
+      const POWER_SCALED_TRACKS = ['texture', 'arp'].filter((id) => TRACK_IDS.includes(id));
 
       function scaledLevel(track, value) {
         const scale = powerBudget ? powerBudget.textureDensityScale : 1;
-        if (scale >= 1 || !DENSITY_TRACKS.includes(track)) return value;
+        if (scale >= 1 || !POWER_SCALED_TRACKS.includes(track)) return value;
         return mapRV(value, (v) => clamp(v * scale, 0, 1));
       }
 
@@ -6843,7 +6916,7 @@ const VOICES: Record<string, [string, string][]> = {
 
       function applyDensityScale() {
         const tracks = {};
-        for (const id of DENSITY_TRACKS) {
+        for (const id of POWER_SCALED_TRACKS) {
           if (!engineCaps.level[id]) continue;
           tracks[id] = { level: scaledLevel(id, settings.tracks[id].level) };
         }

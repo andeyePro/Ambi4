@@ -61,8 +61,106 @@ export const TIME_SIGNATURES = Object.freeze({
   '7/8': [1, 1, 1.5],
 });
 
+/**
+ * THE TRACK REGISTRY — one entry per track, and the single source of truth for
+ * every fixed six-key table in this file. Track order, the sequenced set, the
+ * tuned set, the mix table, the auto-activation ladder and the staged entry are
+ * all views over this list rather than six literals that have to be kept in
+ * step by hand.
+ *
+ * The shape is already the one v21's registry API needs (see
+ * docs/engine-v2-contract.md, "Track-registry API"): a user track would be an
+ * entry with `builtin: false` pushed on by addTrack() and dropped by
+ * removeTrack(), with the derived views rebuilt around it. Neither exists yet —
+ * this list is a constant, and every value in it is what it was before the
+ * tables were folded together.
+ *
+ * Fields:
+ *   id            stable key: what params.tracks, note events and patches use
+ *   label         display name
+ *   builtin       the six here are undeletable; a user track would be false
+ *   colourToken   CSS custom property carrying this track's accent colour
+ *   family        'melodic' = pitched and chord-following; 'percussive' = a kit
+ *   sequenced     null = sustained, no step grid. A NUMBER = this track's place
+ *                 in SEQUENCED_TRACKS, whose order is load-bearing: the Markov
+ *                 sequencer pass draws one rng() per track in it. Test it
+ *                 against null, never for truthiness — melody sits at 0.
+ *   tuned         sounds a pitch, so a chord discipline means something to it
+ *   mix           dry level, tone ceiling and DEFAULT effect sends (buildGraph)
+ *   autoThreshold the energy at which an 'auto' track switches itself on
+ *   stageIndex    the first bar this track may sound in (staged entry, ruling 7)
+ */
+const TRACK_REGISTRY = Object.freeze([
+  {
+    id: 'pad', displayOrder: 0, label: 'Pad', builtin: true, colourToken: '--track-pad', family: 'melodic',
+    sequenced: null, tuned: true, stageIndex: 0, autoThreshold: 0,
+    mix: Object.freeze({ level: 0.36, dry: 0.8, reverb: 0.45, delay: 0.1, tone: 4000 }),
+  },
+  {
+    id: 'bass', displayOrder: 3, label: 'Bass', builtin: true, colourToken: '--track-bass', family: 'melodic',
+    sequenced: 1, tuned: true, stageIndex: 1, autoThreshold: 0.1,
+    mix: Object.freeze({ level: 0.44, dry: 1.0, reverb: 0.08, delay: 0.0, tone: 12000 }),
+  },
+  {
+    id: 'melody', displayOrder: 2, label: 'Melody', builtin: true, colourToken: '--track-melody', family: 'melodic',
+    sequenced: 0, tuned: true, stageIndex: 2, autoThreshold: 0.24,
+    mix: Object.freeze({ level: 0.28, dry: 0.75, reverb: 0.5, delay: 0.28, tone: 6000 }),
+  },
+  {
+    id: 'texture', displayOrder: 4, label: 'Texture', builtin: true, colourToken: '--track-texture', family: 'melodic',
+    sequenced: null, tuned: true, stageIndex: 3, autoThreshold: 0.36,
+    mix: Object.freeze({ level: 0.2, dry: 0.6, reverb: 0.7, delay: 0.35, tone: 12000 }),
+  },
+  {
+    id: 'arp', displayOrder: 1, label: 'Arp', builtin: true, colourToken: '--track-arp', family: 'melodic',
+    sequenced: 2, tuned: true, stageIndex: 4, autoThreshold: 0.48,
+    mix: Object.freeze({ level: 0.2, dry: 0.7, reverb: 0.45, delay: 0.25, tone: 6500 }),
+  },
+  {
+    id: 'percussion', displayOrder: 5, label: 'Percussion', builtin: true, colourToken: '--track-percussion',
+    family: 'percussive',
+    sequenced: 3, tuned: false, stageIndex: 5, autoThreshold: 0.6,
+    mix: Object.freeze({ level: 0.24, dry: 0.85, reverb: 0.3, delay: 0.12, tone: 9000 }),
+  },
+].map((track) => Object.freeze(track)));
+
+const TRACK_BY_ID = new Map(TRACK_REGISTRY.map((track) => [track.id, track]));
+
+/** The public view of a track: identity and presentation, no engine internals. */
+// Public view order is the DISPLAY order (user-decided: pad, arp, melody,
+// bass, texture, percussion) — distinct from registry/engine order, which is
+// staging + rng-draw order and must not change (byte-identity guarantee).
+const TRACK_VIEWS = Object.freeze([...TRACK_REGISTRY]
+  .sort((a, b) => a.displayOrder - b.displayOrder)
+  .map((track) => Object.freeze({
+  id: track.id,
+  label: track.label,
+  builtin: track.builtin,
+  colourToken: track.colourToken,
+  family: track.family,
+})));
+
+/**
+ * The tracks this engine has, in order — what a lane-building consumer (track
+ * rows, editors, visualiser lanes) should read instead of hardcoding six ids.
+ * Frozen, and the same list on every call, so nothing can edit the registry
+ * through it.
+ */
+export function getTracks() {
+  return TRACK_VIEWS;
+}
+
+/** The bar a track may first sound in; -1 for anything not in the registry. */
+function stageIndexOf(name) {
+  const track = TRACK_BY_ID.get(name);
+  return track ? track.stageIndex : -1;
+}
+
+/** The last bar of the staged entry: by then every track has had its turn. */
+const MAX_STAGE_INDEX = Math.max(...TRACK_REGISTRY.map((track) => track.stageIndex));
+
 /** Fixed track order — also the order auto-tracks switch themselves on in. */
-export const TRACK_ORDER = Object.freeze(['pad', 'bass', 'melody', 'texture', 'arp', 'percussion']);
+export const TRACK_ORDER = Object.freeze(TRACK_REGISTRY.map((track) => track.id));
 
 export const TRACK_STATES = Object.freeze(['off', 'auto', 'on']);
 
@@ -197,7 +295,10 @@ export const SEQUENCER_MODES = Object.freeze(['auto', 'manual']);
 export const SEQUENCER_STEP_COUNT = 20;
 
 /** Tracks with a pulse to sequence. pad and texture are sustained, so no grid. */
-export const SEQUENCED_TRACKS = Object.freeze(['melody', 'bass', 'arp', 'percussion']);
+export const SEQUENCED_TRACKS = Object.freeze(TRACK_REGISTRY
+  .filter((track) => track.sequenced !== null)
+  .sort((a, b) => a.sequenced - b.sequenced)
+  .map((track) => track.id));
 
 /**
  * The BUILT-IN percussion lanes. v21 made the kit dynamic — a lane is now an
@@ -216,7 +317,9 @@ export const MAX_PERCUSSION_LANES = 8;
 const PERCUSSION_LANE_LABELS = Object.freeze({ low: 'Low', mid: 'Mid', high: 'High' });
 
 /** Tracks that sound a pitch, so a chord discipline means anything to them. */
-export const TUNED_TRACKS = Object.freeze(TRACK_ORDER.filter((name) => name !== 'percussion'));
+export const TUNED_TRACKS = Object.freeze(TRACK_REGISTRY
+  .filter((track) => track.tuned)
+  .map((track) => track.id));
 
 export const VARY_ASPECTS = Object.freeze(['voice', 'volume', 'pitch', 'timing', 'pan']);
 
@@ -2086,9 +2189,9 @@ export function sectionAtBar(preset, bar, customStructure = []) {
  * defaults actually cover, and the rest is spread evenly beneath it. The order
  * is unchanged: pad first, percussion still last in.
  */
-const AUTO_THRESHOLDS = Object.freeze({
-  pad: 0, bass: 0.1, melody: 0.24, texture: 0.36, arp: 0.48, percussion: 0.6,
-});
+const AUTO_THRESHOLDS = Object.freeze(Object.fromEntries(
+  TRACK_REGISTRY.map((track) => [track.id, track.autoThreshold]),
+));
 
 export function autoActiveTracks(intensity = 0.5, complexity = 0.5) {
   const energy = 0.55 * clamp(Number(intensity) || 0, 0, 1) + 0.45 * clamp(Number(complexity) || 0, 0, 1);
@@ -2316,20 +2419,16 @@ export const FALLBACK_VOICES = Object.freeze({
 
 /**
  * Dry level, tone ceiling and DEFAULT effect-send amounts per track — the send
- * levels a voice gets when no patch names its own. Levels are lower
- * than v1's four-track set: six sources sum, so pad/bass keep the bulk of the
- * budget and the four decorative tracks each sit well under it. Worst case
- * (every track on, velocity 1) lands under unity before the master's 0.7
- * headroom and the glue compressor.
+ * levels a voice gets when no patch names its own. The numbers live in the
+ * registry; this is the by-id view of them. Levels are lower than v1's
+ * four-track set: six sources sum, so pad/bass keep the bulk of the budget and
+ * the four decorative tracks each sit well under it. Worst case (every track
+ * on, velocity 1) lands under unity before the master's 0.7 headroom and the
+ * glue compressor.
  */
-const TRACK_MIX = {
-  pad: { level: 0.36, dry: 0.8, reverb: 0.45, delay: 0.1, tone: 4000 },
-  bass: { level: 0.44, dry: 1.0, reverb: 0.08, delay: 0.0, tone: 12000 },
-  melody: { level: 0.28, dry: 0.75, reverb: 0.5, delay: 0.28, tone: 6000 },
-  texture: { level: 0.2, dry: 0.6, reverb: 0.7, delay: 0.35, tone: 12000 },
-  arp: { level: 0.2, dry: 0.7, reverb: 0.45, delay: 0.25, tone: 6500 },
-  percussion: { level: 0.24, dry: 0.85, reverb: 0.3, delay: 0.12, tone: 9000 },
-};
+const TRACK_MIX = Object.freeze(Object.fromEntries(
+  TRACK_REGISTRY.map((track) => [track.id, track.mix]),
+));
 
 function audioContextCtor() {
   const g = globalThis;
@@ -3118,7 +3217,7 @@ export function createEngine(initialParams, options = {}) {
     // never restarts when the structure changes mid-piece. Bar 0 is pad alone
     // under every preset (drone included) and every track state — a track
     // forced 'on' still waits its turn — with all six eligible by bar 5.
-    if (currentBarNumber < TRACK_ORDER.indexOf(name)) return false;
+    if (currentBarNumber < stageIndexOf(name)) return false;
     if (state === 'on') return true;
     return autoActiveTracks(sectionIntensity(), params.complexity).includes(name);
   }
@@ -4021,7 +4120,7 @@ export function createEngine(initialParams, options = {}) {
   // -- the silence floor -----------------------------------------------------
 
   /** Bars 0–4 belong to the staged entry; the floor takes over after it. */
-  const STAGE_BARS = TRACK_ORDER.length - 1;
+  const STAGE_BARS = MAX_STAGE_INDEX;
 
   /** One bar of breath is music; two in a row is the defect. */
   const SILENCE_TOLERANCE_BARS = 1;
@@ -4047,7 +4146,7 @@ export function createEngine(initialParams, options = {}) {
    */
   function coverCandidates() {
     return COVER_ORDER.filter((name) => params.tracks[name].state !== 'off'
-      && currentBarNumber >= TRACK_ORDER.indexOf(name)
+      && currentBarNumber >= stageIndexOf(name)
       && !isManual(name));
   }
 
@@ -5827,6 +5926,7 @@ export function createEngine(initialParams, options = {}) {
     setParams,
     getParams,
     getResolved,
+    getTracks,
     getAnalysers,
     getStats,
     setPowerBudget,

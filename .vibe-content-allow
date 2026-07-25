@@ -1,2 +1,6 @@
 # False positive: the Claude local-settings filename in .gitignore is not an mDNS hostname
 ^\.claude/settings\.local\.json$
+# False positives: CSS custom-property names in the track registry / test mocks
+# ("colourToken:" matches the guard's token-assignment shape; values are --track-* vars).
+^.*colourToken: '--[a-z-]+',?.*$
+^.*'--custom-drone-colour'.*$
