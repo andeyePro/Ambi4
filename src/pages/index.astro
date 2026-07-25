@@ -191,6 +191,12 @@ const VOICES: Record<string, [string, string][]> = {
             </div>
           </div>
         </div>
+        <div class="processor-row">
+          <div class="dial-slot" id="processor-dial"></div>
+          <div class="processor-info">
+            <span id="processor-readout" class="value-readout"></span>
+          </div>
+        </div>
       </div>
 
       <div class="transport-row">
@@ -198,12 +204,6 @@ const VOICES: Record<string, [string, string][]> = {
         <span id="record-status" class="record-status" role="status" hidden></span>
       </div>
 
-      <div class="processor-row">
-        <div class="dial-slot" id="processor-dial"></div>
-        <div class="processor-info">
-          <span id="processor-readout" class="value-readout"></span>
-        </div>
-      </div>
     </div>
 
     <p id="ios-silent-hint" class="hint" hidden>
@@ -2045,7 +2045,9 @@ const VOICES: Record<string, [string, string][]> = {
           max: 1,
           step: 0.01,
           value: settings.volume,
-          format: pctFormat,
+          // Hi-fi attenuator convention: dB relative to full output.
+          format: (v) => (v <= 0.001 ? '-\u221e dB' : `${(20 * Math.log10(v)).toFixed(v > 0.5 ? 1 : 0)} dB`),
+          marks: [0, 0.1, 0.25, 0.5, 0.8, 1],
           defaultValue: DEFAULTS.volume,
         },
         (value) => {
@@ -5684,15 +5686,23 @@ const VOICES: Record<string, [string, string][]> = {
       align-items: center;
     }
 
+    /* `hidden` must beat the display rule above, or both glyphs show at once
+       (shipped bug: Play carried the barline icon too). */
+    .transport-glyph[hidden] {
+      display: none !important;
+    }
+
     .transport-button {
       display: inline-flex;
-      flex: 1 1 96px;
+      flex: 0 0 56px;
+      width: 56px;
+      height: 56px;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      min-height: 56px;
-      padding: 12px;
-      font-size: 15px;
+      gap: 2px;
+      padding: 6px 4px;
+      font-size: 10px;
       font-weight: 600;
       color: var(--text);
       background: var(--bg);
@@ -5817,9 +5827,13 @@ const VOICES: Record<string, [string, string][]> = {
       gap: 4px;
     }
 
+    .transport-icons {
+      flex-direction: row;
+    }
+
     .transport-icons .icon-button {
-      width: 78px;
-      height: 26px;
+      width: 56px;
+      height: 56px;
     }
 
     .popover-anchor {
@@ -5997,7 +6011,7 @@ const VOICES: Record<string, [string, string][]> = {
     .dial-knob .dial-ends {
       position: absolute;
       left: 50%;
-      top: calc(var(--knob-size, 96px) * 0.74);
+      top: calc(var(--knob-size, 96px) + 4px);
       width: calc(var(--knob-size, 96px) + 52px);
       transform: translateX(-50%);
     }
@@ -6048,6 +6062,7 @@ const VOICES: Record<string, [string, string][]> = {
       flex: 1 1 130px;
       max-width: 220px;
       margin-bottom: 0;
+      padding-top: 20px; /* headroom for the centre mark ("Evolving") */
       --knob-size: 96px;
     }
 
