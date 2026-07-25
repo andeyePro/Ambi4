@@ -28,6 +28,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 // --------------------------------------------------------------------------
 // Minimal AudioContext mock — enough surface for the engine's node graph and
@@ -185,6 +186,7 @@ const {
   autoArpSettings,
   autoActiveTracks,
   getTracks,
+  createTrackLayer,
   resolveStructure,
   sectionAtBar,
   beatsPerBar,
@@ -6135,6 +6137,90 @@ test('the engine handle carries getTracks() beside getResolved()', () => {
   assert.deepEqual([...engine.getTracks().map((track) => track.id)].sort(),
     [...Object.keys(engine.getParams().tracks)].sort(),
     'params.tracks and the registry disagree about which tracks exist');
+});
+
+// --------------------------------------------------------------------------
+// The instance track layer (v23) — floor/layer identity proof
+//
+// An engine reads its tracks through accessors instead of the module's frozen
+// tables, so a user track added at runtime can reach every call site. With no
+// user tracks the accessors must hand back THE MODULE'S OWN objects: same
+// reference, no copy, no re-sort. That identity is what keeps every proof
+// above true, so it is asserted by reference, never by deep equality.
+// --------------------------------------------------------------------------
+
+test('identity: the track layer hands back the module\'s own frozen lists, not copies', () => {
+  const layer = createTrackLayer();
+  assert.equal(layer.trackOrder(), TRACK_ORDER, 'trackOrder() must BE TRACK_ORDER');
+  assert.equal(layer.sequencedTracks(), SEQUENCED_TRACKS, 'sequencedTracks() must BE SEQUENCED_TRACKS');
+  assert.equal(layer.tunedTracks(), TUNED_TRACKS, 'tunedTracks() must BE TUNED_TRACKS');
+  assert.equal(layer.trackViews(), getTracks(), 'trackViews() must BE the module\'s public view');
+  // Repeated calls, and a second engine's layer, share those same objects:
+  // an accessor that allocated would break every identity pin above.
+  const other = createTrackLayer();
+  assert.equal(layer.trackOrder(), other.trackOrder());
+  assert.equal(layer.trackViews(), other.trackViews());
+  assert.equal(layer.trackOrder(), layer.trackOrder());
+});
+
+test('identity: the layer\'s per-track accessors answer from the floor\'s own rows', () => {
+  const STAGES = { pad: 0, bass: 1, melody: 2, texture: 3, arp: 4, percussion: 5 };
+  const THRESHOLDS = { pad: 0, bass: 0.1, melody: 0.24, texture: 0.36, arp: 0.48, percussion: 0.6 };
+  const layer = createTrackLayer();
+  assert.deepEqual(layer.trackRegistry().map((row) => row.id), [...TRACK_ORDER],
+    'the layer\'s registry is TRACK_ORDER\'s own rows, in engine order');
+  for (const name of TRACK_ORDER) {
+    const row = layer.trackById(name);
+    assert.ok(row && Object.isFrozen(row), `${name}: the registry row must stay frozen`);
+    assert.equal(layer.trackRegistry().find((entry) => entry.id === name), row,
+      `${name}: trackById and the registry must hand back one row, not two`);
+    assert.equal(layer.mixFor(name), row.mix, `${name}: mixFor must hand back the row's own mix`);
+    assert.equal(layer.stageIndexOf(name), STAGES[name], `${name}: staged entry moved`);
+    assert.equal(layer.autoThresholdFor(name), THRESHOLDS[name], `${name}: ladder threshold moved`);
+  }
+  // The staged entry is exactly as long as there are tracks, and stageBars()
+  // is read per bar rather than captured, so a later window can grow it.
+  assert.equal(layer.stageBars(), TRACK_ORDER.length - 1);
+  assert.equal(layer.stageBars(), Math.max(...Object.values(STAGES)));
+  assert.equal(layer.trackById('nope'), undefined, 'an unknown id has no row');
+  assert.equal(layer.stageIndexOf('nope'), -1, 'an unknown id stays out of the staged entry');
+});
+
+test('identity: the defaulted track arguments are the floor, so old callers ask the same question', () => {
+  const layer = createTrackLayer();
+  // autoActiveTracks through the layer IS the ladder the v22 proof pins.
+  for (let energy = 0; energy <= 1; energy += 0.05) {
+    assert.deepEqual(
+      autoActiveTracks(energy, energy, layer.trackOrder(), layer.autoThresholdFor),
+      autoActiveTracks(energy, energy),
+      `energy ${energy}: the layer's ladder diverged from the floor's`,
+    );
+  }
+  // Same for the sanitiser's iteration source: passing the floor list is what
+  // omitting it already does.
+  assert.deepEqual(sanitiseParams({ bpm: 92 }, DEFAULT_PARAMS, layer.trackOrder()),
+    sanitiseParams({ bpm: 92 }), 'sanitiseParams drifted from its default track list');
+});
+
+test('identity: an engine publishes the module\'s own view, by reference', () => {
+  const engine = createEngine();
+  assert.equal(engine.getTracks(), getTracks(),
+    'engine.getTracks() must BE the module view while no user track exists');
+  assert.equal(engine.getTracks(), engine.getTracks(), 'the handle must not allocate a view');
+});
+
+test('identity: createEngine reads its tracks through the layer, never a module table', () => {
+  const source = readFileSync(new URL('../src/scripts/ambient-engine.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export function createEngine('));
+  assert.ok(body.length > 1000, 'createEngine was not found in the engine source');
+  // A module table read inside createEngine is a table a user track can never
+  // reach — the whole point of the layer. Comments count: a stale one here
+  // sends the next reader back to the constant.
+  for (const table of ['TRACK_REGISTRY', 'TRACK_BY_ID', 'TRACK_VIEWS', 'TRACK_ORDER',
+    'SEQUENCED_TRACKS', 'TUNED_TRACKS', 'TRACK_MIX', 'AUTO_THRESHOLDS', 'MAX_STAGE_INDEX']) {
+    assert.equal(new RegExp(`\\b${table}\\b`).test(body), false,
+      `createEngine reads ${table} directly — it must go through the track layer`);
+  }
 });
 
 // --------------------------------------------------------------------------
