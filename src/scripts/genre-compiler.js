@@ -33,7 +33,9 @@
  *   essence.modes                → params.mode (weighted, SCALES-checked)
  *   essence.energyArc            → params.structure (weighted, STRUCTURES-checked)
  *   chordLanguage.harmonicRhythm → params.harmony.rhythm (weighted)
- *   chordLanguage grammar + subs → params.repetition (loop LENGTH) and
+ *   chordLanguage grammar + subs → params.harmony.seed (the expanded chord
+ *                                  loop, which the hook establishes from),
+ *                                  params.repetition (loop LENGTH) and
  *                                  params.complexity (chord COLOUR) — see below
  *   chordLanguage.extensionBias  → params.complexity, blended with the colour
  *                                  the expanded progression actually asks for
@@ -55,9 +57,9 @@
  * rule (ordinal-1 = scale-degree index; case and 7/9/13/maj7/maj9 suffixes are
  * colour, and the engine's diatonic third-stack realises them).
  *
- * What reaches the engine from that is the loop's SHAPE, not its degrees: the
- * engine's hook owns the chord walk (`buildHook`), and there is no params slot
- * for a supplied degree sequence. So the expansion sets
+ * What reaches the engine is the expanded loop ITSELF, as `harmony.seed` — the
+ * engine's hook establishes from those degrees instead of walking its own —
+ * plus the two params that describe its shape:
  *
  *   repetition  the hook's loop LENGTH — buildHook draws
  *               round(4 + (1 - repetition) * 4) chords, so the compiled
@@ -66,9 +68,13 @@
  *               0.7, so a grammar full of ninths compiles to a complexity that
  *               can actually voice them, and a triad grammar to one that cannot
  *
- * The degrees themselves are returned by `expandProgression` for a UI (or a
- * test) that wants to show what the genre asked for; feeding them to the engine
- * as actual chords needs a hook-seed param the engine does not have yet.
+ * Both still matter with a seed present: complexity is the colour every slot's
+ * own extension nudges from, and repetition still sets how often the loop
+ * mutates and how long the recall cycle runs. The seed is an establishment,
+ * not a freeze — the hook mutates, banks and recalls it as it does any loop.
+ * A seed the engine cannot play in the mode it drew (a degree outside a
+ * pentatonic) is dropped whole by the sanitiser, and that genre walks its own
+ * loop from the shape params, exactly as it did before the seed existed.
  *
  * THE GROOVE GRAMMAR, AND THE TWO PATHS.
  *
@@ -251,7 +257,8 @@ function substituteToken(token, rules, rng) {
 /**
  * A genre's chord language, expanded once: a seed drawn from the pool, its
  * substitutions rolled, and the result parsed into degrees. Pure and
- * deterministic under `rng`; `compileGenre` calls it as draw 7.
+ * deterministic under `rng`; `compileGenre` calls it as draw 7, and hands the
+ * parsed symbols on to the engine as `harmony.seed`.
  */
 export function expandProgression(genreJson, rng = Math.random) {
   const genre = isObject(genreJson) ? genreJson : {};
@@ -490,7 +497,12 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {} } = {
   if (bpm !== undefined) partial.bpm = round3(bpm);
   if (swing !== undefined) partial.swing = round3(swing);
   if (structure) partial.structure = structure;
-  partial.harmony = { rhythm: rhythm ?? 'auto' };
+  // The expanded loop itself, in the engine's own hook-seed grammar: the
+  // symbols that parsed, in the order the grammar wrote them.
+  partial.harmony = {
+    rhythm: rhythm ?? 'auto',
+    seed: progression.chords.map((chord) => chord.token),
+  };
 
   // The hook's loop length, inverted out of buildHook's own law, and the colour
   // the expanded grammar is asking the chord stack for.

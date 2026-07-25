@@ -20,7 +20,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
@@ -1068,6 +1068,213 @@ try {
             `(one per non-off track), drew ${got}`
         );
       }
+    }
+  }
+
+  // ---- v26 genre transport --------------------------------------------------
+  // LAST in this harness on purpose: picking a genre replaces the whole params
+  // object, so every assertion above runs against the boot state rather than
+  // against whatever this block last chose.
+  //
+  // The genre files are read from SOURCE and matched against the built list,
+  // the same discipline the track-registry gate uses: a glob that silently
+  // resolved to nothing, or a genre file added without the page picking it up,
+  // is invisible to `astro build` and to every module smoke test.
+  {
+    const genreDir = join(repoRoot, 'src/data/genres');
+    const genres = readdirSync(genreDir)
+      .filter((name) => name.endsWith('.json'))
+      .map((name) => JSON.parse(readFileSync(join(genreDir, name), 'utf8')));
+    const select = doc.getElementById('genre-select');
+    if (!genres.length) {
+      failures.push('src/data/genres holds no genre files — the genre transport has nothing to offer');
+    } else if (!select) {
+      failures.push('the genre picker (#genre-select) is missing from the transport');
+    } else {
+      const values = () => Array.from(select.options).map((option) => option.value);
+      const missing = genres
+        .filter((genre) => !values().includes(`g:${genre.slug}`))
+        .map((genre) => genre.slug);
+      if (missing.length) {
+        failures.push(
+          `the genre list is missing ${missing.length} of the ${genres.length} genre files: ${missing.join(', ')}`
+        );
+      }
+      if (!values().includes('surprise')) {
+        failures.push('the genre list has no "Surprise me" entry');
+      }
+      if (!values().includes('favourites')) {
+        failures.push('the genre list has no favourites entry');
+      }
+
+      // Placement: the picker sits UNDER the Play/Finish key, which is where
+      // the spec puts it and where a listener looks for it.
+      const play = doc.getElementById('toggle-play');
+      const genreRow = select.closest('.genre-row');
+      if (!genreRow) {
+        failures.push('the genre picker is not in a .genre-row');
+      } else if (play && !(play.compareDocumentPosition(genreRow) & FOLLOWING)) {
+        failures.push('the genre picker renders ABOVE the Play button');
+      }
+
+      // The opening draw: this realm boots with empty storage and no consent,
+      // which is exactly the fresh visit the weighted pick exists for. The
+      // reported finding was that every fresh load sounded the same piece, so
+      // "opened on the bare defaults" is the regression.
+      const opened = select.value.startsWith('g:') ? select.value.slice(2) : null;
+      const openedGenre = genres.find((genre) => genre.slug === opened) || null;
+      if (!openedGenre) {
+        failures.push(
+          `a fresh visit did not open on a genre — the picker reads "${select.value || '(none)'}"`
+        );
+      } else {
+        const defaults = engineModule.DEFAULT_PARAMS || {};
+        const signature = () => ({
+          bpm: Number(doc.getElementById('bpm').value),
+          mode: doc.getElementById('mode').value,
+          timeSignature: doc.getElementById('timeSignature').value,
+          structure: doc.getElementById('structure').value,
+          states: REGISTRY_IDS.map((id) => {
+            const row = doc.querySelector(`.track-row[data-track="${id}"]`);
+            return row ? row.getAttribute('data-track-state') : '';
+          }),
+        });
+        const defaultSignature = {
+          bpm: defaults.bpm,
+          mode: defaults.mode,
+          timeSignature: defaults.timeSignature,
+          structure: defaults.structure,
+          states: REGISTRY_IDS.map((id) => (defaults.tracks?.[id] || {}).state ?? ''),
+        };
+        if (JSON.stringify(signature()) === JSON.stringify(defaultSignature)) {
+          failures.push(
+            'a fresh visit opened on a genre tag but every headline param is still the engine ' +
+              'default — the opening compile never reached the params'
+          );
+        }
+        const [lo, hi] = openedGenre.essence.bpm;
+        const openedBpm = signature().bpm;
+        if (!(openedBpm >= Math.floor(lo) && openedBpm <= Math.ceil(hi))) {
+          failures.push(
+            `the opening genre is ${openedGenre.slug} (${lo}-${hi} bpm) but the tempo reads ${openedBpm}`
+          );
+        }
+      }
+
+      // Picking a genre compiles it into the live params: the proof is that
+      // the params land inside the rules that genre declares.
+      const target = genres.find((genre) => genre.slug !== opened) || genres[0];
+      select.value = `g:${target.slug}`;
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const picked = await waitUntil(() => select.value === `g:${target.slug}`);
+      if (!picked) {
+        failures.push(`picking ${target.slug} did not stick in the genre picker (${select.value})`);
+      } else {
+        const bpm = Number(doc.getElementById('bpm').value);
+        const [lo, hi] = target.essence.bpm;
+        if (!(bpm >= Math.floor(lo) && bpm <= Math.ceil(hi))) {
+          failures.push(`picking ${target.slug} (${lo}-${hi} bpm) left the tempo at ${bpm}`);
+        }
+        const allowed = target.essence.modes.map((entry) =>
+          entry && typeof entry === 'object' ? entry.value : entry
+        );
+        const mode = doc.getElementById('mode').value;
+        if (!allowed.includes(mode)) {
+          failures.push(
+            `picking ${target.slug} left the scale on "${mode}", which the genre does not declare`
+          );
+        }
+      }
+
+      // Loading a factory preset CLEARS the tag: a preset is a fixed params
+      // snapshot, so the piece it loads is no longer the genre's.
+      const card = doc.querySelector('#factory-preset-row .factory-preset');
+      if (card) {
+        card.click();
+        const cleared = await waitUntil(() => select.value === '');
+        if (!cleared) {
+          failures.push(`loading a factory preset left the genre tag at "${select.value}"`);
+        }
+      }
+
+      // Favourites: the entry opens a checkbox editor over the whole set, and
+      // ticking one adds its MOOD group to the list; the hide toggle prunes
+      // the main list to favourites.
+      select.value = 'favourites';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const editor = doc.getElementById('genre-favourites');
+      const boxes = editor
+        ? Array.from(editor.querySelectorAll('.genre-fav-item input[type="checkbox"]'))
+        : [];
+      const hideOthers = doc.getElementById('genre-hide-others');
+      if (!editor || editor.hidden) {
+        failures.push('the favourites entry did not open the favourites editor');
+      }
+      if (boxes.length !== genres.length) {
+        failures.push(
+          `the favourites editor offers ${boxes.length} genres where the set has ${genres.length}`
+        );
+      }
+      if (!hideOthers) {
+        failures.push('the favourites editor has no hide-non-favourites toggle');
+      }
+      if (boxes.length && hideOthers) {
+        boxes[0].checked = true;
+        boxes[0].dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (!values().some((value) => value.startsWith('mood:'))) {
+          failures.push('a favourited genre added no mood group to the genre list');
+        }
+        hideOthers.checked = true;
+        hideOthers.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const listed = values().filter((value) => value.startsWith('g:'));
+        if (listed.length >= genres.length) {
+          failures.push(
+            `hide-non-favourites left all ${listed.length} genres in the list — the toggle prunes nothing`
+          );
+        }
+        if (!values().includes('surprise') || !values().includes('favourites')) {
+          failures.push('hide-non-favourites also pruned the Surprise me / favourites entries');
+        }
+      }
+      doc.getElementById('genre-favourites-done')?.click();
+    }
+
+    // Pause and fast-forward. Both ship on every engine build — a stop-and-
+    // rebuild is still a pause to the listener — but WHICH pause the button
+    // runs is probed, and its own explanation has to match what it will do.
+    const pauseButton = doc.getElementById('pause-toggle');
+    if (!pauseButton) {
+      failures.push('the transport has no Pause button (#pause-toggle)');
+    } else {
+      if (!pauseButton.disabled) {
+        failures.push('the Pause button is live with the engine stopped — there is nothing to hold');
+      }
+      let enginePauses = false;
+      try {
+        enginePauses = typeof engineModule.createEngine().pause === 'function';
+      } catch {}
+      const describedBy = pauseButton.getAttribute('aria-describedby');
+      const explanation = describedBy ? (doc.getElementById(describedBy) || {}).textContent || '' : '';
+      if (!explanation) {
+        failures.push('the Pause button carries no explanation of what it will do');
+      }
+      const claimsExact = /same point/i.test(explanation);
+      if (enginePauses && !claimsExact) {
+        failures.push(
+          'the engine ships pause() but the Pause button still explains itself as a stop-and-rebuild'
+        );
+      }
+      if (!enginePauses && claimsExact) {
+        failures.push(
+          'the Pause button promises an exact-position resume against an engine with no pause()'
+        );
+      }
+    }
+    const forwardButton = doc.getElementById('fast-forward');
+    if (!forwardButton) {
+      failures.push('the transport has no fast-forward button (#fast-forward)');
+    } else if (forwardButton.hidden) {
+      failures.push('the fast-forward button is hidden against an engine that can re-seed');
     }
   }
 } catch (err) {

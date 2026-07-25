@@ -176,6 +176,7 @@ const {
   buildChord,
   buildHook,
   cloneHook,
+  createVariantBank,
   mutateHook,
   hookKey,
   hookEnergy,
@@ -791,14 +792,23 @@ test('v26 genre tag survives the engine and changes nothing about the piece',
       bpm: 120, speed: 2, complexity: 0.8, repetition: 0.4, structure: 'journey',
       tracks: tracksAll('on'),
     };
+    // The comparison window is MUSICAL, not wall-clock: both runs are driven
+    // for the same 12 s of audio, but the scheduler's lookahead reaches past
+    // the end by however far the last tick happened to land, so the tail is a
+    // race between two runs and the notes inside the window are not.
+    const WINDOW = 12;
     const capture = async (extra) => {
       const engine = createEngine({ ...params, ...extra }, { rng: seededRng(5150) });
       const log = record(engine);
       await engine.start();
-      await advance(12, FAST);
+      await advance(WINDOW, FAST);
       const tag = engine.getParams().genre;
       engine.stop();
-      return { tag, notes: log.notes.map((n) => `${n.track}|${n.midi}|${tick(n.time)}`) };
+      return {
+        tag,
+        notes: log.notes.filter((n) => n.time < WINDOW)
+          .map((n) => `${n.track}|${n.midi}|${tick(n.time)}`),
+      };
     };
     const plain = await capture({});
     const tagged = await capture({ genre: 'techno-tools' });
@@ -944,16 +954,20 @@ test('sanitiseParams merges tracks deeply and rejects bad states', () => {
 
 test('engine exposes the documented API and defaults', () => {
   const engine = createEngine();
-  for (const key of ['arm', 'start', 'finish', 'stop', 'resume', 'setParams', 'getParams', 'getAnalysers', 'on', 'now']) {
+  for (const key of ['arm', 'start', 'finish', 'stop', 'pause', 'resume', 'setParams', 'getParams',
+    'getAnalysers', 'getMasterAnalyser', 'on', 'now']) {
     assert.equal(typeof engine[key], 'function', `missing ${key}()`);
   }
   assert.equal(engine.running, false);
+  assert.equal(engine.paused, false);
   assert.equal(engine.now(), 0, 'now() is 0 before start()');
   assert.deepEqual(engine.getParams(), { ...DEFAULT_PARAMS });
 
   const analysers = engine.getAnalysers();
-  assert.deepEqual(Object.keys(analysers), [...TRACK_ORDER]);
+  assert.deepEqual(Object.keys(analysers), [...TRACK_ORDER, 'total']);
   for (const name of TRACK_ORDER) assert.equal(analysers[name], null, `${name} analyser before start`);
+  assert.equal(analysers.total, null, 'the master analyser before start');
+  assert.equal(engine.getMasterAnalyser(), null, 'the master analyser before start');
 
   engine.setParams({ bpm: 300, mode: 'dorian', bogus: 1, voices: 2 });
   assert.equal(engine.getParams().bpm, 220);
@@ -1074,7 +1088,7 @@ test('engine emits bar, section and note events in sane time order', async () =>
   await advance(14, { step: 0.12, sleep: 16 });
   engine.stop();
 
-  assert.deepEqual(states, [{ running: true }, { running: false }]);
+  assert.deepEqual(states, [{ running: true, paused: false }, { running: false, paused: false }]);
   assert.ok(bars.length >= 16, `only ${bars.length} bars in 14 s`);
   bars.forEach((e, i) => {
     assert.equal(e.bar, i, 'bar numbers must count up from zero without gaps');
@@ -1393,7 +1407,7 @@ test('finish() ends on a tonic bar, fades out and resolves', async () => {
   const ending = engine.finish({ fadeSeconds: 3 });
   assert.ok(await settleWithin(ending, 30), 'finish() never resolved');
   assert.equal(engine.running, false, 'the engine must be stopped once the ending is silent');
-  assert.deepEqual(states[states.length - 1], { running: false, finished: true });
+  assert.deepEqual(states[states.length - 1], { running: false, finished: true, paused: false });
   assert.equal(states.filter((s) => s.running === false).length, 1, 'one stop-class state event');
 
   assert.equal(bars.length, barsBefore + 1, 'finish() adds exactly one closing bar');
@@ -1421,7 +1435,7 @@ test('finish() ends on a tonic bar, fades out and resolves', async () => {
   await engine.start();
   await advance(3, { step: 0.12, sleep: 16 });
   assert.ok(notes.length > settled, 'the engine would not restart after an ending');
-  assert.deepEqual(states[states.length - 1], { running: true });
+  assert.deepEqual(states[states.length - 1], { running: true, paused: false });
   engine.stop();
 });
 
@@ -1482,7 +1496,7 @@ test('stop() during an ending cancels the outro and still resolves', async () =>
   engine.stop();
   assert.equal(engine.running, false);
   assert.ok(await settleWithin(ending, 2), 'stop() must settle the pending finish()');
-  assert.deepEqual(states[states.length - 1], { running: false },
+  assert.deepEqual(states[states.length - 1], { running: false, paused: false },
     'a hard stop is not a finished ending');
 
   const settled = notes.length;
@@ -6025,7 +6039,8 @@ test('v21: density scales an auto track\'s event rate, and null is exactly the o
 
 test("v21: harmony.rhythm takes 'auto' or a bar count, and survives a preset round-trip", () => {
   assert.deepEqual([...HARMONY_RHYTHMS], ['auto', 1, 2, 4, 8]);
-  assert.deepEqual(DEFAULT_PARAMS.harmony, { rhythm: 'auto' }, 'the harmonic rhythm ships on auto');
+  assert.deepEqual(DEFAULT_PARAMS.harmony, { rhythm: 'auto', seed: null },
+    'the harmonic rhythm ships on auto, with no supplied loop');
 
   const rhythmOf = (rhythm) => sanitiseParams({ harmony: { rhythm } }).harmony.rhythm;
   assert.equal(rhythmOf(4), 4);
@@ -6559,6 +6574,328 @@ test('identity: createEngine reads its tracks through the layer, never a module 
     assert.equal(new RegExp(`\\b${table}\\b`).test(body), false,
       `createEngine reads ${table} directly — it must go through the track layer`);
   }
+});
+
+// --------------------------------------------------------------------------
+// v26 — the hook seed, the master analyser tap, pause
+// --------------------------------------------------------------------------
+
+test('v26: harmony.seed takes symbols or slots, and a seed the mode cannot play is dropped whole', () => {
+  const seedOf = (seed, extra = {}) => sanitiseParams({
+    mode: 'ionian', harmony: { seed }, ...extra,
+  }).harmony.seed;
+
+  // The compiler's own grammar: an ordinal numeral, case a hint the mode
+  // overrules, and a suffix that becomes the slot's colour NUDGE — a ninth one
+  // step above the piece's complexity, a seventh exactly it, a triad below.
+  assert.deepEqual(seedOf(['I', 'vi', 'IV', 'V7']), [
+    { degree: 0, extension: -1 },
+    { degree: 5, extension: -1 },
+    { degree: 3, extension: -1 },
+    { degree: 4, extension: 0 },
+  ]);
+  assert.deepEqual(seedOf(['Imaj9', 'V13']), [
+    { degree: 0, extension: 1 },
+    { degree: 4, extension: 1 },
+  ]);
+  // Already-parsed slots pass straight through, and a mixed array is fine: a
+  // UI holds degrees, a genre holds symbols, and both mean the same loop.
+  assert.deepEqual(seedOf([{ degree: 2, extension: 5 }, 'V']), [
+    { degree: 2, extension: 1 },
+    { degree: 4, extension: -1 },
+  ]);
+  assert.deepEqual(seedOf([{ degree: 6 }]), [{ degree: 6, extension: 0 }]);
+
+  for (const junk of [
+    ['I', 'bII7'],                                  // accidentals are outside the vocabulary
+    ['I', 'VIII'],                                  // no such ordinal
+    ['I', 42],
+    ['I', { degree: 1.5 }],
+    ['I', { degree: -1 }],
+    [],                                             // an empty loop is no loop
+    new Array(HOOK_MAX_CHORDS + 1).fill('I'),       // longer than a hook can be
+    'I vi IV V',                                    // a string is not a seed
+    { degree: 0 },
+  ]) {
+    assert.equal(seedOf(junk), null,
+      `a part-usable seed must be dropped whole: ${JSON.stringify(junk)}`);
+  }
+  // Same symbols, a mode with fewer degrees to play them in: dropped.
+  assert.equal(seedOf(['i', 'VI', 'III', 'VII'], { mode: 'minorPentatonic' }), null);
+  assert.deepEqual(seedOf(['i', 'iv', 'v'], { mode: 'minorPentatonic' }), [
+    { degree: 0, extension: -1 },
+    { degree: 3, extension: -1 },
+    { degree: 4, extension: -1 },
+  ]);
+
+  // Sanitiser law, as for every other param.
+  const stored = sanitiseParams({ mode: 'ionian', harmony: { seed: ['I', 'IV', 'vi'] } });
+  assert.equal(sanitiseParams({ bpm: 90 }, stored).harmony.seed.length, 3,
+    'an unrelated edit dropped the seed');
+  assert.equal(sanitiseParams({ harmony: { seed: null } }, stored).harmony.seed, null,
+    'an explicit null must release the seed');
+  assert.equal(sanitiseParams({ harmony: { rhythm: 4 } }, stored).harmony.seed.length, 3,
+    'editing the harmonic rhythm dropped the seed beside it');
+  assert.equal(sanitiseParams({ mode: 'minorPentatonic' }, stored).harmony.seed, null,
+    'a stored seed must be re-filtered against the mode it is about to play in');
+
+  const engine = createEngine({ mode: 'ionian', harmony: { seed: ['I', 'IV', 'vi'] } });
+  const handed = engine.getParams();
+  handed.harmony.seed[0].degree = 4;
+  handed.harmony.seed.push({ degree: 1, extension: 0 });
+  assert.deepEqual(engine.getParams().harmony.seed,
+    [{ degree: 0, extension: -1 }, { degree: 3, extension: -1 }, { degree: 5, extension: -1 }],
+    'getParams handed out the engine\'s own seed');
+});
+
+const pcOf = (midi) => ((Math.round(midi) % 12) + 12) % 12;
+
+/** The pitch class the root of `degree` sounds as, in the key chordRun plays in. */
+const seedRootPc = (degree, mode = 'ionian') => pcOf(
+  scaleDegreeToMidi(degree, SCALES[mode], pitchClass('C'), 3),
+);
+
+test('v26: a seeded hook establishes the supplied loop verbatim, in order', () => hiddenTab(async () => {
+  // Six slots at repetition 1, which on its own would pin the loop to the
+  // tightest four: the seed's LENGTH is the loop's, not the dial's. The
+  // section intensity holds the piece's own colour just under the seventh
+  // threshold, so the triad symbols voice as triads and the V7 as a seventh.
+  const seed = ['I', 'vi', 'iii', 'IV', 'ii', 'V7'];
+  const chords = await chordRun({
+    mode: 'ionian',
+    customStructure: [{ label: 'A', bars: 64, intensity: 0.6 }],
+    harmony: { rhythm: 1, seed },
+  }, seed.length + 1);
+  const roots = chords.slice(0, seed.length).map((chord) => pcOf(chord.midis[0]));
+  assert.deepEqual(roots, [0, 5, 2, 3, 1, 4].map((degree) => seedRootPc(degree)),
+    'the first pass must be the seeded degrees, in the order they were given');
+  // The colour each symbol asked for comes with it: the seventh voices one
+  // chord tone more than the triads around it, at one and the same complexity.
+  const triads = chords.slice(0, 5).map((chord) => chord.midis.length);
+  assert.deepEqual(triads, [3, 3, 3, 3, 3], 'the triad symbols did not voice as triads');
+  assert.equal(chords[5].midis.length, 4, 'the V7 symbol did not voice its seventh');
+}));
+
+test('v26: a seeded loop is material, not a freeze — it mutates, banks and comes back', () => {
+  const seed = [
+    { degree: 0, extension: 0 }, { degree: 3, extension: 1 },
+    { degree: 4, extension: -1 }, { degree: 5, extension: 0 },
+  ];
+  const hook = buildHook({ scaleLength: 7, repetition: 1, seed });
+  assert.deepEqual(hook.degrees, [0, 3, 4, 5], 'the seeded degrees are taken as given');
+  assert.deepEqual(hook.extensions, [0, 1, -1, 0], 'so is the colour each slot asked for');
+  assert.deepEqual(hook.inversions, [0, 0, 0, 0], 'the voicing stays the engine\'s to choose');
+  // A degree past the end of the mode wraps rather than sounding outside it.
+  assert.deepEqual(buildHook({ scaleLength: 5, seed: [{ degree: 6, extension: 0 }] }).degrees, [1]);
+
+  const rng = seededRng(4021);
+  const bank = createVariantBank({ size: 6, clone: cloneHook });
+  bank.store(hookKey(hook), hook, 3);
+  let variant = hook;
+  const seen = new Set([hookKey(hook)]);
+  for (let i = 0; i < 12; i++) {
+    const next = mutateHook(variant, { scaleLength: 7, complexity: 0.5, rng });
+    assert.notEqual(hookKey(next), hookKey(variant), 'a mutation must change the loop');
+    variant = next;
+    seen.add(hookKey(variant));
+    bank.store(hookKey(variant), variant, 1);
+  }
+  assert.ok(seen.size > 1, 'the seeded loop never varied');
+  // Twelve mutations later the establishment is still the most salient shape
+  // in a full bank, and it comes back out of it exactly as it went in.
+  const kept = bank.find((entry) => entry.key === hookKey(hook));
+  assert.ok(kept, 'the seeded loop was evicted by the variants it produced');
+  assert.deepEqual(kept.variant.degrees, [0, 3, 4, 5]);
+  const back = bank.recall(hookKey(variant), (entry) => (entry.key === kept.key ? 100 : 0), rng);
+  assert.ok(back, 'nothing came back out of the bank');
+  assert.deepEqual(back.variant.degrees, [0, 3, 4, 5],
+    'a recall of the seeded loop must hand it back unchanged');
+  assert.deepEqual(back.variant.extensions, [0, 1, -1, 0]);
+});
+
+test('v26: the sounding loop leaves the seed once it starts mutating', () => hiddenTab(async () => {
+  const seed = ['I', 'vi', 'IV', 'V'];
+  const expected = [0, 5, 3, 4].map((degree) => seedRootPc(degree));
+  // repetition 0 is the busiest mutation rate the law allows; 40 chords at one
+  // bar each is ten passes for it to move something.
+  const chords = await chordRun({ mode: 'ionian', repetition: 0, harmony: { rhythm: 1, seed } }, 40);
+  const roots = chords.map((chord) => pcOf(chord.midis[0]));
+  assert.deepEqual(roots.slice(0, 4), expected, 'the first pass is still the establishment');
+  assert.ok(roots.slice(4).some((pc, i) => pc !== expected[(i + 4) % 4]),
+    'the seeded loop played unchanged for ten passes: nothing is mutating it');
+}));
+
+test('v26: a new seed re-establishes at the next pass boundary, never mid-loop', () => hiddenTab(async () => {
+  const first = ['I', 'vi', 'iii', 'IV', 'ii', 'V'];
+  const second = ['I', 'IV', 'V', 'vi', 'ii', 'iii'];
+  // One bar per chord at a bar-long lookahead: a chord event is at most one
+  // slot ahead of what the scheduler is planning, so setting the seed on the
+  // second event lands well inside the first pass.
+  const engine = createEngine({
+    bpm: 60, mode: 'ionian', complexity: 0.4, repetition: 1, structure: 'drone',
+    harmony: { rhythm: 1, seed: first },
+    tracks: { ...tracksAll('off'), pad: { state: 'on', vary: { timing: 0, voice: 0 } } },
+  }, { rng: seededRng(9111) });
+  const chords = [];
+  engine.on('chord', (chord) => chords.push(chord));
+  await engine.start();
+  assert.ok(await advanceUntil(() => chords.length >= 2, 20, FAST), 'the piece never started');
+  engine.setParams({ harmony: { seed: second } });
+  assert.ok(await advanceUntil(() => chords.length >= 12, 80, FAST),
+    `only ${chords.length} chords: the piece stopped moving after the seed change`);
+  engine.stop();
+
+  const roots = chords.map((chord) => pcOf(chord.midis[0]));
+  assert.deepEqual(roots.slice(0, 6), [0, 5, 2, 3, 1, 4].map((d) => seedRootPc(d)),
+    'the pass in progress must finish on the seed it started on');
+  assert.deepEqual(roots.slice(6, 12), [0, 3, 4, 5, 1, 2].map((d) => seedRootPc(d)),
+    'the next pass must be the new seed, from its own first slot');
+}));
+
+test('v26: getAnalysers() taps the post-compressor master on both output routes', async () => {
+  /** Everything downstream of `node`, through the mock's own connection lists. */
+  const downstream = (node) => {
+    const seen = new Set();
+    const queue = [node];
+    while (queue.length) {
+      for (const next of queue.pop().connections) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+    return seen;
+  };
+
+  const proveTap = async (engine, expectSink) => {
+    await engine.start();
+    const ctx = liveContexts[liveContexts.length - 1];
+    const total = engine.getAnalysers().total;
+    assert.ok(total && total.kind === 'analyser', 'no master analyser after start()');
+    assert.equal(engine.getMasterAnalyser(), total,
+      'getMasterAnalyser() must hand back the node getAnalysers() files as total');
+    const compressor = ctx.nodes.find((node) => node.kind === 'compressor');
+    assert.ok(compressor.connections.includes(total),
+      'the master tap must hang off the compressor, so it hears the mix that leaves');
+    assert.ok(expectSink(ctx, compressor), 'the engine wired the wrong output route');
+    // Every track's signal actually reaches it: this is the trace that lights
+    // up white on the scope, not a node that happens to exist.
+    for (const name of TRACK_ORDER) {
+      const input = ctx.nodes.find((node) => node.kind === 'gain'
+        && downstream(node).has(total) && downstream(node).has(compressor));
+      assert.ok(input, `${name}: no signal path reaches the master tap`);
+    }
+    assert.equal(total.connections.length, 0, 'an analyser is a tap, not a link in the chain');
+    engine.stop();
+  };
+
+  await proveTap(createEngine({ bpm: 120, speed: 2 }),
+    (ctx, compressor) => compressor.connections.includes(ctx.destination));
+
+  // The media-element route (iOS): the mix leaves through a MediaStream, and
+  // the tap must still hear it.
+  const Base = globalThis.AudioContext;
+  class ElementContext extends Base {
+    createMediaStreamDestination() {
+      const node = makeNode('streamdest');
+      node.stream = { id: 'mock-stream' };
+      return this.track(node);
+    }
+  }
+  globalThis.AudioContext = ElementContext;
+  globalThis.Audio = class {
+    set srcObject(value) { this.src = value; }
+
+    play() { return Promise.resolve(); }
+
+    pause() {}
+  };
+  try {
+    await proveTap(createEngine({ bpm: 120, speed: 2 }), (ctx, compressor) => {
+      const streamDest = ctx.nodes.find((node) => node.kind === 'streamdest');
+      return streamDest && compressor.connections.includes(streamDest)
+        && !compressor.connections.includes(ctx.destination);
+    });
+  } finally {
+    globalThis.AudioContext = Base;
+    delete globalThis.Audio;
+  }
+});
+
+test('v26: pause() holds the piece where it stands, and resume() continues it exactly', async () => {
+  MockTickerWorker.live.clear();
+  globalThis.Worker = MockTickerWorker;
+  try {
+    const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' }, { rng: seededRng(515) });
+    const bars = [];
+    const notes = [];
+    const states = [];
+    engine.on('bar', (bar) => bars.push(bar));
+    engine.on('note', (note) => notes.push(note));
+    engine.on('state', (state) => states.push(state));
+    await engine.start();
+    await advance(3, { step: 0.12, sleep: 16 });
+    const ctx = liveContexts[liveContexts.length - 1];
+    assert.ok(bars.length > 1, 'the piece never got going');
+
+    const clock = engine.now();
+    const lastBar = bars[bars.length - 1].bar;
+    const heard = notes.length;
+    engine.pause();
+    assert.equal(engine.paused, true);
+    assert.equal(engine.running, true, 'a pause is not a stop: the piece is still running');
+    assert.equal(ctx.state, 'suspended', 'pause() must suspend the context, which stops its clock');
+    assert.equal(MockTickerWorker.live.size, 0, 'pause() must stop the ticker');
+    assert.deepEqual(states[states.length - 1], { running: true, paused: true });
+
+    // Wall-clock time passes; the audio clock does not, because a suspended
+    // context's clock does not run. Nothing may be scheduled, and nothing may
+    // wake the context behind the pause.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    ctx.onstatechange();
+    assert.equal(ctx.state, 'suspended', 'a state-change poke must not unfreeze a paused context');
+    assert.equal(engine.now(), clock, 'the audio clock ran on through the pause');
+    assert.equal(bars.length, lastBar + 1, 'the scheduler kept working while paused');
+    assert.equal(notes.length, heard, 'notes were scheduled while paused');
+    engine.pause(); // idempotent
+    assert.equal(MockTickerWorker.live.size, 0);
+
+    await engine.resume();
+    assert.equal(engine.paused, false);
+    assert.equal(ctx.state, 'running', 'resume() must wake the context it paused');
+    assert.equal(MockTickerWorker.live.size, 1, 'resume() must put exactly one ticker back');
+    assert.deepEqual(states[states.length - 1], { running: true, paused: false });
+
+    await advance(3, { step: 0.12, sleep: 16 });
+    assert.ok(bars.length > lastBar + 1, 'the piece never continued after resume()');
+    assert.equal(bars[lastBar + 1].bar, lastBar + 1,
+      'the bar counter must continue across a pause, not jump or restart');
+    bars.forEach((bar, i) => assert.equal(bar.bar, i, 'a pause corrupted the bar accounting'));
+    assert.ok(notes.length > heard, 'nothing sounded after resume()');
+
+    engine.stop();
+    assert.equal(engine.paused, false, 'stop() must clear the pause');
+    assert.equal(MockTickerWorker.live.size, 0);
+  } finally {
+    delete globalThis.Worker;
+  }
+});
+
+test('v26: play on a paused engine unpauses it rather than starting a new piece', async () => {
+  const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' }, { rng: seededRng(707) });
+  const bars = [];
+  engine.on('bar', (bar) => bars.push(bar));
+  await engine.start();
+  await advance(3, { step: 0.12, sleep: 16 });
+  const lastBar = bars[bars.length - 1].bar;
+  assert.ok(lastBar > 0, 'the piece never got going');
+  engine.pause();
+  await engine.start();
+  assert.equal(engine.paused, false, 'start() on a paused engine must unpause it');
+  assert.equal(engine.running, true);
+  await advance(3, { step: 0.12, sleep: 16 });
+  assert.equal(bars[lastBar + 1].bar, lastBar + 1, 'start() restarted the piece instead of resuming it');
+  engine.stop();
 });
 
 // --------------------------------------------------------------------------
