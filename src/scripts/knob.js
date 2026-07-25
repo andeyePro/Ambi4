@@ -3,8 +3,8 @@
  * plus the v7 dual-range addendum).
  *
  * export function createKnob(container, { label, min, max, value, step?, marks?,
- *   format?, onInput, allowRange?, rangeDefault?, defaultValue? }) =>
- *   { el, set(value), destroy() }
+ *   format?, onInput, allowRange?, rangeDefault?, defaultValue?, ghostValue? }) =>
+ *   { el, set(value), setGhost(value), destroy() }
  *
  * 270° sweep (-135°..+135°) with a tick ring (minor ticks plus major marks at
  * `marks` values, or quartiles by default), an engraved pointer line on a
@@ -84,6 +84,39 @@
  *     fractional morph). The glyph node carries no text of its own, so the
  *     readout's `.textContent` is unchanged from the no-glyph case.
  *
+ * v14-kit-editor ghost pointer: `opts.ghostValue` (number | {min,max} | null,
+ * optional) renders a secondary, MUTED pointer at that position — a thin arc
+ * instead when the ghost is a range — drawn behind the live pointer(s), and
+ * updated after construction via `handle.setGhost(v)` (same three shapes;
+ * null hides it). This is what the kit editor uses to show the per-lane
+ * "common" patch value underneath a dial that may carry a per-instrument
+ * override, replacing the old text-readout fake of that idea. The ghost is
+ * clamped to the knob's own [min,max] and drawn at face value — it is never
+ * quantised to `step`, since the common value it mirrors was set on a
+ * DIFFERENT knob instance (the Common tab's) that may not share this knob's
+ * step grid.
+ *
+ * The ghost is DISPLAY-ONLY: no pointerdown/click handling is attached to
+ * it, even though the original kit-editor sketch (v14 addendum) described
+ * "clicking the ghost reverts that dial to follow common". Deliberate
+ * choice: the ghost pointer sits inside the same face/ring geometry the v14
+ * range-mode drag zones already use to disambiguate min vs max, so hit-
+ * testing a second thin target there would either steal an existing drag
+ * gesture or need a carved-out dead zone — fragile, and unreachable by
+ * keyboard/AT either way. The kit editor instead gets a real "Follow common"
+ * button per overridden dial (a normal, keyboard-reachable, focus-visible
+ * control) that performs the same revert; the ghost pointer stays a pure
+ * readout of where "common" currently sits.
+ *
+ * v20 shape-dial note: knob.js renders whatever `glyph`/`markGlyphs` markup
+ * a caller hands it — it does no waveform maths itself. If a caller draws a
+ * shape-dial mini-waveform (or reuses scope.js's trace), the triangle→saw
+ * dial segment (values 1..2) must be synthesised with scope.js's closed-form
+ * skewed-triangle family (peak rise-fraction d = SHAPE_SKEW_MIN..MAX = 0.5
+ * to 0.99, b_n(d) = 2·sin(nπd) / (π²·n²·d·(1-d))), not a linear crossfade of
+ * the triangle/saw coefficient sets — see scope.js's shapeCoefficients() for
+ * the implementation these constants are shared with.
+ *
  * No imports; import-safe in bare Node — every DOM access happens inside
  * createKnob(), nothing at module scope touches document/window.
  */
@@ -117,6 +150,7 @@ const POINTER_STROKE = 'var(--knob-pointer, #f2e8d5)';
 const TICK_STROKE = 'var(--tick, var(--secondary, #8a8378))';
 const TICK_MAJOR_STROKE = 'var(--tick-major, var(--text, #6b6257))';
 const ACCENT_WARM = 'var(--accent-warm, #c98a4b)';
+const GHOST_STROKE = 'var(--knob-ghost, rgba(242, 232, 213, 0.45))';
 const LABEL_COLOR = 'var(--secondary, #5a5a5f)';
 const VALUE_COLOR = 'var(--text, #2e2e33)';
 const LABEL_FONT =
@@ -145,7 +179,7 @@ function polar(r, deg) {
 export function createKnob(container, options) {
   if (typeof document === 'undefined') {
     // No DOM (bare Node) — degrade to an inert handle rather than throw.
-    return { el: null, set() {}, destroy() {} };
+    return { el: null, set() {}, setGhost() {}, destroy() {} };
   }
 
   const opts = options || {};
@@ -324,6 +358,35 @@ export function createKnob(container, options) {
   face.style.stroke = 'rgba(0, 0, 0, 0.35)';
   svg.appendChild(face);
 
+  // Ghost pointer (kit editor "common" readout, see the ghostValue doc
+  // above): a single muted pointer line for a scalar ghost, or a thin arc
+  // for a range ghost — never both at once. Appended before the live
+  // pointer(s) below so it always draws BEHIND them.
+  const ghostPointerGroup = document.createElementNS(SVG_NS, 'g');
+  ghostPointerGroup.setAttribute('data-role', 'ghost-pointer');
+  ghostPointerGroup.style.display = 'none';
+  const ghostPointer = document.createElementNS(SVG_NS, 'line');
+  ghostPointer.setAttribute('x1', String(CX));
+  ghostPointer.setAttribute('y1', String(CY - 8));
+  ghostPointer.setAttribute('x2', String(CX));
+  ghostPointer.setAttribute('y2', String(CY - FACE_R + 4));
+  ghostPointer.setAttribute('stroke-width', '2');
+  ghostPointer.setAttribute('stroke-linecap', 'round');
+  ghostPointer.style.stroke = GHOST_STROKE;
+  ghostPointer.style.pointerEvents = 'none';
+  ghostPointerGroup.appendChild(ghostPointer);
+  svg.appendChild(ghostPointerGroup);
+
+  const ghostArc = document.createElementNS(SVG_NS, 'path');
+  ghostArc.setAttribute('data-role', 'ghost-arc');
+  ghostArc.setAttribute('stroke-width', '2');
+  ghostArc.setAttribute('stroke-linecap', 'round');
+  ghostArc.style.fill = 'none';
+  ghostArc.style.stroke = GHOST_STROKE;
+  ghostArc.style.pointerEvents = 'none';
+  ghostArc.style.display = 'none';
+  svg.appendChild(ghostArc);
+
   // Engraved pointer: a dark groove offset just below a light pointer line.
   const pointerGroup = document.createElementNS(SVG_NS, 'g');
   const groove = document.createElementNS(SVG_NS, 'line');
@@ -403,6 +466,61 @@ export function createKnob(container, options) {
 
   function degFor(v) {
     return START_DEG + (SWEEP_DEG * (v - min)) / range;
+  }
+
+  /** Clamps a ghost coordinate into [min,max] without step quantising it. */
+  function ghostClamp(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return n < min ? min : n > max ? max : n;
+  }
+
+  let ghostValue = null; // number | {min,max} | null
+
+  function updateGhostView() {
+    if (ghostValue == null) {
+      ghostPointerGroup.style.display = 'none';
+      ghostArc.style.display = 'none';
+      return;
+    }
+    if (typeof ghostValue === 'object') {
+      ghostPointerGroup.style.display = 'none';
+      const a = ghostClamp(ghostValue.min);
+      const b = ghostClamp(ghostValue.max);
+      if (a == null || b == null) {
+        ghostArc.style.display = 'none';
+        return;
+      }
+      const loDeg = degFor(Math.min(a, b));
+      const hiDeg = degFor(Math.max(a, b));
+      const p1 = polar(RING_R, loDeg);
+      const p2 = polar(RING_R, hiDeg);
+      const largeArc = hiDeg - loDeg > 180 ? 1 : 0;
+      ghostArc.setAttribute('d', `M ${p1.x} ${p1.y} A ${RING_R} ${RING_R} 0 ${largeArc} 1 ${p2.x} ${p2.y}`);
+      ghostArc.style.display = '';
+      return;
+    }
+    ghostArc.style.display = 'none';
+    const v = ghostClamp(ghostValue);
+    if (v == null) {
+      ghostPointerGroup.style.display = 'none';
+      return;
+    }
+    const deg = degFor(v);
+    ghostPointerGroup.setAttribute('transform', `rotate(${+deg.toFixed(2)} ${CX} ${CY})`);
+    ghostPointerGroup.style.display = '';
+  }
+
+  function applyGhost(v) {
+    if (v == null) {
+      ghostValue = null;
+    } else if (typeof v === 'object') {
+      ghostValue = { min: toFinite(v.min, NaN), max: toFinite(v.max, NaN) };
+    } else {
+      const n = Number(v);
+      ghostValue = Number.isFinite(n) ? n : null;
+    }
+    updateGhostView();
   }
 
   // v12: an optional `glyph(value, valueMax)` renders trusted inline SVG
@@ -900,6 +1018,7 @@ export function createKnob(container, options) {
   listen('dblclick', onDoubleClick);
 
   updateView();
+  applyGhost(opts.ghostValue != null ? opts.ghostValue : null);
   if (container && typeof container.appendChild === 'function') {
     container.appendChild(root);
   }
@@ -928,6 +1047,11 @@ export function createKnob(container, options) {
         if (wasRange) updateView(); // commit may early-return; the mode switch must still render
       }
       dragRaw = value;
+    },
+    /** Moves/hides the ghost pointer (kit editor "common" readout). See the
+     * ghostValue doc above — number | {min,max} | null, display-only. */
+    setGhost(v) {
+      applyGhost(v);
     },
     destroy() {
       if (destroyed) return;

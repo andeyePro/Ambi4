@@ -330,6 +330,38 @@ try {
   const initErrors = consoleErrors.filter((line) => line.includes('Ambi4 init failed'));
   if (initErrors.length) failures.push(`init reported: ${initErrors.join(' | ')}`);
 
+  // Fresh-install gate: this realm boots with an EMPTY localStorage and no
+  // consent cookie, which is every first-time visitor and the state the v7
+  // RangeValue defaults land in — a param the engine ships as {min,max} has
+  // no stored number for the page to fall back on, so a dial that mishandles
+  // the object form shows "NaN" here rather than throwing anywhere.
+  // Two things are asserted: nothing was persisted before consent was asked,
+  // and every dial that built came up with a readable value.
+  {
+    const stored = ['ambi4:generator', 'ambi4-generator-settings-v2'].filter(
+      (key) => window.localStorage.getItem(key) !== null
+    );
+    if (stored.length) {
+      failures.push(`settings were persisted before consent was granted: ${stored.join(', ')}`);
+    }
+    const readouts = Array.from(window.document.querySelectorAll('.knob-value'));
+    if (!readouts.length) {
+      failures.push('no knob value readouts rendered on a fresh-install boot');
+    }
+    const broken = readouts
+      .map((el) => el.textContent.trim())
+      .filter((text) => !text || /NaN|undefined|Infinity/.test(text));
+    if (broken.length) {
+      failures.push(`dial readouts unreadable on a fresh install: ${broken.slice(0, 5).join(' | ')}`);
+    }
+    for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+      const row = window.document.querySelector(`.track-row[data-track="${track}"]`);
+      if (row && !row.querySelector('.rand-knob, .rand-slider')) {
+        failures.push(`the ${track} row rendered no randomness control on a fresh install`);
+      }
+    }
+  }
+
   // v16 placement gate: the factory-preset gallery moved BELOW the Simple
   // dials, and it is built by the page script from the build-time preset list
   // — so an empty row means the JSON payload never reached the page, which
@@ -439,6 +471,96 @@ try {
             '(offline waveform rule regression)'
         );
       }
+      // The v19 groups are claimed by a voice SHIPPING those fields, never by
+      // a blanket `controls: {source: true}` — the warm pad must not grow a
+      // Spectral row it has no code to read.
+      const padSections = Array.from(
+        doc.querySelectorAll('#voice-editor-pad .knob-section > .panel-label')
+      ).map((el) => el.textContent);
+      const strays = padSections.filter((name) =>
+        ['Spectral', 'Motion', 'Bursts', 'Glide', 'Formants', 'Phrasing'].includes(name)
+      );
+      if (strays.length) {
+        failures.push(`the pad editor grew v19 sculpting rows it cannot use: ${strays.join(', ')}`);
+      }
+    }
+  }
+
+  // Knob-editor gate: buildKnobEditor is wrapped in a try/catch that falls
+  // back to the slider editor, so a ReferenceError inside it is SILENT — the
+  // editor still opens, just built from the wrong path (this is exactly how a
+  // missing `base` binding hid for a whole iteration). Every track's editor
+  // must therefore be proved to have built knob cells, not sliders.
+  for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+    doc.getElementById(`voice-edit-toggle-${track}`).click();
+    const cells = () => doc.querySelectorAll(`#voice-editor-${track} .patch-controls .knob-cell`).length;
+    const built = await waitUntil(() => cells() > 0);
+    if (!built) {
+      failures.push(
+        `the ${track} voice editor fell back to the slider path — buildKnobEditor threw silently`
+      );
+    }
+  }
+  // The kit editor's per-instrument tab is the one path that renders ghosts.
+  {
+    doc.getElementById('voice-edit-toggle-percussion').click();
+    await waitUntil(() => !!doc.getElementById('kit-kind-percussion-high'));
+    const highTab = doc.getElementById('kit-kind-percussion-high');
+    if (!highTab) {
+      failures.push('the percussion editor has no High kit tab');
+    } else {
+      highTab.checked = true;
+      highTab.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const ghosted = await waitUntil(
+        () => doc.querySelectorAll('#voice-editor-percussion .knob-cell-ghosted').length > 0
+      );
+      if (!ghosted) {
+        failures.push('the kit editor High tab showed no Common-value ghost on any dial');
+      }
+    }
+  }
+
+  // v19 gate: the sculpting surface is only real if the dials actually build.
+  // Texture's "Coloured noise" voice declares eleven source fields in its
+  // `controls` (octave + the ten sculpting dials), grouped by the page into
+  // Spectral / Motion / Bursts sub-rows. A voice whose controls table names
+  // fields the editor's builder doesn't know about renders NOTHING for them
+  // and no test below the DOM would notice.
+  const textureSelect = doc.getElementById('track-voice-texture');
+  if (!textureSelect) {
+    failures.push('no voice selector for the texture track (#track-voice-texture)');
+  } else if (!Array.from(textureSelect.options).some((option) => option.value === 'colour')) {
+    failures.push('the texture voice selector does not offer the v19 "colour" voice');
+  } else {
+    textureSelect.value = 'colour';
+    textureSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+    doc.getElementById('voice-edit-toggle-texture').click();
+    const sourceKnobs = () =>
+      doc.querySelectorAll('#voice-editor-texture .patch-controls .knob-cell').length;
+    const built = await waitUntil(() => sourceKnobs() >= 10);
+    if (!built) {
+      failures.push(
+        `the Coloured noise editor rendered ${sourceKnobs()} patch dials, expected at least 10 ` +
+          '(v19 sculpting surface missing)'
+      );
+    }
+    const headings = Array.from(
+      doc.querySelectorAll('#voice-editor-texture .knob-section > .panel-label')
+    ).map((el) => el.textContent);
+    for (const heading of ['Spectral', 'Motion', 'Bursts']) {
+      if (!headings.includes(heading)) {
+        failures.push(`the Coloured noise editor has no "${heading}" sub-row (got: ${headings.join(', ')})`);
+      }
+    }
+    // v12 mono/glide: engine params since v12, UI only now. Both are probed
+    // against getParams() before they render, so their absence here means
+    // either the probe or the engine's params changed shape.
+    const header = doc.querySelector('#voice-editor-texture .ve-header');
+    if (!header || !header.querySelector('.mono-toggle')) {
+      failures.push('the texture editor header has no Mono toggle');
+    }
+    if (!header || !header.querySelector('.glide-knob, .glide-slider')) {
+      failures.push('the texture editor header has no Glide control');
     }
   }
 

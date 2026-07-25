@@ -75,12 +75,16 @@ const VOICES: Record<string, [string, string][]> = {
     ['bell', 'Bell'],
     ['flute', 'Flute'],
     ['keys', 'Keys'],
+    ['call', 'Call'],
   ],
   texture: [
     ['sparkle', 'Sparkle'],
     ['grains', 'Grains'],
     ['chimes', 'Chimes'],
     ['wash', 'Wash'],
+    ['colour', 'Coloured noise'],
+    ['cloud', 'Grain cloud'],
+    ['call', 'Call'],
   ],
   arp: [
     ['softPluck', 'Soft pluck'],
@@ -360,6 +364,18 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
+      <div class="control simple-dial" id="dial-reverb-tail" hidden>
+        <div class="control-label-row">
+          <label for="reverbTail" class="panel-label">Reverb tail</label>
+        </div>
+        <div class="dial-slot" id="reverb-tail-dial">
+          <span class="dial-ends" aria-hidden="true">
+            <span class="dial-end dial-end-low">Room</span>
+            <span class="dial-end dial-end-high">Cathedral</span>
+          </span>
+        </div>
+      </div>
+
       <div class="control">
         <label for="root">Root</label>
         <select id="root">
@@ -503,9 +519,17 @@ const VOICES: Record<string, [string, string][]> = {
     const VOICE_LABELS = {
       pad: { warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir' },
       arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba' },
-      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys' },
+      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call' },
       bass: { sub: 'Sub', round: 'Round', breath: 'Breath' },
-      texture: { sparkle: 'Sparkle', grains: 'Grains', chimes: 'Chimes', wash: 'Wash' },
+      texture: {
+        sparkle: 'Sparkle',
+        grains: 'Grains',
+        chimes: 'Chimes',
+        wash: 'Wash',
+        colour: 'Coloured noise',
+        cloud: 'Grain cloud',
+        call: 'Call',
+      },
       percussion: { soft: 'Soft kit', hand: 'Hand drum', tick: 'Ticks' },
     };
 
@@ -628,6 +652,20 @@ const VOICES: Record<string, [string, string][]> = {
       return FACTORY_PRESETS.find((preset) => preset.slug === slug) || null;
     }
 
+    // v12 mono/legato, mirroring the engine's own DEFAULT_TRACK_MONO/GLIDE:
+    // the two melodic lines sound one note at a time and slur between them, a
+    // chord and a kit do not. Held in settings so the pair is preset-captured
+    // and persists — the engine would otherwise re-assert its defaults on a
+    // reload and quietly undo the user's choice.
+    const MONO_DEFAULTS = {
+      pad: { mono: false, glide: 0 },
+      arp: { mono: false, glide: 0 },
+      melody: { mono: true, glide: 0.3 },
+      bass: { mono: true, glide: 0.15 },
+      texture: { mono: false, glide: 0 },
+      percussion: { mono: false, glide: 0 },
+    };
+
     const DEFAULTS = {
       swing: 0,
       complexity: 0.5,
@@ -651,7 +689,16 @@ const VOICES: Record<string, [string, string][]> = {
         steps: new Array(16).fill(true),
       },
       tracks: {
-        pad: { state: 'auto', voice: 'warm', level: 0.8, hold: false, randomness: 0.5, dissonance: 0, vary: defaultVary() },
+        pad: {
+          state: 'auto',
+          voice: 'warm',
+          level: 0.8,
+          hold: false,
+          randomness: 0.5,
+          dissonance: 0,
+          vary: defaultVary(),
+          ...MONO_DEFAULTS.pad,
+        },
         arp: {
           state: 'auto',
           voice: 'softPluck',
@@ -660,6 +707,7 @@ const VOICES: Record<string, [string, string][]> = {
           randomness: 0.5,
           dissonance: 0,
           vary: defaultVary(),
+          ...MONO_DEFAULTS.arp,
           ...withSequencers('arp'),
         },
         // v14 user verdict: melody joins the default mix ('auto'); bass stays
@@ -672,6 +720,7 @@ const VOICES: Record<string, [string, string][]> = {
           randomness: 0.5,
           dissonance: 0,
           vary: defaultVary(),
+          ...MONO_DEFAULTS.melody,
           ...withSequencers('melody'),
         },
         bass: {
@@ -682,9 +731,19 @@ const VOICES: Record<string, [string, string][]> = {
           randomness: 0.5,
           dissonance: 0,
           vary: defaultVary(),
+          ...MONO_DEFAULTS.bass,
           ...withSequencers('bass'),
         },
-        texture: { state: 'auto', voice: 'sparkle', level: 0.8, hold: false, randomness: 0.5, dissonance: 0, vary: defaultVary() },
+        texture: {
+          state: 'auto',
+          voice: 'sparkle',
+          level: 0.8,
+          hold: false,
+          randomness: 0.5,
+          dissonance: 0,
+          vary: defaultVary(),
+          ...MONO_DEFAULTS.texture,
+        },
         percussion: {
           state: 'auto',
           voice: 'soft',
@@ -692,6 +751,7 @@ const VOICES: Record<string, [string, string][]> = {
           hold: false,
           randomness: 0.5,
           vary: defaultVary(),
+          ...MONO_DEFAULTS.percussion,
           ...withSequencers('percussion'),
         },
       },
@@ -952,6 +1012,16 @@ const VOICES: Record<string, [string, string][]> = {
         const t = s.tracks[id];
         t.level = normaliseRangeValue(t.level, 0.8);
         t.hold = t.hold === true;
+        // Mono is a plain boolean and glide a plain 0–1 number engine-side —
+        // neither is rangeable, so a stored range is repaired to its midpoint.
+        t.mono = t.mono === true;
+        t.glide = clamp(
+          typeof t.glide === 'number' && Number.isFinite(t.glide)
+            ? t.glide
+            : MONO_DEFAULTS[id].glide,
+          0,
+          1
+        );
         // Rangeable (v7 addendum) — preserve a valid {min,max}; only a
         // genuinely invalid value falls back to the 0.5 default.
         t.randomness = normaliseRangeValue(t.randomness, 0.5);
@@ -1018,10 +1088,12 @@ const VOICES: Record<string, [string, string][]> = {
       '<path d="M1 12 C4 3 8 3 12 12 C16 21 20 21 23 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
       // triangle
       '<path d="M1 12 L6.5 3 L12 12 L17.5 21 L23 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
-      // sawtooth
-      '<path d="M2 20 L11 4 L11 20 L20 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
-      // square
-      '<path d="M2 20 L2 4 L11 4 L11 20 L20 20 L20 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+      // sawtooth — one full cycle: two ramps, each ended by a truly vertical
+      // drop (the old path trailed off mid-ramp with no closing edge).
+      '<path d="M3 18 L12 6 L12 18 L21 6 L21 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+      // square — one full cycle: high half, drop, low half, rise. Exactly two
+      // verticals (the old path opened on a third, at the left edge).
+      '<path d="M3 6 L12 6 L12 18 L21 18 L21 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
     ];
 
     // v14: what each canonical mark sounds like, shown as an SVG <title> on
@@ -1253,16 +1325,33 @@ const VOICES: Record<string, [string, string][]> = {
         patchPitch: false,
         patchNoise: false,
         patchNoiseRange: false,
+        patchSculpt: false,
+        patchCall: false,
+        patchV19Range: false,
+        patchFold: false,
+        // v21: a global reverb-tail length, and the setter the power governor
+        // caps it through. Either one alone is enough to drive the dial.
+        reverbTail: false,
+        setReverbSeconds: typeof engine.setReverbSeconds === 'function',
         randomness: {},
         dissonance: {},
         vary: {},
         sequencer: {},
         sequencers: {},
         level: {},
+        mono: {},
+        glide: {},
+        driftRate: {},
       };
+      // The engine's own starting reverb tail — the dial's default and its
+      // opening value, so the page never invents a length the engine disagrees
+      // with. Null until an engine ships the param.
+      let engineReverbTail = null;
       try {
         const p = engine.getParams() || {};
         engineCaps.swing = typeof p.swing === 'number';
+        engineCaps.reverbTail = typeof p.reverbTail === 'number';
+        if (engineCaps.reverbTail) engineReverbTail = clamp(p.reverbTail, 0.5, 6);
         const t = isPlainObject(p.tracks) ? p.tracks : {};
         for (const id of TRACK_IDS) {
           const entry = isPlainObject(t[id]) ? t[id] : {};
@@ -1274,6 +1363,11 @@ const VOICES: Record<string, [string, string][]> = {
           engineCaps.sequencer[id] = isPlainObject(entry.sequencer);
           engineCaps.sequencers[id] = Array.isArray(entry.sequencers);
           engineCaps.level[id] = isNumberOrRange(entry.level);
+          // v12 mono/legato and v21 driftRate: all three are plain scalars
+          // engine-side (never RangeValues), so the probe is a type check.
+          engineCaps.mono[id] = typeof entry.mono === 'boolean';
+          engineCaps.glide[id] = typeof entry.glide === 'number';
+          engineCaps.driftRate[id] = typeof entry.driftRate === 'number';
         }
       } catch {}
 
@@ -1301,6 +1395,18 @@ const VOICES: Record<string, [string, string][]> = {
         engineCaps.patchPitch = typeof plain.pitch === 'number';
         engineCaps.patchNoise = isNumberOrRange(plain.noise);
         engineCaps.patchNoiseRange = isPlainObject(ranged.noise);
+        // v19 sculpting / call synthesis and the v20 wavefolder ride the same
+        // schema probe: a voice may declare the dials in its `controls` before
+        // the engine's sanitiser accepts them, and a dial whose value is
+        // dropped on the way to play() is a dial that does nothing. One
+        // representative field per family answers for the whole family — they
+        // land in PATCH_SCHEMA as one block.
+        const v19 = probePatchSource({ tilt: 0.25, cadence: 2, fold: 0.5 }) || {};
+        const v19Ranged = probePatchSource({ tilt: { min: -0.5, max: 0.5 } }) || {};
+        engineCaps.patchSculpt = typeof v19.tilt === 'number';
+        engineCaps.patchCall = typeof v19.cadence === 'number';
+        engineCaps.patchFold = isNumberOrRange(v19.fold);
+        engineCaps.patchV19Range = isPlainObject(v19Ranged.tilt);
       }
 
       const { prefs, consentPrompt } = await loadPrefsModule();
@@ -1504,6 +1610,7 @@ const VOICES: Record<string, [string, string][]> = {
       let randomnessDial = null;
       let volumeDial = null;
       let swingDial = null;
+      let reverbTailDial = null;
       let processorDial = null;
       const rootSelect = document.getElementById('root');
       const modeSelect = document.getElementById('mode');
@@ -1517,7 +1624,42 @@ const VOICES: Record<string, [string, string][]> = {
         const p = structuredClone(s);
         delete p.ui;
         p.speed = 1; // deprecated at UI level; back-compat pin
+        // The stored tail is the USER's ask; the engine only ever sees it
+        // through the governor's tier cap (same policy as the density scale
+        // on track levels — never overwrite what the user chose).
+        if (typeof p.reverbTail === 'number') p.reverbTail = cappedReverbTail();
         return p;
+      }
+
+      /** The reverb tail the engine may actually have, tier cap included. */
+      function cappedReverbTail() {
+        const asked = clamp(
+          typeof settings?.reverbTail === 'number' && Number.isFinite(settings.reverbTail)
+            ? settings.reverbTail
+            : engineReverbTail ?? 2,
+          0.5,
+          6
+        );
+        const cap = powerBudget && typeof powerBudget.reverbSeconds === 'number'
+          ? powerBudget.reverbSeconds
+          : null;
+        return cap === null ? asked : Math.min(asked, cap);
+      }
+
+      /** Push the capped tail through whichever hook this engine exposes. */
+      function applyReverbTail() {
+        if (!engineCaps.reverbTail && !engineCaps.setReverbSeconds) return;
+        const seconds = cappedReverbTail();
+        if (engineCaps.reverbTail) {
+          try {
+            engine.setParams({ reverbTail: seconds });
+          } catch {}
+        }
+        if (engineCaps.setReverbSeconds) {
+          try {
+            engine.setReverbSeconds(seconds);
+          } catch {}
+        }
       }
 
       // ---- combined-complexity estimate (display only) ------------------
@@ -2322,6 +2464,45 @@ const VOICES: Record<string, [string, string][]> = {
         );
       }
 
+      // ---- v21 reverb tail (global; Advanced tab) --------------------------
+      // 0.5–6 s of impulse response. The engine owns the initial value — the
+      // page never invents one, so a build that has no reverbTail param yet
+      // renders no dial rather than a dial that lies. The power governor caps
+      // the tail on top (see applyPowerBudget): the USER's setting is what is
+      // stored and shown, the capped value is only what the engine is sent.
+      if (engineCaps.reverbTail || engineCaps.setReverbSeconds) {
+        const control = document.getElementById('dial-reverb-tail');
+        if (control) control.hidden = false;
+        const shipped = engineReverbTail ?? 2;
+        const stored = typeof settings.reverbTail === 'number' && Number.isFinite(settings.reverbTail)
+          ? clamp(settings.reverbTail, 0.5, 6)
+          : shipped;
+        settings.reverbTail = stored;
+        reverbTailDial = buildSimpleDial(
+          'reverb-tail-dial',
+          {
+            id: 'reverbTail',
+            label: 'Reverb tail',
+            min: 0.5,
+            max: 6,
+            step: 0.1,
+            value: stored,
+            format: (v) => `${plainFormat(v)} s`,
+            defaultValue: shipped,
+          },
+          (value) => {
+            settings.reverbTail = clamp(rangeMid(value), 0.5, 6);
+            applyReverbTail();
+            persistSettings();
+          }
+        );
+        describe(
+          reverbTailDial.el,
+          'How long the reverb rings on — a small room at the left, a cathedral at the right. Eco and Low processor settings shorten it whatever this says.'
+        );
+        applyReverbTail();
+      }
+
       const DICE_SVG =
         '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">' +
         '<rect x="3" y="3" width="18" height="18" rx="3"/>' +
@@ -2569,6 +2750,158 @@ const VOICES: Record<string, [string, string][]> = {
             cells.append(wrap);
           }
         }
+      }
+
+      // ---- v12 mono + glide (melodic tracks; engine params since v12) -----
+      // A monophonic track sounds one note at a time and slurs between them,
+      // which is what turns a generative line into something singable. Both
+      // params existed engine-side without UI; the toggle and the dial sit in
+      // the editor header beside the state lamp, because "one note at a time"
+      // is a property of the LINE, not of the patch.
+      const MONO_HINT =
+        'One note at a time: each new note ends the one before it, the way a voice or a wind instrument plays.';
+      const GLIDE_HINT =
+        'How far each note slides into the next one. Off is a clean step; higher slurs between pitches. Mono only.';
+
+      function buildMonoGlide(container, track, knobs) {
+        if (!engineCaps.mono[track] && !engineCaps.glide[track]) return;
+        if (engineCaps.mono[track]) {
+          const toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'secondary-button mono-toggle';
+          toggle.textContent = 'Mono';
+          toggle.setAttribute('aria-pressed', String(settings.tracks[track].mono === true));
+          toggle.setAttribute('aria-label', `${TRACK_LABELS[track]} monophonic`);
+          toggle.addEventListener('click', () => {
+            const on = toggle.getAttribute('aria-pressed') !== 'true';
+            toggle.setAttribute('aria-pressed', String(on));
+            settings.tracks[track].mono = on;
+            engine.setParams({ tracks: { [track]: { mono: on } } });
+            persistSettings();
+          });
+          container.append(toggle);
+          describe(toggle, MONO_HINT);
+        }
+        if (!engineCaps.glide[track]) return;
+        // Not rangeable: the engine reads glide with numberIn(), so a
+        // {min,max} would be dropped on the floor.
+        const commitGlide = (v) => {
+          const value = clamp(rangeMid(v), 0, 1);
+          settings.tracks[track].glide = value;
+          engine.setParams({ tracks: { [track]: { glide: value } } });
+          persistSettings();
+        };
+        const value = clamp(settings.tracks[track].glide ?? 0, 0, 1);
+        const glideFormat = (v) => (v <= 0.005 ? 'Off' : pctFormat(v));
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = 'glide-knob';
+          container.append(cell);
+          try {
+            const handle = knobApi.createKnob(cell, {
+              label: 'Glide',
+              min: 0,
+              max: 1,
+              value,
+              format: glideFormat,
+              defaultValue: MONO_DEFAULTS[track].glide,
+              onInput: commitGlide,
+            });
+            describe(handle.el, GLIDE_HINT);
+            if (knobs) knobs.push(handle);
+            return;
+          } catch {
+            cell.remove();
+          }
+        }
+        const wrap = document.createElement('label');
+        wrap.className = 'glide-slider';
+        const name = document.createElement('span');
+        name.className = 'visually-hidden';
+        name.textContent = `${TRACK_LABELS[track]} glide. ${GLIDE_HINT}`;
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.min = '0';
+        input.max = '1';
+        input.step = '0.01';
+        input.value = String(value);
+        input.addEventListener('input', () => commitGlide(parseFloat(input.value)));
+        wrap.append(name, input);
+        container.append(wrap);
+        describe(input, GLIDE_HINT);
+      }
+
+      // ---- v21: per-track drift rate --------------------------------------
+      // One dial over every RangeValue walk this track owns: at 1 a ranged
+      // dial crosses its span at the engine's own ±0.15/bar, at the bottom it
+      // creeps. Rendered only where the engine advertises the param.
+      const DRIFT_HINT =
+        'How fast this track’s min–max dials drift between their two ends. Low is a slow creep; 1 is the normal rate.';
+
+      function buildDriftRateControl(parent, track, knobs) {
+        if (!engineCaps.driftRate[track]) return;
+        // Same row treatment as Dissonance so the two sit on one baseline
+        // (v18 layout contract) whether one of them renders or both do.
+        const container = document.createElement('div');
+        container.className = 'dissonance-row drift-row';
+        parent.append(container);
+        const commitDrift = (v) => {
+          const value = clamp(rangeMid(v), 0.02, 1);
+          settings.tracks[track].driftRate = value;
+          engine.setParams({ tracks: { [track]: { driftRate: value } } });
+          persistSettings();
+        };
+        const stored = settings.tracks[track].driftRate;
+        const value = clamp(typeof stored === 'number' && Number.isFinite(stored) ? stored : 1, 0.02, 1);
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = 'knob-cell drift-knob';
+          container.append(cell);
+          try {
+            const handle = knobApi.createKnob(cell, {
+              label: 'Drift rate',
+              min: 0.02,
+              max: 1,
+              step: 0.01,
+              value,
+              format: (v) => `${plainFormat(v)}×`,
+              defaultValue: 1,
+              onInput: commitDrift,
+            });
+            describe(handle.el, DRIFT_HINT);
+            if (knobs) knobs.push(handle);
+            return;
+          } catch {
+            cell.remove();
+          }
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'control ve-control';
+        const id = `drift-rate-${track}`;
+        const labelRow = document.createElement('div');
+        labelRow.className = 'control-label-row';
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = 'Drift rate';
+        const readout = document.createElement('span');
+        readout.className = 'value-readout';
+        readout.textContent = `${plainFormat(value)}×`;
+        labelRow.append(label, readout);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.id = id;
+        input.min = '0.02';
+        input.max = '1';
+        input.step = '0.01';
+        input.value = String(value);
+        input.addEventListener('input', () => {
+          const v = parseFloat(input.value);
+          readout.textContent = `${plainFormat(v)}×`;
+          commitDrift(v);
+        });
+        wrap.append(labelRow, input);
+        container.append(wrap);
+        describe(input, DRIFT_HINT);
       }
 
       // ---- v14: per-track Dissonance (tuned tracks only) -----------------
@@ -3874,6 +4207,227 @@ const VOICES: Record<string, [string, string][]> = {
         return `${SHAPE_LABELS[Math.floor(v)]}~${SHAPE_LABELS[Math.ceil(v)]}`;
       };
 
+      // ---- v19 sculpting surface (noise voices) + call synthesis ----------
+      // Sixteen source fields the engine and the voice library landed together;
+      // both editors below build their dials straight off this table, so a
+      // label, a unit or a range is stated exactly once. `fallback` is only
+      // reached when neither the stored patch nor the voice's own defaults
+      // carry the field (an older save opened on a newer voice).
+      //
+      // Only the Hz centres are log-mapped: sweep/gust rates run 0–0.5 Hz and
+      // 0.02–0.5 Hz, where a linear dial already gives the slow end most of
+      // its travel, and sweepRate reaches 0 (which no log map can express).
+      // None takes rangeDefault — v7 puts filter cutoff and the sends on that
+      // list, not these; they open as single values and split on a click.
+      const rateHzFormat = (v) => (v < 0.005 ? 'Off' : `${(Math.round(v * 100) / 100).toFixed(2)} Hz`);
+      const octaveSpanFormat = (v) => `${plainFormat(v)} oct`;
+      const semitoneFormat = (v) => {
+        const n = Math.round(v);
+        return n > 0 ? `+${n} st` : `${n} st`;
+      };
+      const perBarFormat = (v) => `${plainFormat(v)}/bar`;
+
+      const SCULPT_GROUPS = [
+        ['Spectral', [
+          {
+            field: 'tilt',
+            label: 'Tilt',
+            min: -1,
+            max: 1,
+            marks: [-1, 0, 1],
+            fallback: 0,
+            format: (v) => (v <= -0.995 ? 'Brown' : v >= 0.995 ? 'White' : plainFormat(v)),
+            hint: 'The colour of the noise bed: brown and rumbling at the left, flat white at the right.',
+          },
+          {
+            field: 'bandCentre',
+            label: 'Band',
+            min: 60,
+            max: 8000,
+            log: true,
+            fallback: 800,
+            format: hzFormat,
+            hint: 'Where the resonant band sits — the pitch you hear in the bed. Low is a rumble, high is a hiss.',
+          },
+          {
+            field: 'bandWidth',
+            label: 'Width',
+            min: 0.1,
+            max: 4,
+            step: 0.05,
+            fallback: 2,
+            format: octaveSpanFormat,
+            hint: 'How wide that band is, in octaves. Narrow whistles at one pitch; wide is closer to open weather.',
+          },
+        ]],
+        ['Motion', [
+          {
+            field: 'sweepRate',
+            label: 'Sweep',
+            min: 0,
+            max: 0.5,
+            step: 0.005,
+            fallback: 0.05,
+            format: rateHzFormat,
+            hint: 'How fast the band sweeps up and down. Off at the left; a slow breath a little way in.',
+          },
+          {
+            field: 'sweepDepth',
+            label: 'Depth',
+            min: 0,
+            max: 1,
+            fallback: 0.15,
+            format: pctFormat,
+            hint: 'How far that sweep travels. At zero the band holds still whatever the sweep rate says.',
+          },
+          {
+            field: 'gust',
+            label: 'Gust',
+            min: 0,
+            max: 1,
+            fallback: 0.2,
+            format: pctFormat,
+            hint: 'A slow random walk on level and brightness — the wind picking up and dying back.',
+          },
+          {
+            field: 'gustRate',
+            label: 'Gust rate',
+            min: 0.02,
+            max: 0.5,
+            step: 0.005,
+            fallback: 0.08,
+            format: rateHzFormat,
+            hint: 'How quickly those gusts come and go.',
+          },
+          {
+            field: 'swell',
+            label: 'Swell',
+            min: 0,
+            max: 1,
+            fallback: 0,
+            format: pctFormat,
+            hint: 'Stretches the attack into a crescendo — small is a gentle rise, full is storm-scale.',
+          },
+        ]],
+        ['Bursts', [
+          {
+            field: 'burst',
+            label: 'Density',
+            min: 0,
+            max: 1,
+            fallback: 0.2,
+            format: pctFormat,
+            hint: 'How many grains land per second: droplets at the bottom, a downpour at the top.',
+          },
+          {
+            field: 'burstSharp',
+            label: 'Sharpness',
+            min: 0,
+            max: 1,
+            fallback: 0.5,
+            format: pctFormat,
+            hint: 'The character of each grain — soft damp drops at the left, dry bright crackle at the right.',
+          },
+        ]],
+      ];
+
+      const CALL_GROUPS = [
+        ['Glide', [
+          {
+            field: 'glide',
+            label: 'Sweep',
+            min: -24,
+            max: 24,
+            step: 1,
+            marks: [-24, -12, 0, 12, 24],
+            fallback: 0,
+            format: semitoneFormat,
+            hint: 'How far each call slides in pitch, in semitones. Negative falls, positive rises.',
+          },
+          {
+            field: 'glideCurve',
+            label: 'Curve',
+            min: 0,
+            max: 1,
+            fallback: 0.5,
+            format: pctFormat,
+            hint: 'The shape of that slide: even at the left, snapping to the target end at the right.',
+          },
+        ]],
+        ['Formants', [
+          {
+            field: 'formant1',
+            label: 'Formant 1',
+            min: 60,
+            max: 8000,
+            log: true,
+            fallback: 900,
+            format: hzFormat,
+            hint: 'The lower of the two resonances that give the call its vowel — its body.',
+          },
+          {
+            field: 'formant2',
+            label: 'Formant 2',
+            min: 60,
+            max: 8000,
+            log: true,
+            fallback: 2200,
+            format: hzFormat,
+            hint: 'The upper resonance. Far above the first reads as a whistle; close to it, as a hoot.',
+          },
+        ]],
+        ['Phrasing', [
+          {
+            field: 'cadence',
+            label: 'Cadence',
+            min: 0.5,
+            max: 8,
+            step: 0.1,
+            fallback: 2,
+            format: perBarFormat,
+            hint: 'Calls per bar — a single long note at the left, chattering at the right.',
+          },
+          {
+            field: 'irregular',
+            label: 'Irregular',
+            min: 0,
+            max: 1,
+            fallback: 0.25,
+            format: pctFormat,
+            hint: 'How unevenly those calls are spaced. Zero is metronomic; higher sounds like a living thing.',
+          },
+        ]],
+      ];
+
+      /**
+       * Which v19 group sets this voice actually asks for. A voice declares a
+       * family by SHIPPING its fields in `defaults` — the same test the voice
+       * library uses internally — because `controls: true` means "every field
+       * in the schema applies", which was written long before these sixteen
+       * existed and must not be read as a claim about them. `controls` then
+       * gets the final say, so a voice can still hide a field it defaults.
+       */
+      function v19GroupsFor(sourceSpec, defaults) {
+        const shipped = defaults && isPlainObject(defaults.source) ? defaults.source : null;
+        if (!shipped) return [];
+        const groups = [];
+        if (engineCaps.patchSculpt && shipped.tilt !== undefined && controlsFieldAllowed(sourceSpec, 'tilt')) {
+          groups.push(...SCULPT_GROUPS);
+        }
+        if (engineCaps.patchCall && shipped.cadence !== undefined && controlsFieldAllowed(sourceSpec, 'cadence')) {
+          groups.push(...CALL_GROUPS);
+        }
+        return groups;
+      }
+
+      /** A v19 field's starting value: the patch's, else the voice's, else the table's. */
+      function v19Value(patch, defaults, spec) {
+        const stored = isPlainObject(patch.source) ? patch.source[spec.field] : undefined;
+        const shipped = defaults && isPlainObject(defaults.source) ? defaults.source[spec.field] : undefined;
+        const fallback = isNumberOrRange(shipped) ? shipped : spec.fallback;
+        return sanitiseRangeValueIn(stored, spec.min, spec.max, fallback);
+      }
+
       // ---- v8: applicable-controls (voice metadata may hide sections) ----
       // `controls` (VOICES[track][voiceId].controls, may be absent) is
       // { source?, filter?, adsr?, sends? }, each true | false | string[] of
@@ -3908,7 +4462,7 @@ const VOICES: Record<string, [string, string][]> = {
       // now ranges (mix, detune, filter cutoff/q/envAmount, ADSR ×4, both
       // sends) — it reads a RangeValue's midpoint for display and always
       // writes back a plain number, collapsing any existing {min,max}.
-      function buildSliderEditor(container, patch, commit, controls, track = null) {
+      function buildSliderEditor(container, patch, commit, controls, track = null, defaults = null) {
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -4012,6 +4566,44 @@ const VOICES: Record<string, [string, string][]> = {
               commit();
             },
           });
+        }
+        if (
+          source &&
+          engineCaps.patchFold &&
+          (controlsFieldAllowed(sourceSpec, 'fold') || controlsFieldAllowed(sourceSpec, 'shape1'))
+        ) {
+          veRange(source, 'Fold', {
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: rangeMid(sanitiseRangeValueIn(patch.source.fold, 0, 1, defaults?.source?.fold ?? 0)),
+            format: pctFormat,
+            onChange: (v) => {
+              patch.source.fold = clamp(v, 0, 1);
+              commit();
+            },
+          });
+        }
+        // The v19 groups get their own sections here too — the fallback is the
+        // no-knob.js path, not a cut-down instrument, and these sixteen dials
+        // ARE the sculpting voices. Single-value only, like every other
+        // rangeable field in this editor.
+        for (const [heading, specs] of v19GroupsFor(sourceSpec, defaults)) {
+          const groupSection = veSection(container, heading);
+          for (const spec of specs) {
+            veRange(groupSection, spec.label, {
+              min: spec.min,
+              max: spec.max,
+              step: spec.step || 0.01,
+              log: spec.log === true,
+              value: rangeMid(v19Value(patch, defaults, spec)),
+              format: spec.format,
+              onChange: (v) => {
+                patch.source[spec.field] = spec.step === 1 ? Math.round(v) : v;
+                commit();
+              },
+            });
+          }
         }
 
         const filter = controlsSectionVisible(filterSpec) ? veSection(container, 'Filter') : null;
@@ -4185,48 +4777,72 @@ const VOICES: Record<string, [string, string][]> = {
           cell.className = 'knob-cell';
           row.append(cell);
           const { field, ghostMap, ...knobOptions } = options;
-          const handle = knobApi.createKnob(cell, knobOptions);
+          // The kit editor's "common" value, in this dial's own domain (a log
+          // dial's ghost has to be mapped exactly as its live value was).
+          // Handed to createKnob up front so a ghost-capable knob.js draws the
+          // muted pointer on its first paint, not one frame later.
+          const common = ghost && field ? ghost.get(field) : undefined;
+          const ghostValue =
+            common === undefined || common === null
+              ? null
+              : ghostMap
+                ? ghostMap(common)
+                : common;
+          const handle = knobApi.createKnob(
+            cell,
+            ghostValue === null ? knobOptions : { ...knobOptions, ghostValue }
+          );
           knobs.push(handle);
-          if (ghost && field) addGhost(cell, field, knobOptions.format, ghostMap);
+          if (ghostValue !== null) addGhost(cell, handle, field, knobOptions.format, ghostValue);
           return { cell, handle };
         }
 
         /**
-         * knob.js draws one pointer and exposes no "ghost pointer" API, and it
-         * isn't this agent's file — so the common value is shown as a
-         * secondary readout under the dial ("common 2.0 kHz") with a dot in the
-         * track colour, and an overridden dial takes the track accent (a ring
-         * on the cell) plus a "follow" button that clears the override.
+         * The kit editor's "what does Common say" affordance, in whichever
+         * form knob.js supports: a real GHOST POINTER on the dial face when it
+         * exposes setGhost(), and otherwise a secondary text readout under the
+         * dial ("common 2.0 kHz") with a dot in the track colour. Either way an
+         * overridden dial takes the track accent (a ring on the cell) plus a
+         * "follow" button that clears the override.
          */
-        function addGhost(cell, field, format, ghostMap) {
-          const common = ghost.get(field);
-          // No common value to ghost (an absent field, or Osc 2 switched off).
-          if (common === undefined || common === null) return;
-          const shown = ghostMap ? ghostMap(common) : common;
+        function addGhost(cell, handle, field, format, shown) {
           const fmt = typeof format === 'function' ? format : (v) => String(v);
+          const pointer = typeof handle.setGhost === 'function';
           const row = document.createElement('div');
           row.className = 'knob-ghost';
-          const dot = document.createElement('span');
-          dot.className = 'knob-ghost-dot';
-          dot.setAttribute('aria-hidden', 'true');
-          const text = document.createElement('span');
-          text.className = 'knob-ghost-value';
-          text.textContent = `common ${
-            isPlainObject(shown) ? `${fmt(shown.min)}–${fmt(shown.max)}` : fmt(shown)
-          }`;
           const follow = document.createElement('button');
           follow.type = 'button';
           follow.className = 'link-button knob-follow';
           follow.textContent = 'follow';
           follow.addEventListener('click', () => ghost.follow(field));
           describe(follow, 'Drop this instrument’s own value and follow the Common dial again.');
-          row.append(dot, text, follow);
+          if (pointer) {
+            row.append(follow);
+          } else {
+            const dot = document.createElement('span');
+            dot.className = 'knob-ghost-dot';
+            dot.setAttribute('aria-hidden', 'true');
+            const text = document.createElement('span');
+            text.className = 'knob-ghost-value';
+            text.textContent = `common ${
+              isPlainObject(shown) ? `${fmt(shown.min)}–${fmt(shown.max)}` : fmt(shown)
+            }`;
+            row.append(dot, text, follow);
+          }
           cell.classList.add('knob-cell-ghosted');
+          if (pointer) cell.classList.add('knob-cell-ghost-pointer');
           cell.append(row);
           const refresh = () => {
             const overridden = ghost.isOverridden(field);
             cell.classList.toggle('knob-cell-overridden', overridden);
             follow.hidden = !overridden;
+            // Re-asserted rather than set once: a knob that rebuilt its face
+            // (a range split, a value commit) must not lose the pointer.
+            if (pointer) {
+              try {
+                handle.setGhost(shown);
+              } catch {}
+            }
           };
           refresh();
           ghost.refreshers.push(refresh);
@@ -4455,6 +5071,79 @@ const VOICES: Record<string, [string, string][]> = {
           });
         }
 
+        // v20 wavefolder: a shape MODIFIER, so it belongs to whatever has an
+        // oscillator to fold — a voice that lets you re-type shape1 has one.
+        // Bypassed at 0 (no extra nodes), which is every voice's default until
+        // the library starts shipping folded ones.
+        if (
+          source &&
+          engineCaps.patchFold &&
+          (allowed(sourceSpec, 'fold') || allowed(sourceSpec, 'shape1'))
+        ) {
+          addKnob(source, {
+            label: 'Fold',
+            field: 'source.fold',
+            min: 0,
+            max: 1,
+            value: sanitiseRangeValueIn(patch.source.fold, 0, 1, defaults.source.fold ?? 0),
+            format: pctFormat,
+            allowRange: true,
+            defaultValue: defaults.source.fold ?? 0,
+            onInput: (v) => {
+              patch.source.fold = mapRV(v, (x) => clamp(x, 0, 1));
+              commit();
+            },
+          });
+        }
+
+        // -- v19 sculpting / call groups --
+        // Their own labelled sub-rows rather than more dials crowded into
+        // Source: sixteen fields in one row would read as a wall, and the
+        // group names (Spectral / Motion / Bursts, Glide / Formants /
+        // Phrasing) are how the surface is taught.
+        for (const [heading, specs] of v19GroupsFor(sourceSpec, defaults)) {
+          const row = knobSection(heading);
+          for (const spec of specs) {
+            const write = (v) => {
+              patch.source[spec.field] = mapRV(v, (x) =>
+                spec.step === 1 ? Math.round(clamp(x, spec.min, spec.max)) : clamp(x, spec.min, spec.max)
+              );
+              commit();
+            };
+            const knobOpts = {
+              allowRange: engineCaps.patchV19Range,
+              field: `source.${spec.field}`,
+              ...(spec.step ? { step: spec.step } : {}),
+              ...(spec.marks ? { marks: spec.marks } : {}),
+            };
+            const shipped = isPlainObject(defaults.source) ? defaults.source[spec.field] : undefined;
+            const fallbackDefault = isNumberOrRange(shipped) ? shipped : spec.fallback;
+            const cell = spec.log
+              ? addLogKnob(
+                  row,
+                  spec.label,
+                  spec.min,
+                  spec.max,
+                  v19Value(patch, defaults, spec),
+                  spec.format,
+                  write,
+                  knobOpts,
+                  fallbackDefault
+                )
+              : addKnob(row, {
+                  label: spec.label,
+                  min: spec.min,
+                  max: spec.max,
+                  value: v19Value(patch, defaults, spec),
+                  format: spec.format,
+                  defaultValue: fallbackDefault,
+                  onInput: write,
+                  ...knobOpts,
+                });
+            describe(cell.handle.el, spec.hint);
+          }
+        }
+
         // -- filter --
         const filter = controlsSectionVisible(filterSpec) ? knobSection('Filter') : null;
         if (filter && allowed(filterSpec, 'type')) {
@@ -4665,6 +5354,11 @@ const VOICES: Record<string, [string, string][]> = {
         // (the pre-v8 behaviour).
         const defaults = voiceEntry && voiceEntry.defaults ? voiceEntry.defaults : null;
         const controls = voiceEntry && voiceEntry.controls ? voiceEntry.controls : null;
+        // The voice's full default Patch — every knob's `defaultValue` (what a
+        // double-click returns to) is read off it. Same expression
+        // resolveTrackPatch merges the stored override onto, so the dials and
+        // the sound they describe can never disagree.
+        const base = deepMerge(FALLBACK_PATCH, defaults || {});
         // resolveTrackPatch reads voicesTable (set by the getVoicesTable()
         // await just above) + normalises shapes the same way this used to
         // inline — also feeds the front oscilloscope's stopped-state preview.
@@ -4760,8 +5454,13 @@ const VOICES: Record<string, [string, string][]> = {
         ed.sounding = sounding;
         ed.voiceId = voiceId;
         registerExtras(track, ed.extras);
+        // Mono/glide belong to the LINE, so they sit in the header beside the
+        // state lamp rather than among the patch dials — and only on the
+        // melodic tracks: a kit has no pitch to slur between.
+        if (TUNED_TRACKS.includes(track)) buildMonoGlide(extrasBox, track, ed.knobs);
         buildVaryRow(container, track, ed.knobs);
         buildDissonanceControl(container, track, ed.knobs);
+        buildDriftRateControl(container, track, ed.knobs);
 
         // v6 step sequencer at the top of the pulsed tracks' panels. Arp
         // always shows it (on/off degrades to the legacy boolean mask);
@@ -4900,7 +5599,7 @@ const VOICES: Record<string, [string, string][]> = {
           // Slider fallback: no knob.js, so no ghost pointers either — the
           // instrument tabs still edit the override, just without the
           // "common" read-out.
-          if (!knobsBuilt) buildSliderEditor(patchBox, editView, commit, controls, track);
+          if (!knobsBuilt) buildSliderEditor(patchBox, editView, commit, controls, track, base);
           ed.knobs.push(...patchKnobs);
           if (resetButton) resetButton.textContent = resetLabel();
         }
@@ -5148,13 +5847,17 @@ const VOICES: Record<string, [string, string][]> = {
         // to engine.setPowerBudget() itself. The user's own Level values are
         // never overwritten: only what we send the engine is scaled.
         applyDensityScale();
-        // visualFps: visualiser.js and scope.js expose no fps setter (they
-        // self-cap at 30 fps, 2 fps hidden). Feature-detected below so the
-        // budget lands the day either grows one; until then the figure is
-        // reported in the readout only.
+        // visualFps: visualiser.js grew setFps() (it clamps 1–60 and re-caps
+        // its existing timestamp gate, so the reduced-motion 2 fps floor still
+        // wins where it applies). Still feature-detected — scope.js has no
+        // equivalent yet and self-caps instead.
         try {
           visualiserHandle?.setFps?.(budget.visualFps);
         } catch {}
+        // reverbSeconds: the tier's ceiling on IR length. The user's own
+        // Reverb tail setting is untouched; only what the engine is sent is
+        // capped, so raising the tier restores the full tail.
+        applyReverbTail();
       }
 
       function applyDensityScale() {
@@ -6649,14 +7352,27 @@ const VOICES: Record<string, [string, string][]> = {
           text: 'Edit opens a track\'s panel: its step sequencer at the top, then the dials that build its sound. Drag sideways across sequencer cells to tie them into one long note.',
         },
         {
+          tab: 'advanced',
+          target: '#voice-edit-toggle-texture',
+          text: 'Give Texture the Coloured noise or Grain cloud voice and its panel grows Spectral, Motion and Burst rows. Wind, rain and surf all live in there — you sculpt them with the dials rather than picking a sample. The Call voice does the same for birdsong: a pitch sweep, two formants and a cadence.',
+        },
+        {
+          target: '#front-scope-module',
+          text: 'The oscilloscope and the piano roll sit above the tabs, so they stay put while you work. In the legend on the right, a click hides one instrument\'s trace and a double-click solos it. The twisty at the top right folds the whole thing away.',
+        },
+        {
           tab: 'simple',
           target: '.factory-presets',
-          text: 'Factory presets are starting points, not presets in the locked sense — load one and change anything. Each has its own web address, so you can link straight to it. Save your own under Your presets on Advanced.',
+          text: 'Factory presets sit under the Simple dials: starting points, not presets in the locked sense — load one and change anything. Hover one to read why it is built the way it is. Each has its own web address, so you can link straight to it. Save your own under Your presets on Advanced.',
         },
         {
           tab: 'simple',
           target: '.processor-row',
           text: 'Processor decides how hard this runs. Auto watches the machine and backs off when it gets warm; Eco is the coolest setting.',
+        },
+        {
+          target: null,
+          text: 'Nothing here is AI and nothing is a recording. Every note is worked out as you listen by a few hundred lines of ordinary code running in this tab — the same rules you can see and change on the Advanced tab. Nothing you do is uploaded anywhere.',
         },
       ];
 
@@ -6724,6 +7440,10 @@ const VOICES: Record<string, [string, string][]> = {
         volumeDial?.set(settings.volume);
         randomnessDial?.set(fusedRandomnessValue());
         swingDial?.set(settings.swing);
+        if (reverbTailDial && typeof settings.reverbTail === 'number') {
+          reverbTailDial.set(settings.reverbTail);
+          applyReverbTail();
+        }
         rootSelect.value = settings.root;
         modeSelect.value = settings.mode;
         timeSignatureSelect.value = settings.timeSignature;
@@ -7994,9 +8714,10 @@ const VOICES: Record<string, [string, string][]> = {
       gap: 4px;
     }
 
-    /* The "ghost pointer": knob.js draws one pointer only, so the common
-       value shows as a secondary read-out under the dial with a dot in the
-       track's colour. */
+    /* The common-value affordance. knob.js draws a real muted ghost pointer
+       on the dial face when it supports one — then this row holds only the
+       "follow" button. On an older knob.js the same row carries the text
+       fallback instead: a secondary read-out with a dot in the track colour. */
     .knob-ghost {
       display: flex;
       align-items: center;
@@ -8424,6 +9145,32 @@ const VOICES: Record<string, [string, string][]> = {
 
     .dissonance-knob {
       width: 84px;
+    }
+
+    /* v12 mono/glide, in the voice-editor header beside the state lamp. The
+       toggle takes the same pressed treatment as the Osc 2 switch, and the
+       dial the same 84px cell every other knob in a row uses, so the header's
+       faces stay on one baseline (v18 layout contract). */
+    .mono-toggle[aria-pressed='true'] {
+      background: var(--link);
+      color: var(--bg);
+      border-color: var(--link);
+    }
+
+    .glide-knob,
+    .drift-knob {
+      display: flex;
+      justify-content: center;
+      width: 84px;
+    }
+
+    .glide-slider {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .glide-slider input[type='range'] {
+      width: 120px;
     }
 
     .factory-presets {

@@ -24,6 +24,16 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   inside the Simple panel), carries no panel title, keeps the word
   "Oscilloscope" hidden while it is expanded, and has a populated legend even
   with the engine stopped.
+- v19 — selecting Texture's "Coloured noise" voice and opening its editor builds
+  at least ten patch dials, in Spectral / Motion / Bursts sub-rows. A voice can
+  declare fields in its `controls` table that the editor's builder does not know
+  about; nothing else notices, the dials simply never appear.
+- v12 — the texture editor's header carries the Mono toggle and the Glide dial
+  (both probed against `getParams()` before they render).
+- Fresh install — this harness boots with empty storage and no consent, which is
+  every first-time visitor: nothing is persisted before consent is granted, every
+  track row builds a randomness control, and no dial read-out comes up NaN
+  (the failure mode when a param arrives as a `{min,max}` range default).
 
 Tester: Martin, Mac (Chrome or Safari) + iPhone Safari. URL: https://ambi4.work (deploys from main ~2 min after push — check the commit you expect is live before starting). Start with device volume MODEST — new voices are untested at loud levels.
 
@@ -383,3 +393,72 @@ Percussion Pitch + Noise (Percussion → Edit)
       other dial.
 - [ ] If this build ships against an engine that does not know the fields, the
       old Octave switch is still there instead — expected, not a bug.
+
+## v19/v20/v21 delta — sculpting dials, mono/glide, reverb tail (2026-07-25)
+
+Voice editors are dials again (regression fix — check this first)
+- [ ] Open ANY track's Edit panel: its Source/Filter/Envelope/Sends controls are
+      knobs, not the plain sliders-and-dropdowns fallback. The last build lost a
+      binding inside the knob builder, and because that builder is wrapped in a
+      try/catch the page quietly served the fallback editor instead. Sliders
+      anywhere in a voice editor now mean the same fault has returned.
+
+Sculpting surface (Advanced → Texture)
+- [ ] Texture's voice list now offers "Coloured noise", "Grain cloud" and
+      "Call" alongside the old four; Melody's offers "Call".
+- [ ] Pick Coloured noise and press Edit. The Source row holds only Octave (this
+      voice has no oscillator to shape), and below it are three new labelled
+      rows: Spectral (Tilt, Band, Width), Motion (Sweep, Depth, Gust, Gust rate,
+      Swell) and Bursts (Density, Sharpness).
+- [ ] Every one of those dials has a tooltip on hover AND on keyboard focus, and
+      its read-out carries the unit it is in: Hz for Band, octaves for Width,
+      Hz for the two rates, % for the rest.
+- [ ] Play. Tilt left is a brown rumble, right is white hiss. Band moves the
+      pitch you hear in the bed; Width opens it from a whistle to open weather.
+- [ ] Sweep at 0 holds the band still whatever Depth says. Turn Sweep to ~0.1 Hz
+      and Depth up: the band walks up and down over a few seconds.
+- [ ] Gust up: the bed breathes in and out, and never gets LOUDER than it was at
+      Gust 0 (gusts only duck).
+- [ ] Grain cloud: Density from nothing to a downpour, Sharpness from soft damp
+      drops to a dry bright crackle.
+- [ ] Call (Texture or Melody): Sweep sets how far each call slides in semitones
+      (negative falls, positive rises), the two Formants place its vowel, and
+      Cadence/Irregular set how many calls a bar and how evenly spaced.
+- [ ] Click any of these dials to split it into a min–max range: the value
+      drifts between the two ends as it plays. None of them OPENS as a range —
+      only Cutoff and the two Sends do that.
+- [ ] Double-click any of them: back to that voice's own factory value.
+
+Mono + Glide (Advanced → any tuned track → Edit)
+- [ ] Every tuned track's editor header (not Percussion) has a Mono toggle and a
+      Glide dial beside the state lamp. Melody and Bass ship Mono ON.
+- [ ] Melody, Mono on, Glide up: the line slurs from note to note instead of
+      re-striking each one. Glide at Off: clean steps.
+- [ ] Mono off on Melody with Randomness up: overlapping notes are audible again
+      (a wash rather than a line).
+- [ ] Both survive a reload, and both travel in a saved preset.
+
+Reverb tail (Advanced) — only if this build's engine ships it
+- [ ] A "Reverb tail" dial appears beside Swing, reading in seconds (Room →
+      Cathedral). Turn it up while playing: the tail lengthens within a second
+      or two, without a click or a gap.
+- [ ] Set it long, then set Processor to Eco: the tail shortens (the tier caps
+      it). Set Processor back to Full: your full length comes back — the dial
+      never moved, because the cap is applied on the way to the engine only.
+- [ ] If this build's engine has no reverb-tail hook, the dial is simply absent.
+      Same for the Fold dial (oscillator voices) and the per-track Drift rate
+      dial — absent until the engine accepts them. Not a bug.
+
+Kit ghost pointers (Advanced → Percussion → Edit → High)
+- [ ] Each dial shows a second, muted pointer where the Common tab has that
+      value — a thin arc instead when Common holds a min–max range.
+- [ ] Move a dial: it takes the track colour ring and a "follow" link appears.
+      Click "follow": the override goes and the dial returns to the ghost.
+- [ ] On an older knob build the ghost shows as "common 2.0 kHz" text under the
+      dial instead. Either is correct; a dial with NEITHER is a bug.
+
+Guided tour
+- [ ] Open the "?" tour: it now has steps for the sculpting voices, for the
+      oscilloscope legend (click to toggle a trace, double-click to solo), for
+      the preset gallery under the Simple dials, and a last step explaining that
+      nothing here is AI or a recording — every note is worked out in the tab.

@@ -132,13 +132,19 @@ function makeCtx2d(calls, propWrites) {
     },
     beginPath() {},
     moveTo(x, y) {
-      if (this.strokeStyle === TRACE_COLOR) (calls.tracePoints ||= []).push(y);
+      if (this.strokeStyle === TRACE_COLOR) {
+        (calls.tracePoints ||= []).push(y);
+        (calls.tracePointsXY ||= []).push({ x, y });
+      }
       ((calls.pointsByColor ||= {})[this.strokeStyle] ||= []).push(y);
     },
     lineTo(x, y) {
       record('lineTo');
       calls.lastLineY = y;
-      if (this.strokeStyle === TRACE_COLOR) (calls.tracePoints ||= []).push(y);
+      if (this.strokeStyle === TRACE_COLOR) {
+        (calls.tracePoints ||= []).push(y);
+        (calls.tracePointsXY ||= []).push({ x, y });
+      }
       ((calls.pointsByColor ||= {})[this.strokeStyle] ||= []).push(y);
     },
     stroke() { record('stroke'); },
@@ -636,6 +642,112 @@ test('knob v12: a throwing glyph() degrades to text-only, never breaks the knob'
 });
 
 // --------------------------------------------------------------------------
+// Knob tests — kit-editor ghost pointer (iteration 2)
+// --------------------------------------------------------------------------
+
+function ghostPointerOf(knob) {
+  const svg = knob.el.children[0];
+  return svg.children.find((c) => c.attributes['data-role'] === 'ghost-pointer');
+}
+function ghostArcOf(knob) {
+  const svg = knob.el.children[0];
+  return svg.children.find((c) => c.attributes['data-role'] === 'ghost-arc');
+}
+
+test('knob: ghostValue renders a hidden-by-default ghost pointer + arc when omitted', () => {
+  const { knob } = makeTestKnob();
+  assert.equal(ghostPointerOf(knob).style.display, 'none');
+  assert.equal(ghostArcOf(knob).style.display, 'none');
+  knob.destroy();
+});
+
+test('knob: a scalar ghostValue shows the ghost pointer, not the arc, at the right angle', () => {
+  const { knob } = makeTestKnob({ ghostValue: 7 });
+  const pointer = ghostPointerOf(knob);
+  const arc = ghostArcOf(knob);
+  assert.equal(pointer.style.display, '');
+  assert.equal(arc.style.display, 'none');
+  // min 0 max 10 → 270° sweep, degFor(7) = -135 + 270*7/10 = 54.
+  assert.equal(pointer.attributes.transform, 'rotate(54 50 50)');
+  knob.destroy();
+});
+
+test('knob: setGhost(v) moves the ghost pointer without touching the live value/onInput', () => {
+  const { knob, inputs } = makeTestKnob({ value: 3, ghostValue: 2 });
+  const pointer = ghostPointerOf(knob);
+  assert.equal(pointer.attributes.transform, 'rotate(-81 50 50)'); // degFor(2) = -135+270*0.2 = -81
+  knob.setGhost(8);
+  assert.equal(pointer.attributes.transform, 'rotate(81 50 50)'); // degFor(8) = -135+270*0.8 = 81
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '3', 'the live value is unaffected');
+  assert.deepEqual(inputs, [], 'a ghost move never fires onInput');
+  knob.destroy();
+});
+
+test('knob: setGhost(null) hides the ghost pointer again', () => {
+  const { knob } = makeTestKnob({ ghostValue: 5 });
+  assert.equal(ghostPointerOf(knob).style.display, '');
+  knob.setGhost(null);
+  assert.equal(ghostPointerOf(knob).style.display, 'none');
+  assert.equal(ghostArcOf(knob).style.display, 'none');
+  knob.destroy();
+});
+
+test('knob: a {min,max} ghostValue draws the thin ghost arc, not the ghost pointer', () => {
+  const { knob } = makeTestKnob({ ghostValue: { min: 2, max: 8 } });
+  const pointer = ghostPointerOf(knob);
+  const arc = ghostArcOf(knob);
+  assert.equal(pointer.style.display, 'none', 'a range ghost never shows the single-value pointer');
+  assert.equal(arc.style.display, '');
+  assert.ok(arc.attributes.d.startsWith('M '), 'the ghost arc gets a real path');
+  knob.destroy();
+});
+
+test('knob: switching a range ghost back to a scalar swaps arc for pointer', () => {
+  const { knob } = makeTestKnob({ ghostValue: { min: 2, max: 8 } });
+  knob.setGhost(6);
+  assert.equal(ghostArcOf(knob).style.display, 'none');
+  assert.equal(ghostPointerOf(knob).style.display, '');
+  knob.destroy();
+});
+
+test('knob: ghostValue clamps into [min,max] like a live value would', () => {
+  const { knob } = makeTestKnob({ ghostValue: 99 });
+  const pointer = ghostPointerOf(knob);
+  assert.equal(pointer.attributes.transform, 'rotate(135 50 50)', 'clamped to max=10 → the sweep end angle');
+  knob.destroy();
+});
+
+test('knob: the ghost pointer draws behind the live pointer/max-thumb in DOM order (z-order)', () => {
+  const { knob } = makeTestKnob({ allowRange: true, value: { min: 2, max: 8 }, ghostValue: 5 });
+  const svg = knob.el.children[0];
+  const ghostIndex = svg.children.indexOf(ghostPointerOf(knob));
+  const arcIndex = svg.children.indexOf(ghostArcOf(knob));
+  // Both ghost nodes are appended once, right after the face — well before
+  // the live pointer group(s) that get appended afterwards.
+  const laterGroups = svg.children.filter((c) => c.tagName === 'g' && !c.attributes['data-role']);
+  const lastFaceLikeIndex = Math.max(ghostIndex, arcIndex);
+  assert.ok(laterGroups.length >= 2, 'sanity: the live pointer + max-thumb groups exist');
+  for (const g of laterGroups) {
+    // ticksGroup (the very first 'g') has no data-role either, so only check
+    // any 'g' appended AFTER the ghost pair.
+    if (svg.children.indexOf(g) > lastFaceLikeIndex) {
+      assert.ok(svg.children.indexOf(g) > ghostIndex && svg.children.indexOf(g) > arcIndex);
+    }
+  }
+  knob.destroy();
+});
+
+test('knob: inert bare-Node handle accepts setGhost without a document', async () => {
+  const bareMod = await import('../src/scripts/knob.js');
+  const savedDoc = globalThis.document;
+  delete globalThis.document;
+  const inert = bareMod.createKnob(null, { label: 'x', min: 0, max: 1, value: 0.5, ghostValue: 0.2 });
+  inert.setGhost(0.7);
+  inert.destroy();
+  globalThis.document = savedDoc;
+});
+
+// --------------------------------------------------------------------------
 // Knob tests — v14 range-zone drag + click-to-type
 // --------------------------------------------------------------------------
 
@@ -952,6 +1064,64 @@ test('scope: fallback path draws without OfflineAudioContext', async () => {
   // Bad canvas degrades to a resolved promise, no throw.
   await scope.renderPatchWave({}, basePatch());
   await scope.renderPatchWave({ getContext: () => null }, basePatch());
+});
+
+test('scope: v20 skew segment (shape 1..2) replaces the old linear coefficient crossfade', async () => {
+  const ctors = [];
+  globalThis.OfflineAudioContext = makeOfflineClass({ ctors, pending: [] });
+  try {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    // shape 1 exactly (t=0 of the 1..2 segment) must still be the ordinary
+    // canonical triangle — continuous with the 0..1 segment's own endpoint.
+    await scope.renderPatchWave(canvas, basePatch({ source: { shape1: 1 } }), { freq: 220 });
+    const triImag = ctors[ctors.length - 1].oscillators[0].wave.imag;
+    await scope.renderPatchWave(canvas, basePatch({ source: { shape1: 1.5 } }), { freq: 220 });
+    const midImag = ctors[ctors.length - 1].oscillators[0].wave.imag;
+
+    // The OLD behaviour (linear crossfade of the two canonical coefficient
+    // sets) at shape=1.5 would just be the RMS-normalised average of the
+    // triangle and (pure) saw spectra. The v20 skewed-triangle spectrum at
+    // the SAME dial position is a different, and richer, harmonic set — the
+    // 3rd/4th harmonics in particular are non-zero here (the linear crossfade
+    // keeps every even harmonic exactly zero, since both triangle and saw's
+    // even sine terms alternate zero/non-zero in a way that averages to a
+    // strict odd/even pattern; the skew formula has no such symmetry).
+    assert.ok(Math.abs(midImag[3]) > 1e-3, 'skewed triangle at shape 1.5 must carry a 3rd harmonic');
+    assert.ok(Math.abs(midImag[4]) > 1e-3, 'skewed triangle at shape 1.5 must carry a 4th harmonic (never zero in a pure crossfade of odd-only spectra)');
+    assert.notDeepEqual([...triImag], [...midImag], 'shape must still move the spectrum');
+  } finally {
+    delete globalThis.OfflineAudioContext;
+  }
+});
+
+test('scope: skew waveform — the drawn peak x position moves as shape sweeps 1.25/1.5/1.75', async () => {
+  assert.equal(typeof globalThis.OfflineAudioContext, 'undefined');
+  // A near-flat filter (high cutoff, low Q) so the drawn trace reflects the
+  // oscillator spectrum, not the filter's own shaping.
+  const flatFilter = { type: 'lowpass', cutoff: 12000, q: 0.7 };
+  function peakX(shape1) {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    return scope
+      .renderPatchWave(canvas, { source: { shape1, shape2: null, mix: 0, detune: 0, octave: 0 }, filter: flatFilter }, { freq: 220 })
+      .then(() => {
+        let minY = Infinity;
+        let minX = 0;
+        for (const { x, y } of calls.tracePointsXY) {
+          if (y < minY) {
+            minY = y;
+            minX = x;
+          }
+        }
+        return minX;
+      });
+  }
+  const x125 = await peakX(1.25);
+  const x150 = await peakX(1.5);
+  const x175 = await peakX(1.75);
+  assert.ok(x125 < x150, `peak must move right from shape 1.25 (${x125}) to 1.5 (${x150})`);
+  assert.ok(x150 < x175, `peak must move right from shape 1.5 (${x150}) to 1.75 (${x175})`);
 });
 
 test('scope: concurrent renders per canvas coalesce — latest wins', async () => {

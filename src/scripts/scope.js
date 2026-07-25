@@ -80,6 +80,13 @@
  * 3 square; fractional values interpolate the Fourier coefficients (the same
  * morph the voices use, reimplemented locally — this module imports nothing).
  * Legacy string osc names ('sine'…'square') are accepted everywhere.
+ *
+ * v20: the 1..2 (triangle→saw) segment is a variable-skew triangle, not a
+ * coefficient crossfade — see shapeCoefficients()/skewedTriangleCoefficient()
+ * below for the closed-form family and the SHAPE_SKEW_MIN/MAX constants
+ * shared with knob.js's doc comment (any mini-waveform readout built from a
+ * `glyph`/`markGlyphs` callback should use the same formula, so the readout
+ * always matches what this module's own trace — and the real voices — play).
  */
 
 // ---------------------------------------------------------------------------
@@ -94,6 +101,17 @@ const OFFLINE_SR = 44100;
 const FALLBACK_SAMPLES = 512;
 const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 const SHAPE_NAMES = { sine: 0, triangle: 1, sawtooth: 2, square: 3 };
+// v20: the triangle→saw dial segment (shape 1..2) is a variable-skew
+// triangle, not a coefficient crossfade — see shapeCoefficients() below.
+// SHAPE_SKEW_MIN is the symmetric triangle's rise fraction (0.5, exact);
+// SHAPE_SKEW_MAX stops short of 1 (an ideal sawtooth's rise fraction) so the
+// closed form never divides by a vanishing d(1-d) term and the harmonic
+// series stays alias-safe, per the v20 contract's "~99%". These two numbers
+// are the shared constant the v20 voices agent's audio-side PeriodicWave
+// build should match exactly, or the scope trace and the sound will disagree
+// about what "shape 1.5" looks/sounds like.
+const SHAPE_SKEW_MIN = 0.5;
+const SHAPE_SKEW_MAX = 0.99;
 const TARGET_FPS = 30;
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 // v14 05:4xZ: MAX_DPR=2 rendered soft under browser zoom on retina (effective
@@ -175,9 +193,37 @@ function pureCoefficient(shape, n) {
 }
 
 /**
+ * v20: sine-series coefficient of a variable-skew (asymmetric) triangle
+ * wave whose peak sits at rise-fraction `d` of the period (d=0.5 is the
+ * ordinary symmetric triangle; d→1 approaches a sawtooth's all-rise,
+ * instant-fall shape). Closed form — no numeric integration — derived from
+ * the Fourier sine series of a linear ramp-up/ramp-down pulse:
+ *   b_n(d) = 2·sin(nπd) / (π²·n²·d·(1-d))
+ * Exact at d=0.5 (matches pureCoefficient(1,n) to float precision — verified
+ * boundary case) and converges to pureCoefficient(2,n) as d→1 (verified by
+ * limit), so it splices continuously onto the canonical triangle and saw at
+ * both ends of the SHAPE_SKEW_MIN..SHAPE_SKEW_MAX travel.
+ */
+function skewedTriangleCoefficient(d, n) {
+  if (d <= 0 || d >= 1) return 0; // guards the shared-boundary case; callers stay inside (0,1)
+  const denom = Math.PI * Math.PI * n * n * d * (1 - d);
+  return denom !== 0 ? (2 * Math.sin(n * Math.PI * d)) / denom : 0;
+}
+
+/**
  * Interpolated Fourier coefficients for a fractional shape, normalised so
  * Σb² = 1 (constant RMS — loudness doesn't jump across the dial). Index 0 is
  * the unused DC term, matching createPeriodicWave's imag layout.
+ *
+ * v20: the 1..2 segment (triangle→saw) is NOT a linear crossfade of the two
+ * canonical coefficient sets — it synthesises the true skewed-triangle shape
+ * via skewedTriangleCoefficient, peak rise-fraction travelling
+ * SHAPE_SKEW_MIN..SHAPE_SKEW_MAX as t goes 0..1, so the drawn/played wave is
+ * the actual asymmetric triangle at every point on the dial, not a blend of
+ * two harmonic spectra that happens to sound triangle-ish then saw-ish. The
+ * 0..1 (sine→triangle) and 2..3 (saw→square) segments keep the original
+ * linear coefficient crossfade — the contract only revises the middle
+ * segment.
  */
 function shapeCoefficients(shape) {
   const lo = Math.floor(shape);
@@ -185,10 +231,19 @@ function shapeCoefficients(shape) {
   const t = shape - lo;
   const coeffs = new Float32Array(HARMONICS + 1);
   let sum = 0;
-  for (let n = 1; n <= HARMONICS; n++) {
-    const b = (1 - t) * pureCoefficient(lo, n) + t * pureCoefficient(hi, n);
-    coeffs[n] = b;
-    sum += b * b;
+  if (lo === 1 && hi === 2) {
+    const d = SHAPE_SKEW_MIN + t * (SHAPE_SKEW_MAX - SHAPE_SKEW_MIN);
+    for (let n = 1; n <= HARMONICS; n++) {
+      const b = skewedTriangleCoefficient(d, n);
+      coeffs[n] = b;
+      sum += b * b;
+    }
+  } else {
+    for (let n = 1; n <= HARMONICS; n++) {
+      const b = (1 - t) * pureCoefficient(lo, n) + t * pureCoefficient(hi, n);
+      coeffs[n] = b;
+      sum += b * b;
+    }
   }
   if (sum > 0) {
     const scale = 1 / Math.sqrt(sum);
