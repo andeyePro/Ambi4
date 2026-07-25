@@ -328,6 +328,122 @@ export const TUNED_TRACKS = Object.freeze(TRACK_REGISTRY
   .filter((track) => track.tuned)
   .map((track) => track.id));
 
+// -- v23 user tracks --------------------------------------------------------
+//
+// The registry above is the FLOOR: six built-ins and every table derived from
+// them, frozen at import and unreachable from a running engine. A user track
+// lives in `params.userTracks` instead, and everything the engine needs to
+// treat it like a built-in — its place in the engine order, on the ladder, in
+// the staged entry, in the mix — is derived from that entry by the instance
+// track layer. Nothing here edits a line of the floor.
+
+/** Tracks per engine, built-ins included: six of the user's own on top. */
+const MAX_TRACKS = 12;
+
+const MAX_USER_TRACKS = MAX_TRACKS - TRACK_REGISTRY.length;
+
+/**
+ * 2–24 characters, lowercase ASCII, digits and hyphen, starting with a letter.
+ * `#` is banned explicitly because a frozen plan key is `${track}#${lane}`;
+ * whitespace, dots and uppercase because the id is a params key, a CSS-var
+ * suffix and a share-link token.
+ */
+const USER_TRACK_ID = /^[a-z][a-z0-9-]{1,23}$/;
+
+/**
+ * Ids a user track may not take: the six built-ins, the three TRACK_STATES —
+ * they collide with the state values in every select a UI builds — and four
+ * names a consumer is entitled to read as "not one track".
+ */
+const RESERVED_TRACK_IDS = Object.freeze([
+  ...TRACK_ORDER, ...TRACK_STATES, 'master', 'global', 'all', 'none',
+]);
+
+const USER_TRACK_LABEL_MAX = 24;
+
+export const TRACK_FAMILIES = Object.freeze(['melodic', 'percussive']);
+
+/**
+ * The voice banks a user track may sound through — the built-in six, and only
+ * those. No new voice code ships for a user track (the v10 boundary): it plays
+ * a stock bank, so a shared preset always arrives with something to sound.
+ */
+const VOICE_SETS = TRACK_ORDER;
+
+const COLOUR_TOKEN = /^--[a-z][a-z0-9-]{1,31}$/;
+
+/**
+ * A user track joins at the DECORATIVE tier, deliberately not the pad/bass
+ * one. Built-in levels are not scaled down to make room: a built-in's gain must
+ * not depend on how many tracks the user made, and twelve tracks at full tilt
+ * lean on the master's headroom and the glue compressor, which is what they
+ * are for.
+ */
+const USER_TRACK_MIX = Object.freeze({
+  melodic: Object.freeze({ level: 0.2, dry: 0.7, reverb: 0.45, delay: 0.25, tone: 6500 }),
+  percussive: Object.freeze({ level: 0.24, dry: 0.85, reverb: 0.3, delay: 0.12, tone: 9000 }),
+});
+
+/**
+ * The auto ladder for user track `ordinal`: 0.65, 0.70 … 0.90, rising and all
+ * above percussion's 0.6, so the active set stays a PREFIX of the engine's
+ * track order — the property the v22 ladder proof asserts.
+ */
+const userAutoThreshold = (ordinal) => round3(0.6 + 0.05 * (ordinal + 1));
+
+/**
+ * One `params.userTracks` entry, or null when it is unusable. An entry that
+ * fails validation is dropped WHOLE — never coerced, never renamed — and its
+ * `tracks` entry then orphans and drops with it.
+ */
+function sanitiseUserTrack(value, taken) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const id = typeof value.id === 'string' ? value.id : '';
+  if (!USER_TRACK_ID.test(id) || RESERVED_TRACK_IDS.includes(id) || taken.has(id)) return null;
+  const family = oneOf(value.family, TRACK_FAMILIES, null);
+  const voiceSet = oneOf(value.voiceSet, VOICE_SETS, null);
+  if (!family || !voiceSet) return null;
+  // The kit bank and the percussive family imply each other: the drum voices
+  // are the only ones that synthesise a struck, pitchless sound, and they are
+  // the only ones a pitched line has nothing to say through.
+  if ((family === 'percussive') !== (voiceSet === 'percussion')) return null;
+  const label = typeof value.label === 'string'
+    ? value.label.trim().slice(0, USER_TRACK_LABEL_MAX) : '';
+  if (!label) return null;
+  const colourToken = typeof value.colourToken === 'string' && COLOUR_TOKEN.test(value.colourToken)
+    ? value.colourToken
+    : null;
+  return { id, label, family, voiceSet, colourToken };
+}
+
+/**
+ * `params.userTracks` — the ordered identity list, and the AUTHORITY on which
+ * tracks an engine has: supplying an entry creates the track, omitting one
+ * removes it. That is what lets loading a preset recreate a user's tracks with
+ * no extra API call.
+ *
+ * Order is creation order everywhere (engine order, sequenced order, staging,
+ * the ladder), so entries past the cap are dropped from the TAIL. An absent
+ * list means zero user tracks, which is every params object written before
+ * this window.
+ */
+function sanitiseUserTracks(value, base) {
+  const source = Array.isArray(value) ? value : Array.isArray(base) ? base : [];
+  const taken = new Set();
+  const list = [];
+  for (const raw of source) {
+    if (list.length >= MAX_USER_TRACKS) break;
+    const entry = sanitiseUserTrack(raw, taken);
+    if (!entry) continue;
+    taken.add(entry.id);
+    // Absent ⇒ the engine assigns one, so the theme always has a var to define
+    // and a consumer never meets a track with no colour at all.
+    if (!entry.colourToken) entry.colourToken = `--track-user-${list.length + 1}`;
+    list.push(entry);
+  }
+  return list;
+}
+
 export const VARY_ASPECTS = Object.freeze(['voice', 'volume', 'pitch', 'timing', 'pan']);
 
 const DEFAULT_TRACK_LEVEL = 0.8;
@@ -442,8 +558,44 @@ function defaultStepLane() {
   return Array.from({ length: SEQUENCER_STEP_COUNT }, () => ({ ...DEFAULT_STEP }));
 }
 
-function defaultSequencer(track) {
-  if (track === 'percussion') {
+/**
+ * The per-track facts the defaults and the sanitiser need, asked about a
+ * built-in or a user track alike: which voice bank it plays from, whether a
+ * chord discipline means anything to it, whether it owns a kit of lanes, and
+ * what a fresh entry ships with. `userById` is the sanitised `userTracks` as a
+ * lookup; without one only the six built-ins exist.
+ */
+function trackShape(name, userById) {
+  const user = userById ? userById.get(name) : undefined;
+  if (user) {
+    return {
+      voiceSet: user.voiceSet,
+      tuned: user.family === 'melodic',
+      percussive: user.family === 'percussive',
+      // EVERY user track is sequenced. There is no motif engine, bass groove or
+      // chord wash written for one, so its step grid is its whole material.
+      sequenced: true,
+      // The user just made it: it should sound.
+      state: 'on',
+      // The pad/texture voice wander and the melody/bass mono+glide are
+      // built-in-specific rulings, not defaults a new track inherits.
+      mono: false,
+      glide: 0,
+    };
+  }
+  return {
+    voiceSet: name,
+    tuned: TUNED_TRACKS.includes(name),
+    percussive: name === 'percussion',
+    sequenced: SEQUENCED_TRACKS.includes(name),
+    state: DEFAULT_TRACK_STATES[name],
+    mono: DEFAULT_TRACK_MONO[name] === true,
+    glide: DEFAULT_TRACK_GLIDE[name] ?? 0,
+  };
+}
+
+function defaultSequencer(percussive) {
+  if (percussive) {
     return {
       mode: 'auto',
       weights: [1],
@@ -487,26 +639,27 @@ function defaultVary(track) {
 function defaultTracks() {
   const tracks = {};
   for (const name of TRACK_ORDER) {
+    const shape = trackShape(name, null);
     const track = {
-      state: DEFAULT_TRACK_STATES[name],
-      voice: DEFAULT_TRACK_VOICES[name],
+      state: shape.state,
+      voice: DEFAULT_TRACK_VOICES[shape.voiceSet],
       level: DEFAULT_TRACK_LEVEL,
       randomness: { ...DEFAULT_TRACK_RANDOMNESS },
       driftRate: DEFAULT_TRACK_DRIFT_RATE,
       swing: null,
       density: null,
       hold: false,
-      mono: DEFAULT_TRACK_MONO[name] === true,
-      glide: DEFAULT_TRACK_GLIDE[name] ?? 0,
+      mono: shape.mono,
+      glide: shape.glide,
       vary: defaultVary(name),
     };
-    if (TUNED_TRACKS.includes(name)) track.dissonance = DEFAULT_TRACK_DISSONANCE;
-    if (name === 'percussion') track.lanes = defaultPercussionLanes();
-    if (SEQUENCED_TRACKS.includes(name)) {
+    if (shape.tuned) track.dissonance = DEFAULT_TRACK_DISSONANCE;
+    if (shape.percussive) track.lanes = defaultPercussionLanes();
+    if (shape.sequenced) {
       // v14 Sequencer 2.0: a track owns a LIST of sequencers and picks between
       // them at each loop end; `sequencer` is the same object as `sequencers[0]`,
       // so every v6 caller still reads and writes the one it knows about.
-      track.sequencers = [defaultSequencer(name)];
+      track.sequencers = [defaultSequencer(shape.percussive)];
       track.sequencer = track.sequencers[0];
     }
     tracks[name] = track;
@@ -639,6 +792,9 @@ export const DEFAULT_PARAMS = Object.freeze({
   structure: 'auto',
   customStructure: Object.freeze(defaultCustomStructure().map(Object.freeze)),
   arp: Object.freeze({ ...defaultArp(), steps: Object.freeze(new Array(ARP_STEP_COUNT).fill(true)) }),
+  // v23: the user's own tracks, in creation order. Empty is every params
+  // object written before this window, and stays byte-identical to one.
+  userTracks: Object.freeze([]),
   tracks: deepFreeze(defaultTracks()),
   // Sparse by design: an absent track/voice/section/field means "voice default".
   patches: Object.freeze({}),
@@ -885,14 +1041,20 @@ function sanitiseStepLane(value, base) {
   return lane;
 }
 
-function sanitiseSequencer(track, value, base, laneIds = PERCUSSION_LANES) {
+/**
+ * One sequencer. `percussive` — not the track's NAME — decides between a kit's
+ * lane-map grid and a single lane, so a user percussive track gets the kit
+ * shape its own lanes need rather than the melodic one the id 'percussion'
+ * used to be the only key to.
+ */
+function sanitiseSequencer(percussive, value, base, laneIds = PERCUSSION_LANES) {
   const from = base && typeof base === 'object' ? base : null;
   const v = value && typeof value === 'object' ? value : null;
   const at = (key) => (v && key in v ? v[key] : undefined);
   const mode = oneOf(at('mode'), SEQUENCER_MODES,
     oneOf(from && from.mode, SEQUENCER_MODES, 'auto'));
   const weights = sanitiseWeights(at('weights'), from ? from.weights : undefined);
-  if (track !== 'percussion') {
+  if (!percussive) {
     return { mode, weights, steps: sanitiseStepLane(at('steps'), from ? from.steps : undefined) };
   }
   const rawLanes = at('steps');
@@ -994,24 +1156,24 @@ function sanitiseWeights(value, base) {
  * Every sequencer's weight vector is padded/truncated to the list length, which
  * is what keeps the Markov pick total over the sequencers that exist.
  */
-function sanitiseSequencerList(track, partial, base, laneIds = PERCUSSION_LANES) {
+function sanitiseSequencerList(percussive, partial, base, laneIds = PERCUSSION_LANES) {
   const baseList = Array.isArray(base) ? base : [];
   const sent = partial && Array.isArray(partial.sequencers) ? partial.sequencers : null;
   const list = [];
   if (sent) {
     for (let i = 0; i < sent.length && i < MAX_SEQUENCERS; i++) {
-      list.push(sanitiseSequencer(track, sent[i], baseList[i], laneIds));
+      list.push(sanitiseSequencer(percussive, sent[i], baseList[i], laneIds));
     }
   } else {
     for (const stored of baseList.slice(0, MAX_SEQUENCERS)) {
-      list.push(sanitiseSequencer(track, undefined, stored, laneIds));
+      list.push(sanitiseSequencer(percussive, undefined, stored, laneIds));
     }
   }
-  if (!list.length) list.push(sanitiseSequencer(track, undefined, baseList[0], laneIds));
+  if (!list.length) list.push(sanitiseSequencer(percussive, undefined, baseList[0], laneIds));
   // The singular field writes into slot 0 unless the caller sent the whole list.
   const single = partial && 'sequencer' in partial ? partial.sequencer : undefined;
   if (!sent && single !== undefined) {
-    list[0] = sanitiseSequencer(track, single, baseList[0], laneIds);
+    list[0] = sanitiseSequencer(percussive, single, baseList[0], laneIds);
   }
   for (const sequencer of list) {
     // A sequencer the caller added without weights is reachable: an unmentioned
@@ -1048,21 +1210,28 @@ function sanitiseVary(value, base) {
   return out;
 }
 
-function sanitiseTracks(value, base, order = TRACK_ORDER) {
+/**
+ * The per-track section, built over `order` — the built-ins plus whichever user
+ * tracks survived `sanitiseUserTracks`. A key that is in neither is DROPPED
+ * SILENTLY, exactly as it always has been: this loop never reads a key off the
+ * input that the id set does not name.
+ */
+function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.tracks;
   const v = value && typeof value === 'object' ? value : null;
   const tracks = {};
   for (const name of order) {
+    const shape = trackShape(name, userById);
     const baseTrack = from[name] && typeof from[name] === 'object' ? from[name] : {};
     const partial = v && v[name] && typeof v[name] === 'object' ? v[name] : null;
     const voiceCandidate = partial && typeof partial.voice === 'string' && partial.voice.trim()
       ? partial.voice.trim()
       : typeof baseTrack.voice === 'string' && baseTrack.voice.trim()
         ? baseTrack.voice.trim()
-        : DEFAULT_TRACK_VOICES[name];
+        : DEFAULT_TRACK_VOICES[shape.voiceSet];
     const track = {
       state: oneOf(partial && partial.state, TRACK_STATES,
-        oneOf(baseTrack.state, TRACK_STATES, DEFAULT_TRACK_STATES[name])),
+        oneOf(baseTrack.state, TRACK_STATES, shape.state)),
       voice: voiceCandidate,
       level: sanitiseRangeValue(partial && partial.level, 0, 1)
         ?? sanitiseRangeValue(baseTrack.level, 0, 1)
@@ -1078,23 +1247,26 @@ function sanitiseTracks(value, base, order = TRACK_ORDER) {
       density: nullableNumber(partial, baseTrack, 'density', TRACK_DENSITY_RANGE),
       hold: partial && 'hold' in partial ? Boolean(partial.hold) : Boolean(baseTrack.hold),
       mono: partial && 'mono' in partial ? Boolean(partial.mono)
-        : 'mono' in baseTrack ? Boolean(baseTrack.mono) : DEFAULT_TRACK_MONO[name] === true,
+        : 'mono' in baseTrack ? Boolean(baseTrack.mono) : shape.mono,
       glide: numberIn(partial && partial.glide, [0, 1],
-        numberIn(baseTrack.glide, [0, 1], DEFAULT_TRACK_GLIDE[name] ?? 0)),
+        numberIn(baseTrack.glide, [0, 1], shape.glide)),
       vary: sanitiseVary(partial && partial.vary, baseTrack.vary),
     };
-    if (TUNED_TRACKS.includes(name)) {
+    if (shape.tuned) {
       track.dissonance = sanitiseRangeValue(partial && partial.dissonance, 0, 1)
         ?? sanitiseRangeValue(baseTrack.dissonance, 0, 1)
         ?? DEFAULT_TRACK_DISSONANCE;
     }
-    if (name === 'percussion') {
+    if (shape.percussive) {
+      // A user kit gets its OWN lanes — the three built-in ids, undeletable
+      // here as in the built-in kit, plus whatever the user added. Nothing is
+      // shared with the built-in percussion track.
       track.lanes = sanitisePercussionLanes(partial && partial.lanes, baseTrack.lanes);
     }
-    if (SEQUENCED_TRACKS.includes(name)) {
+    if (shape.sequenced) {
       const storedList = Array.isArray(baseTrack.sequencers) ? baseTrack.sequencers
         : baseTrack.sequencer ? [baseTrack.sequencer] : undefined;
-      track.sequencers = sanitiseSequencerList(name, partial, storedList,
+      track.sequencers = sanitiseSequencerList(shape.percussive, partial, storedList,
         track.lanes ? track.lanes.map((lane) => lane.id) : undefined);
       track.sequencer = track.sequencers[0];
     }
@@ -1140,7 +1312,7 @@ function bridgeLegacyPercussion(partial, tracks) {
     ? partial.tracks.percussion : null;
   if (sentTrack && (sentTrack.sequencer || Array.isArray(sentTrack.sequencers))) return;
   tracks.percussion.sequencers[0] = sanitiseSequencer(
-    'percussion', legacy, tracks.percussion.sequencers[0],
+    true, legacy, tracks.percussion.sequencers[0],
     tracks.percussion.lanes.map((lane) => lane.id),
   );
   tracks.percussion.sequencer = tracks.percussion.sequencers[0];
@@ -1408,8 +1580,11 @@ function sanitisePatches(value, base, laneIds = PERCUSSION_LANES, order = TRACK_
  * and `customStructure` merge deeply. Always returns a complete, freshly
  * allocated params object.
  *
- * `order` is the track list the per-track sections are built from — the floor's
- * six by default, an engine's own list when it passes one.
+ * `order` supplies the BUILT-IN track list the per-track sections are built
+ * from — the floor's six by default, an engine's own list when it passes one.
+ * Which USER tracks exist is never taken from it: `userTracks` is sanitised
+ * first and is the sole authority, which is what makes omitting an entry remove
+ * the track on the same call that omits it.
  */
 export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORDER) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS;
@@ -1434,13 +1609,18 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   out.structure = oneOf(at('structure'), STRUCTURES, oneOf(from.structure, STRUCTURES, 'auto'));
   out.customStructure = sanitiseCustomStructure(at('customStructure'), from.customStructure);
   out.arp = sanitiseArp(at('arp'), from.arp);
-  out.tracks = sanitiseTracks(at('tracks'), from.tracks, order);
+  // Identity before anything keyed by it: the surviving user tracks define the
+  // id set the per-track sections below are then built over.
+  out.userTracks = sanitiseUserTracks(at('userTracks'), from.userTracks);
+  const userById = new Map(out.userTracks.map((entry) => [entry.id, entry]));
+  const ids = [...order.filter((name) => TRACK_BY_ID.has(name)), ...userById.keys()];
+  out.tracks = sanitiseTracks(at('tracks'), from.tracks, ids, userById);
   bridgeLegacyArpSteps(p, out.tracks, out.arp);
   bridgeLegacyPercussion(p, out.tracks);
   // Lanes are settled before the patches that key off them, so adding a lane
   // and its kit override in ONE call keeps the override.
   out.patches = sanitisePatches(at('patches'), from.patches,
-    out.tracks.percussion.lanes.map((lane) => lane.id), order);
+    out.tracks.percussion.lanes.map((lane) => lane.id), ids);
   return out;
 }
 
@@ -1510,6 +1690,7 @@ const copyHarmony = (harmony) => ({
 function copyParams(params, order = TRACK_ORDER) {
   return {
     ...params,
+    userTracks: params.userTracks.map((entry) => ({ ...entry })),
     harmony: copyHarmony(params.harmony),
     customStructure: params.customStructure.map((block) => ({ ...block })),
     arp: { ...params.arp, steps: params.arp.steps.slice() },
@@ -2779,21 +2960,111 @@ const floorMix = (name) => TRACK_MIX[name];
  * proofs and `engine.getTracks() === getTracks()` hold exactly as they did.
  */
 export function createTrackLayer() {
-  const trackRegistry = () => TRACK_REGISTRY;
+  let userTracks = [];
+  let registry = TRACK_REGISTRY;
+  let order = TRACK_ORDER;
+  let sequenced = SEQUENCED_TRACKS;
+  let tuned = TUNED_TRACKS;
+  let views = TRACK_VIEWS;
+  let byId = TRACK_BY_ID;
+  let bars = MAX_STAGE_INDEX;
+
+  /**
+   * A user track's registry row: the same shape a built-in's is, with every
+   * engine-facing number derived by v23's ORDER RULE — appended after every
+   * built-in in engine order, in sequenced order, in the staged entry and on
+   * the ladder. That is what keeps the first six draws of every per-track rng
+   * pass the built-ins' own draws, in the order they have always been.
+   */
+  const userRow = (entry, ordinal) => Object.freeze({
+    id: entry.id,
+    displayOrder: TRACK_VIEWS.length + ordinal,
+    label: entry.label,
+    builtin: false,
+    colourToken: entry.colourToken,
+    family: entry.family,
+    voiceSet: entry.voiceSet,
+    sequenced: SEQUENCED_TRACKS.length + ordinal,
+    tuned: entry.family === 'melodic',
+    stageIndex: MAX_STAGE_INDEX + 1 + ordinal,
+    autoThreshold: userAutoThreshold(ordinal),
+    mix: USER_TRACK_MIX[entry.family],
+  });
+
+  /**
+   * Rebuild every accessor over floor + `list` (a sanitised `params.userTracks`).
+   *
+   * With no user tracks each one is set back to THE MODULE'S OWN frozen object
+   * — same reference, no copy, no re-sort — so `trackOrder() === TRACK_ORDER`
+   * and `engine.getTracks() === getTracks()` stay true and every v22 identity
+   * proof with them. That shortcut is load-bearing, not an optimisation.
+   */
+  function setUserTracks(list) {
+    userTracks = Array.isArray(list) ? list : [];
+    if (!userTracks.length) {
+      registry = TRACK_REGISTRY;
+      order = TRACK_ORDER;
+      sequenced = SEQUENCED_TRACKS;
+      tuned = TUNED_TRACKS;
+      views = TRACK_VIEWS;
+      byId = TRACK_BY_ID;
+      bars = MAX_STAGE_INDEX;
+      return;
+    }
+    const rows = userTracks.map(userRow);
+    registry = Object.freeze([...TRACK_REGISTRY, ...rows]);
+    order = Object.freeze(registry.map((row) => row.id));
+    sequenced = Object.freeze([...SEQUENCED_TRACKS, ...rows.map((row) => row.id)]);
+    tuned = Object.freeze([...TUNED_TRACKS,
+      ...rows.filter((row) => row.tuned).map((row) => row.id)]);
+    // Display order: the built-ins in their fixed display order first, user
+    // tracks after, in creation order — an insertion BELOW everything that was
+    // already on screen, which is the v18 hardware-panel rule.
+    views = Object.freeze([...TRACK_VIEWS, ...rows.map((row) => Object.freeze({
+      id: row.id,
+      label: row.label,
+      builtin: false,
+      colourToken: row.colourToken,
+      family: row.family,
+    }))]);
+    byId = new Map(registry.map((row) => [row.id, row]));
+    bars = MAX_STAGE_INDEX + rows.length;
+  }
+
   return {
-    trackRegistry,
-    trackOrder: () => TRACK_ORDER,
-    sequencedTracks: () => SEQUENCED_TRACKS,
-    tunedTracks: () => TUNED_TRACKS,
-    trackViews: () => TRACK_VIEWS,
-    trackById: (id) => TRACK_BY_ID.get(id),
-    mixFor: floorMix,
-    autoThresholdFor: floorAutoThreshold,
+    setUserTracks,
+    trackRegistry: () => registry,
+    trackOrder: () => order,
+    sequencedTracks: () => sequenced,
+    tunedTracks: () => tuned,
+    trackViews: () => views,
+    trackById: (id) => byId.get(id),
+    /** This engine's user tracks, in creation order — nothing built-in. */
+    userTrackIds: () => userTracks.map((entry) => entry.id),
+    mixFor: (id) => {
+      const row = byId.get(id);
+      return row ? row.mix : floorMix(id);
+    },
+    autoThresholdFor: (id) => {
+      const row = byId.get(id);
+      return row ? row.autoThreshold : floorAutoThreshold(id);
+    },
+    /**
+     * The voice bank a track plays from: a built-in's is its own id, a user
+     * track's is the stock set it named. Never undefined — an id the layer has
+     * forgotten (a track removed while a note of its was mid-dispatch) still
+     * has to resolve to a bank rather than throw at the bottom of the voice
+     * system.
+     */
+    voiceSetFor: (id) => {
+      const row = byId.get(id);
+      return row ? row.voiceSet ?? row.id : TRACK_ORDER[0];
+    },
     // The module helper, asked about this engine's registry rather than the
     // floor's — the shadowing is deliberate: every call site inside
     // createEngine reads the layer's answer, not the module's.
-    stageIndexOf: (id) => stageIndexOf(id, trackRegistry()),
-    stageBars: () => MAX_STAGE_INDEX,
+    stageIndexOf: (id) => stageIndexOf(id, registry),
+    stageBars: () => bars,
   };
 }
 
@@ -2829,6 +3100,58 @@ function createImpulseResponse(ctx, seconds = 4, decay = REVERB_DECAY, rng = Mat
     }
   }
   return buffer;
+}
+
+/**
+ * One track's chain — input → tone → dry, both sends and an analyser — wired
+ * into a graph that already exists.
+ *
+ * Split out of buildGraph because a track added while the piece is playing
+ * needs exactly this and nothing else. It DRAWS NO RANDOMNESS: the reverb
+ * impulse response is the only rng buildGraph makes and it is not rebuilt, so
+ * gaining a track cannot shift the note stream of the tracks already sounding.
+ */
+function createTrackChain(ctx, graph, mix) {
+  const input = ctx.createGain();
+  input.gain.value = SILENCE;
+  // Section intensity opens and closes this filter — the "brightness" the
+  // structure asks for, applied engine-side because voices own their timbre.
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.value = mix.tone;
+  tone.Q.value = 0.4;
+  const dry = ctx.createGain();
+  dry.gain.value = mix.dry;
+  const reverbSend = ctx.createGain();
+  reverbSend.gain.value = mix.reverb;
+  const delaySend = ctx.createGain();
+  delaySend.gain.value = mix.delay;
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 1024;
+  analyser.smoothingTimeConstant = 0.75;
+
+  input.connect(tone);
+  tone.connect(dry);
+  dry.connect(graph.master);
+  tone.connect(reverbSend);
+  reverbSend.connect(graph.reverbBus);
+  // Both sends are always wired: a patch can raise either from zero, so the
+  // send level — not the connection — is what decides audibility.
+  tone.connect(delaySend);
+  delaySend.connect(graph.delay);
+  tone.connect(analyser);
+  return { input, tone, dry, reverbSend, delaySend, analyser };
+}
+
+/** Unwire a retired track's chain: nothing downstream may still hear it. */
+function dropTrackChain(chain) {
+  for (const node of Object.values(chain)) {
+    try {
+      node.disconnect();
+    } catch {
+      // A node that will not unwire is already past doing any harm.
+    }
+  }
 }
 
 function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.random) {
@@ -2886,46 +3209,14 @@ function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.ran
   delayTone.connect(delayReturn);
   delayReturn.connect(master);
 
-  const nodes = {};
-  for (const name of tracks) {
-    const mix = mixFor(name);
-    const input = ctx.createGain();
-    input.gain.value = SILENCE;
-    // Section intensity opens and closes this filter — the "brightness" the
-    // structure asks for, applied engine-side because voices own their timbre.
-    const tone = ctx.createBiquadFilter();
-    tone.type = 'lowpass';
-    tone.frequency.value = mix.tone;
-    tone.Q.value = 0.4;
-    const dry = ctx.createGain();
-    dry.gain.value = mix.dry;
-    const reverbSend = ctx.createGain();
-    reverbSend.gain.value = mix.reverb;
-    const delaySend = ctx.createGain();
-    delaySend.gain.value = mix.delay;
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.75;
-
-    input.connect(tone);
-    tone.connect(dry);
-    dry.connect(master);
-    tone.connect(reverbSend);
-    reverbSend.connect(reverbBus);
-    // Both sends are always wired: a patch can raise either from zero, so the
-    // send level — not the connection — is what decides audibility.
-    tone.connect(delaySend);
-    delaySend.connect(delay);
-    tone.connect(analyser);
-    nodes[name] = { input, tone, dry, reverbSend, delaySend, analyser };
-  }
-
   // `convolver`, `reverbReturn` and `reverbSeconds` are the LIVE tail: a swap
   // replaces all three, which is why nothing else holds a reference to them.
-  return {
+  const graph = {
     master, compressor, masterAnalyser, reverbBus, convolver, reverbReturn,
-    reverbSeconds: DEFAULT_PARAMS.reverbTail, delay, feedback, tracks: nodes,
+    reverbSeconds: DEFAULT_PARAMS.reverbTail, delay, feedback, tracks: {},
   };
+  for (const name of tracks) graph.tracks[name] = createTrackChain(ctx, graph, mixFor(name));
+  return graph;
 }
 
 // ---------------------------------------------------------------------------
@@ -2957,12 +3248,14 @@ export function createEngine(initialParams, options = {}) {
   // v23: this engine's own view of its tracks. Nothing below reads a module
   // track table directly — every one of them is a floor an added track has to
   // be able to stand on top of.
+  const layer = createTrackLayer();
   const {
-    trackOrder, sequencedTracks, trackViews,
-    mixFor, autoThresholdFor, stageIndexOf, stageBars,
-  } = createTrackLayer();
+    trackOrder, sequencedTracks, trackViews, userTrackIds,
+    mixFor, autoThresholdFor, voiceSetFor, stageIndexOf, stageBars,
+  } = layer;
 
   let params = sanitiseParams(initialParams, DEFAULT_PARAMS, trackOrder());
+  layer.setUserTracks(params.userTracks);
   const rng = options && typeof options.rng === 'function' ? options.rng : Math.random;
 
   let ctx = null;
@@ -3073,6 +3366,9 @@ export function createEngine(initialParams, options = {}) {
   let texturePlan = [];
   let arpPlan = null;
   let percussionPlan = [];
+  // v23: one realised plan per user track, in creation order — `{ kit, events }`,
+  // a kit's lane hits or a melodic line's notes.
+  const userPlans = new Map();
   let arpCursor = 0;           // position in the note sequence
   let autoArpSteps = null;
   let percussionBank = [];
@@ -3096,6 +3392,12 @@ export function createEngine(initialParams, options = {}) {
   let maxNotes = Infinity;          // power budget: simultaneous sounding notes
   let statsStart = 0;               // ctx time the note-rate window started
   const noteTimes = new Map();      // track → recent note onsets (ctx seconds)
+
+  // v23: the chains of removed tracks, waiting on their own last note. Cutting
+  // a note that is still ringing is exactly the click the 50 ms-fade rule
+  // exists to prevent, so a chain is unwired only once nothing it carries is
+  // still sounding — immediately, on a stopped engine.
+  const retiring = new Map();       // track → its chain, still ringing out
 
   const listeners = new Map();
   const scale = () => SCALES[params.mode];
@@ -3886,10 +4188,17 @@ export function createEngine(initialParams, options = {}) {
 
   // -- note dispatch ---------------------------------------------------------
 
+  /**
+   * The bank a track plays from, addressed by its VOICE SET rather than by its
+   * own id: a built-in's set is its id, a user track's is the stock set it
+   * named (v10 — no new voice code ships for a user track). The library is
+   * consulted first and the engine's own fallbacks stand in behind it.
+   */
   function voiceBank(track) {
-    return voices && voices[track] && Object.keys(voices[track]).length
-      ? voices[track]
-      : FALLBACK_VOICES[track];
+    const set = voiceSetFor(track);
+    return voices && voices[set] && Object.keys(voices[set]).length
+      ? voices[set]
+      : FALLBACK_VOICES[set];
   }
 
   /**
@@ -3898,17 +4207,21 @@ export function createEngine(initialParams, options = {}) {
    * getParams() keeps reporting what the user selected (v6 amendment 2).
    */
   function effectiveVoice(track) {
-    return wanderedVoice.get(track) ?? params.tracks[track].voice;
+    const config = params.tracks[track];
+    return wanderedVoice.get(track) ?? (config ? config.voice : undefined);
   }
 
   function voiceFor(track) {
     const bank = voiceBank(track);
     // A voice id the library does not know (stale localStorage, renamed voice)
     // falls back to that track's first voice rather than going silent.
-    const chosen = bank[effectiveVoice(track)] ?? bank[Object.keys(bank)[0]];
+    const chosen = bank ? bank[effectiveVoice(track)] ?? bank[Object.keys(bank)[0]] : null;
     if (chosen && typeof chosen.play === 'function') return chosen;
-    const spare = FALLBACK_VOICES[track][Object.keys(FALLBACK_VOICES[track])[0]];
-    return spare ?? null;
+    // The terminal fallback answers for ANY id, known or not: this is the
+    // bottom of the voice system, and a note that reaches it with nothing to
+    // play must go silent rather than throw inside the scheduler's lookahead.
+    const spare = FALLBACK_VOICES[voiceSetFor(track)];
+    return spare ? spare[Object.keys(spare)[0]] ?? null : null;
   }
 
   /**
@@ -3945,6 +4258,68 @@ export function createEngine(initialParams, options = {}) {
     for (const entry of liveNotes) {
       if (entry.end <= now) liveNotes.delete(entry);
     }
+    retireChains();
+  }
+
+  /**
+   * Drop the chain of every removed track whose last note has finished. Runs
+   * off the same bookkeeping that prunes the live notes, so the teardown lands
+   * on the audio clock rather than on a wall-clock timer that a suspended
+   * context would leave dangling.
+   */
+  function retireChains() {
+    if (!retiring.size) return;
+    const at = ctx ? ctx.currentTime : Infinity;
+    for (const [name, chain] of retiring) {
+      // A stopped engine tears down at once: there is no clock left to ring out
+      // against, and stop() has already cancelled what was sounding.
+      if (ctx && isRunning && hasSoundingNotes(name, at)) continue;
+      dropTrackChain(chain);
+      retiring.delete(name);
+    }
+  }
+
+  /** Everything keyed to a track that has just stopped existing. */
+  function forgetTrack(name) {
+    clearFrozen(name);
+    held.delete(name);
+    promoted.delete(name);
+    pendingRandomise.delete(name);
+    activeSequencer.delete(name);
+    wanderedVoice.delete(name);
+    monoNotes.delete(name);
+    noteTimes.delete(name);
+    // No new note is scheduled for the track from this moment: the plan it had
+    // realised for the bar in progress goes with it.
+    userPlans.delete(name);
+    for (const key of [...walkPhases.keys()]) {
+      if (key.slice(0, key.indexOf(':')) === name) walkPhases.delete(key);
+    }
+  }
+
+  /**
+   * Bring the runtime into line with `params.userTracks` — the authority on
+   * which tracks exist. The accessors rebuild first, then the graph: a track
+   * that has appeared gains its chain at once (it cannot sound before the next
+   * bar in any case, having no plan for the bar already realised), and one that
+   * has gone stops being scheduled at once and rings out before its chain is
+   * dropped.
+   */
+  function syncTracks() {
+    const before = trackOrder();
+    layer.setUserTracks(params.userTracks);
+    const wanted = new Set(trackOrder());
+    for (const name of before) if (!wanted.has(name)) forgetTrack(name);
+    if (!graph) return;
+    for (const name of trackOrder()) {
+      if (!graph.tracks[name]) graph.tracks[name] = createTrackChain(ctx, graph, mixFor(name));
+    }
+    for (const name of Object.keys(graph.tracks)) {
+      if (wanted.has(name)) continue;
+      retiring.set(name, graph.tracks[name]);
+      delete graph.tracks[name];
+    }
+    retireChains();
   }
 
   /** Hard-stop every sounding note. The voices' cancel fades are click-free. */
@@ -4552,8 +4927,12 @@ export function createEngine(initialParams, options = {}) {
    */
   function barWillSound(time) {
     if (lastNoteEnd > time + bar.duration * 0.25) return true;
-    return Boolean(melodyPlan.notes.length || texturePlan.length
-      || (arpPlan && arpPlan.steps.length) || percussionPlan.length);
+    if (melodyPlan.notes.length || texturePlan.length
+      || (arpPlan && arpPlan.steps.length) || percussionPlan.length) return true;
+    for (const plan of userPlans.values()) {
+      if (plan.events.length) return true;
+    }
+    return false;
   }
 
   /**
@@ -5377,6 +5756,119 @@ export function createEngine(initialParams, options = {}) {
     }));
   }
 
+  // -- user tracks (v23) -----------------------------------------------------
+  //
+  // A user track has NO bespoke generative pass: there is no motif engine, bass
+  // groove or chord wash written for one, and v23's ruling is that its step
+  // grid is its whole material. Both families therefore read the grid the way
+  // the built-in manual planners do — a melodic track takes its pitches from
+  // the chord the group is playing, a percussive one strikes its own lanes —
+  // and neither honours the sequencer's auto/manual switch, because there is no
+  // auto pass for it to switch to.
+
+  /** The chord tones a user melodic line draws on: root, third, fifth. */
+  const USER_TRACK_DEGREES = Object.freeze([0, 2, 4]);
+
+  /** The register a user melodic line sits in, as pad and melody do. */
+  const USER_TRACK_OCTAVE = 4;
+
+  function planUserLine(name) {
+    const lane = sequencerFor(name).steps;
+    const slots = sequencerStepsPerBar(params.timeSignature);
+    const sounded = new Map();
+    let notes = [];
+    let taken = 0;
+    for (let i = 0; i < slots; i++) {
+      const step = lane[i];
+      if (!step || !step.on) continue;
+      const prob = groupedProb(sounded, step, effectiveProb(name, `step.${i}`, step.prob));
+      const fires = rng() < prob;
+      if (step.group !== undefined) sounded.set(step.group, fires);
+      if (!fires) continue;
+      const stray = dissonanceDraw(name);
+      const degree = USER_TRACK_DEGREES[taken++ % USER_TRACK_DEGREES.length];
+      notes.push({
+        index: i,
+        beat: i / 4,
+        degree: stray && !stray.chromatic ? degree + stray.dir : degree,
+        bend: stray && stray.chromatic ? stray.dir : 0,
+        duration: 1,
+        gate: step.gate,
+        velocity: between(step.vmin, step.vmax, rng) * velocityJitter(name),
+        pan: between(-0.25, 0.25, rng) + panSpread(name),
+        octave: octaveWander(name),
+        nudge: timingNudge(name),
+      });
+    }
+    notes = mergeTies(notes, lane, slots);
+    for (const note of notes) {
+      if (note.gate !== undefined) {
+        note.duration = gatedSpan(note, note.gate, SEQUENCER_STEP_BEATS);
+      } else if (note.slots > 1) {
+        note.duration = Math.max(note.duration, note.slots * SEQUENCER_STEP_BEATS);
+      }
+    }
+    return notes;
+  }
+
+  function planUserKit(name) {
+    const lanes = sequencerFor(name).steps;
+    const slots = sequencerStepsPerBar(params.timeSignature);
+    const hits = [];
+    for (const lane of params.tracks[name].lanes) {
+      const steps = lanes[lane.id];
+      if (!steps) continue;
+      const sounded = new Map();
+      let laneHits = [];
+      for (let i = 0; i < slots; i++) {
+        const step = steps[i];
+        if (!step.on) continue;
+        const prob = groupedProb(sounded, step,
+          effectiveProb(name, `step.${lane.id}.${i}`, step.prob));
+        const fires = rng() < prob;
+        if (step.group !== undefined) sounded.set(step.group, fires);
+        if (!fires) continue;
+        const beat = i / 4;
+        const pulse = pulseAtBeat(beat);
+        laneHits.push({
+          index: i,
+          pulse,
+          offset: beat - bar.starts[pulse],
+          lane: lane.id,
+          kind: lane.kind,
+          velocity: between(step.vmin, step.vmax, rng) * velocityJitter(name),
+          pan: percussionPan(lane.kind),
+          nudge: timingNudge(name),
+        });
+      }
+      laneHits = mergeTies(laneHits, steps, slots);
+      for (const hit of laneHits) hits.push(hit);
+    }
+    hits.sort((a, b) => a.pulse - b.pulse || a.offset - b.offset);
+    return hits;
+  }
+
+  /** A kit is the track that owns lanes; everything else is a pitched line. */
+  const isUserKit = (name) => Boolean(params.tracks[name].lanes);
+
+  function planUserTrack(name) {
+    const kit = isUserKit(name);
+    return { kit, events: kit ? planUserKit(name) : planUserLine(name) };
+  }
+
+  /**
+   * Realise this bar for every user track, after the six built-ins have taken
+   * their draws — the ORDER RULE, and what keeps a piece with no user tracks
+   * bit-identical to one written before them.
+   */
+  function planUserTracks() {
+    for (const name of userTrackIds()) {
+      userPlans.set(name, isActive(name)
+        ? planFor(name, undefined, () => planUserTrack(name))
+        : { kit: isUserKit(name), events: [] });
+    }
+  }
+
   // -- scheduler -------------------------------------------------------------
 
   /**
@@ -5513,6 +6005,9 @@ export function createEngine(initialParams, options = {}) {
     // A promotion lasts one bar: whatever covered the last gap goes back to
     // whatever its own state says before this bar's activity is decided.
     promoted.clear();
+    // A removed track's chain is dropped as soon as its last note has finished,
+    // which the barline is the regular chance to notice.
+    retireChains();
     // Hold, re-rolls and the drift walks all settle before anything is drawn,
     // so a bar is realised exactly once against a stable set of decisions.
     applyHolds();
@@ -5604,6 +6099,7 @@ export function createEngine(initialParams, options = {}) {
       ? planFor('arp', undefined, () => planArp(intensity)) : null;
     percussionPlan = isActive('percussion')
       ? planFor('percussion', undefined, () => planPercussion(intensity)) : [];
+    planUserTracks();
 
     // Everything is planned: if the bar would pass in silence, cover it.
     coverSilence(time);
@@ -5715,6 +6211,43 @@ export function createEngine(initialParams, options = {}) {
         velocity: hit.velocity,
         pan: hit.pan ?? 0,
       });
+    }
+
+    // v23 user tracks, after every built-in — the same order they plan in.
+    for (const [name, plan] of userPlans) {
+      if (plan.kit) {
+        for (const hit of plan.events) {
+          if (hit.pulse !== index) continue;
+          const offset = Math.min(hit.offset, length * 0.9);
+          const swingOffset = swung(from + offset, name) - from;
+          playNote(name, {
+            midi: null,
+            freq: null,
+            kind: hit.kind,
+            lane: hit.lane,
+            when: time + swingOffset * bar.secPerBeat + (hit.nudge ?? 0),
+            duration: hit.kind === 'low' ? 0.4 : hit.kind === 'mid' ? 0.22 : 0.14,
+            velocity: hit.velocity,
+            pan: hit.pan ?? 0,
+          });
+        }
+        continue;
+      }
+      for (const note of plan.events) {
+        if (note.beat < from || note.beat >= to) continue;
+        const midi = clamp(
+          scaleDegreeToMidi(chordDegree + note.degree, bar.scale, bar.rootPc, USER_TRACK_OCTAVE)
+            + 12 * (note.octave ?? 0) + (note.bend ?? 0),
+          24, 108,
+        );
+        playNote(name, {
+          midi,
+          when: time + (swung(note.beat, name) - from) * bar.secPerBeat + (note.nudge ?? 0),
+          duration: Math.max(0.05, note.duration * bar.secPerBeat),
+          velocity: note.velocity,
+          pan: note.pan,
+        });
+      }
     }
   }
 
@@ -5996,6 +6529,9 @@ export function createEngine(initialParams, options = {}) {
    */
   function rebuildContext() {
     liveNotes.clear(); // handles into the dead context; close() ends their audio
+    // Chains still ringing out belong to the context about to close, which ends
+    // their audio outright; nothing is left to unwire.
+    retiring.clear();
     const old = ctx;
     ctx = null;
     graph = null;
@@ -6294,6 +6830,10 @@ export function createEngine(initialParams, options = {}) {
 
   function setParams(partial) {
     params = sanitiseParams(partial, params, trackOrder());
+    // params.userTracks is AUTHORITATIVE: supplying an entry creates the track
+    // and omitting one removes it, so the accessors and the graph follow it
+    // before anything below reads either.
+    syncTracks();
     kindPatches.clear();
     resolvedPatches.clear();
     invalidateEditedPlans(partial);
@@ -6363,7 +6903,8 @@ export function createEngine(initialParams, options = {}) {
   function getAnalysers() {
     return {
       ...Object.fromEntries(
-        trackOrder().map((name) => [name, graph ? graph.tracks[name].analyser : null]),
+        trackOrder().map((name) => [name,
+          graph && graph.tracks[name] ? graph.tracks[name].analyser : null]),
       ),
       total: graph ? graph.masterAnalyser : null,
     };
@@ -6398,7 +6939,11 @@ export function createEngine(initialParams, options = {}) {
     let totalActiveNotes = 0;
     for (const entry of liveNotes) {
       if (entry.when > at || entry.until <= at) continue;
-      perTrack[entry.track].activeNotes += 1;
+      // A note left ringing by a track the user has just removed is still
+      // polyphony the CPU is paying for, so it counts in the total even though
+      // the track it belonged to no longer has a row.
+      const row = perTrack[entry.track];
+      if (row) row.activeNotes += 1;
       totalActiveNotes += 1;
     }
     for (const name of trackOrder()) {

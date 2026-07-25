@@ -1060,13 +1060,12 @@ try {
     } else if (!activeTracks) {
       // every track off — no composite preview possible, nothing to assert
     } else {
-      const drewN = await waitUntil(() => traceColorCount(frontCanvas.getContext('2d')) === activeTracks);
-      if (!drewN) {
-        const got = traceColorCount(frontCanvas.getContext('2d'));
-        failures.push(
-          `the stopped-engine front oscilloscope should draw ${activeTracks} static traces ` +
-            `(one per non-off track), drew ${got}`
-        );
+      // Owner ruling (fromMartin 22): the front scope stays DARK until Play —
+      // the composite stopped-state preview is retired; assert the inverse.
+      await new Promise((r) => setTimeout(r, 300));
+      const got = traceColorCount(frontCanvas.getContext('2d'));
+      if (got !== 0) {
+        failures.push(`the stopped front oscilloscope must stay dark (surprise ruling), drew ${got} traces`);
       }
     }
   }

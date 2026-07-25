@@ -7605,20 +7605,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               // composite static preview of every selected track's current
               // patch, overlaid on the shared graticule, rather than the
               // blank/detached canvas this used to leave behind.
+              // Owner ruling (fromMartin 22, supersedes the v19 stopped-state
+              // composite here): the front scope stays DARK until Play — the
+              // live trace is kept as a surprise. Editor scopes keep their
+              // static previews; only this front composite is retired.
               detach();
-              if (typeof scopeApi.renderPatchWaveComposite === 'function') {
-                scopeNote.textContent = '';
-                scopeApi.renderPatchWaveComposite(
-                  scopeCanvas,
-                  ids.map((id) => ({
-                    id,
-                    patch: resolveTrackPatch(id, settings.tracks[id].voice),
-                    freq: SCOPE_FREQ[id] || 220,
-                  }))
-                );
-              } else {
-                scopeNote.textContent = 'press Play';
-              }
+              try {
+                const c2d = scopeCanvas.getContext('2d');
+                c2d && c2d.clearRect(0, 0, scopeCanvas.width, scopeCanvas.height);
+              } catch { /* cosmetic */ }
+              scopeNote.textContent = 'press Play';
               ensureLegend(ids);
               return;
             }
