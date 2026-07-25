@@ -875,20 +875,34 @@ time (Play/Finish/Finishing…, armed countdowns, processor status, record
 elapsed); dynamic text changes swap content inside fixed boxes. Any layout
 shift caused by state text is a defect.
 
-## v18 addition — noise voice family (texture track)
-New texture voices, all procedural (zero samples), engineType 'noise':
-- Spectral colours: white, pink, brown (−6 dB/oct), blue, violet, grey
-  (equal-loudness-weighted) — each a steady bed with very slow level breathing;
-  implement via filtered/shaped noise buffers or biquad chains, loudness-matched.
-- Procedural textures: rain (droplet impulse showers through resonant bandpass,
-  density- and brightness-controllable), surf (slow-cycle amplitude-modulated
-  pink bursts with spectral tilt sweep), wind (bandpass-swept brown noise with
-  gust randomness), stream (granular high-passed babble), fan (comb-filtered
-  broadband hum with slight rotation wobble), pulse (soft periodic low thump
-  locked to a slow independent rate param, not the musical tempo).
-- Each exposes applicable controls honestly (controls table): filter/adsr/sends
-  everywhere; per-voice character fields via existing patch fields where they
-  map (cutoff = brightness, noise = density where sensible); document mappings.
-- These serve long-session background listening: perfect loop-free steadiness,
-  no attention-grabbing events at default settings, governor-friendly (≤8
-  nodes per voice steady-state).
+## v19 — parametric noise-sculpting surface (supersedes the v18 noise list)
+
+NOT a menu of preset nature sounds. Texture becomes a modular noise instrument:
+one or two base voices ("coloured noise", "grain cloud") whose DIALS span the
+space, so users sculpt real-world impressions themselves:
+- Spectral: colour/tilt (white↔brown continuum), band centre + width, band
+  sweep rate + depth, resonance.
+- Granular: density, grain size, grain pitch scatter, stereo scatter.
+- Modulation: gust amount + rate (slow random walks on level/brightness),
+  burst probability + sharpness (droplets, crackle), swell/crescendo shaper
+  (slow attack curves up to storm-scale, RangeValue-capable everywhere).
+- Call-synthesis primitives (second engine, melody/texture-capable): pitch
+  glide range + curve, dual formant centres, chirp cadence + irregularity,
+  repetition phrasing — sufficient to voice birdsong/whale-song-like calls by
+  dial skill alone (tutorial material, not presets).
+- All dials RangeValue-capable; sculpted settings are ordinary patches
+  (preset-captured, shareable); steady-state node budget stays governor-safe.
+
+
+## v19 roadmap additions
+- Custom tracks (Premium-class): engine track REGISTRY refactor (dynamic track
+  list replacing the fixed six across mix/staging/colours/lanes/stats) + user
+  instrument manifests (JSON dial spec auto-building editor knobs + a code seam
+  for the voice body per v10).
+- Live input recording: Web MIDI (feature-detected) + QWERTY key mapping →
+  capture into sequencer steps (quantise option) or free events on a chosen
+  track.
+- Offline waveform rule (defect): with the engine stopped OR a track off, every
+  voice-editor scope shows the STATIC patch render, re-rendered on every dial
+  change; the front oscilloscope shows a composite static preview of active
+  tracks' patches when stopped.

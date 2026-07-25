@@ -41,6 +41,11 @@
 - [ ] Playlists rebuild: verified PD/CC0 artwork, broader instrumental artists, Ambi4-made playlist categories
 - [ ] Web Analytics privacy-page line (andeye.com/privacy mention of Cloudflare cookie-less beacon)
 
+### Product roadmap additions (v19)
+- [ ] Custom tracks + user instrument manifests (Premium-class; registry refactor)
+- [ ] Live MIDI/QWERTY recording into tracks
+- [ ] Parametric noise-sculpting surface + call-synthesis primitives (build queued)
+
 ### Product roadmap (specs in docs/engine-v2-contract.md + brain2 Ambi4-strategy)
 - [ ] Share tier 2: named links ambi4.work/[name] via Workers KV + submit/approve
 - [ ] Share tier 3: code-bearing presets (sandbox + review gate) — paid
