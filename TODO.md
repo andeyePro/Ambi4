@@ -20,6 +20,9 @@
 - [ ] Preset URL routes (ambi4.work/[slug]) + presets below Simple dials
 - [ ] Knob push-through min/max; piano-roll chord de-overlap
 
+### Next build queue (v20 shape model)
+- [ ] Skew-based tri→saw morph (peak-travel PeriodicWave) + Fold (wavefolder) modifier dial
+
 ### Next build queue (schema gaps from the preset psychologist)
 - [ ] Per-track density param (masking presets need one dense track without global thickening)
 - [ ] Per-track swing override; per-step gate/length on melodic lanes

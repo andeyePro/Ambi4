@@ -913,3 +913,13 @@ space, so users sculpt real-world impressions themselves:
 - Audio-in track: getUserMedia capture into an AudioBuffer (never leaves the
   device), first-class track playback (level/sends/sequencer trigger), sample
   editing v1 = trim / normalise / loop points.
+
+## v20 — oscillator shape model revision + modifiers
+- The shape dial's triangle→saw segment becomes PEAK SKEW: a variable-skew
+  triangle whose peak position travels 50%→~99% (closed-form Fourier series →
+  PeriodicWave, alias-safe). Full dial: sine→triangle (harmonic fade-in),
+  triangle→saw (skew travel), saw→square (existing crossfade). Sources stay
+  conceptually simple; glyph readout mini-wave reflects the true skewed shape.
+- Shape MODIFIER patch fields (oscillator voices): fold 0-1 — wavefolder
+  (WaveShaperNode folding curve, 2x oversampling; 0 = bypass, no extra nodes);
+  reserved: drive, pulseWidth. RangeValue-capable; controls tables honest.
