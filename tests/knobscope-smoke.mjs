@@ -76,23 +76,47 @@ const mockDocument = {
 // Mock 2d canvas (for scope.js)
 // --------------------------------------------------------------------------
 
+// Matches scope.js's private FALLBACK_TRACE (getComputedStyle is undefined in
+// bare Node, so drawScope always falls back to this amber literal here).
+const TRACE_COLOR = '#f5b642';
+
 // `propWrites`, if passed, collects every property NAME assigned on the 2d
 // context (not just method calls) so tests can assert e.g. 'shadowBlur' is
 // never touched during a normal frame.
 function makeCtx2d(calls, propWrites) {
   const record = (name) => { calls[name] = (calls[name] || 0) + 1; };
+  // Every moveTo/lineTo issued while strokeStyle is the trace colour is the
+  // actual waveform path (grid lines stroke in the grid colour); tests reset
+  // this between frames to inspect one frame's drawn Y-span in isolation.
   const base = {
     clearRect() { record('clearRect'); },
     fillRect() { record('fillRect'); },
     beginPath() {},
-    moveTo() {},
-    lineTo(x, y) { record('lineTo'); calls.lastLineY = y; },
+    moveTo(x, y) { if (this.strokeStyle === TRACE_COLOR) (calls.tracePoints ||= []).push(y); },
+    lineTo(x, y) {
+      record('lineTo');
+      calls.lastLineY = y;
+      if (this.strokeStyle === TRACE_COLOR) (calls.tracePoints ||= []).push(y);
+    },
     stroke() { record('stroke'); },
     fill() { record('fill'); },
     setTransform() {},
+    fillText(text) { record('fillText'); (calls.fillTexts ||= []).push(text); },
   };
   if (!propWrites) {
-    return { ...base, fillStyle: '', strokeStyle: '', lineWidth: 1, lineJoin: '', lineCap: '', shadowColor: '', shadowBlur: 0 };
+    return {
+      ...base,
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      lineJoin: '',
+      lineCap: '',
+      shadowColor: '',
+      shadowBlur: 0,
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+    };
   }
   return new Proxy(base, {
     set(target, prop, value) {
@@ -703,6 +727,130 @@ test('scope: IntersectionObserver stops the live-scope loop when fully out of vi
       if (prevIO === undefined) delete globalThis.IntersectionObserver;
       else globalThis.IntersectionObserver = prevIO;
     }
+  });
+});
+
+// --------------------------------------------------------------------------
+// Scope tests — live scope auto-gain (v9 flatline fix)
+// --------------------------------------------------------------------------
+
+// A configurable float analyser: `sample(i, len)` generates each buffer
+// value; `fftSize` starts small like a real analyser default so the
+// LIVE_FFT_SIZE bump-up on attach is exercised too.
+function makeCustomAnalyser({ fftSize = 128, sample }) {
+  return {
+    fftSize,
+    getFloatTimeDomainData(buf) {
+      for (let i = 0; i < buf.length; i++) buf[i] = sample(i, buf.length);
+    },
+  };
+}
+
+const parseGain = (label) => Number(/×([\d.]+)/.exec(label)?.[1]);
+
+test('scope: live scope auto-gain amplifies a real ~0.03-peak track signal to a visible trace', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analyser = makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.03 });
+    const live = scope.attachLiveScope(canvas, analyser);
+
+    calls.tracePoints = [];
+    stepFrame(0);
+    const span = Math.max(...calls.tracePoints) - Math.min(...calls.tracePoints);
+    assert.ok(
+      span >= 0.4 * canvas.height,
+      `expected the amplified trace to span >=40% of the ${canvas.height}px trace height, got ${span}`
+    );
+    assert.ok(!calls.fillTexts[0].includes('silent'), 'a real signal must not read as silent');
+
+    live.destroy();
+  });
+});
+
+test('scope: live scope stays flat under the silence floor — never amplifies noise into a fake signal', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    // Peak ~0.0005, well under the 0.002 SILENCE_FLOOR.
+    const analyser = makeCustomAnalyser({ sample: (i) => Math.sin(i * 1.7) * 0.0005 });
+    const live = scope.attachLiveScope(canvas, analyser);
+
+    calls.tracePoints = [];
+    stepFrame(0);
+    const mid = canvas.height / 2;
+    assert.ok(
+      calls.tracePoints.every((y) => y === mid),
+      'sub-floor noise must draw a flat line at the centre, never an amplified squiggle'
+    );
+    assert.equal(calls.fillTexts[0], 'silent');
+    assert.ok(calls.stroke >= 1, 'the flat line itself must still be drawn (dim state), not skipped');
+
+    live.destroy();
+  });
+});
+
+test('scope: live scope auto-gain approaches a step change smoothly across frames, not in one jump', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    let amplitude = 0.1;
+    const analyser = makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * amplitude });
+    const live = scope.attachLiveScope(canvas, analyser);
+
+    stepFrame(0); // establishes the initial running peak (first frame always snaps)
+    const gain1 = parseGain(calls.fillTexts[0]);
+
+    amplitude = 0.01; // signal gets quieter → target gain (1/peak) rises toward 100, capped at 40
+    stepFrame(200); // dt = 200ms
+    const gain2 = parseGain(calls.fillTexts[1]);
+    stepFrame(400); // dt = 200ms
+    const gain3 = parseGain(calls.fillTexts[2]);
+
+    assert.ok(gain2 > gain1, `expected gain to rise after the step (${gain1} -> ${gain2})`);
+    assert.ok(gain3 > gain2, `expected gain to keep rising smoothly (${gain2} -> ${gain3})`);
+    assert.ok(gain3 < 40, 'must not have already reached the cap in two 200ms steps');
+
+    live.destroy();
+  });
+});
+
+test('scope: live scope falls back to an untriggered scrolling window when no edge is found', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    // Always positive (no −→+ zero crossing anywhere): a slow near-DC pad
+    // that varies gently with index so different scroll offsets read
+    // visibly different samples.
+    const analyser = makeCustomAnalyser({
+      sample: (i, len) => 0.05 + 0.03 * Math.sin(i / (len * 4)),
+    });
+    const live = scope.attachLiveScope(canvas, analyser);
+
+    calls.tracePoints = [];
+    stepFrame(0);
+    const frame1 = [...calls.tracePoints];
+    assert.ok(frame1.length > 0, 'expected a drawn trace even with no trigger edge');
+
+    calls.tracePoints = [];
+    stepFrame(33);
+    const frame2 = [...calls.tracePoints];
+
+    assert.notDeepEqual(frame1, frame2, 'an untriggered pad must still visibly scroll frame to frame');
+
+    live.destroy();
+  });
+});
+
+test('scope: live scope draws a tiny gain readout — dB while playing, "silent" at the floor', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analyser = makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 });
+    const live = scope.attachLiveScope(canvas, analyser);
+    stepFrame(0);
+    assert.match(calls.fillTexts[0], /^×[\d.]+ \(-?[\d.]+ dB\)$/);
+    live.destroy();
   });
 });
 

@@ -43,6 +43,21 @@ const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 const MAX_DPR = 2; // retina laptops report 2, but browser zoom can push higher
 const GLOW_ALPHA = 0.25;
 const GLOW_LINE_WIDTH = 6;
+const DIM_ALPHA = 0.35; // trace alpha multiplier while the silence floor is showing
+
+// -- live-scope auto-gain -----------------------------------------------
+// Real per-track analyser signal peaks at ~0.02-0.1 (the static renderPatchWave
+// path normalises to full scale; raw analyser data does not), so the live trace
+// needs its own adaptive gain or a correctly-playing pad reads as a flat line.
+const LIVE_FFT_SIZE = 8192; // longer window: near-DC slow pads still show motion
+const SILENCE_FLOOR = 0.002; // below this smoothed peak, never amplify noise
+const GAIN_MAX = 40; // cap so near-silent noise can't be blown up into a fake signal
+const GAIN_ATTACK_MS = 50; // time constant: rise to a louder signal quickly
+const GAIN_DECAY_HALF_LIFE_MS = 2000; // half-life: fall back down slowly (no pumping)
+const SCROLL_STEP_SAMPLES = 37; // untriggered-window nudge per drawn frame
+const READOUT_FONT = '10px monospace';
+const READOUT_ALPHA = 0.55;
+const READOUT_PAD = 6;
 
 const FALLBACK_BG = '#161009';
 const FALLBACK_GRID = 'rgba(245, 182, 66, 0.16)';
@@ -348,11 +363,15 @@ function readScopeColors(canvas) {
  * passes its cached theme colours in on every frame; renderPatchWave's
  * one-shot static render reads fresh each call).
  */
-function drawScope(canvas, ctx, samples, colors) {
+function drawScope(canvas, ctx, samples, colors, opts) {
   const { w, h } = fitCanvas(canvas, ctx);
   const resolved = colors || readScopeColors(canvas);
   const { bg, grid, trace } = resolved;
+  const dimFactor = opts && opts.dim ? DIM_ALPHA : 1;
 
+  // Defensive: a caller (the live-scope gain readout) may leave globalAlpha
+  // non-1 after its own draw; every frame must start from a known state.
+  ctx.globalAlpha = 1;
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
@@ -374,7 +393,7 @@ function drawScope(canvas, ctx, samples, colors) {
     ctx.stroke();
   }
 
-  if (!samples || samples.length < 2) return;
+  if (!samples || samples.length < 2) return { w, h };
 
   ctx.strokeStyle = trace;
   ctx.lineJoin = 'round';
@@ -397,13 +416,32 @@ function drawScope(canvas, ctx, samples, colors) {
   // backend to rasterise a soft-mask blur on every draw call; a wide,
   // low-alpha underlay stroke of the same trace is two ordinary path
   // strokes instead, at a fraction of the cost, same look.
-  ctx.globalAlpha = GLOW_ALPHA;
+  ctx.globalAlpha = GLOW_ALPHA * dimFactor;
   ctx.lineWidth = GLOW_LINE_WIDTH;
   strokeTrace();
 
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = dimFactor;
   ctx.lineWidth = 2;
   strokeTrace();
+  ctx.globalAlpha = 1;
+
+  return { w, h };
+}
+
+/** Tiny corner readout of the current auto-gain; no-ops without fillText (bare Node). */
+function drawGainReadout(ctx, w, h, label, color) {
+  if (typeof ctx.fillText !== 'function') return;
+  try {
+    ctx.font = READOUT_FONT;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.globalAlpha = READOUT_ALPHA;
+    ctx.fillStyle = color;
+    ctx.fillText(label, w - READOUT_PAD, h - READOUT_PAD);
+    ctx.globalAlpha = 1;
+  } catch {
+    // a readout failure must never break the trace draw
+  }
 }
 
 function observeResize(canvas, callback) {
@@ -510,6 +548,17 @@ export function attachLiveScope(canvas, analyser) {
   const useByte = typeof analyser.getByteTimeDomainData === 'function';
   if (!useFloat && !useByte) return { destroy() {} };
 
+  // A longer time-domain window means a slow, near-DC-per-buffer pad still
+  // has somewhere for the trigger/scroll to find motion in. Only ever grow
+  // it — never shrink an fftSize a caller deliberately set higher.
+  try {
+    if (typeof analyser.fftSize === 'number' && analyser.fftSize < LIVE_FFT_SIZE) {
+      analyser.fftSize = LIVE_FFT_SIZE;
+    }
+  } catch {
+    // analyser rejected the resize (e.g. a stub/mock) — keep its current fftSize
+  }
+
   let destroyed = false;
   let rafId = null;
   let floatBuf = null;
@@ -558,23 +607,81 @@ export function attachLiveScope(canvas, analyser) {
     return floatBuf;
   }
 
-  /** Simple rising-edge trigger: start the trace at a −→+ zero crossing. */
+  let scrollOffset = 0; // untriggered fallback: nudges the window each drawn frame
+
+  /**
+   * Rising-edge trigger: start the trace at a −→+ zero crossing. Slow pads
+   * are near-DC across a single buffer and may have no edge at all in the
+   * search window — falling back to a fixed start (old behaviour) then
+   * looks frozen frame to frame even though fresh data IS arriving, because
+   * the same window position gets redrawn every time. Instead, walk the
+   * start position forward each frame so the trace still visibly scrolls.
+   */
   function triggeredWindow(data) {
     const windowLen = Math.max(2, Math.floor(data.length / 2));
     const searchEnd = data.length - windowLen;
-    let start = 0;
     for (let i = 1; i < searchEnd; i++) {
       if (data[i - 1] <= 0 && data[i] > 0) {
-        start = i;
-        break;
+        return data.subarray ? data.subarray(i, i + windowLen) : data;
       }
     }
+    const maxStart = Math.max(0, data.length - windowLen);
+    if (maxStart > 0) scrollOffset = (scrollOffset + SCROLL_STEP_SAMPLES) % (maxStart + 1);
+    const start = Math.min(scrollOffset, maxStart);
     return data.subarray ? data.subarray(start, start + windowLen) : data;
   }
 
-  function drawFrame() {
+  // -- auto-gain: smoothed running peak, fast attack / slow decay ---------
+
+  let gainPeak = 0;
+  let lastGainTs = null;
+
+  function bufferPeak(data) {
+    let peak = 0;
+    for (let i = 0; i < data.length; i++) {
+      const a = Math.abs(data[i]);
+      if (a > peak) peak = a;
+    }
+    return peak;
+  }
+
+  /** One-pole attack / half-life decay towards `target`, driven by rAF `ts`. */
+  function updateGainPeak(target, ts) {
+    if (lastGainTs === null) {
+      gainPeak = target;
+      lastGainTs = typeof ts === 'number' ? ts : 0;
+      return;
+    }
+    const dt = typeof ts === 'number' ? Math.max(0, ts - lastGainTs) : 0;
+    if (typeof ts === 'number') lastGainTs = ts;
+    if (target >= gainPeak) {
+      const alpha = 1 - Math.exp(-dt / GAIN_ATTACK_MS);
+      gainPeak += (target - gainPeak) * alpha;
+    } else {
+      const decay = Math.pow(0.5, dt / GAIN_DECAY_HALF_LIFE_MS);
+      gainPeak = target + (gainPeak - target) * decay;
+    }
+  }
+
+  function scaleWindow(win, factor) {
+    if (factor === 1) return win;
+    const out = new Float32Array(win.length);
+    for (let i = 0; i < win.length; i++) out[i] = win[i] * factor;
+    return out;
+  }
+
+  function drawFrame(ts) {
     try {
-      drawScope(canvas, ctx, triggeredWindow(readSamples()), themeColors);
+      const data = readSamples();
+      updateGainPeak(bufferPeak(data), ts);
+      const silent = gainPeak < SILENCE_FLOOR;
+      const gain = silent ? 0 : Math.min(GAIN_MAX, 1 / gainPeak);
+      const window = triggeredWindow(data);
+      const size = drawScope(canvas, ctx, scaleWindow(window, gain), themeColors, { dim: silent });
+      if (size) {
+        const label = silent ? 'silent' : `×${gain.toFixed(1)} (${(20 * Math.log10(gain)).toFixed(1)} dB)`;
+        drawGainReadout(ctx, size.w, size.h, label, themeColors.trace);
+      }
     } catch {
       // never let a draw error kill the loop
     }
@@ -622,7 +729,7 @@ export function attachLiveScope(canvas, analyser) {
         // Timestamp-gated: still scheduled every rAF tick (skip frames, not
         // timers), so we never fall out of sync with the compositor.
         lastFrameTs = ts;
-        drawFrame();
+        drawFrame(ts);
       }
       rafId = reqAF(loop);
     };

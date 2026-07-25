@@ -211,8 +211,20 @@ function defaultSequencer(track) {
   return { mode: 'auto', steps: defaultStepLane() };
 }
 
-function defaultVary() {
-  return Object.fromEntries(VARY_ASPECTS.map((aspect) => [aspect, null]));
+/**
+ * v11 default change: the two SUSTAINED tracks ship a small explicit voice
+ * wander instead of following the randomness macro. A pad left on one timbre
+ * for an hour is the single loudest complaint about auto, and 0.15 is roughly
+ * one voice change every twenty-six bars — noticed over a session, invisible
+ * over a phrase. Every other track (and every other aspect) still defaults to
+ * null = "follow this track's randomness".
+ */
+const DEFAULT_VARY_VOICE = Object.freeze({ pad: 0.15, texture: 0.15 });
+
+function defaultVary(track) {
+  return Object.fromEntries(VARY_ASPECTS.map((aspect) => [
+    aspect, aspect === 'voice' ? DEFAULT_VARY_VOICE[track] ?? null : null,
+  ]));
 }
 
 function defaultTracks() {
@@ -224,7 +236,7 @@ function defaultTracks() {
       level: DEFAULT_TRACK_LEVEL,
       randomness: DEFAULT_TRACK_RANDOMNESS,
       hold: false,
-      vary: defaultVary(),
+      vary: defaultVary(name),
     };
     if (SEQUENCED_TRACKS.includes(name)) track.sequencer = defaultSequencer(name);
     tracks[name] = track;
@@ -803,6 +815,110 @@ export function generateProgression(scaleLength, complexity = 0.5, rng = Math.ra
   return chords;
 }
 
+// -- the hook (v11) ---------------------------------------------------------
+//
+// The v2 harmony was memoryless: every chord change re-rolled the walk and
+// overwrote the stored loop, so nothing ever came back and the ear had nothing
+// to learn. The hook keeps ONE loop and treats it as material — it establishes
+// early, mutates a little at a time, banks the shapes that stick and brings
+// them back later. A variant is three parallel arrays, one entry per slot:
+//
+//   degrees     the chord roots, as scale degrees (mode-correct by construction)
+//   inversions  0–2, how many chord tones are rotated an octave up (voicing)
+//   extensions  -1/0/+1, a colour nudge on top of the piece's complexity
+
+export const HOOK_MIN_CHORDS = 4;
+export const HOOK_MAX_CHORDS = 8;
+
+/**
+ * Establish a hook from the same diatonic walk the engine has always used, so
+ * it is in the mode whatever the mode is. Repetition sets the loop LENGTH: a
+ * listener asking for repetition gets the tightest four-chord loop, one asking
+ * for wander gets eight chords before anything comes round again.
+ */
+export function buildHook({
+  scaleLength = 5, complexity = 0.5, repetition = 0.5, rng = Math.random,
+} = {}) {
+  const span = HOOK_MAX_CHORDS - HOOK_MIN_CHORDS;
+  const length = clamp(
+    Math.round(HOOK_MIN_CHORDS + (1 - clamp(repetition, 0, 1)) * span),
+    HOOK_MIN_CHORDS, HOOK_MAX_CHORDS,
+  );
+  const degrees = [0];
+  while (degrees.length < length) {
+    degrees.push(nextChordDegree(degrees[degrees.length - 1], scaleLength, complexity, rng));
+  }
+  return { degrees, inversions: degrees.map(() => 0), extensions: degrees.map(() => 0) };
+}
+
+export function cloneHook(variant) {
+  return {
+    degrees: [...variant.degrees],
+    inversions: [...variant.inversions],
+    extensions: [...variant.extensions],
+  };
+}
+
+/** A variant's identity — what the bank de-duplicates on. */
+export function hookKey(variant) {
+  return variant.degrees
+    .map((degree, i) => `${degree}.${variant.inversions[i]}.${variant.extensions[i]}`)
+    .join('|');
+}
+
+/**
+ * How far a variant has travelled from a plain loop, per chord: rotated
+ * voicings and colour nudges both count. Busy sections prefer the busy
+ * variants, calm sections the plain ones.
+ */
+export function hookEnergy(variant) {
+  let energy = 0;
+  for (let i = 0; i < variant.degrees.length; i++) {
+    if (variant.inversions[i] > 0) energy += 1;
+    energy += Math.abs(variant.extensions[i]);
+  }
+  return energy / Math.max(1, variant.degrees.length);
+}
+
+/**
+ * ONE bounded mutation, never more: a voicing swap, a single-chord
+ * substitution, or an extension change. Slot 0 keeps its degree — the tonic
+ * return is what makes a loop recognisable as a loop — but its voicing and
+ * colour are fair game. Every mutation is audible: each branch changes the
+ * slot it lands on.
+ */
+export function mutateHook(variant, {
+  scaleLength = 5, complexity = 0.5, rng = Math.random,
+} = {}) {
+  const next = cloneHook(variant);
+  const slot = Math.floor(rng() * next.degrees.length) % next.degrees.length;
+  const roll = rng();
+  if (roll < 0.35 || (slot === 0 && roll < 0.85)) {
+    next.inversions[slot] = (next.inversions[slot] + 1) % 3;
+  } else if (roll < 0.85) {
+    next.degrees[slot] = nextChordDegree(next.degrees[slot], scaleLength, complexity, rng);
+  } else {
+    next.extensions[slot] = next.extensions[slot] >= 1 ? -1 : next.extensions[slot] + 1;
+  }
+  return next;
+}
+
+/**
+ * One hook slot as the scale degrees to sound: the diatonic stack, coloured by
+ * complexity plus the slot's own extension nudge, then rotated into its
+ * inversion. Rotating by a whole scale length rather than by semitones is what
+ * keeps an inverted voicing inside the mode.
+ */
+export function voiceHookChord(degree, colourAmount = 0.5, {
+  inversion = 0, extension = 0, scaleLength = 5,
+} = {}) {
+  const stack = buildChord(degree, clamp(colourAmount + extension * 0.3, 0, 1));
+  const rotation = ((inversion % stack.length) + stack.length) % stack.length;
+  return stack
+    .map((d, i) => (i < rotation ? d + scaleLength : d))
+    .sort((a, b) => a - b);
+}
+
 /**
  * A melodic phrase of 1–2 bars. Note degrees are RELATIVE to the chord root
  * degree, so a stored phrase stays consonant when reused over a different
@@ -1300,11 +1416,23 @@ export function createEngine(initialParams, options = {}) {
   let currentSection = { label: 'A', intensity: 0.35 };
   let sectionAnnounced = false;
 
-  // Harmonic state
-  let progression = [];
-  let progressionIndex = 0;
+  // Harmonic state — the v11 hook: one loop, mutated, banked, recalled.
+  let hook = null;             // the variant currently sounding
+  let hookIndex = 0;           // slot within the loop
+  let hookFresh = false;       // the loop has been established but not yet sounded
+  let hookPass = 0;            // completed loop passes since the hook was established
+  let hookStable = 0;          // passes the current variant has survived unmutated
+  let hookRecallAt = 0;        // the pass at which the next recall is due
+  let hookBank = [];           // [{ key, variant, salience, pass }] — the ear-worms
+  let hookSectionPending = false; // a section changed: re-pick a variant at the next pass
   let chordDegree = 0;
+  let chordInversion = 0;
+  let chordExtension = 0;
   let chordBarsLeft = 0;
+
+  // Pad breathing (v11)
+  let padSwellPhase = 0;       // position in the pad's four-bar dynamic contour
+  let padRested = false;       // the chord span just gone was a rest
 
   // Melodic state
   let phraseBank = [];
@@ -1425,6 +1553,12 @@ export function createEngine(initialParams, options = {}) {
     return clamp(value ?? 0, 0, 1);
   }
 
+  /** A track's randomness macro as a number, resolving a v7 range via its walk. */
+  function trackRandomness(track) {
+    const value = resolveRange(track, 'randomness', params.tracks[track].randomness);
+    return clamp(value ?? DEFAULT_TRACK_RANDOMNESS, 0, 1);
+  }
+
   /** Per-note velocity jitter: ±15 % of the note's own velocity at aspect 1. */
   function velocityJitter(track) {
     return 1 + varyAmount(track, 'volume') * between(-0.15, 0.15, rng);
@@ -1527,10 +1661,12 @@ export function createEngine(initialParams, options = {}) {
       switch (name) {
         case 'pad':
         case 'bass':
-          // pad and bass share one harmony: re-rolling either writes a new
-          // progression for both, which is what "new voicing seed" means here.
-          progression = [];
-          progressionIndex = 0;
+          // pad and bass share one harmony: re-rolling either writes a new hook
+          // for both, which is what "new voicing seed" means here. The bank goes
+          // with it — recalling the old ear-worm is precisely what a re-roll is
+          // asking not to hear.
+          hook = null;
+          hookBank = [];
           chordBarsLeft = 0;
           break;
         case 'melody':
@@ -1887,24 +2023,153 @@ export function createEngine(initialParams, options = {}) {
     });
   }
 
-  // -- harmony / phrase choice ----------------------------------------------
+  // -- harmony: the hook -----------------------------------------------------
 
-  function chooseChord() {
+  const HOOK_BANK_SIZE = 6;         // ear-worms kept; the least salient is dropped
+  const HOOK_RECALL_MIN = 4;        // loop passes between recalls, at repetition 1
+  const HOOK_RECALL_SPAN = 4;       // extra passes the cycle can run to at repetition 0
+  const HOOK_SNAPSHOT_EVERY = 3;    // passes between bank snapshots
+  const HOOK_STABLE_TO_BANK = 2;    // passes unmutated that make a variant worth keeping
+  const HOOK_HOT_INTENSITY = 0.7;   // section intensity that makes a pass worth keeping
+
+  /** Establish the loop and arm the first recall cycle. */
+  function establishHook() {
+    hook = buildHook({
+      scaleLength: scale().length,
+      complexity: params.complexity,
+      repetition: params.repetition,
+      rng,
+    });
+    hookIndex = 0;
+    hookFresh = true;
+    hookPass = 0;
+    hookStable = 0;
+    hookBank = [];
+    hookSectionPending = false;
+    hookRecallAt = nextRecallPass();
+  }
+
+  /**
+   * When the ear-worm comes back. High repetition makes the cycle exactly its
+   * shortest, so a tight loop returns to its banked shapes predictably; low
+   * repetition lets the cycle run out to eight passes.
+   */
+  function nextRecallPass() {
+    const reach = 1 + Math.round(HOOK_RECALL_SPAN * (1 - params.repetition));
+    return hookPass + HOOK_RECALL_MIN + (Math.floor(rng() * reach) % reach);
+  }
+
+  /** How often a completed pass ends in a mutation: rare when repetition is high. */
+  function hookMutationChance() {
+    return clamp(0.12 + (1 - params.repetition) * 0.63, 0, 0.85);
+  }
+
+  /**
+   * A periodic snapshot, ranked by a deliberately crude salience: a variant
+   * that has survived a few passes untouched is a shape the ear has had time to
+   * learn, and one playing under a hot section is a shape the piece peaked on.
+   * Either also earns a slot off-cycle. The snapshot is what keeps the bank
+   * stocked — waiting for salience alone starves it at low repetition, where
+   * mutation rarely lets a variant sit still for long.
+   */
+  function bankHook(intensity) {
+    const hot = intensity >= HOOK_HOT_INTENSITY;
+    const due = hookPass % HOOK_SNAPSHOT_EVERY === 0;
+    if (!due && hookStable < HOOK_STABLE_TO_BANK && !hot) return;
+    const salience = hookStable + (hot ? 2 : 0);
+    const key = hookKey(hook);
+    const known = hookBank.find((entry) => entry.key === key);
+    if (known) {
+      known.salience = Math.max(known.salience, salience);
+      return;
+    }
+    hookBank.push({ key, variant: cloneHook(hook), salience });
+    if (hookBank.length > HOOK_BANK_SIZE) {
+      let worst = 0;
+      for (let i = 1; i < hookBank.length; i++) {
+        if (hookBank[i].salience < hookBank[worst].salience) worst = i;
+      }
+      hookBank.splice(worst, 1);
+    }
+  }
+
+  /**
+   * Bring a banked variant back. Salience is the base weight; section intensity
+   * tilts the draw towards the busier, more extended variants as the piece
+   * lifts, and back towards the plain ones as it settles. A recall of what is
+   * already playing is not a return, so the current variant is never a
+   * candidate: an empty field means no recall this pass.
+   */
+  function recallHook(intensity) {
+    const playing = hookKey(hook);
+    const candidates = hookBank.filter((entry) => entry.key !== playing);
+    if (!candidates.length) return false;
+    const weights = candidates.map((entry) => Math.max(0.05,
+      0.5 + entry.salience * 0.25 + (intensity - 0.5) * 2 * hookEnergy(entry.variant)));
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    let r = rng() * total;
+    let chosen = candidates[candidates.length - 1];
+    for (let i = 0; i < candidates.length; i++) {
+      r -= weights[i];
+      if (r <= 0) { chosen = candidates[i]; break; }
+    }
+    hook = cloneHook(chosen.variant);
+    hookStable = 0;
+    return true;
+  }
+
+  /**
+   * End of a loop pass: bank what deserves it, then decide what the next pass
+   * plays — a section's pick, a recall, one mutation, or the same thing again.
+   * At most one of those happens, so the loop never changes twice at once.
+   */
+  function completeHookPass(intensity) {
+    hookPass += 1;
+    bankHook(intensity);
+    if (hookSectionPending && recallHook(intensity)) {
+      hookSectionPending = false;
+      hookRecallAt = nextRecallPass();
+      return;
+    }
+    hookSectionPending = false;
+    if (hookPass >= hookRecallAt && recallHook(intensity)) {
+      hookRecallAt = nextRecallPass();
+      return;
+    }
+    if (rng() < hookMutationChance()) {
+      hook = mutateHook(hook, {
+        scaleLength: scale().length,
+        complexity: params.complexity,
+        rng,
+      });
+      hookStable = 0;
+      return;
+    }
+    hookStable += 1;
+  }
+
+  /**
+   * Advance to the next chord of the hook and publish it as the harmonic frame
+   * every track reads. A held track re-derives its frozen plan against whatever
+   * this supplies, which is how hold keeps following the harmony (ruling 5).
+   */
+  function advanceHarmony(intensity) {
+    if (!hook) establishHook();
+    if (hookFresh) {
+      hookFresh = false;
+    } else {
+      hookIndex += 1;
+      if (hookIndex >= hook.degrees.length) {
+        hookIndex = 0;
+        completeHookPass(intensity);
+      }
+    }
     const n = scale().length;
-    if (!progression.length) {
-      progression = generateProgression(n, params.complexity, rng);
-      progressionIndex = 0;
-      return progression[0];
-    }
-    progressionIndex = (progressionIndex + 1) % progression.length;
-    if (rng() < params.repetition) {
-      // reuse the stored loop
-      return progression[progressionIndex] % n;
-    }
-    // wander, and let the wandering slowly rewrite the loop
-    const fresh = nextChordDegree(chordDegree, n, params.complexity, rng);
-    progression[progressionIndex] = fresh;
-    return fresh;
+    // The slot degree is taken modulo the CURRENT scale: a mode change mid-piece
+    // shortens the scale under a loop that was written in a longer one.
+    chordDegree = ((hook.degrees[hookIndex] % n) + n) % n;
+    chordInversion = hook.inversions[hookIndex];
+    chordExtension = hook.extensions[hookIndex];
   }
 
   function choosePhrase() {
@@ -1938,7 +2203,11 @@ export function createEngine(initialParams, options = {}) {
 
   /** The current chord, voiced upward from `baseOctave` with no crossings. */
   function chordMidis(baseOctave, maxNotes) {
-    const degrees = buildChord(chordDegree, colour()).slice(0, maxNotes);
+    const degrees = voiceHookChord(chordDegree, colour(), {
+      inversion: chordInversion,
+      extension: chordExtension,
+      scaleLength: scale().length,
+    }).slice(0, maxNotes);
     const midis = [];
     let previous = -Infinity;
     for (const degree of degrees) {
@@ -1952,25 +2221,47 @@ export function createEngine(initialParams, options = {}) {
 
   // -- per-track bar planning ------------------------------------------------
 
+  const PAD_REST_BASE = 0.06;      // chance a calm chord span is left silent
+  const PAD_REST_SPAN = 0.2;       // ...plus this much at randomness 1
+  const PAD_REATTACK_BASE = 0.12;  // chance of the half-bar breath
+  const PAD_REATTACK_SPAN = 0.4;   // ...plus this much at randomness 1
+  const PAD_REATTACK_LEVEL = 0.7;  // the breath sits under the downbeat attack
+  const PAD_SWELL_BARS = 4;        // period of the pad's dynamic contour
+  const PAD_SWELL_DEPTH = 0.28;    // velocity swing at section intensity 1
+
   /**
    * The pad's bar plan: how wide the voicing is, plus one velocity jitter per
    * possible note. Pitch is left to dispatch so a held pad still follows the
    * chord under it.
+   *
+   * v11 anti-monotony: the plan also carries this chord span's BREATHING — an
+   * occasional half-bar re-attack, an occasional rest, and a swell factor. One
+   * unbroken chord per one-or-two bars is what makes the pad feel like a held
+   * key rather than a played instrument.
    */
   function planPad() {
+    const intensity = sectionIntensity();
+    const spread = trackRandomness('pad');
     return {
       maxNotes: colour() > 0.5 ? 4 : 3,
       jitters: Array.from({ length: 5 }, () => velocityJitter('pad')),
       nudges: Array.from({ length: 5 }, () => timingNudge('pad')),
       pans: Array.from({ length: 5 }, () => panSpread('pad')),
+      // Rests thin out as the section lifts; re-attacks do the opposite.
+      rest: rng() < (PAD_REST_BASE + spread * PAD_REST_SPAN) * (1 - intensity),
+      reattack: rng() < (PAD_REATTACK_BASE + spread * PAD_REATTACK_SPAN) * (0.5 + intensity),
+      // A smooth contour rather than a per-bar draw: the pad swells and settles
+      // over four bars, and only as far as the section's intensity asks.
+      swell: 1 + Math.sin(padSwellPhase * Math.PI * 2) * PAD_SWELL_DEPTH * intensity,
     };
   }
 
-  function playChordVoicing(time, duration, plan) {
+  function attackChord(time, duration, plan, level) {
     const midis = chordMidis(3, plan.maxNotes);
     // Velocity per note shrinks as the voicing thickens, keeping the pad's
     // total contribution roughly constant.
-    const velocity = clamp(0.85 / Math.sqrt(midis.length), 0.15, 1);
+    const velocity = clamp(0.85 / Math.sqrt(midis.length), 0.15, 1)
+      * clamp(plan.swell ?? 1, 0.4, 1.4) * level;
     midis.forEach((midi, i) => {
       const spread = midis.length > 1 ? (i / (midis.length - 1) - 0.5) * 0.5 : 0;
       playNote('pad', {
@@ -1981,6 +2272,16 @@ export function createEngine(initialParams, options = {}) {
         pan: spread + plan.pans[i],
       });
     });
+  }
+
+  function playChordVoicing(time, duration, plan) {
+    attackChord(time, duration, plan, 1);
+    if (!plan.reattack) return;
+    // The breath: the same voicing struck again, softer, half a bar in and
+    // ringing to the end of the chord span.
+    const half = bar.duration * 0.5;
+    if (duration - half < 0.2) return;
+    attackChord(time + half, duration - half, plan, PAD_REATTACK_LEVEL);
   }
 
   /** Which pulse of the current bar a beat position falls in. */
@@ -2243,6 +2544,8 @@ export function createEngine(initialParams, options = {}) {
    */
   function scheduleClosingBar(time) {
     chordDegree = 0;
+    chordInversion = 0;
+    chordExtension = 0;
     chordBarsLeft = 0;
     arpPlan = null;
     percussionPlan = [];
@@ -2400,6 +2703,9 @@ export function createEngine(initialParams, options = {}) {
       || section.intensity !== currentSection.intensity;
     if (changed || !sectionAnnounced) {
       sectionAnnounced = true;
+      // A section change picks the hook variant that suits the new intensity —
+      // at the next pass boundary, never mid-loop, so the loop stays a loop.
+      if (changed) hookSectionPending = true;
       currentSection = section;
       emit('section', {
         label: section.label,
@@ -2431,14 +2737,24 @@ export function createEngine(initialParams, options = {}) {
     // the pad silent for the whole piece.
     applyTracks(0.4, time);
 
+    // The pad's dynamic contour runs off the bar clock, not off the chord
+    // rhythm, so a two-bar chord still swells rather than sitting flat.
+    padSwellPhase = (padSwellPhase + 1 / PAD_SWELL_BARS) % 1;
+
     if (chordBarsLeft <= 0) {
-      // Harmony advances even under hold: a held track keeps following the
-      // progression, it just stops re-drawing its own material (ruling 5).
-      chordDegree = chooseChord();
+      // Harmony advances even under hold: a held track keeps following the hook,
+      // it just stops re-drawing its own material (ruling 5).
+      advanceHarmony(intensity);
       // Slower harmonic rhythm when the listener wants repetition.
       chordBarsLeft = rng() < 0.5 + params.repetition * 0.2 ? 2 : 1;
       if (isActive('pad')) {
-        playChordVoicing(time, bar.duration * chordBarsLeft, planFor('pad', undefined, planPad));
+        const plan = planFor('pad', undefined, planPad);
+        // The no-two-consecutive-rests rule is enforced HERE rather than in the
+        // plan, so a held pad whose frozen plan says "rest" breathes in and out
+        // instead of going silent for the length of the hold.
+        const resting = plan.rest && !padRested;
+        padRested = resting;
+        if (!resting) playChordVoicing(time, bar.duration * chordBarsLeft, plan);
       }
     }
     chordBarsLeft -= 1;
@@ -2975,11 +3291,12 @@ export function createEngine(initialParams, options = {}) {
         params.customStructure,
       );
       nextPulseTime = ctx.currentTime + 0.15;
-      if (!progression.length) {
-        progression = generateProgression(scale().length, params.complexity, rng);
-        progressionIndex = 0;
-        chordDegree = progression[0];
-      }
+      padSwellPhase = 0;
+      padRested = false;
+      // A performance opens on the hook's tonic. Establishing here rather than
+      // at the first barline is also what resets a loop the last run left
+      // mid-pass, and re-reads a mode or repetition changed while stopped.
+      establishHook();
       applyLevels(FADE_IN);
       startScheduler();
       tick();

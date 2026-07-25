@@ -161,6 +161,14 @@ const {
   generatePercussionPattern,
   nextChordDegree,
   buildChord,
+  buildHook,
+  cloneHook,
+  mutateHook,
+  hookKey,
+  hookEnergy,
+  voiceHookChord,
+  HOOK_MIN_CHORDS,
+  HOOK_MAX_CHORDS,
   buildArpSequence,
   autoArpSettings,
   autoActiveTracks,
@@ -299,6 +307,90 @@ test('generateProgression returns four tonic-rooted degrees', () => {
   assert.equal(prog.length, 4);
   assert.equal(prog[0], 0);
   prog.forEach((d) => assert.ok(d >= 0 && d < 5));
+});
+
+test('buildHook loops 4–8 chords from the tonic, in whatever mode it is given', () => {
+  const rng = seededRng(31);
+  assert.equal(buildHook({ repetition: 1, rng }).degrees.length, HOOK_MIN_CHORDS,
+    'maximum repetition asks for the tightest loop');
+  assert.equal(buildHook({ repetition: 0, rng }).degrees.length, HOOK_MAX_CHORDS,
+    'minimum repetition asks for the longest loop');
+  let previousLength = HOOK_MAX_CHORDS + 1;
+  for (const repetition of [0, 0.25, 0.5, 0.75, 1]) {
+    const length = buildHook({ repetition, rng }).degrees.length;
+    assert.ok(length <= previousLength, 'loop length must not grow with repetition');
+    previousLength = length;
+  }
+
+  for (const [mode, scale] of Object.entries(SCALES)) {
+    for (const complexity of [0, 0.5, 1]) {
+      const hook = buildHook({ scaleLength: scale.length, complexity, rng });
+      assert.equal(hook.degrees[0], 0, `${mode}: a hook starts on the tonic`);
+      assert.equal(hook.inversions.length, hook.degrees.length);
+      assert.equal(hook.extensions.length, hook.degrees.length);
+      hook.degrees.forEach((degree, i) => {
+        assert.ok(Number.isInteger(degree) && degree >= 0 && degree < scale.length,
+          `${mode}: degree ${degree} is outside the mode`);
+        if (i > 0) assert.notEqual(degree, hook.degrees[i - 1], `${mode}: a chord repeated itself`);
+      });
+      assert.ok(hook.inversions.every((v) => v === 0) && hook.extensions.every((v) => v === 0),
+        'a fresh hook is unmutated');
+      assert.equal(hookEnergy(hook), 0, 'a fresh hook has no energy');
+    }
+  }
+});
+
+test('mutateHook changes exactly one thing and never leaves the mode', () => {
+  const rng = seededRng(32);
+  const kinds = { inversion: 0, degree: 0, extension: 0 };
+  let hook = buildHook({ scaleLength: 5, repetition: 0.5, rng });
+  for (let i = 0; i < 300; i++) {
+    const before = hook;
+    const beforeKey = hookKey(before);
+    hook = mutateHook(before, { scaleLength: 5, complexity: 0.6, rng });
+    assert.equal(hookKey(before), beforeKey, 'mutateHook wrote through to the variant it was handed');
+    assert.notEqual(hookKey(hook), beforeKey, 'a mutation must be audible');
+    let changed = 0;
+    for (let slot = 0; slot < hook.degrees.length; slot++) {
+      if (hook.degrees[slot] !== before.degrees[slot]) { changed += 1; kinds.degree += 1; }
+      if (hook.inversions[slot] !== before.inversions[slot]) { changed += 1; kinds.inversion += 1; }
+      if (hook.extensions[slot] !== before.extensions[slot]) { changed += 1; kinds.extension += 1; }
+    }
+    assert.equal(changed, 1, 'at most one mutation per pass');
+    assert.equal(hook.degrees[0], 0, 'the tonic anchor is never substituted away');
+    hook.degrees.forEach((degree) => {
+      assert.ok(Number.isInteger(degree) && degree >= 0 && degree < 5, `degree ${degree} left the mode`);
+    });
+    hook.inversions.forEach((v) => assert.ok(v >= 0 && v <= 2, `inversion ${v} out of range`));
+    hook.extensions.forEach((v) => assert.ok(v >= -1 && v <= 1, `extension ${v} out of range`));
+  }
+  for (const [kind, count] of Object.entries(kinds)) {
+    assert.ok(count > 0, `300 mutations never produced a ${kind} change`);
+  }
+  assert.ok(hookEnergy(hook) > 0, 'a mutated hook has energy');
+
+  const copy = cloneHook(hook);
+  copy.degrees[1] += 1;
+  copy.inversions[0] = 2;
+  assert.notEqual(hookKey(copy), hookKey(hook), 'cloneHook handed back a shared array');
+});
+
+test('voiceHookChord inverts and colours inside the scale', () => {
+  const plain = voiceHookChord(2, 0.5, { scaleLength: 5 });
+  assert.deepEqual(plain, buildChord(2, 0.5), 'inversion 0 is the plain stack');
+  for (const inversion of [0, 1, 2]) {
+    const voiced = voiceHookChord(2, 0.5, { inversion, scaleLength: 5 });
+    assert.deepEqual([...voiced].sort((a, b) => a - b), voiced, 'a voicing must not cross itself');
+    assert.equal(voiced.length, plain.length, 'an inversion moves notes, it does not add them');
+    assert.equal(
+      voiced.reduce((sum, d) => sum + d, 0),
+      plain.reduce((sum, d) => sum + d, 0) + inversion * 5,
+      'each rotated tone rises by exactly one scale length',
+    );
+  }
+  assert.ok(voiceHookChord(0, 0.5, { extension: -1, scaleLength: 5 }).length
+    < voiceHookChord(0, 0.5, { extension: 1, scaleLength: 5 }).length,
+    'the extension nudge thins and thickens the stack');
 });
 
 test('generatePhrase density, placement and range', () => {
@@ -1867,8 +1959,12 @@ test('hold is a boolean and the five vary aspects are 0–1 or null', () => {
     assert.deepEqual(Object.keys(base.tracks[name].vary), [...VARY_ASPECTS]);
     assert.deepEqual([...VARY_ASPECTS], ['voice', 'volume', 'pitch', 'timing', 'pan']);
     for (const aspect of VARY_ASPECTS) {
-      assert.equal(base.tracks[name].vary[aspect], null,
-        `${name}.${aspect} defaults to null — "follow this track's randomness"`);
+      // v11: the two sustained tracks ship an explicit small voice wander so
+      // auto never sits on one timbre forever. Everything else still defaults
+      // to null — "follow this track's randomness".
+      const expected = aspect === 'voice' && (name === 'pad' || name === 'texture') ? 0.15 : null;
+      assert.equal(base.tracks[name].vary[aspect], expected,
+        `${name}.${aspect} must default to ${expected}`);
     }
   }
 
@@ -2779,6 +2875,185 @@ test('getStats() reports the load and setPowerBudget() caps the voices', () => h
     for (const spy of spies) spy.restore();
   }
 }));
+
+// --------------------------------------------------------------------------
+// v11 — the hook (establish / mutate / bank / recall) and the pad's breathing
+//
+// The hook is read off the PAD, whose voicing is the chord as an ear actually
+// meets it: the chord roots, the inversion and the extension all show up in the
+// midi set it sounds. These runs pin section intensity at 1 through a one-block
+// custom structure, which is what stops the pad ever choosing a rest bar — a
+// missing chord would shift the loop windows against each other and measure
+// nothing. Rests get their own test below.
+// --------------------------------------------------------------------------
+
+/**
+ * The chord the pad voiced at each chord change: one entry per chord, in order.
+ * A pad attack sits exactly on its barline (these runs zero vary.timing), so
+ * the half-bar breath — which repeats the same voicing — is filtered out here
+ * by its offset rather than by comparing chords, which would also swallow a
+ * genuinely repeated chord.
+ */
+function voicingStream(log) {
+  const chords = [];
+  const byBar = log.byBar('pad');
+  for (const number of [...byBar.keys()].sort((a, b) => a - b)) {
+    const attack = byBar.get(number).filter((note) => note.offset < 1e-6);
+    if (!attack.length) continue;
+    chords.push(attack.map((note) => note.midi).sort((a, b) => a - b).join('.'));
+  }
+  return chords;
+}
+
+/**
+ * The loop length the engine actually played, recovered as the lag (in chords)
+ * at which the stream best agrees with itself, plus that agreement. A
+ * memoryless walk agrees with itself at no lag; a hook agrees at its own.
+ */
+function bestLag(chords) {
+  let best = { lag: 0, agreement: -1 };
+  for (let lag = HOOK_MIN_CHORDS; lag <= HOOK_MAX_CHORDS; lag++) {
+    let hits = 0;
+    let total = 0;
+    for (let i = 0; i + lag < chords.length; i++) {
+      total += 1;
+      if (chords[i] === chords[i + lag]) hits += 1;
+    }
+    const agreement = total ? hits / total : 0;
+    if (agreement > best.agreement) best = { lag, agreement };
+  }
+  return best;
+}
+
+/** The first four chords of each loop pass, pass by pass. */
+function passWindows(chords, lag) {
+  const windows = [];
+  for (let start = 0; start + 4 <= chords.length; start += lag) {
+    windows.push(chords.slice(start, start + 4).join(' '));
+  }
+  return windows;
+}
+
+/** Pad + bass only, at a pinned intensity, for `seconds` of mock audio. */
+async function hookRun({ seconds = 150, seed = 7001, ...rest } = {}) {
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 0.5, repetition: 0.5,
+    structure: 'custom', customStructure: [{ label: 'A', bars: 8, intensity: 1 }],
+    ...rest,
+    tracks: {
+      ...tracksAll('off'),
+      pad: { state: 'on', randomness: 0, vary: { timing: 0, voice: 0 } },
+      bass: { state: 'on', randomness: 0, vary: { timing: 0, voice: 0 } },
+    },
+  }, { rng: seededRng(seed) });
+  const log = record(engine);
+  await engine.start();
+  await advance(seconds, FAST);
+  engine.stop();
+  return log;
+}
+
+test('the hook loops: chord windows recur, and repetition tightens the loop',
+  () => hiddenTab(async () => {
+    for (const seed of [7001, 7002]) {
+      const loose = await hookRun({ seed, repetition: 0.2 });
+      assert.ok(loose.bars.length >= 64, `only ${loose.bars.length} bars played`);
+      const chords = voicingStream(loose);
+      const { lag, agreement } = bestLag(chords);
+      assert.ok(chords.length >= 32, `only ${chords.length} chords sounded`);
+      assert.ok(agreement >= 0.6,
+        `seed ${seed}: best agreement ${agreement.toFixed(2)} at lag ${lag} — no loop survived`);
+
+      const windows = passWindows(chords, lag);
+      const counts = new Map();
+      for (const window of windows) counts.set(window, (counts.get(window) ?? 0) + 1);
+      const share = Math.max(...counts.values()) / windows.length;
+      assert.ok(share >= 0.3,
+        `seed ${seed}: the modal window held only ${(share * 100).toFixed(0)}% of ${windows.length} passes — memoryless`);
+      assert.ok(share <= 0.8,
+        `seed ${seed}: the modal window held ${(share * 100).toFixed(0)}% of passes — frozen`);
+      assert.ok(counts.size >= 2, `seed ${seed}: the hook never mutated`);
+
+      // Repetition is the tightness dial: the same seed, asked for repetition,
+      // comes round sooner and still recurs.
+      const tight = await hookRun({ seed, repetition: 0.9 });
+      const tightLag = bestLag(voicingStream(tight));
+      assert.ok(tightLag.lag < lag,
+        `seed ${seed}: repetition 0.9 looped in ${tightLag.lag} chords, no tighter than 0.2's ${lag}`);
+      assert.ok(tightLag.agreement >= 0.6,
+        `seed ${seed}: the tight loop agreed only ${tightLag.agreement.toFixed(2)} with itself`);
+    }
+  }));
+
+test('a banked hook variant comes back after the loop has moved on',
+  () => hiddenTab(async () => {
+    for (const seed of [7001, 7002]) {
+      const log = await hookRun({ seed, repetition: 0.2 });
+      const chords = voicingStream(log);
+      const windows = passWindows(chords, bestLag(chords).lag);
+
+      // The ear-worm return: a window that played, was mutated away from, and
+      // then came back — which only the bank can do, since a mutation only ever
+      // walks a variant further from where it was.
+      let recall = null;
+      for (let back = 2; back < windows.length && !recall; back++) {
+        for (let away = 1; away < back && !recall; away++) {
+          if (windows[away] === windows[back]) continue;
+          for (let first = 0; first < away; first++) {
+            if (windows[first] === windows[back]) { recall = { first, away, back }; break; }
+          }
+        }
+      }
+      assert.ok(recall,
+        `seed ${seed}: no window ever returned across ${windows.length} passes: ${windows.join(' | ')}`);
+      assert.ok(recall.back < 16,
+        `seed ${seed}: the return took ${recall.back} passes, well past the recall cycle`);
+    }
+  }));
+
+test('the pad breathes: half-bar re-attacks and rest bars, on the bar grid',
+  () => hiddenTab(async () => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'waves', complexity: 0.5, repetition: 0.5,
+      tracks: {
+        ...tracksAll('off'),
+        pad: { state: 'on', randomness: 0.5, vary: { timing: 0, voice: 0 } },
+      },
+    }, { rng: seededRng(8001) });
+    const log = record(engine);
+    await engine.start();
+    await advance(96, FAST);
+    engine.stop();
+
+    assert.ok(log.bars.length >= 64, `only ${log.bars.length} bars played`);
+    const barDuration = log.bars[1].time - log.bars[0].time;
+    const onsets = [...new Set(log.notes.filter((n) => n.track === 'pad').map((n) => n.time))]
+      .sort((a, b) => a - b);
+    assert.ok(onsets.length >= 40, `the pad attacked only ${onsets.length} times in 96 bars`);
+
+    const gaps = [];
+    for (let i = 1; i < onsets.length; i++) gaps.push((onsets[i] - onsets[i - 1]) / barDuration);
+    const buckets = new Set(gaps.map((gap) => gap.toFixed(2)));
+    assert.ok(buckets.size >= 3,
+      `the pad kept one inter-onset interval (${[...buckets]}) — it is not breathing`);
+    assert.ok(buckets.size <= 8, `${buckets.size} different intervals is chaos, not breathing`);
+    assert.ok(gaps.some((gap) => gap < 0.99), 'no half-bar re-attack ever happened');
+    assert.ok(gaps.some((gap) => gap > 2.01), 'the pad never rested a bar');
+    for (const gap of gaps) {
+      // A chord spans one or two bars and a rest can drop at most one span, so
+      // four bars is the hard ceiling; nothing may land off the half-bar grid.
+      assert.ok(gap >= 0.5 - 1e-6 && gap <= 4 + 1e-6, `a ${gap.toFixed(2)}-bar gap in the pad`);
+      assert.ok(Math.abs(gap * 2 - Math.round(gap * 2)) < 1e-6,
+        `a ${gap.toFixed(3)}-bar gap is off the half-bar grid`);
+    }
+
+    // The swell: velocity follows the section contour rather than sitting flat.
+    const velocities = log.notes.filter((n) => n.track === 'pad').map((n) => n.velocity);
+    assert.ok(Math.max(...velocities) <= 1 && Math.min(...velocities) > 0,
+      'a pad velocity left 0–1');
+    assert.ok(Math.max(...velocities) / Math.min(...velocities) >= 1.3,
+      'the pad never swelled');
+  }));
 
 // --------------------------------------------------------------------------
 // Runner

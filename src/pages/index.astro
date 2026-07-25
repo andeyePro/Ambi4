@@ -506,24 +506,84 @@ const VOICES: Record<string, [string, string][]> = {
       );
     }
 
-    /** Clamp/repair a RangeValue field; falls back to `fallback` (a plain
-     * number) when `v` is neither a finite number nor a {min,max} object. */
-    function normaliseRangeValue(v, fallback) {
-      if (typeof v === 'number' && Number.isFinite(v)) return clamp(v, 0, 1);
-      if (isPlainObject(v) && typeof v.min === 'number' && typeof v.max === 'number') {
-        let min = clamp(v.min, 0, 1);
-        let max = clamp(v.max, 0, 1);
+    /** Clamp/repair a RangeValue field over an arbitrary [lo,hi] domain;
+     * falls back to `fallback` when `v` is neither a finite number nor a
+     * valid {min,max} pair. The voice-patch fields (Hz, seconds, cents, Q)
+     * that went rangeable in the v7 sweep live outside 0–1, hence the
+     * explicit domain — normaliseRangeValue below is the 0–1 specialisation
+     * used by the track-level fields (level, randomness, sequencer prob). */
+    function sanitiseRangeValueIn(v, lo, hi, fallback) {
+      if (typeof v === 'number' && Number.isFinite(v)) return clamp(v, lo, hi);
+      if (isPlainObject(v) && Number.isFinite(v.min) && Number.isFinite(v.max)) {
+        let min = clamp(v.min, lo, hi);
+        let max = clamp(v.max, lo, hi);
         if (min > max) [min, max] = [max, min];
         return { min, max };
       }
       return fallback;
     }
 
-    /** A representative plain number for a RangeValue field, for controls
-     * that don't (yet) render a dual-thumb range — the v8 ruling that the
-     * randomness knob stays a number until the page probe widens. */
+    /** Clamp/repair a RangeValue field; falls back to `fallback` (a plain
+     * number) when `v` is neither a finite number nor a {min,max} object. */
+    function normaliseRangeValue(v, fallback) {
+      return sanitiseRangeValueIn(v, 0, 1, fallback);
+    }
+
+    /** A representative plain number for a RangeValue field — used by
+     * controls that stay single-value editors (sequencer prob keyboard
+     * path, slider fallbacks) even though the field itself may hold a
+     * drifting {min,max}. */
     function rangeMid(v) {
       return typeof v === 'number' ? v : (v.min + v.max) / 2;
+    }
+
+    /** Apply `fn` to a RangeValue's number(s), preserving its shape —
+     * for rounding/clamping a knob's emitted number|{min,max} before it's
+     * written into patch/settings state. */
+    function mapRV(v, fn) {
+      return isPlainObject(v) ? { min: fn(v.min), max: fn(v.max) } : fn(v);
+    }
+
+    // ---- sequencer step-prob range helpers (0–1 domain only) ------------
+    // The step-prob keyboard/pointer editors stay single-value EDITORS (they
+    // move one number: the midpoint), but must not silently collapse a
+    // {min,max} loaded from a preset/older save — these keep the window's
+    // width while sliding it, clamping/sliding at the 0–1 edges rather than
+    // truncating the width there.
+
+    function clampProbWindow(mid, width) {
+      let min = mid - width / 2;
+      let max = mid + width / 2;
+      if (min < 0) {
+        max -= min;
+        min = 0;
+      }
+      if (max > 1) {
+        min -= max - 1;
+        max = 1;
+      }
+      return { min: clamp(min, 0, 1), max: clamp(max, 0, 1) };
+    }
+
+    /** Move a prob RangeValue's midpoint to `mid`, keeping its width; a
+     * plain number just becomes `mid`. */
+    function shiftRangeMid(v, mid) {
+      mid = clamp(mid, 0, 1);
+      if (!isPlainObject(v)) return mid;
+      const width = clamp(v.max - v.min, 0, 1);
+      return clampProbWindow(mid, width);
+    }
+
+    /** Widen/narrow a prob RangeValue by `delta` around its current
+     * midpoint (splitting a plain number into a range on first widen);
+     * narrowing to ~0 collapses back to a plain number. */
+    function resizeRangeWidth(v, delta) {
+      const isRange = isPlainObject(v);
+      const width = isRange ? clamp(v.max - v.min, 0, 1) : 0;
+      const mid = isRange ? clamp((v.min + v.max) / 2, 0, 1) : clamp(v, 0, 1);
+      const nextWidth = clamp(width + delta, 0, 1);
+      if (nextWidth <= 0.001) return mid;
+      return clampProbWindow(mid, nextWidth);
     }
 
     // ---- v6 sequencer migration + normalisation -------------------------
@@ -1211,10 +1271,7 @@ const VOICES: Record<string, [string, string][]> = {
             inst.holdBtn.setAttribute('aria-pressed', String(!!settings.tracks[track].hold));
           }
           if (inst !== skip && inst.setRand) {
-            // The randomness knob itself is number-only for now (v8
-            // ruling); a RangeValue loaded from a preset/older save
-            // displays as its midpoint until that control widens.
-            inst.setRand(clamp(rangeMid(settings.tracks[track].randomness), 0, 1));
+            inst.setRand(settings.tracks[track].randomness);
           }
         }
       }
@@ -1256,8 +1313,14 @@ const VOICES: Record<string, [string, string][]> = {
           inst.holdBtn = btn;
         }
         if (engineCaps.randomness[track]) {
+          // v7/v8: the capability probe (engineCaps.randomness, built from
+          // isNumberOrRange) already accepts a RangeValue reply from the
+          // engine, so — per the v8 ruling ("randomness stays a number
+          // default until the page probe widens") — this control can now
+          // ship rangeDefault: true. onValue is fed straight from the knob
+          // (number|{min,max}, already clamped/quantised by knob.js).
           const onValue = (v) => {
-            v = clamp(v, 0, 1);
+            v = sanitiseRangeValueIn(v, 0, 1, 0.5);
             settings.tracks[track].randomness = v;
             engine.setParams({ tracks: { [track]: { randomness: v } } });
             syncTrackExtras(track, inst);
@@ -1272,8 +1335,10 @@ const VOICES: Record<string, [string, string][]> = {
                 label: 'Randomness',
                 min: 0,
                 max: 1,
-                value: clamp(rangeMid(settings.tracks[track].randomness), 0, 1),
+                value: sanitiseRangeValueIn(settings.tracks[track].randomness, 0, 1, 0.5),
                 format: pctFormat,
+                allowRange: true,
+                rangeDefault: true,
                 onInput: onValue,
               });
               if (knobs) knobs.push(handle);
@@ -1287,6 +1352,9 @@ const VOICES: Record<string, [string, string][]> = {
             }
           }
           if (!inst.setRand) {
+            // Slider fallback (no knob.js): single-value only, same
+            // midpoint-display / collapse-on-edit policy as the voice
+            // editor's slider fallback.
             const wrap = document.createElement('label');
             wrap.className = 'rand-slider';
             const name = document.createElement('span');
@@ -1297,12 +1365,12 @@ const VOICES: Record<string, [string, string][]> = {
             input.min = '0';
             input.max = '1';
             input.step = '0.01';
-            input.value = String(clamp(rangeMid(settings.tracks[track].randomness), 0, 1));
+            input.value = String(rangeMid(sanitiseRangeValueIn(settings.tracks[track].randomness, 0, 1, 0.5)));
             input.addEventListener('input', () => onValue(parseFloat(input.value)));
             wrap.append(name, input);
             container.append(wrap);
             inst.setRand = (v) => {
-              input.value = String(v);
+              input.value = String(rangeMid(sanitiseRangeValueIn(v, 0, 1, 0.5)));
             };
           }
         }
@@ -1537,8 +1605,10 @@ const VOICES: Record<string, [string, string][]> = {
         legend.className = 'hint seq-legend';
         legend.textContent =
           'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
-          'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability. Pointer: drag a cell ' +
-          'vertically for the velocity band; drag the thin bar under a step for its probability.';
+          'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability, Shift+[ / Shift+] ' +
+          '(or Shift+, / Shift+.) narrows/widens a drifting probability range. Pointer: drag ' +
+          'a cell vertically for the velocity band; drag the thin bar under a step for its ' +
+          'probability (a drifting range shifts with it, keeping its width).';
 
         root.append(head, scroll, legend);
 
@@ -1547,10 +1617,13 @@ const VOICES: Record<string, [string, string][]> = {
 
         function stepText(lane, i, s) {
           const lanePart = lane.label ? `${lane.label} lane, ` : '';
+          const probPart = isPlainObject(s.prob)
+            ? `probability ${Math.round(s.prob.min * 100)} to ${Math.round(s.prob.max * 100)}%, drifting`
+            : `probability ${Math.round(s.prob * 100)}%`;
           return (
             `${lanePart}step ${i + 1}: ${s.on ? 'on' : 'off'}, ` +
             `velocity ${Math.round(s.vmin * 100)} to ${Math.round(s.vmax * 100)}%, ` +
-            `probability ${Math.round(rangeMid(s.prob) * 100)}%`
+            probPart
           );
         }
 
@@ -1569,7 +1642,18 @@ const VOICES: Record<string, [string, string][]> = {
           ref.cell.setAttribute('aria-label', text);
           ref.band.style.bottom = `${s.vmin * 100}%`;
           ref.band.style.height = `${Math.max(0, s.vmax - s.vmin) * 100}%`;
-          ref.probFill.style.width = `${rangeMid(s.prob) * 100}%`;
+          // A plain prob fills from 0 to the value (matches the on/off
+          // cell's velocity band read); a ranged prob instead shows the
+          // drifting window itself (left edge at min, width = max-min).
+          if (isPlainObject(s.prob)) {
+            ref.probFill.style.left = `${s.prob.min * 100}%`;
+            ref.probFill.style.width = `${Math.max(0, s.prob.max - s.prob.min) * 100}%`;
+            ref.probFill.classList.add('seq-prob-fill-range');
+          } else {
+            ref.probFill.style.left = '0';
+            ref.probFill.style.width = `${s.prob * 100}%`;
+            ref.probFill.classList.remove('seq-prob-fill-range');
+          }
         }
 
         function setFocus(li, i, focus = true) {
@@ -1634,7 +1718,9 @@ const VOICES: Record<string, [string, string][]> = {
             const r = probEl.getBoundingClientRect();
             const p = clamp((ev.clientX - r.left) / Math.max(1, r.width), 0, 1);
             const s = getStep();
-            s.prob = Math.round(p * 20) / 20;
+            // The mini-bar drags the midpoint only — an existing {min,max}
+            // shifts with it (width preserved) rather than collapsing.
+            s.prob = shiftRangeMid(s.prob, Math.round(p * 20) / 20);
             updateCell(li, i);
           };
           probEl.addEventListener('pointerdown', (e) => {
@@ -1705,14 +1791,25 @@ const VOICES: Record<string, [string, string][]> = {
               setFocus(li, stepsPerBarFor(track) - 1);
             } else if (e.key === '[' || e.key === ',') {
               e.preventDefault();
-              // Editing here always collapses a loaded RangeValue prob to
-              // a plain number, same as the pointer drag — the sequencer
-              // UI stays number-only for prob until the page probe widens.
-              s.prob = clamp(snap(rangeMid(s.prob) - nudge), 0, 1);
+              // Moves the midpoint only — an existing {min,max} shifts with
+              // it (width preserved), same policy as the pointer drag.
+              s.prob = shiftRangeMid(s.prob, snap(rangeMid(s.prob) - nudge));
               commit();
             } else if (e.key === ']' || e.key === '.') {
               e.preventDefault();
-              s.prob = clamp(snap(rangeMid(s.prob) + nudge), 0, 1);
+              s.prob = shiftRangeMid(s.prob, snap(rangeMid(s.prob) + nudge));
+              commit();
+            } else if (e.key === '{' || e.key === '<') {
+              // Shift+[ / Shift+, — narrow the drifting prob range around
+              // its midpoint (narrowing to ~0 collapses back to a number).
+              e.preventDefault();
+              s.prob = resizeRangeWidth(s.prob, -nudge * 2);
+              commit();
+            } else if (e.key === '}' || e.key === '>') {
+              // Shift+] / Shift+. — widen it (splitting a plain number into
+              // a range on first widen).
+              e.preventDefault();
+              s.prob = resizeRangeWidth(s.prob, nudge * 2);
               commit();
             }
           });
@@ -1966,6 +2063,7 @@ const VOICES: Record<string, [string, string][]> = {
               ed.scope.live.destroy();
             } catch {}
           }
+          ed.scope.analyser = null;
         }
         for (const k of ed.knobs) {
           try {
@@ -2006,15 +2104,30 @@ const VOICES: Record<string, [string, string][]> = {
           }
         }
         if (analyser && typeof scopeApi.attachLiveScope === 'function') {
-          if (s.live) return;
+          // rebuildContext() (interruption/sample-rate recovery, iOS wake)
+          // swaps the engine's whole graph — including analyser nodes —
+          // while `running` stays true, so a same-track re-evaluation must
+          // compare node IDENTITY rather than just "are we already live":
+          // an early `if (s.live) return` here would keep tracing a dead
+          // analyser off a closed context forever.
+          if (s.live && s.analyser === analyser) return;
+          if (s.live) {
+            try {
+              s.live.destroy();
+            } catch {}
+            s.live = null;
+            s.analyser = null;
+          }
           if (s.debounce !== null) {
             clearTimeout(s.debounce);
             s.debounce = null;
           }
           try {
             s.live = scopeApi.attachLiveScope(s.canvas, analyser);
+            s.analyser = s.live ? analyser : null;
           } catch {
             s.live = null;
+            s.analyser = null;
           }
           if (s.live) {
             s.indicator.textContent = 'LIVE';
@@ -2027,6 +2140,7 @@ const VOICES: Record<string, [string, string][]> = {
             s.live.destroy();
           } catch {}
           s.live = null;
+          s.analyser = null;
         }
         s.indicator.textContent = 'OFFLINE';
         s.indicator.classList.remove('scope-mode-live');
@@ -2166,6 +2280,12 @@ const VOICES: Record<string, [string, string][]> = {
       // Fallback editor: the pre-v5 slider/select controls — the path when
       // knob.js is missing or its API throws. Writes the same
       // shape-normalised patch the knob editor writes.
+      //
+      // v7 RangeValue: a plain <input type=range> has one thumb, so this
+      // editor stays a single-value editor for the fields the knob editor
+      // now ranges (mix, detune, filter cutoff/q/envAmount, ADSR ×4, both
+      // sends) — it reads a RangeValue's midpoint for display and always
+      // writes back a plain number, collapsing any existing {min,max}.
       function buildSliderEditor(container, patch, commit, controls) {
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
@@ -2199,7 +2319,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0,
             max: 1,
             step: 0.01,
-            value: patch.source.mix,
+            value: rangeMid(sanitiseRangeValueIn(patch.source.mix, 0, 1, 0.5)),
             onChange: (v) => {
               patch.source.mix = v;
               commit();
@@ -2211,7 +2331,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0,
             max: 50,
             step: 1,
-            value: patch.source.detune,
+            value: rangeMid(sanitiseRangeValueIn(patch.source.detune, 0, 50, 4)),
             format: (v) => `${Math.round(v)} ct`,
             onChange: (v) => {
               patch.source.detune = Math.round(v);
@@ -2250,7 +2370,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 40,
             max: 12000,
             log: true,
-            value: patch.filter.cutoff,
+            value: rangeMid(sanitiseRangeValueIn(patch.filter.cutoff, 40, 12000, 2000)),
             format: hzFormat,
             onChange: (v) => {
               patch.filter.cutoff = Math.round(v);
@@ -2263,7 +2383,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0.1,
             max: 20,
             step: 0.1,
-            value: patch.filter.q,
+            value: rangeMid(sanitiseRangeValueIn(patch.filter.q, 0.1, 20, 0.7)),
             onChange: (v) => {
               patch.filter.q = v;
               commit();
@@ -2275,7 +2395,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0,
             max: 1,
             step: 0.01,
-            value: patch.filter.envAmount,
+            value: rangeMid(sanitiseRangeValueIn(patch.filter.envAmount, 0, 1, 0.3)),
             onChange: (v) => {
               patch.filter.envAmount = v;
               commit();
@@ -2289,7 +2409,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0.001,
             max: 8,
             log: true,
-            value: patch.adsr.attack,
+            value: rangeMid(sanitiseRangeValueIn(patch.adsr.attack, 0.001, 8, 0.01)),
             format: secFormat,
             onChange: (v) => {
               patch.adsr.attack = v;
@@ -2302,7 +2422,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0.001,
             max: 8,
             log: true,
-            value: patch.adsr.decay,
+            value: rangeMid(sanitiseRangeValueIn(patch.adsr.decay, 0.001, 8, 0.2)),
             format: secFormat,
             onChange: (v) => {
               patch.adsr.decay = v;
@@ -2315,7 +2435,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0,
             max: 1,
             step: 0.01,
-            value: patch.adsr.sustain,
+            value: rangeMid(sanitiseRangeValueIn(patch.adsr.sustain, 0, 1, 0.7)),
             onChange: (v) => {
               patch.adsr.sustain = v;
               commit();
@@ -2327,7 +2447,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0.01,
             max: 12,
             log: true,
-            value: patch.adsr.release,
+            value: rangeMid(sanitiseRangeValueIn(patch.adsr.release, 0.01, 12, 0.5)),
             format: secFormat,
             onChange: (v) => {
               patch.adsr.release = v;
@@ -2342,7 +2462,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0,
             max: 1,
             step: 0.01,
-            value: patch.sends.reverb,
+            value: rangeMid(sanitiseRangeValueIn(patch.sends.reverb, 0, 1, 0.3)),
             onChange: (v) => {
               patch.sends.reverb = v;
               commit();
@@ -2354,7 +2474,7 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0,
             max: 1,
             step: 0.01,
-            value: patch.sends.delay,
+            value: rangeMid(sanitiseRangeValueIn(patch.sends.delay, 0, 1, 0.15)),
             onChange: (v) => {
               patch.sends.delay = v;
               commit();
@@ -2399,15 +2519,22 @@ const VOICES: Record<string, [string, string][]> = {
         }
 
         // The page owns the log transforms: the knob itself is linear, its
-        // 0–1 position mapped onto the unit's range in format/onInput.
-        function addLogKnob(row, label, min, max, value, format, onValue) {
+        // 0–1 position mapped onto the unit's range in format/onInput. v7:
+        // `value`/the value onValue receives may be number|{min,max} — the
+        // log map is monotonic over the (positive) domains this is used for,
+        // so mapping each thumb independently preserves min ≤ max. `knobOpts`
+        // carries allowRange/rangeDefault through to createKnob.
+        function addLogKnob(row, label, min, max, value, format, onValue, knobOpts) {
+          const toLog = (v) => valueToLog(clamp(v, min, max), min, max);
+          const fromLog = (t) => logToValue(clamp(t, 0, 1), min, max);
           return addKnob(row, {
             label,
             min: 0,
             max: 1,
-            value: valueToLog(clamp(value, min, max), min, max),
-            format: (t) => format(logToValue(clamp(t, 0, 1), min, max)),
-            onInput: (t) => onValue(logToValue(clamp(t, 0, 1), min, max)),
+            value: mapRV(value, toLog),
+            format: (t) => format(fromLog(t)),
+            onInput: (t) => onValue(mapRV(t, fromLog)),
+            ...knobOpts,
           });
         }
 
@@ -2479,10 +2606,11 @@ const VOICES: Record<string, [string, string][]> = {
             label: 'Mix',
             min: 0,
             max: 1,
-            value: clamp(patch.source.mix, 0, 1),
+            value: sanitiseRangeValueIn(patch.source.mix, 0, 1, 0.5),
             format: plainFormat,
+            allowRange: true,
             onInput: (v) => {
-              patch.source.mix = clamp(v, 0, 1);
+              patch.source.mix = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
             },
           });
@@ -2493,10 +2621,11 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0,
             max: 50,
             step: 1,
-            value: clamp(patch.source.detune, 0, 50),
+            value: sanitiseRangeValueIn(patch.source.detune, 0, 50, 4),
             format: (v) => `${Math.round(v)} ct`,
+            allowRange: true,
             onInput: (v) => {
-              patch.source.detune = Math.round(clamp(v, 0, 50));
+              patch.source.detune = mapRV(v, (x) => Math.round(clamp(x, 0, 50)));
               commit();
             },
           });
@@ -2535,13 +2664,22 @@ const VOICES: Record<string, [string, string][]> = {
           });
         }
         if (filter && allowed(filterSpec, 'cutoff')) {
-          // Cutoff is rangeable-by-default per the v7 addendum, but wiring
-          // dual-knob range editing here is deliberately deferred to the
-          // v7 sweep — this stays a plain-number knob for now.
-          addLogKnob(filter, 'Cutoff', 40, 12000, patch.filter.cutoff, hzFormat, (v) => {
-            patch.filter.cutoff = Math.round(v);
-            commit();
-          });
+          // v7: cutoff is on the default-RANGE list — rangeDefault starts a
+          // freshly-opened (plain-number) patch already split into a
+          // min=max=value range, ready for the second thumb.
+          addLogKnob(
+            filter,
+            'Cutoff',
+            40,
+            12000,
+            sanitiseRangeValueIn(patch.filter.cutoff, 40, 12000, 2000),
+            hzFormat,
+            (v) => {
+              patch.filter.cutoff = mapRV(v, Math.round);
+              commit();
+            },
+            { allowRange: true, rangeDefault: true }
+          );
         }
         if (filter && allowed(filterSpec, 'q')) {
           addKnob(filter, {
@@ -2549,10 +2687,11 @@ const VOICES: Record<string, [string, string][]> = {
             min: 0.1,
             max: 20,
             step: 0.1,
-            value: clamp(patch.filter.q, 0.1, 20),
+            value: sanitiseRangeValueIn(patch.filter.q, 0.1, 20, 0.7),
             format: plainFormat,
+            allowRange: true,
             onInput: (v) => {
-              patch.filter.q = clamp(v, 0.1, 20);
+              patch.filter.q = mapRV(v, (x) => clamp(x, 0.1, 20));
               commit();
             },
           });
@@ -2562,10 +2701,11 @@ const VOICES: Record<string, [string, string][]> = {
             label: 'Env amount',
             min: 0,
             max: 1,
-            value: clamp(patch.filter.envAmount, 0, 1),
+            value: sanitiseRangeValueIn(patch.filter.envAmount, 0, 1, 0.3),
             format: plainFormat,
+            allowRange: true,
             onInput: (v) => {
-              patch.filter.envAmount = clamp(v, 0, 1);
+              patch.filter.envAmount = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
             },
           });
@@ -2574,50 +2714,80 @@ const VOICES: Record<string, [string, string][]> = {
         // -- envelope --
         const env = controlsSectionVisible(adsrSpec) ? knobSection('Envelope') : null;
         if (env && allowed(adsrSpec, 'attack')) {
-          addLogKnob(env, 'Attack', 0.001, 8, patch.adsr.attack, secFormat, (v) => {
-            patch.adsr.attack = v;
-            commit();
-          });
+          addLogKnob(
+            env,
+            'Attack',
+            0.001,
+            8,
+            sanitiseRangeValueIn(patch.adsr.attack, 0.001, 8, 0.01),
+            secFormat,
+            (v) => {
+              patch.adsr.attack = v;
+              commit();
+            },
+            { allowRange: true }
+          );
         }
         if (env && allowed(adsrSpec, 'decay')) {
-          addLogKnob(env, 'Decay', 0.001, 8, patch.adsr.decay, secFormat, (v) => {
-            patch.adsr.decay = v;
-            commit();
-          });
+          addLogKnob(
+            env,
+            'Decay',
+            0.001,
+            8,
+            sanitiseRangeValueIn(patch.adsr.decay, 0.001, 8, 0.2),
+            secFormat,
+            (v) => {
+              patch.adsr.decay = v;
+              commit();
+            },
+            { allowRange: true }
+          );
         }
         if (env && allowed(adsrSpec, 'sustain')) {
           addKnob(env, {
             label: 'Sustain',
             min: 0,
             max: 1,
-            value: clamp(patch.adsr.sustain, 0, 1),
+            value: sanitiseRangeValueIn(patch.adsr.sustain, 0, 1, 0.7),
             format: plainFormat,
+            allowRange: true,
             onInput: (v) => {
-              patch.adsr.sustain = clamp(v, 0, 1);
+              patch.adsr.sustain = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
             },
           });
         }
         if (env && allowed(adsrSpec, 'release')) {
-          addLogKnob(env, 'Release', 0.01, 12, patch.adsr.release, secFormat, (v) => {
-            patch.adsr.release = v;
-            commit();
-          });
+          addLogKnob(
+            env,
+            'Release',
+            0.01,
+            12,
+            sanitiseRangeValueIn(patch.adsr.release, 0.01, 12, 0.5),
+            secFormat,
+            (v) => {
+              patch.adsr.release = v;
+              commit();
+            },
+            { allowRange: true }
+          );
         }
 
         // -- sends --
-        // Both sends are rangeable-by-default too (v7 addendum); same
-        // deferral as Cutoff above — plain-number knobs until the v7 sweep.
+        // Both sends are on the v7 default-RANGE list too (like Cutoff
+        // above) — rangeDefault starts a plain-number patch pre-split.
         const sends = controlsSectionVisible(sendsSpec) ? knobSection('Sends') : null;
         if (sends && allowed(sendsSpec, 'reverb')) {
           addKnob(sends, {
             label: 'Reverb',
             min: 0,
             max: 1,
-            value: clamp(patch.sends.reverb, 0, 1),
+            value: sanitiseRangeValueIn(patch.sends.reverb, 0, 1, 0.3),
             format: plainFormat,
+            allowRange: true,
+            rangeDefault: true,
             onInput: (v) => {
-              patch.sends.reverb = clamp(v, 0, 1);
+              patch.sends.reverb = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
             },
           });
@@ -2627,10 +2797,12 @@ const VOICES: Record<string, [string, string][]> = {
             label: 'Delay',
             min: 0,
             max: 1,
-            value: clamp(patch.sends.delay, 0, 1),
+            value: sanitiseRangeValueIn(patch.sends.delay, 0, 1, 0.15),
             format: plainFormat,
+            allowRange: true,
+            rangeDefault: true,
             onInput: (v) => {
-              patch.sends.delay = clamp(v, 0, 1);
+              patch.sends.delay = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
             },
           });
@@ -2715,6 +2887,7 @@ const VOICES: Record<string, [string, string][]> = {
             canvas: scopeCanvas,
             indicator,
             live: null,
+            analyser: null, // the analyser node s.live is currently attached to
             debounce: null,
             getPatch: () => patch,
           };
@@ -3405,7 +3578,10 @@ const VOICES: Record<string, [string, string][]> = {
                 setTimeout(() => {
                   if (engine.running && typeof engine.resume === 'function') {
                     try {
-                      engine.resume();
+                      // resume() can silently rebuildContext() (fresh
+                      // analyser nodes) without a 'state' event — re-check
+                      // any open scope's live analyser once it settles.
+                      Promise.resolve(engine.resume()).then(updateAllScopeModes).catch(() => {});
                     } catch {}
                   }
                 }, 1500);
@@ -3479,9 +3655,12 @@ const VOICES: Record<string, [string, string][]> = {
         if (sleepTarget !== null || alarmTarget !== null) tick();
         if (alarmTarget !== null) acquireWakeLock();
         if (engine.running) {
-          // Recovers iOS 'interrupted' contexts once the engine ships resume().
+          // Recovers iOS 'interrupted' contexts once the engine ships
+          // resume() — which can rebuildContext() (fresh analyser nodes)
+          // without emitting a 'state' event, so re-evaluate any open
+          // scope's live analyser once resume() settles.
           try {
-            engine.resume?.();
+            Promise.resolve(engine.resume?.()).then(updateAllScopeModes).catch(() => {});
           } catch {}
         }
       });
@@ -3489,7 +3668,7 @@ const VOICES: Record<string, [string, string][]> = {
       window.addEventListener('focus', () => {
         if (engine.running) {
           try {
-            engine.resume?.();
+            Promise.resolve(engine.resume?.()).then(updateAllScopeModes).catch(() => {});
           } catch {}
         }
       });
@@ -4427,6 +4606,13 @@ const VOICES: Record<string, [string, string][]> = {
       bottom: 0;
       width: 0;
       background: var(--link);
+    }
+
+    /* A ranged (drifting) step prob shows its min–max window instead of a
+       from-zero fill, tinted like the knob's own range arc. */
+    .seq-prob-fill-range {
+      background: var(--accent-warm, var(--link));
+      opacity: 0.85;
     }
 
     .seq-legend {
