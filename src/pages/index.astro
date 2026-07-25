@@ -75,7 +75,6 @@ const VOICES: Record<string, [string, string][]> = {
 };
 ---
 <Base title="Ambi4: Ambience for Work" description="An endless ambient music generator that runs entirely in your browser.">
-  <h1>Generator</h1>
 
   <div id="generator-app" hidden>
     <div class="module-panel transport-module">
@@ -339,7 +338,7 @@ const VOICES: Record<string, [string, string][]> = {
           <label for="bpm">BPM</label>
           <span class="value-readout bpm-readout" id="bpm-readout"><output for="bpm" id="bpm-value">60</output></span>
         </div>
-        <input type="range" id="bpm" min="40" max="120" step="1" value="60" />
+        <input type="range" id="bpm" min="20" max="220" step="1" value="60" />
       </div>
 
       <div class="control">
@@ -992,15 +991,16 @@ const VOICES: Record<string, [string, string][]> = {
     //   t >  0.5:  bpm = 60 * (120/60)^((t-0.5)/0.5)
     // The engine always receives { bpm, speed: 1 } — `speed` is deprecated
     // at the UI level per the v3 contract addendum.
+    // 20-220 bpm (commercially-proven extremes), 60 bpm at the dial centre.
     function bpmFromSpeedT(t) {
       return t <= 0.5
-        ? 40 * Math.pow(1.5, t / 0.5)
-        : 60 * Math.pow(2, (t - 0.5) / 0.5);
+        ? 20 * Math.pow(3, t / 0.5)
+        : 60 * Math.pow(220 / 60, (t - 0.5) / 0.5);
     }
     function speedTFromBpm(bpm) {
       return bpm <= 60
-        ? 0.5 * (Math.log(bpm / 40) / Math.log(1.5))
-        : 0.5 + 0.5 * (Math.log(bpm / 60) / Math.log(2));
+        ? 0.5 * (Math.log(bpm / 20) / Math.log(3))
+        : 0.5 + 0.5 * (Math.log(bpm / 60) / Math.log(220 / 60));
     }
 
     function logToValue(t, min, max) {
@@ -1236,7 +1236,7 @@ const VOICES: Record<string, [string, string][]> = {
               // v2 had independent speed (0.25–2) and bpm; v3 has one tempo.
               // Fold the old multiplier into bpm on migration.
               if (typeof saved.speed === 'number' && typeof saved.bpm === 'number') {
-                saved.bpm = Math.round(clamp(saved.bpm * saved.speed, 40, 120));
+                saved.bpm = Math.round(clamp(saved.bpm * saved.speed, 20, 220));
               }
               delete saved.speed;
               migratedFromLegacy = true;
@@ -1337,7 +1337,7 @@ const VOICES: Record<string, [string, string][]> = {
       let governor = null;
       let powerBudget = null;
       try {
-        const { initVisualiser } = await import('../scripts/visualiser.js');
+      const { initVisualiser } = await import('../scripts/visualiser.js');
         visualiserHandle = initVisualiser(canvas, engine);
       } catch {
         // The generator works without it.
@@ -1450,7 +1450,7 @@ const VOICES: Record<string, [string, string][]> = {
       // ---- tempo (one value, two views) ---------------------------------
 
       function setTempo(bpm, { skipSpeedThumb = false } = {}) {
-        bpm = Math.round(clamp(bpm, 40, 120));
+        bpm = Math.round(clamp(bpm, 20, 220));
         settings.bpm = bpm;
         bpmInput.value = String(bpm);
         bpmTypable?.refresh();
@@ -1650,6 +1650,10 @@ const VOICES: Record<string, [string, string][]> = {
 
       // Short "what does this one sound like" hints on the voice selects —
       // the kit hints the v13 round asked for, extended to every track.
+      // Hoisted above the first describe() caller — `let` after the call
+      // site is a temporal-dead-zone crash (shipped blank-page bug, 6105e0d).
+      let tipSeq = 0;
+
       const VOICE_HINTS = {
         pad: 'The sustained chord bed. Warm is the default; Glass is brighter, Choir the most vocal.',
         arp: 'The broken-chord line. Soft pluck sits back, Crystal cuts through, Marimba is woody.',
@@ -1704,11 +1708,11 @@ const VOICES: Record<string, [string, string][]> = {
       let knobApi = null;
       let scopeApi = null;
       try {
-        const m = await import('../scripts/knob.js');
+      const m = await import('../scripts/knob.js');
         if (m && typeof m.createKnob === 'function') knobApi = m;
       } catch {}
       try {
-        const m = await import('../scripts/scope.js');
+      const m = await import('../scripts/scope.js');
         if (m && typeof m.renderPatchWave === 'function') scopeApi = m;
       } catch {}
 
@@ -1729,7 +1733,6 @@ const VOICES: Record<string, [string, string][]> = {
       tooltipEl.setAttribute('role', 'tooltip');
       tooltipEl.hidden = true;
       document.body.append(tooltipEl);
-      let tipSeq = 0;
 
       function hideTooltip() {
         tooltipEl.hidden = true;
@@ -4410,7 +4413,7 @@ const VOICES: Record<string, [string, string][]> = {
       }
 
       try {
-        const { createGovernor } = await import('../scripts/power.js');
+      const { createGovernor } = await import('../scripts/power.js');
         if (typeof createGovernor === 'function') {
           governor = createGovernor({ engine, onTierChange: applyPowerBudget });
         }
@@ -5593,7 +5596,15 @@ const VOICES: Record<string, [string, string][]> = {
       app.hidden = false;
     }
 
-    init();
+    init().catch((err) => {
+      // A dead init must never leave a blank page: show the fallback and say why.
+      console.error('Ambi4 init failed:', err);
+      const un = document.getElementById('generator-unavailable');
+      if (un) {
+        un.hidden = false;
+        un.textContent = 'Something went wrong starting the generator (' + (err && err.message ? err.message : err) + '). Please hard-refresh; if it persists, this build is faulty.';
+      }
+    });
   </script>
 
   <!-- Global on purpose: most of these controls are built by the page

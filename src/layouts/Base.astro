@@ -47,7 +47,7 @@ const buildStamp = buildSha ? `build ${buildDate} ${buildSha}` : `build ${buildD
       <slot />
     </main>
     <footer class="site-footer">
-      <span>&copy; 2024&ndash;2026 <a href="https://andeye.com">andeye Ltd</a></span>
+      <span>&copy; 2024&ndash;2026 <a href="https://andeye.com" class="andeye-link"><svg class="andeye-wink" viewBox="0 0 24 24" aria-hidden="true"><g class="eye-open"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></g><path class="eye-wink" d="M4 13c2.5 2.5 5 3.5 8 3.5s5.5-1 8-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>andeye Ltd</a></span>
       <span> · Coded with <a href="https://vibe.andeye.com" rel="noopener noreferrer" target="_blank">Vibe</a></span>
       <span> · <a href="https://andeye.com/terms">Terms</a></span>
       <span> · <a href="https://andeye.com/privacy">Privacy</a></span>
@@ -82,6 +82,19 @@ const buildStamp = buildSha ? `build ${buildDate} ${buildSha}` : `build ${buildD
     color: var(--text);
     font-weight: 600;
     border-bottom-color: var(--accent-warm);
+  }
+
+  /* Placeholder wink mark (hand-coded SVG, not AI art) pending the official
+     andeye logo asset. Text-height, blinks every few seconds; static when the
+     user prefers reduced motion. */
+  .andeye-link { display: inline-flex; align-items: center; gap: 4px; }
+  .andeye-wink { height: 1em; width: 1em; }
+  .andeye-wink .eye-wink { opacity: 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    .andeye-wink .eye-open { animation: andeye-blink 6s infinite; }
+    .andeye-wink .eye-wink { animation: andeye-wink 6s infinite; }
+    @keyframes andeye-blink { 0%, 91%, 97%, 100% { opacity: 1; } 92%, 96% { opacity: 0; } }
+    @keyframes andeye-wink { 0%, 91%, 97%, 100% { opacity: 0; } 92%, 96% { opacity: 1; } }
   }
 
   .build-stamp {

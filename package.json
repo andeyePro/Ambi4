@@ -10,5 +10,8 @@
   "dependencies": {
     "astro": "^5.12.3"
   },
-  "license": "AGPL-3.0-only"
+  "license": "AGPL-3.0-only",
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
 }
