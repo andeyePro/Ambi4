@@ -1448,3 +1448,28 @@ Rules: every value must survive the engine sanitiser when compiled to params;
 bass state per genre (Ambient ships bass off — user ruling); recognisable-to-
 experts is the bar, with defiance dials as the escape hatch. A music-director
 review precedes merge.
+
+---
+
+# v26 addendum (visuals + layout round)
+
+- Fullscreen: oscilloscope AND piano roll each get a fullscreen toggle; in
+  fullscreen, either can add the other stacked below it. Fullscreen API with
+  esc/exit affordance.
+- Oscilloscope chrome: NO border/panel — bare black display like the piano
+  roll, with track-name legend and the minimise (twisty) OVERLAID on the
+  display's top edge.
+- Oscilloscope options: per-track vertical SPREAD mode (each trace gets its
+  own flatline altitude row); a white "total" trace of the post-effects master
+  output (tap the master/compressor output analyser) — OFF by default.
+- Advanced layout rule: dials pack HORIZONTALLY wherever they fit — main
+  dials + repetition/swing/reverb-tail on shared rows; per-track feel dials
+  (drift rate, swing, density...) in one aligned row per track, never
+  scattered columns; two short dial sets share one row when they fit.
+- OSC 2 linkage: the Osc 2 toggle adds/removes the second oscillator; when
+  OFF, the Mix dial (osc1↔osc2 balance) hides with it (a mix with one source
+  is meaningless — the current UI leaves it visible, which reads as broken).
+- Track identity colours become a rainbow (user ruling): pad yellow, arp
+  orange, melody red, bass purple, texture blue, percussion green — theme
+  re-derives the --track-* tokens in both themes, AA-checked, CVD-checked as
+  before. (Premium instruments pick their own colour later.)
