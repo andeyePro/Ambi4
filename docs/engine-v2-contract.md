@@ -1337,3 +1337,90 @@ build-time rows; sanitiser dropping unknown track/patch keys; no generator for
 user tracks — resolved by v23's every-user-track-is-sequenced rule; getStats
 deref). New tests over repaired tests: the suite has 7-track fixtures but zero
 runtime-add coverage.
+
+---
+
+# v24 — bass craft pass (the second failed verdict)
+
+The v14 groove rework (anchor pulse + syncopation cells + per-section
+development) answered the FIRST verdict, "it's a rhythm instrument, not a
+low-pitch random". It failed the second: "still definitely the weakest link".
+This pass is diagnosis-led and touches feel only — the v8 harmonic contract
+(root on every felt pulse, fifth/octave off the pulse only, approach notes only
+into a change) is unchanged and still property-tested.
+
+## What was actually wrong (evidence, not theory)
+
+1. **The groove was re-rolled every bar under three of the five structure
+   presets.** `ensureBassGroove` keyed its cache on `round3(sectionIntensity())`,
+   and `waves` (a cosine) and `build` (a ramp) hand out a fresh intensity for
+   EVERY bar. The v14 groove therefore never engaged at all under either — the
+   line really was a per-bar random walk, exactly as the first verdict said.
+2. **Timing was generic per-note humanisation.** `timingNudge('bass')` drew an
+   independent ±25 ms either side of the grid for every note. Scatter either
+   side of the beat reads as unsteady; a bassist picks one relationship to the
+   beat and keeps it.
+3. **Note length was per ROLE, not per STEP.** The gate table had three entries
+   (anchor/pulse/offbeat), so every pulse in a bar was one length. On the shipped
+   mono bass a note that reaches the next onset is SLURRED into it and anything
+   shorter is re-struck and cancelled at that onset (`releaseMono` →
+   `cancel(at)`, a 50 ms fade from the new note's onset) — so a bar whose steps
+   share one gate has exactly one articulation, whatever that gate is.
+4. **The 0.1 s duration floor swamped the gate.** `Math.max(0.1, span * gate)`
+   is longer than a clipped sixteenth at anything above a slow tempo, so every
+   short note in the line rendered at exactly 100 ms regardless of its gate.
+5. **Ghosts were not quiet.** 0.42 against a 0.74 pulse is ~5 dB — a slightly
+   soft note. The anchor accent was 0.85 against 0.74, about 1 dB: inaudible.
+6. **No fills.** `bassGrooveOp` had ghost/push/simplify/double, all micro. A line
+   that never turns around is a loop.
+7. **The octave pop could leave the bass register.** `root + 12` off a high chord
+   root lands in the tune's octave (MIDI 64 was observed).
+8. **With no kit playing, every non-anchor pulse was an independent coin flip.**
+   The kick-lock path gave the line a spine; the drummerless path gave it a
+   density.
+
+## The contract as it now stands
+
+- **Groove identity** = feel (staccato/held/mixed) + articulation cycle +
+  anchor grid + pocket + syncopation cells. Stated once per section-energy BAND
+  and developed, never re-rolled per bar. The cache key bands section intensity
+  to the nearest quarter; the four-/eight-bar development count belongs to the
+  SECTION label, so a swell that restates the groove does not restart it.
+- **Pocket**: ONE lay-back constant, in seconds, shared by every bass note of
+  the section (`bassPocketSeconds`, exported). Never early. Scaled by the
+  track's `vary.timing`, so `vary.timing 0` still means machine-tight and the
+  shipped default sits a few ms behind. The bass takes NO per-note timing
+  humanisation — that is the whole point.
+- **Articulation**: `BASS_ARTICULATIONS` multiplier cycles (even / longShort /
+  shortLong / holdOne) applied across the pulse spine at build time, clamped to
+  0.12–1. Which notes ring into the next and which stop short is part of the
+  line's identity and is identical every bar the groove is stated. The bar's
+  last note commits: a `held` groove rings across the barline (gate 1, handed
+  over by the mono glide), anything else lifts (gate ≤ 0.45).
+- **Duration floor**: `min(0.06 s, span * 0.6)`, so the gate renders and a short
+  slot is never stretched past itself.
+- **Velocities**: accent 0.92, pulse 0.68, off-pulse 0.58, ghost 0.25, fill 0.74.
+  `BASS_GHOST_CEILING` (0.34) is the exported bound a ghost must still be under
+  after velocity jitter and the engine's clamp.
+- **Fills**: op `fill`, only on the last bar of an eight-bar count (so never in
+  the opening bars of a section), probability scaled by section intensity, never
+  said twice running, and off at randomness 0. A fill CLEARS the bar's tail and
+  lays a 2–3 note run off the pulse into the next bar; every felt pulse survives
+  it, still voicing the root, and the run's last note is what the approach logic
+  re-pitches towards the chord ahead.
+- **Register**: `BASS_RANGE` = MIDI 28–55 (E1–G3). The octave tone pops up if it
+  fits, drops an octave if not, and stays on the root if neither does.
+- **Internal pulse**: with no kit to lock to, the groove draws a stride through
+  the bar's felt pulses and treats it exactly as it treats a kick — chance 1 on
+  the grid, a (thinner) density draw off it. One code path, drums or not.
+
+## Known ceiling, NOT fixed here (owner: engine-voices.js)
+
+True staccato is not reachable from the engine. The bass voices' envelopes are
+`sub` attack 0.12 s / release 0.75 s, `round` 0.05/0.55, `breath` 0.18/0.9, and
+`bassSub` computes `hold = max(0.1, dur - attack)`, so the shortest note any of
+them can sound is roughly one second of envelope. Note length therefore reads as
+slur-vs-re-strike and as where a phrase's tail decay begins, not as silence
+between notes. Shortening the patch ADSR per note would work but changes the
+filter path (`mainFilter` switches from note-tracking to the patch cutoff and
+adds a trim node), which is a timbre and node-count change outside this pass.

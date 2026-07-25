@@ -220,6 +220,7 @@ const {
   bassGrooveOp,
   BASS_GROOVE_OPS,
   BASS_FEEL_NAMES,
+  BASS_GHOST_CEILING,
   HARMONY_RHYTHMS,
 } = engineModule;
 
@@ -2703,6 +2704,42 @@ test('vary.timing humanises within ±25 ms, and an explicit aspect beats the mac
     'randomness 0 with a null aspect must sit exactly on the grid');
 }));
 
+test('humanisation never moves a note out of the bar it was planned in', () => hiddenTab(async () => {
+  // A note dragged BACK over the barline lands in a bar the scheduler has
+  // already dispatched. A note pushed FORWARD over it sounds in the next bar —
+  // which is inaudible mid-piece and exactly wrong at the end of one, where the
+  // next bar is the resolving closing bar that nothing but pad and bass belongs
+  // in. Everything on, maximum humanisation, every note checked against the bar
+  // it was recorded in.
+  const engine = createEngine({
+    bpm: 180, speed: 2, complexity: 0.9, repetition: 0.3,
+    structure: 'custom', customStructure: [{ label: 'A', bars: 8, intensity: 1 }],
+    tracks: tracksAll('on', { randomness: 1, vary: { timing: 1 } }),
+  }, { rng: seededRng(6401) });
+  const log = record(engine);
+  await engine.start();
+  await advance(45, FAST);
+  engine.stop();
+
+  assert.ok(log.bars.length >= 12, `only ${log.bars.length} bars`);
+  const spans = new Map();
+  log.bars.forEach((entry, i) => {
+    const next = log.bars[i + 1];
+    if (next) spans.set(entry.bar, { from: entry.time, to: next.time });
+  });
+  let checked = 0;
+  for (const note of log.notes) {
+    const owner = log.barOf(note);
+    const span = owner ? spans.get(owner.bar) : null;
+    if (!span) continue;   // the last bar has no barline after it to judge against
+    checked += 1;
+    assert.ok(note.time >= span.from - 1e-9 && note.time < span.to - 1e-9,
+      `a ${note.track} note at ${note.time.toFixed(4)} escaped bar ${owner.bar} `
+      + `(${span.from.toFixed(4)}–${span.to.toFixed(4)})`);
+  }
+  assert.ok(checked > 400, `only ${checked} notes to judge`);
+}));
+
 test('vary.pan widens the stereo spread with its amount', () => hiddenTab(async () => {
   const bank = bankFor('melody');
   const spy = spyOnBank(bank);
@@ -3137,34 +3174,29 @@ test('the pad breathes: half-bar re-attacks and rest bars, on the bar grid',
 // --------------------------------------------------------------------------
 // v12 — Musicality II: melody motif, bass tightening, mono/legato, state-flip
 //
-// Ground truth for "the current chord" comes off the PAD, the same way the v11
-// hook tests read it — the chord as the ear actually meets it. Two helpers do
-// that reading, one for the property tests here that need the ROOT alone
-// (bass) and one for tests that only need chord-TONE membership (melody
-// landing on a chord tone need not land on the root).
+// Ground truth for "the current chord" comes off the PAD where only chord-TONE
+// membership is at stake (a melody landing on a chord tone need not land on the
+// root), and off the engine's own `chord` event where the ROOT is (bass).
 //
-// The bass-root ground truth is only trustworthy while every hook slot's
-// inversion is 0, because an inverted voicing rotates a non-root tone to the
-// bottom of the pad's stack. mutateHook can only fire once a full pass of the
-// hook completes (completeHookPass), so restricting a run to the FIRST pass —
-// at most HOOK_MAX_CHORDS chords of at most 2 bars each — keeps every
-// inversion at the buildHook default of 0 and makes "pad's lowest note this
-// bar" exactly the chord root, no inference required.
+// It used to read the root off the pad too — the pad's lowest sounding note —
+// on the reasoning that restricting a run to the hook's FIRST pass keeps every
+// slot's inversion at 0. That reasoning is incomplete: `voiceHookChord` can put
+// a non-root tone at the bottom of the stack without any inversion at all (a C6
+// voiced E–A–C–D is one the engine really does build), and on those bars the
+// heuristic reports the wrong root and fails a bass that is voicing the right
+// one. The `chord` event is the engine SAYING what it is playing, so that is
+// what the bass is now judged against.
 // --------------------------------------------------------------------------
 
 const FIRST_PASS_BAR_CEILING = HOOK_MAX_CHORDS * 2; // chords never span more than 2 bars
 
-/** Bar → pc of the pad's lowest sounding note that bar, forward-filled across rests. */
-function padRootPcByBar(log) {
-  const byBar = log.byBar('pad');
+/** Bar → pc of the chord the engine announced for it, read off its `chord` event. */
+function chordRootPcByBar(log) {
   const pcs = new Map();
-  // No forward-fill: a bar the pad rested (v11 breathing) tells us nothing —
-  // the chord may have advanced underneath a silent pad, and carrying the
-  // previous bar's pc forward would then compare bass against a stale chord.
-  // Bars absent from this map are bars this suite has no ground truth for,
-  // and every caller must skip them rather than treat missing as a mismatch.
-  for (const [bar, notes] of byBar) {
-    if (notes.length) pcs.set(bar, Math.min(...notes.map((n) => n.midi)) % 12);
+  for (const chord of log.chords) {
+    // nameChord always spells the root first: 'C6', 'Em7', 'Gadd9sus4'.
+    const named = /^([A-G][#b]?)/.exec(chord.name);
+    if (named) pcs.set(chord.bar, pitchClass(named[1]));
   }
   return pcs;
 }
@@ -3229,7 +3261,7 @@ test('v12 bass: root pitch-class on strong beats, in ≥95% of sounding bars', (
   // this holds for any repetition.
   const log = await hookRun({ seconds: 60, seed: 9101, repetition: 0.8 });
   assert.ok(log.bars.length >= 10, `only ${log.bars.length} bars`);
-  const rootPc = padRootPcByBar(log);
+  const rootPc = chordRootPcByBar(log);
   const bassByBar = log.byBar('bass');
 
   const window = [...bassByBar.keys()]
@@ -3243,7 +3275,7 @@ test('v12 bass: root pitch-class on strong beats, in ≥95% of sounding bars', (
     const downbeat = bassByBar.get(bar).filter((n) => n.offset < 1e-6);
     if (!downbeat.length) continue;
     const expected = rootPc.get(bar);
-    if (expected === undefined) continue;   // the pad rested this bar — no ground truth
+    if (expected === undefined) continue;   // no chord was announced for this bar
     strongBeats += 1;
     if (downbeat.every((n) => n.midi % 12 === expected)) strongMatches += 1;
   }
@@ -3261,7 +3293,7 @@ function pcDistance(a, b) {
 
 test('v12 bass: non-root tones are the fifth/octave, or a late approach note into the next root', () => hiddenTab(async () => {
   const log = await hookRun({ seconds: 60, seed: 9102, repetition: 0.5 });
-  const rootPc = padRootPcByBar(log);
+  const rootPc = chordRootPcByBar(log);
   const bassByBar = log.byBar('bass');
   let checked = 0;
   let approaches = 0;
@@ -3783,6 +3815,241 @@ test('bassGrooveOp: bar 0 of every 4-bar cycle states the groove, and randomness
   }
   for (const op of BASS_GROOVE_OPS) assert.ok(seen.has(op), `bassGrooveOp never produced '${op}' across 800 bars`);
 });
+
+// --------------------------------------------------------------------------
+// v24 — the bass craft pass. The v14 groove got the NOTES right and still did
+// not sound like a bassist; these are the properties that separate the two.
+// --------------------------------------------------------------------------
+
+test('v24 bass: the groove keeps its own pulse when there is no kit to lock to', () => {
+  const starts = [0, 1, 2, 3];
+  for (let seed = 1; seed <= 60; seed++) {
+    const groove = buildBassGroove({
+      starts, beats: 4, intensity: 0.5, complexity: 0.5, lowLane: null, rng: seededRng(seed),
+    });
+    const pulses = new Set(groove.steps
+      .filter((step) => starts.some((start) => Math.abs(start - step.beat) < 1e-9))
+      .map((step) => step.beat));
+    // A line with no drums under it used to fill each non-anchor pulse on an
+    // independent coin flip, which is a density, not a groove. It must now hold
+    // a regular stride through the bar's pulses, the same way it holds a kick.
+    const stride = [1, 2, 3].find((n) => starts.filter((_, i) => i % n === 0).every((b) => pulses.has(b)));
+    assert.ok(stride !== undefined,
+      `seed ${seed}: the drummerless pulses [${[...pulses].join(', ')}] follow no stride at all`);
+  }
+});
+
+test('v24 bass: note length is part of the groove — one bar carries several distinct gates', () => {
+  const spreads = [];
+  for (let seed = 1; seed <= 40; seed++) {
+    const groove = buildBassGroove({
+      starts: [0, 1, 2, 3], beats: 4, intensity: 0.6, complexity: 0.6, rng: seededRng(seed),
+    });
+    const gates = new Set(groove.steps.map((step) => step.gate.toFixed(3)));
+    assert.ok(gates.size >= 2,
+      `seed ${seed}: every step of the groove was the same length (${[...gates].join(', ')})`);
+    for (const step of groove.steps) {
+      assert.ok(step.gate >= 0.12 - 1e-9 && step.gate <= 1 + 1e-9,
+        `seed ${seed}: a gate of ${step.gate} is outside the playable range`);
+    }
+    spreads.push(gates.size);
+  }
+  const mean = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+  assert.ok(mean >= 3, `the average groove carried only ${mean.toFixed(2)} distinct note lengths`);
+
+  // The phrase ending: the bar's last note either rings across the barline (a
+  // held line, handed over by the mono glide) or lifts off it, never neither.
+  for (let seed = 1; seed <= 40; seed++) {
+    const groove = buildBassGroove({
+      starts: [0, 1, 2, 3], beats: 4, intensity: 0.6, complexity: 0.6, rng: seededRng(seed),
+    });
+    const tail = groove.steps[groove.steps.length - 1];
+    assert.ok(groove.feel === 'held' ? tail.gate === 1 : tail.gate <= 0.45,
+      `seed ${seed}: a '${groove.feel}' groove ended its bar on a gate of ${tail.gate}`);
+  }
+});
+
+test('v24 bass fills: only ever the last bar of an eight-bar count, and rare even there', () => {
+  // Never in the opening bars of a section, at any variation or intensity.
+  for (let bar = 0; bar < 7; bar++) {
+    for (let seed = 1; seed <= 40; seed++) {
+      assert.notEqual(bassGrooveOp(bar, 1, seededRng(seed), 'state', 1), 'fill',
+        `bar ${bar} of a section is too early for a fill — the ear has not learnt the line yet`);
+    }
+  }
+
+  // Reachable at the turnaround, and only there.
+  const rng = seededRng(555);
+  const positions = new Map();
+  let fills = 0;
+  let previous = 'state';
+  const bars = 4000;
+  for (let bar = 1; bar < bars; bar++) {
+    const at = bar % 32;
+    const op = bassGrooveOp(at, 0.7, rng, previous, 0.5);
+    previous = at % 4 === 0 ? 'state' : op;
+    if (op !== 'fill') continue;
+    fills += 1;
+    positions.set(at, (positions.get(at) ?? 0) + 1);
+  }
+  assert.ok(fills > 0, 'no bar in 4000 ever turned around');
+  assert.deepEqual([...positions.keys()].sort((a, b) => a - b), [7, 15, 23, 31],
+    'a fill landed somewhere other than the last bar of an eight-bar count');
+  assert.ok(fills / bars <= 0.08,
+    `${((fills / bars) * 100).toFixed(1)}% of bars filled — a fill that common is just the line`);
+
+  // A quiet section barely fills at all; a loud one fills more often.
+  const rate = (intensity) => {
+    const own = seededRng(818);
+    let hits = 0;
+    for (let bar = 0; bar < 2000; bar++) hits += bassGrooveOp(7, 0.7, own, 'state', intensity) === 'fill' ? 1 : 0;
+    return hits / 2000;
+  };
+  assert.ok(rate(0.15) < rate(0.9), 'intensity does not scale how often the line turns around');
+
+  // And a fill is never said twice running, however sticky the variation is.
+  for (let seed = 1; seed <= 60; seed++) {
+    assert.notEqual(bassGrooveOp(9, 0.1, seededRng(seed), 'fill', 0.5), 'fill',
+      `seed ${seed}: a fill repeated itself on the bar after one`);
+  }
+});
+
+test('v24 bass fills: the turnaround clears the tail of the bar and leaves the pulses alone', () => {
+  const starts = [0, 1, 2, 3];
+  const base = {
+    feel: 'mixed',
+    beats: 4,
+    pocket: 0,
+    steps: [
+      { beat: 0, tone: 'root', gate: 0.95, accent: true },
+      { beat: 2, tone: 'root', gate: 0.5, accent: false },
+      { beat: 3, tone: 'root', gate: 0.5, accent: false },
+      { beat: 3.5, tone: 'fifth', gate: 0.35, accent: false, ghost: true },
+    ],
+  };
+  for (let seed = 1; seed <= 12; seed++) {
+    const filled = developBassGroove(base, 'fill', { starts, rng: seededRng(seed) });
+    const run = filled.steps.filter((step) => step.fill === true);
+    assert.ok(run.length >= 2, `seed ${seed}: a fill of ${run.length} note(s) is not a run`);
+    for (const step of run) {
+      assert.ok(step.beat > base.beats - 1, `seed ${seed}: a fill note at beat ${step.beat} is not in the turnaround`);
+      assert.ok(!starts.some((start) => Math.abs(start - step.beat) < 1e-9),
+        `seed ${seed}: a fill note took a felt pulse, which owes the root`);
+    }
+    // The bar still lands where it did: every felt pulse survives, still root.
+    for (const start of [0, 2, 3]) {
+      const kept = filled.steps.find((step) => Math.abs(step.beat - start) < 1e-9);
+      assert.ok(kept && kept.tone === 'root', `seed ${seed}: the fill disturbed the pulse on beat ${start}`);
+    }
+    // The old tail is gone rather than crowded by the run.
+    assert.ok(!filled.steps.some((step) => Math.abs(step.beat - 3.5) < 1e-9 && step.fill !== true),
+      `seed ${seed}: the groove's own tail note played underneath the fill`);
+  }
+});
+
+test('v24 bass pocket: one constant lay-back for the whole line, never early, never per note',
+  () => hiddenTab(async () => {
+    // bpm 120 at speed 1 gives half-second beats, so a sixteenth is 0.125 s and
+    // every onset the groove can produce sits exactly on that grid. Swing is off,
+    // which leaves the pocket as the only thing that can move a note off it.
+    const sixteenth = (60 / 120) / 4;
+    const deviations = async (timing) => {
+      const log = await soloRun('bass', { randomness: 0.3, vary: { timing, volume: 0, voice: 0 } },
+        { seconds: 50, seed: 8801, bpm: 120, speed: 1, swing: 0 });
+      const notes = log.notes.filter((note) => note.track === 'bass');
+      assert.ok(notes.length >= 40, `only ${notes.length} bass notes to judge`);
+      const barAt = (note) => log.barOf(note);
+      return notes.map((note) => {
+        const offset = note.time - barAt(note).time;
+        return offset - Math.round(offset / sixteenth) * sixteenth;
+      });
+    };
+
+    const laidBack = await deviations(1);
+    const distinct = new Set(laidBack.map((d) => d.toFixed(6)));
+    assert.equal(distinct.size, 1,
+      `the bass sat in ${distinct.size} different places against the beat — that is jitter, not a pocket`);
+    const pocket = laidBack[0];
+    assert.ok(pocket > 1e-4, `the bass sat ${(pocket * 1000).toFixed(1)} ms off the grid — no lay-back at all`);
+    assert.ok(pocket <= 0.025 + 1e-9, `a ${(pocket * 1000).toFixed(1)} ms lay-back is past the humanisation bound`);
+
+    // The dial still means what it says: no humanisation, no pocket.
+    const tight = await deviations(0);
+    for (const d of tight) {
+      assert.ok(Math.abs(d) < 1e-9, `vary.timing 0 must leave the bass exactly on the grid, got ${d}`);
+    }
+  }));
+
+test('v24 bass contour: ghosts are genuinely quiet after shaping, and the anchor is genuinely an accent',
+  () => hiddenTab(async () => {
+    const log = await soloRun('bass', { randomness: 0.5, vary: { timing: 0, volume: 0.5, voice: 0 } },
+      { seconds: 60, seed: 8802, complexity: 0.8 });
+    const notes = log.notes.filter((note) => note.track === 'bass');
+    assert.ok(notes.length >= 100, `only ${notes.length} bass notes to judge`);
+
+    // Ghosts survive the volume jitter and the engine's own velocity clamp.
+    const ghosts = notes.filter((note) => note.velocity <= BASS_GHOST_CEILING);
+    assert.ok(ghosts.length >= notes.length * 0.05,
+      `only ${ghosts.length} of ${notes.length} bass notes were ghosts — the line has no quiet gestures in it`);
+
+    // The anchor is worth hearing as one: a downbeat against the loudest ghost.
+    const downbeats = notes
+      .filter((note) => Math.abs(note.time - log.barOf(note).time) < 1e-6)
+      .map((note) => note.velocity);
+    assert.ok(downbeats.length >= 10, `only ${downbeats.length} anchors to judge`);
+    const softestAnchor = Math.min(...downbeats);
+    const loudestGhost = Math.max(...ghosts.map((note) => note.velocity));
+    assert.ok(softestAnchor >= 0.8,
+      `the quietest anchor came out at ${softestAnchor.toFixed(3)} — that is not an accent`);
+    assert.ok(loudestGhost * 2.3 <= softestAnchor,
+      `the loudest ghost (${loudestGhost.toFixed(3)}) is within earshot of the quietest anchor `
+      + `(${softestAnchor.toFixed(3)}) — the contour is flat`);
+  }));
+
+test('v24 bass articulation: a rendered bar carries several distinct note lengths',
+  () => hiddenTab(async () => {
+    const log = await soloRun('bass', { randomness: 0.2, vary: { timing: 0, volume: 0, voice: 0 } },
+      { seconds: 60, seed: 8803, complexity: 0.7 });
+    const byBar = log.byBar('bass');
+    const spreads = [...byBar.values()]
+      .filter((notes) => notes.length >= 4)
+      .map((notes) => new Set(notes.map((note) => note.duration.toFixed(3))).size);
+    assert.ok(spreads.length >= 20, `only ${spreads.length} bars of four notes or more to judge`);
+    assert.ok(Math.min(...spreads) >= 3,
+      'a bar of four bass notes came out with fewer than three distinct lengths — that is a pump, not a line');
+    const mean = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+    assert.ok(mean >= 3.5, `the average bar carried only ${mean.toFixed(2)} distinct note lengths`);
+  }));
+
+test('v24 bass: a modulating structure states its groove and holds it, instead of re-rolling every bar',
+  () => hiddenTab(async () => {
+    // `waves` hands out a fresh section intensity for EVERY bar (a cosine over a
+    // sixteen-bar period), and `build` ramps one. Keying the groove on that
+    // number to three decimals re-rolled the line bar by bar under both, which
+    // is to say the v14 groove never engaged at all for two of the five
+    // structure presets — the user's "low-pitch random" verdict, literally.
+    for (const structure of ['waves', 'build']) {
+      const log = await soloRun('bass', { randomness: 0, vary: { timing: 0, volume: 0, voice: 0 } },
+        { seconds: 70, seed: 8804, structure, complexity: 0.5 });
+      const byBar = log.byBar('bass');
+      const bars = [...byBar.keys()].filter((bar) => bar >= 3).sort((a, b) => a - b);
+      assert.ok(bars.length >= 20, `${structure}: only ${bars.length} bass bars to judge`);
+      const onsets = (bar) => new Set((byBar.get(bar) ?? []).map((note) => note.offset.toFixed(3)));
+      const agreements = [];
+      for (let i = 1; i < bars.length; i++) {
+        const a = onsets(bars[i - 1]);
+        const b = onsets(bars[i]);
+        let shared = 0;
+        for (const beat of a) if (b.has(beat)) shared += 1;
+        agreements.push(shared / new Set([...a, ...b]).size);
+      }
+      const mean = agreements.reduce((x, y) => x + y, 0) / agreements.length;
+      assert.ok(mean >= 0.7,
+        `${structure}: bass onsets agreed bar-to-bar only ${mean.toFixed(2)} of the time — the groove is re-rolling`);
+      assert.ok(agreements.filter((value) => value > 0.99).length >= agreements.length * 0.6,
+        `${structure}: fewer than three bars in five simply restated the line`);
+    }
+  }));
 
 /** Every field this suite needs before it can drive v13/v14 features at all. */
 function v14Shipped() {
@@ -5287,13 +5554,12 @@ test('v21: the range default drives every consumer, and a zeroed range freezes t
         .sort((a, b) => a - b);
       assert.ok(bars.length >= 20, `only ${bars.length} bass bars to judge`);
       return new Set(bars.map((bar) => byBar.get(bar)
-        .map((n) => `${n.offset.toFixed(3)}:${n.velocity.toFixed(4)}:${n.duration.toFixed(4)}`)
+        .map((n) => `${tick(n.offset)}:${n.velocity.toFixed(4)}:${n.duration.toFixed(4)}`)
         .join(',')));
     };
 
     // Seed 7002 is the one the v14 number-0 hold test uses, so the two forms
-    // are judged against the same piece — and its bar offsets stay clear of the
-    // float boundary that makes a 0.938 read back as 0.937 on some others.
+    // are judged against the same piece.
     assert.equal((await rhythm({ min: 0, max: 0 }, 7002)).size, 1,
       'a zeroed randomness RANGE did not hold the way the number 0 does');
     assert.ok((await rhythm({ min: 0, max: 0.6 }, 7102)).size > 1,
@@ -5752,7 +6018,11 @@ async function chordRun(params, wanted, seed = 7301) {
   const enough = await advanceUntil(() => chords.length > wanted, wanted + 40, FAST);
   engine.stop();
   assert.ok(enough, `only ${chords.length} chord events, wanted more than ${wanted}`);
-  return chords;
+  // Trimmed to the window that was asked for: advanceUntil checks its condition
+  // once per clock step, so a loaded machine can overshoot by a bar or two, and
+  // two runs compared against each other must be compared over the SAME window
+  // rather than over however far each happened to get.
+  return chords.slice(0, wanted + 1);
 }
 
 test('v21: a fixed harmony.rhythm holds every chord for exactly that many bars', () => hiddenTab(async () => {
@@ -5901,7 +6171,7 @@ test('v21: each new mode keeps the tune in its own scale and the bass on the cho
 
       // The bass: the root of the chord the pad is voicing, on the downbeat.
       const log = await hookRun({ seconds: 60, seed: 7502, repetition: 0.8, mode, root: 'C' });
-      const rootPc = padRootPcByBar(log);
+      const rootPc = chordRootPcByBar(log);
       const bassByBar = log.byBar('bass');
       const window = [...bassByBar.keys()]
         .filter((bar) => bar >= 2 && bar <= Math.min(FIRST_PASS_BAR_CEILING, log.bars.length - 2))
@@ -6278,6 +6548,17 @@ async function settleWithin(promise, seconds, { step = 0.12, sleep = 8 } = {}) {
 const FAST = { step: 0.5, sleep: 10 };
 
 /**
+ * An onset as a string, for signatures that ask whether two bars are the same
+ * bar. `toFixed` alone is not safe here: a beat position that lands exactly on
+ * a half-tick of the chosen decimal (0.9375 s at 240 bpm, against three places)
+ * reads back as 0.938 when the arithmetic happens to be exact and 0.937 when it
+ * accumulated a femtosecond of float error, which makes one bar of an otherwise
+ * frozen line look different from the rest. Rounding to a tenth of a millisecond
+ * FIRST puts every value the engine can schedule well clear of the tie.
+ */
+const tick = (seconds) => (Math.round(seconds * 1e4) / 1e4).toFixed(4);
+
+/**
  * Run `fn` with the tab reported hidden, which widens the engine's scheduling
  * lookahead from 0.12 s to 2.5 s. That is what makes the 0.5 s clock jumps of
  * FAST safe: the scheduler still sees every bar, it just plans further ahead.
@@ -6307,8 +6588,10 @@ function seqLane(step = {}) {
 function record(engine) {
   const notes = [];
   const bars = [];
+  const chords = [];
   engine.on('note', (note) => notes.push(note));
   engine.on('bar', (bar) => bars.push(bar));
+  engine.on('chord', (chord) => chords.push(chord));
   const barOf = (note) => {
     let owner = null;
     for (const bar of bars) {
@@ -6320,6 +6603,7 @@ function record(engine) {
   return {
     notes,
     bars,
+    chords,
     barOf,
     /** Map of bar number → that bar's notes, each carrying its bar-relative offset. */
     byBar(track) {
