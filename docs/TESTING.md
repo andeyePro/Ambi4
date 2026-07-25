@@ -95,3 +95,11 @@ The six most valuable things to tell the orchestrator:
 4. Per-voice verdicts: which voices sound bad/harsh/mislevelled and need tuning.
 5. Consent flow: anything persisted before you accepted, or after "No thanks"?
 6. iPhone: Play worked? silent-switch result? any layout overflow?
+
+## v6 delta (2026-07-25)
+- [ ] Sleep timer now lives behind the clock icon by Play; "Schedule start" behind the alarm icon (tab-open warning appears only there). Both popovers: Esc closes, countdown chips show when armed.
+- [ ] Melody and Bass now DEFAULT TO OFF - expected silence from them on a fresh visit; click a track name/state to wake them.
+- [ ] Tracks list: per-track Level knob (click it to switch to a min-max drifting range, double-click resets). Random button, Hold toggle, Randomness knob per track.
+- [ ] Step sequencers at the top of Melody/Bass/Arp/Percussion editors (Auto/Manual): click cells on/off, drag vertically for the velocity band, [ ] or , . for probability. Percussion has three lanes; the Arp lane length follows its rate.
+- [ ] Voice editors open when a track row gains focus; only applicable knobs show per voice (e.g. Wash shows no oscillator section).
+- [ ] Heat check: leave it playing 10 min - the machine should run much cooler than the previous build (30 fps visuals, no glow blur).

@@ -13,6 +13,18 @@
  * this suite passes whether or not the voice library exists yet. Assertions
  * about what the engine plays therefore look at 'note' events rather than at
  * oscillator counts, which belong to whichever voice set happened to load.
+ *
+ * Two things shape almost every playback test here:
+ *
+ *  - Staged entry (v8, ruling 7): a piece starts with the pad alone and lets
+ *    one more track in per bar, in TRACK_ORDER — pad 0, bass 1, melody 2,
+ *    texture 3, arp 4, percussion 5 — for EVERY structure preset, whatever the
+ *    track states say. Any test that wants to hear a track must therefore skip
+ *    past its stage bar first.
+ *  - The fast clock (`hiddenTab`): a hidden tab widens the engine's lookahead
+ *    from 0.12 s to 2.5 s, so the mock clock can be driven in 0.5 s jumps
+ *    instead of 0.08 s ones. That buys ~4× more audio per second of wall time,
+ *    which is what keeps a suite this size under a minute.
  */
 
 import assert from 'node:assert/strict';
@@ -138,8 +150,9 @@ class MockAudioContext {
 
 globalThis.AudioContext = MockAudioContext;
 
+const engineModule = await import('../src/scripts/ambient-engine.js');
+
 const {
-  createEngine,
   sanitiseParams,
   quantiseToScale,
   scaleDegreeToMidi,
@@ -157,6 +170,8 @@ const {
   midiToFreq,
   pitchClass,
   isSupported,
+  sequencerStepsPerBar,
+  arpLaneLength,
   FALLBACK_VOICES,
   SCALES,
   TIME_SIGNATURES,
@@ -164,7 +179,24 @@ const {
   ARP_RATES,
   ARP_PATTERNS,
   DEFAULT_PARAMS,
-} = await import('../src/scripts/ambient-engine.js');
+  SEQUENCED_TRACKS,
+  SEQUENCER_STEP_COUNT,
+  PERCUSSION_LANES,
+  VARY_ASPECTS,
+} = engineModule;
+
+/**
+ * Every engine the suite builds, so the runner can stop one that a failed
+ * assertion left running: a leaked ticker keeps scheduling notes into the
+ * shared voice banks, and the next test then measures the wrong piece.
+ */
+const builtEngines = [];
+
+function createEngine(...args) {
+  const made = engineModule.createEngine(...args);
+  builtEngines.push(made);
+  return made;
+}
 
 /**
  * The voice bank the engine will actually use for `pad`. If engine-voices.js is
@@ -675,7 +707,11 @@ test('sanitiseParams merges arp deeply and clamps every field', () => {
 test('sanitiseParams merges tracks deeply and rejects bad states', () => {
   const tracks = sanitiseParams({}).tracks;
   assert.deepEqual(Object.keys(tracks), [...TRACK_ORDER]);
-  for (const name of TRACK_ORDER) assert.equal(tracks[name].state, 'auto');
+  // v8: melody and bass ship silent until the musicality rework passes the
+  // user's subjective "catchy" gate; everything else still defaults to auto.
+  assert.deepEqual(Object.fromEntries(TRACK_ORDER.map((n) => [n, tracks[n].state])), {
+    pad: 'auto', bass: 'off', melody: 'off', texture: 'auto', arp: 'auto', percussion: 'auto',
+  });
   assert.equal(tracks.arp.voice, 'softPluck');
   assert.equal(tracks.percussion.voice, 'soft');
 
@@ -691,8 +727,8 @@ test('sanitiseParams merges tracks deeply and rejects bad states', () => {
   assert.equal(set.pad.state, 'off');
   assert.equal(set.pad.voice, 'warm', 'a state-only update keeps the voice');
   assert.equal(set.bass.voice, 'round');
-  assert.equal(set.bass.state, 'auto');
-  assert.equal(set.melody.state, 'auto', 'an unknown state falls back');
+  assert.equal(set.bass.state, 'off', 'a voice-only update keeps the shipped state');
+  assert.equal(set.melody.state, 'off', 'an unknown state falls back to the stored one');
   assert.equal(set.texture.state, 'on');
   assert.equal(set.texture.voice, 'chimes');
   assert.equal('nonsense' in set, false);
@@ -891,7 +927,7 @@ test('engine emits bar, section and note events in sane time order', async () =>
   assert.equal(bars.length, before, 'unsubscribed listener still fired');
 });
 
-test('arp quantises to its grid in every rate, including 7/8', async () => {
+test('arp quantises to its grid in every rate, including 7/8', () => hiddenTab(async () => {
   const secPerBeat = 60 / 240; // bpm 120 × speed 2
   for (const [rate, stepBeats] of Object.entries(ARP_RATES)) {
     for (const sig of ['4/4', '7/8']) {
@@ -902,21 +938,30 @@ test('arp quantises to its grid in every rate, including 7/8', async () => {
         structure: 'drone',
         repetition: 0,
         arp: { mode: 'manual', rate, octaves: 2, gate: 0.6, steps: new Array(16).fill(true) },
-        tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'arp' ? 'on' : 'off' }])),
+        // randomness 0: the default 0.5 humanises timing by ±≤25 ms, which is
+        // exactly what a grid assertion must not have to tolerate.
+        tracks: Object.fromEntries(TRACK_ORDER.map((n) => [
+          n, n === 'arp' ? { state: 'on', randomness: 0 } : { state: 'off' },
+        ])),
       });
       const bars = [];
       const notes = [];
       engine.on('bar', (e) => bars.push(e));
       engine.on('note', (e) => notes.push(e));
       await engine.start();
-      await advance(4, { step: 0.12, sleep: 16 });
+      await advance(14, FAST);
       engine.stop();
 
+      // The arp is the fifth track in, so bars 0–3 are staged silent however
+      // hard the track is forced on: only bars 4 up can be judged.
+      const eligible = bars.filter((b) => b.bar >= 5).slice(0, -3);
+      assert.ok(eligible.length >= 4, `${sig} @${rate}: only ${eligible.length} eligible bars`);
       assert.ok(notes.length > 0, `${sig} @${rate}: arp played nothing`);
       assert.ok(notes.every((n) => n.track === 'arp'), 'only the arp should be audible here');
       const expectedPerBar = Math.ceil(beatsPerBar(sig) / stepBeats - 1e-6);
       for (const note of notes) {
         const owner = [...bars].reverse().find((b) => b.time <= note.time + 1e-9);
+        assert.ok(owner.bar >= 4, `${sig} @${rate}: the arp jumped its staged entry (bar ${owner.bar})`);
         const offsetBeats = (note.time - owner.time) / secPerBeat;
         const steps = offsetBeats / stepBeats;
         assert.ok(Math.abs(steps - Math.round(steps)) < 1e-6,
@@ -924,18 +969,17 @@ test('arp quantises to its grid in every rate, including 7/8', async () => {
         assert.ok(offsetBeats < beatsPerBar(sig) - 1e-6, 'an arp step overran the bar');
         assert.ok(note.duration <= stepBeats * secPerBeat + 1e-9, 'gate must not exceed one step');
       }
-      // every full step of the bar fires with an all-on mask (the final bar is
-      // dropped: the clock stopped part way through scheduling it)
-      const counts = bars
-        .slice(0, -1)
+      // every full step of an eligible bar fires with an all-on mask (the last
+      // few bars are dropped: the clock stopped part way through scheduling them)
+      const counts = eligible
         .map((b) => notes.filter((n) => n.time >= b.time - 1e-9 && n.time < b.time + beatsPerBar(sig) * secPerBeat - 1e-9).length);
       assert.ok(counts.every((c) => c === expectedPerBar),
         `${sig} @${rate}: expected ${expectedPerBar} steps per bar, saw ${[...new Set(counts)]}`);
     }
   }
-});
+}));
 
-test('arp honours the manual step mask', async () => {
+test('arp honours the manual step mask', () => hiddenTab(async () => {
   const steps = new Array(16).fill(false);
   steps[0] = true;
   const engine = createEngine({
@@ -944,28 +988,35 @@ test('arp honours the manual step mask', async () => {
     timeSignature: '4/4',
     structure: 'drone',
     arp: { mode: 'manual', rate: '1/4', octaves: 1, gate: 0.5, steps },
-    tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'arp' ? 'on' : 'off' }])),
+    // randomness 0 keeps the ±≤25 ms timing humanisation out of the way.
+    tracks: Object.fromEntries(TRACK_ORDER.map((n) => [
+      n, n === 'arp' ? { state: 'on', randomness: 0 } : { state: 'off' },
+    ])),
   });
   const bars = [];
   const notes = [];
   engine.on('bar', (e) => bars.push(e));
   engine.on('note', (e) => notes.push(e));
   await engine.start();
-  await advance(9, { step: 0.12, sleep: 16 });
+  await advance(16, FAST);
   engine.stop();
 
   // The mask is bar-anchored: with only step 0 enabled, exactly one note per
-  // bar, on the barline (the final part-scheduled bar may lack its note).
-  assert.ok(bars.length >= 8, `only ${bars.length} bars`);
-  assert.ok(notes.length >= bars.length - 2, 'the enabled step must fire every bar');
-  assert.ok(notes.length <= bars.length,
-    `mask ignored: ${notes.length} notes across ${bars.length} bars`);
-  for (const note of notes) {
-    const owner = [...bars].reverse().find((b) => b.time <= note.time + 1e-9);
-    assert.ok(Math.abs(note.time - owner.time) < 1e-6,
-      `masked arp fired ${note.time - owner.time}s after the barline`);
+  // bar, on the barline — from bar 4, where the arp's staged entry lets it in
+  // (the last part-scheduled bars are dropped).
+  const barSeconds = 4 * (60 / 240);
+  const eligible = bars.filter((b) => b.bar >= 5).slice(0, -3);
+  assert.ok(eligible.length >= 5, `only ${eligible.length} eligible bars`);
+  for (const barEvent of eligible) {
+    const inBar = notes.filter((n) => n.time >= barEvent.time - 1e-9
+      && n.time < barEvent.time + barSeconds - 1e-9);
+    assert.equal(inBar.length, 1, `bar ${barEvent.bar}: one enabled step, ${inBar.length} notes`);
+    assert.ok(Math.abs(inBar[0].time - barEvent.time) < 1e-6,
+      `masked arp fired ${inBar[0].time - barEvent.time}s after the barline`);
   }
-});
+  assert.ok(notes.every((n) => [...bars].reverse().find((b) => b.time <= n.time + 1e-9).bar >= 4),
+    'the arp sounded before its staged entry');
+}));
 
 test('percussion stays sparse when it plays', async () => {
   const engine = createEngine({
@@ -1005,20 +1056,22 @@ test('percussion stays sparse when it plays', async () => {
   assert.ok(nearStart.length >= lows.length / 2, 'low pulses should sit near bar starts');
 });
 
-test('auto tracks join in order as intensity and complexity rise', async () => {
+test('auto tracks join in order as intensity and complexity rise', () => hiddenTab(async () => {
+  // Every track on 'auto' — the v8 defaults ship melody and bass 'off', which
+  // would take them out of the auto decision this test exists to check.
   const played = async (params, seconds) => {
-    const engine = createEngine(params);
+    const engine = createEngine({ ...params, tracks: tracksAll('auto') });
     const tracks = new Set();
     engine.on('note', (n) => tracks.add(n.track));
     await engine.start();
-    await advance(seconds, { step: 0.12, sleep: 16 });
+    await advance(seconds, FAST);
     engine.stop();
     return tracks;
   };
 
   const calm = await played({
     bpm: 120, speed: 2, complexity: 0, structure: 'drone', repetition: 0.5,
-  }, 6);
+  }, 10);
   assert.ok(calm.size > 0, 'the calmest setting played nothing at all');
   for (const track of calm) {
     assert.ok(['pad', 'bass'].includes(track), `${track} should not be active at complexity 0`);
@@ -1031,11 +1084,11 @@ test('auto tracks join in order as intensity and complexity rise', async () => {
     repetition: 0,
     structure: 'custom',
     customStructure: [{ label: 'D', bars: 8, intensity: 1 }],
-  }, 12);
+  }, 16);
   for (const track of TRACK_ORDER) {
     assert.ok(busy.has(track), `${track} never joined at full intensity and complexity`);
   }
-});
+}));
 
 test('an unknown voice id falls back instead of going silent', async () => {
   const engine = createEngine({
@@ -1361,7 +1414,13 @@ test('the current voice patch reaches play() as its fourth argument', async () =
       bpm: 120,
       speed: 2,
       structure: 'drone',
-      tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'pad' ? 'on' : 'off', voice: n === 'pad' ? 'patchSpyA' : undefined }])),
+      // vary.voice 0 pins the sounding voice: left null it follows the default
+      // randomness macro and wanders, which is a question for the vary tests.
+      tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, {
+        state: n === 'pad' ? 'on' : 'off',
+        voice: n === 'pad' ? 'patchSpyA' : undefined,
+        vary: { voice: 0 },
+      }])),
       patches: { pad: { patchSpyA: { adsr: { attack: 0.5, release: 4 }, sends: { reverb: 0.9 } } } },
     });
     const expected = engine.getParams().patches.pad.patchSpyA;
@@ -1395,6 +1454,9 @@ test('per-track sends follow the current voice patch', async () => {
   const engine = createEngine({
     bpm: 120,
     speed: 2,
+    // vary.voice 0 everywhere: a wandering voice would swap its own
+    // defaults.sends in underneath the assertions below.
+    tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { vary: { voice: 0 } }])),
     patches: {
       pad: { warm: { sends: { reverb: 0.9, delay: 0.8 } } },
       bass: { sub: { sends: { delay: 0.5 } } },
@@ -1591,8 +1653,14 @@ test('stop() cancels sounding notes so tails cannot resurrect on restart', async
   try {
     const engine = createEngine({
       bpm: 120, speed: 2, structure: 'drone',
+      // vary.voice 0 keeps the pad on the spy voice: a wander would hand the
+      // notes to a real voice and the cancel handles would never be recorded.
       tracks: Object.fromEntries(TRACK_ORDER.map((n) => [
-        n, { state: n === 'pad' ? 'on' : 'off', voice: n === 'pad' ? 'cancelSpy' : undefined },
+        n, {
+          state: n === 'pad' ? 'on' : 'off',
+          voice: n === 'pad' ? 'cancelSpy' : undefined,
+          vary: { voice: 0 },
+        },
       ])),
     });
     await engine.start();
@@ -1621,7 +1689,7 @@ test('stop() cancels sounding notes so tails cannot resurrect on restart', async
   }
 });
 
-test('arp step mask stays bar-anchored at 1/8T', async () => {
+test('arp step mask stays bar-anchored at 1/8T', () => hiddenTab(async () => {
   // 12 triplet-eighth steps per 4/4 bar do not divide the 16-step mask, so a
   // mask phase carried across bars rotates a single enabled step through
   // offsets 0, 12, 8, 4 (the v2 bug). Bar-anchored, it must hit the barline
@@ -1634,28 +1702,39 @@ test('arp step mask stays bar-anchored at 1/8T', async () => {
     timeSignature: '4/4',
     structure: 'drone',
     arp: { mode: 'manual', rate: '1/8T', octaves: 2, gate: 0.6, steps },
-    tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'arp' ? 'on' : 'off' }])),
+    // randomness 0 keeps the ±≤25 ms timing humanisation out of the way.
+    tracks: Object.fromEntries(TRACK_ORDER.map((n) => [
+      n, n === 'arp' ? { state: 'on', randomness: 0 } : { state: 'off' },
+    ])),
   });
   const bars = [];
   const notes = [];
   engine.on('bar', (e) => bars.push(e));
   engine.on('note', (e) => notes.push(e));
   await engine.start();
-  await advance(9, { step: 0.12, sleep: 16 });
+  await advance(16, FAST);
   engine.stop();
 
-  assert.ok(bars.length >= 6, `only ${bars.length} bars`);
-  assert.ok(notes.length >= bars.length - 2,
-    `enabled step 0 must fire every bar: ${notes.length} notes in ${bars.length} bars`);
-  assert.ok(notes.length <= bars.length, 'more notes than bars from a one-step mask');
+  // Bars 0–3 are the staged entry ahead of the arp's slot, so only bar 4 up
+  // can carry a note at all.
+  const barSeconds = 4 * (60 / 240);
+  const eligible = bars.filter((b) => b.bar >= 5).slice(0, -3);
+  assert.ok(eligible.length >= 5, `only ${eligible.length} eligible bars`);
+  for (const barEvent of eligible) {
+    const inBar = notes.filter((n) => n.time >= barEvent.time - 1e-9
+      && n.time < barEvent.time + barSeconds - 1e-9);
+    assert.equal(inBar.length, 1,
+      `bar ${barEvent.bar}: a one-step mask must fire once, saw ${inBar.length}`);
+  }
   for (const note of notes) {
     const owner = [...bars].reverse().find((b) => b.time <= note.time + 1e-9);
+    assert.ok(owner.bar >= 4, 'the arp sounded before its staged entry');
     assert.ok(Math.abs(note.time - owner.time) < 1e-6,
       `mask phase drifted: a note landed ${note.time - owner.time}s into its bar`);
   }
-});
+}));
 
-test('percussion bank is invalidated when the metre changes', async () => {
+test('percussion bank is invalidated when the metre changes', () => hiddenTab(async () => {
   const engine = createEngine({
     bpm: 120,
     speed: 2,
@@ -1671,7 +1750,9 @@ test('percussion bank is invalidated when the metre changes', async () => {
   engine.on('bar', (e) => bars.push(e));
   engine.on('note', (e) => notes.push(e));
   await engine.start();
-  await advance(4, { step: 0.12, sleep: 16 });
+  // Percussion is the last track of the staged entry, so nothing lands before
+  // bar 5 — at 1.25 s per 5/4 bar that is the first ~6 s of the piece.
+  await advance(14, FAST);
   assert.ok(notes.length > 0, 'no percussion before the metre change');
 
   const secPerBeat = 60 / 240;
@@ -1683,7 +1764,7 @@ test('percussion bank is invalidated when the metre changes', async () => {
 
   engine.setParams({ timeSignature: '3/4' });
   const preCount = notes.length;
-  await advance(6, { step: 0.12, sleep: 16 });
+  await advance(14, FAST);
   engine.stop();
 
   const firstNewBar = bars.find((b) => b.beatsPerBar === 3);
@@ -1699,7 +1780,7 @@ test('percussion bank is invalidated when the metre changes', async () => {
   // bank generates a fresh pattern whose random offsets cannot all coincide.
   const fresh = postOffsets.some((o) => !preOffsets.some((p) => Math.abs(p - o) < 1e-6));
   assert.ok(fresh, 'post-change percussion still replays the old metre\'s bank');
-});
+}));
 
 test('resume() and onstatechange recover a non-running context', async () => {
   const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' });
@@ -1738,6 +1819,968 @@ test('resume() and onstatechange recover a non-running context', async () => {
 });
 
 // --------------------------------------------------------------------------
+// v6–v8 params — level, randomness, hold, vary, sequencers
+// --------------------------------------------------------------------------
+
+test('level and randomness take a number or a {min,max} range', () => {
+  const base = sanitiseParams({});
+  for (const name of TRACK_ORDER) {
+    assert.equal(base.tracks[name].level, 0.8, `${name}: level ships at 0.8`);
+    assert.equal(base.tracks[name].randomness, 0.5, `${name}: randomness ships at 0.5`);
+    assert.equal(typeof base.tracks[name].randomness, 'number',
+      `${name}: randomness stays a NUMBER default — no range may ship before the page probe widens`);
+  }
+
+  const set = (patch) => sanitiseParams({ tracks: { pad: patch } }).tracks.pad;
+  assert.deepEqual(set({ level: { min: 0.2, max: 0.6 } }).level, { min: 0.2, max: 0.6 });
+  assert.deepEqual(set({ level: { min: 0.9, max: 0.1 } }).level, { min: 0.1, max: 0.9 },
+    'a reversed range is swapped, not rejected');
+  assert.deepEqual(set({ level: { min: -4, max: 44 } }).level, { min: 0, max: 1 },
+    'both bounds clamp into the param range');
+  assert.deepEqual(set({ randomness: { min: 1, max: 0 } }).randomness, { min: 0, max: 1 });
+  assert.equal(set({ level: 0.25 }).level, 0.25);
+  assert.equal(set({ level: 9 }).level, 1);
+  assert.equal(set({ level: -9 }).level, 0);
+  assert.equal(set({ randomness: '0.25' }).randomness, 0.25, 'a number-input string still counts');
+
+  // a half-formed or unusable range is rejected outright, never guessed at
+  assert.equal(set({ level: { min: 0.2 } }).level, 0.8, 'a {min}-only range falls back to the default');
+  assert.equal(set({ level: { max: 0.2 } }).level, 0.8);
+  assert.equal(set({ level: { min: 'a', max: 'b' } }).level, 0.8);
+  assert.equal(set({ level: 'nope' }).level, 0.8);
+  assert.equal(set({ level: [0.2, 0.6] }).level, 0.8, 'an array is not a range');
+  assert.equal(set({ randomness: {} }).randomness, 0.5);
+
+  // a stored range survives unrelated edits, and getParams hands back a copy
+  const engine = createEngine({ tracks: { pad: { level: { min: 0.3, max: 0.7 } } } });
+  engine.setParams({ bpm: 90 });
+  assert.deepEqual(engine.getParams().tracks.pad.level, { min: 0.3, max: 0.7 });
+  const snapshot = engine.getParams();
+  snapshot.tracks.pad.level.min = 0;
+  assert.equal(engine.getParams().tracks.pad.level.min, 0.3, 'getParams leaked the live range object');
+});
+
+test('hold is a boolean and the five vary aspects are 0–1 or null', () => {
+  const base = sanitiseParams({});
+  for (const name of TRACK_ORDER) {
+    assert.equal(base.tracks[name].hold, false, `${name} must not ship held`);
+    assert.deepEqual(Object.keys(base.tracks[name].vary), [...VARY_ASPECTS]);
+    assert.deepEqual([...VARY_ASPECTS], ['voice', 'volume', 'pitch', 'timing', 'pan']);
+    for (const aspect of VARY_ASPECTS) {
+      assert.equal(base.tracks[name].vary[aspect], null,
+        `${name}.${aspect} defaults to null — "follow this track's randomness"`);
+    }
+  }
+
+  const set = (patch) => sanitiseParams({ tracks: { melody: patch } }).tracks.melody;
+  assert.equal(set({ hold: true }).hold, true);
+  assert.equal(set({ hold: 1 }).hold, true);
+  assert.equal(set({ hold: 0 }).hold, false);
+  assert.equal(set({ hold: '' }).hold, false);
+
+  const vary = set({ vary: { voice: 0.25, volume: 2, pitch: -1, timing: null, pan: 'nope' } }).vary;
+  assert.equal(vary.voice, 0.25);
+  assert.equal(vary.volume, 1, 'an aspect clamps to 0–1');
+  assert.equal(vary.pitch, 0);
+  assert.equal(vary.timing, null, 'null is a legal value, not a missing one');
+  assert.equal(vary.pan, null, 'an unusable aspect falls back to its default');
+  assert.equal('nonsense' in set({ vary: { nonsense: 1 } }).vary, false);
+
+  // deep merge, aspect by aspect
+  const stored = sanitiseParams({ tracks: { melody: { vary: { pan: 0.6, timing: 0.2 } } } });
+  const merged = sanitiseParams({ tracks: { melody: { vary: { timing: 0.9 } } } }, stored).tracks.melody.vary;
+  assert.equal(merged.timing, 0.9);
+  assert.equal(merged.pan, 0.6, 'an unmentioned aspect keeps its stored value');
+  assert.equal(merged.voice, null);
+  assert.equal(sanitiseParams({ tracks: { melody: { vary: 'nope' } } }, stored).tracks.melody.vary.pan, 0.6,
+    'a junk vary block leaves the stored aspects alone');
+});
+
+test('every pulsed track gets a step grid, and no other track does', () => {
+  const tracks = sanitiseParams({}).tracks;
+  assert.deepEqual([...SEQUENCED_TRACKS], ['melody', 'bass', 'arp', 'percussion']);
+  for (const name of TRACK_ORDER) {
+    assert.equal('sequencer' in tracks[name], SEQUENCED_TRACKS.includes(name),
+      `${name}: sustained tracks have no pulse to sequence`);
+  }
+
+  for (const name of ['melody', 'bass', 'arp']) {
+    const seq = tracks[name].sequencer;
+    assert.equal(seq.mode, 'auto', `${name} starts generative`);
+    assert.ok(Array.isArray(seq.steps), `${name} is a single-lane sequencer`);
+    assert.equal(seq.steps.length, SEQUENCER_STEP_COUNT, `${name} persists all 20 slots`);
+    for (const step of seq.steps) {
+      assert.deepEqual(step, { on: true, prob: 1, vmin: 0.5, vmax: 0.9 });
+    }
+  }
+
+  const perc = tracks.percussion.sequencer;
+  assert.equal(perc.mode, 'auto');
+  assert.deepEqual(Object.keys(perc.steps), [...PERCUSSION_LANES]);
+  assert.deepEqual([...PERCUSSION_LANES], ['low', 'mid', 'high']);
+  for (const lane of PERCUSSION_LANES) {
+    assert.equal(perc.steps[lane].length, SEQUENCER_STEP_COUNT);
+    for (const step of perc.steps[lane]) {
+      assert.deepEqual(step, { on: true, prob: 1, vmin: 0.5, vmax: 0.9 });
+    }
+  }
+});
+
+test('sequencer steps validate, swap vmin/vmax and expand bare booleans', () => {
+  const lane = (steps) => sanitiseParams({ tracks: { melody: { sequencer: { steps } } } })
+    .tracks.melody.sequencer.steps;
+
+  assert.deepEqual(lane([false, true])[0], { on: false, prob: 1, vmin: 0.5, vmax: 0.9 },
+    'a bare boolean expands to a full step');
+  assert.deepEqual(lane([false, true])[1], { on: true, prob: 1, vmin: 0.5, vmax: 0.9 });
+  assert.deepEqual(lane([false, true])[2], { on: true, prob: 1, vmin: 0.5, vmax: 0.9 },
+    'slots the caller did not send keep their stored value');
+  assert.equal(lane([false]).length, SEQUENCER_STEP_COUNT, 'a short lane still keeps 20 slots');
+  assert.equal(lane(new Array(40).fill(false)).length, SEQUENCER_STEP_COUNT, 'a long lane truncates');
+
+  assert.deepEqual(lane([{ on: 1, prob: 5, vmin: -1, vmax: 9 }])[0],
+    { on: true, prob: 1, vmin: 0, vmax: 1 }, 'every field clamps');
+  assert.deepEqual(lane([{ on: true, prob: 0.5, vmin: 0.9, vmax: 0.1 }])[0],
+    { on: true, prob: 0.5, vmin: 0.1, vmax: 0.9 }, 'vmin ≤ vmax is enforced');
+  assert.deepEqual(lane([{ on: true, prob: { min: 0.8, max: 0.2 } }])[0],
+    { on: true, prob: { min: 0.2, max: 0.8 }, vmin: 0.5, vmax: 0.9 },
+    'step probability is rangeable, and a reversed range swaps');
+  assert.deepEqual(lane(['nope'])[0], { on: true, prob: 1, vmin: 0.5, vmax: 0.9 },
+    'a junk step keeps the stored one');
+
+  const mode = (m) => sanitiseParams({ tracks: { bass: { sequencer: { mode: m } } } }).tracks.bass.sequencer.mode;
+  assert.equal(mode('manual'), 'manual');
+  assert.equal(mode('auto'), 'auto');
+  assert.equal(mode('sideways'), 'auto');
+
+  // percussion takes its three lanes one at a time
+  const perc = sanitiseParams({
+    tracks: { percussion: { sequencer: { mode: 'manual', steps: { mid: [{ on: false }] } } } },
+  }).tracks.percussion.sequencer;
+  assert.equal(perc.mode, 'manual');
+  assert.equal(perc.steps.mid[0].on, false);
+  assert.equal(perc.steps.mid[0].prob, 1, 'the fields a partial step omits keep their stored values');
+  assert.equal(perc.steps.mid.length, SEQUENCER_STEP_COUNT);
+  assert.equal(perc.steps.low[0].on, true, 'an untouched lane keeps its steps');
+});
+
+test('the legacy arp.steps mask maps into the arp lane and leaves slots 16–19 alone', () => {
+  const mask = new Array(16).fill(true);
+  mask[3] = false;
+  mask[15] = false;
+
+  const mapped = sanitiseParams({ arp: { steps: mask } });
+  const lane = mapped.tracks.arp.sequencer.steps;
+  assert.equal(lane.length, SEQUENCER_STEP_COUNT);
+  for (let i = 0; i < 16; i++) {
+    assert.deepEqual(lane[i], { on: mask[i], prob: 1, vmin: 0.5, vmax: 0.9 },
+      `slot ${i} must mirror the legacy mask, banded 0.5–0.9`);
+  }
+  assert.deepEqual(mapped.arp.steps, mask, 'the legacy field itself still round-trips');
+
+  // slots 16–19 belong to the longer metres; a 16-step mask must not touch them
+  const stored = sanitiseParams({
+    tracks: {
+      arp: {
+        sequencer: {
+          steps: Array.from({ length: SEQUENCER_STEP_COUNT }, (unused, i) => ({
+            on: i % 2 === 0, prob: 0.4, vmin: 0.1, vmax: 0.2,
+          })),
+        },
+      },
+    },
+  });
+  const after = sanitiseParams({ arp: { steps: mask } }, stored).tracks.arp.sequencer.steps;
+  assert.deepEqual(after[3], { on: false, prob: 1, vmin: 0.5, vmax: 0.9 },
+    'the mask still writes the slots it covers');
+  for (let i = 16; i < SEQUENCER_STEP_COUNT; i++) {
+    assert.deepEqual(after[i], { on: i % 2 === 0, prob: 0.4, vmin: 0.1, vmax: 0.2 },
+      `slot ${i} is outside the legacy mask and must survive it`);
+  }
+
+  // the sequencer lane is the source of truth: sent together, it wins
+  const both = sanitiseParams({
+    arp: { steps: mask },
+    tracks: { arp: { sequencer: { steps: [{ on: true, prob: 0.25, vmin: 0.3, vmax: 0.4 }] } } },
+  }).tracks.arp.sequencer.steps;
+  assert.deepEqual(both[0], { on: true, prob: 0.25, vmin: 0.3, vmax: 0.4 });
+  assert.equal(both[3].on, true, 'an explicit lane replaces the legacy mask outright');
+});
+
+test('the legacy top-level percussion param merges in and never comes back out', () => {
+  const legacy = {
+    percussion: { mode: 'manual', steps: { low: [{ on: false, prob: 0.5, vmin: 0.2, vmax: 0.3 }] } },
+  };
+  const params = sanitiseParams(legacy);
+  assert.equal('percussion' in params, false, 'the legacy param must never be emitted');
+  const seq = params.tracks.percussion.sequencer;
+  assert.equal(seq.mode, 'manual');
+  assert.deepEqual(seq.steps.low[0], { on: false, prob: 0.5, vmin: 0.2, vmax: 0.3 });
+  assert.equal(seq.steps.mid[0].on, true, 'the lanes it did not mention are untouched');
+
+  const engine = createEngine(legacy);
+  assert.equal('percussion' in engine.getParams(), false);
+  assert.equal(engine.getParams().tracks.percussion.sequencer.mode, 'manual');
+  engine.setParams({ percussion: { mode: 'auto' } });
+  assert.equal(engine.getParams().tracks.percussion.sequencer.mode, 'auto',
+    'a legacy update must still reach the authoritative home');
+
+  // tracks.percussion.sequencer is authoritative when both arrive together
+  const both = sanitiseParams({
+    percussion: { mode: 'manual' },
+    tracks: { percussion: { sequencer: { mode: 'auto' } } },
+  });
+  assert.equal(both.tracks.percussion.sequencer.mode, 'auto');
+});
+
+test('DEFAULT_PARAMS stays deeply frozen through merges', () => {
+  const frozen = {
+    'DEFAULT_PARAMS': DEFAULT_PARAMS,
+    'tracks': DEFAULT_PARAMS.tracks,
+    'tracks.pad': DEFAULT_PARAMS.tracks.pad,
+    'tracks.pad.vary': DEFAULT_PARAMS.tracks.pad.vary,
+    'tracks.melody.sequencer': DEFAULT_PARAMS.tracks.melody.sequencer,
+    'tracks.melody.sequencer.steps': DEFAULT_PARAMS.tracks.melody.sequencer.steps,
+    'tracks.melody.sequencer.steps[0]': DEFAULT_PARAMS.tracks.melody.sequencer.steps[0],
+    'tracks.percussion.sequencer.steps.low[0]': DEFAULT_PARAMS.tracks.percussion.sequencer.steps.low[0],
+    'arp': DEFAULT_PARAMS.arp,
+    'arp.steps': DEFAULT_PARAMS.arp.steps,
+    'customStructure[0]': DEFAULT_PARAMS.customStructure[0],
+  };
+  for (const [path, value] of Object.entries(frozen)) {
+    assert.ok(Object.isFrozen(value), `DEFAULT_PARAMS.${path} is not frozen`);
+  }
+
+  // a merge must copy, never hand back — or write through — the frozen defaults
+  const merged = sanitiseParams({ bpm: 90 });
+  assert.notEqual(merged.tracks, DEFAULT_PARAMS.tracks);
+  assert.notEqual(merged.tracks.melody.sequencer.steps[0], DEFAULT_PARAMS.tracks.melody.sequencer.steps[0]);
+  merged.tracks.melody.sequencer.steps[0].on = false;
+  merged.tracks.percussion.sequencer.steps.low[0].prob = 0;
+  merged.tracks.pad.vary.pan = 1;
+  merged.arp.steps[0] = false;
+  merged.customStructure[0].bars = 3;
+  assert.equal(DEFAULT_PARAMS.tracks.melody.sequencer.steps[0].on, true);
+  assert.equal(DEFAULT_PARAMS.tracks.percussion.sequencer.steps.low[0].prob, 1);
+  assert.equal(DEFAULT_PARAMS.tracks.pad.vary.pan, null);
+  assert.equal(DEFAULT_PARAMS.arp.steps[0], true);
+  assert.equal(DEFAULT_PARAMS.customStructure[0].bars, 8);
+
+  // and the defaults must survive a full round trip back through the sanitiser
+  assert.deepEqual(sanitiseParams(JSON.parse(JSON.stringify(DEFAULT_PARAMS))), sanitiseParams({}));
+  const engine = createEngine(DEFAULT_PARAMS);
+  engine.setParams({ tracks: { percussion: { sequencer: { steps: { low: [false] } } } } });
+  assert.equal(engine.getParams().tracks.percussion.sequencer.steps.low[0].on, false);
+  assert.equal(DEFAULT_PARAMS.tracks.percussion.sequencer.steps.low[0].on, true);
+});
+
+test('the step grid is sixteenths per metre, and the arp lane follows its rate', () => {
+  assert.equal(SEQUENCER_STEP_COUNT, 20, 'every lane persists 20 slots');
+  assert.equal(sequencerStepsPerBar('3/4'), 12);
+  assert.equal(sequencerStepsPerBar('4/4'), 16);
+  assert.equal(sequencerStepsPerBar('5/4'), 20);
+  assert.equal(sequencerStepsPerBar('6/8'), 12);
+  assert.equal(sequencerStepsPerBar('7/8'), 14);
+
+  // ruling 9a: the arp lane is indexed by arp step at the current rate
+  assert.equal(arpLaneLength('4/4', '1/4'), 4);
+  assert.equal(arpLaneLength('4/4', '1/8'), 8);
+  assert.equal(arpLaneLength('4/4', '1/16'), 16);
+  assert.equal(arpLaneLength('4/4', '1/8T'), 12, 'ceil(4 / (1/3)) triplet eighths');
+  assert.equal(arpLaneLength('3/4', '1/8'), 6);
+  assert.equal(arpLaneLength('7/8', '1/16'), 14);
+  for (const sig of Object.keys(TIME_SIGNATURES)) {
+    for (const rate of Object.keys(ARP_RATES)) {
+      const length = arpLaneLength(sig, rate);
+      assert.ok(length >= 1 && length <= SEQUENCER_STEP_COUNT,
+        `${sig} @${rate}: lane length ${length} does not fit the 20 slots`);
+    }
+  }
+});
+
+// --------------------------------------------------------------------------
+// v6–v8 playback — determinism, staged entry, shipped defaults
+// --------------------------------------------------------------------------
+
+test('the same rng seed plays the same piece; a different seed does not', () => hiddenTab(async () => {
+  const params = {
+    bpm: 120, speed: 2, complexity: 0.8, repetition: 0.4, structure: 'journey',
+    tracks: tracksAll('on'),
+  };
+  const capture = async (seed) => {
+    const engine = createEngine(params, { rng: seededRng(seed) });
+    const log = record(engine);
+    await engine.start();
+    await advance(22, FAST);
+    engine.stop();
+    assert.ok(log.bars.length >= 17, `only ${log.bars.length} bars`);
+    const horizon = log.bars[16].time;   // the first 16 bars, complete
+    return log.notes.filter((n) => n.time < horizon).map((n) => [
+      n.track, n.midi, n.kind, n.time.toFixed(6), n.velocity.toFixed(6), n.duration.toFixed(6),
+    ].join('|'));
+  };
+
+  const first = await capture(1234);
+  const again = await capture(1234);
+  assert.ok(first.length > 40, `only ${first.length} notes across 16 bars`);
+  assert.deepEqual(again, first, 'the same seed must reproduce the piece note for note');
+
+  const other = await capture(99);
+  assert.notDeepEqual(other, first, 'a different seed must not replay the same piece');
+}));
+
+test('every structure preset stages its entry: bar 0 is the pad alone', () => hiddenTab(async () => {
+  for (const structure of ['drone', 'waves', 'build', 'abab', 'journey', 'auto', 'custom']) {
+    const engine = createEngine({
+      bpm: 120, speed: 2, complexity: 1, repetition: 0, structure,
+      customStructure: [{ label: 'D', bars: 8, intensity: 1 }],
+      tracks: tracksAll('on'),
+    }, { rng: seededRng(404) });
+    const log = record(engine);
+    await engine.start();
+    await advance(10, FAST);
+    engine.stop();
+
+    assert.ok(log.bars.length >= 8, `${structure}: only ${log.bars.length} bars`);
+    for (const note of log.notes) {
+      const owner = log.barOf(note);
+      assert.ok(owner, `${structure}: a note preceded every bar`);
+      const stage = TRACK_ORDER.indexOf(note.track);
+      assert.ok(owner.bar >= stage,
+        `${structure}: ${note.track} sounded in bar ${owner.bar}, before its stage bar ${stage}`);
+    }
+    const opening = log.notes.filter((n) => log.barOf(n).bar === 0);
+    assert.ok(opening.length > 0, `${structure}: bar 0 was silent`);
+    assert.ok(opening.every((n) => n.track === 'pad'),
+      `${structure}: bar 0 played ${[...new Set(opening.map((n) => n.track))]} — pad only`);
+  }
+}));
+
+test('all six tracks are eligible by bar 5, forced on or on auto', () => hiddenTab(async () => {
+  const firstBars = async (tracks, seed) => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+      customStructure: [{ label: 'D', bars: 8, intensity: 1 }], tracks,
+    }, { rng: seededRng(seed) });
+    const log = record(engine);
+    await engine.start();
+    await advance(16, FAST);
+    engine.stop();
+    const first = {};
+    for (const note of log.notes) {
+      const owner = log.barOf(note);
+      if (!owner) continue;
+      first[note.track] = Math.min(first[note.track] ?? Infinity, owner.bar);
+    }
+    return first;
+  };
+
+  const forced = await firstBars(tracksAll('on'), 17);
+  for (const track of TRACK_ORDER) {
+    const stage = TRACK_ORDER.indexOf(track);
+    assert.ok(Number.isFinite(forced[track]), `${track} never played even forced on`);
+    assert.ok(forced[track] >= stage, `${track} sounded in bar ${forced[track]}, before stage ${stage}`);
+    assert.ok(forced[track] <= 5, `${track} waited until bar ${forced[track]} — all six are due by bar 5`);
+  }
+
+  const auto = await firstBars(tracksAll('auto'), 23);
+  for (const track of TRACK_ORDER) {
+    assert.ok(Number.isFinite(auto[track]), `${track} never joined at full intensity on auto`);
+    assert.ok(auto[track] >= TRACK_ORDER.indexOf(track), `${track} jumped its staged entry on auto`);
+  }
+}));
+
+test('melody and bass ship off and stay silent at the defaults', () => hiddenTab(async () => {
+  assert.equal(DEFAULT_PARAMS.tracks.melody.state, 'off');
+  assert.equal(DEFAULT_PARAMS.tracks.bass.state, 'off');
+  for (const track of ['pad', 'texture', 'arp', 'percussion']) {
+    assert.equal(DEFAULT_PARAMS.tracks[track].state, 'auto', `${track} still ships on auto`);
+  }
+
+  const engine = createEngine();   // the shipped defaults, 60 bpm, nothing overridden
+  const log = record(engine);
+  await engine.start();
+  await advance(45, FAST);
+  engine.stop();
+  assert.ok(log.bars.length >= 9, `only ${log.bars.length} bars at the default tempo`);
+  assert.ok(log.notes.length > 0, 'the defaults played nothing at all');
+  assert.deepEqual(log.notes.filter((n) => n.track === 'melody' || n.track === 'bass'), [],
+    'melody and bass must be silent until the user switches them on');
+}));
+
+// --------------------------------------------------------------------------
+// v6 — hold and randomise()
+// --------------------------------------------------------------------------
+
+/**
+ * The realised bar plan of a track: which onsets fired, at what velocity, per
+ * bar. Pitch is deliberately left out — held material keeps following the
+ * harmony, so the notes may change while the plan does not.
+ *
+ * The held tracks below all run `vary.timing: 0`: the ±≤25 ms humanisation is
+ * drawn per note and would both blur the onsets and push a note over a barline
+ * into the wrong bar, which is a question about vary, not about hold.
+ */
+function barPlans(log, track) {
+  const plans = new Map();
+  for (const bar of log.bars) plans.set(bar.bar, []);
+  for (const note of log.notes) {
+    if (note.track !== track) continue;
+    const owner = log.barOf(note);
+    if (!owner) continue;
+    plans.get(owner.bar).push(`${(note.time - owner.time).toFixed(6)}@${note.velocity.toFixed(6)}`);
+  }
+  return plans;
+}
+
+const planOf = (plans, bar) => (plans.get(bar) || []).join('|');
+const barRange = (from, to) => Array.from({ length: to - from + 1 }, (unused, i) => from + i);
+
+/**
+ * The loop length (1–4 bars) the plans over `bars` settle on, or 0 if they
+ * never repeat. Held material is frozen, but the material may be a multi-bar
+ * phrase — "frozen" therefore means periodic, not bar-for-bar identical.
+ */
+function loopLength(plans, bars) {
+  for (let period = 1; period <= 4; period++) {
+    if (bars.length < period * 2) break;
+    const repeats = bars.every((bar, i) => i < period
+      || planOf(plans, bar) === planOf(plans, bars[i - period]));
+    if (repeats) return period;
+  }
+  return 0;
+}
+
+const planSet = (plans, bars) => new Set(bars.map((bar) => planOf(plans, bar)));
+
+test('hold loops the realised material while the harmony keeps moving', () => hiddenTab(async () => {
+  const run = async (hold) => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6, repetition: 0.3,
+      tracks: {
+        ...tracksAll('off'),
+        pad: { state: 'on' },
+        melody: {
+          state: 'on', hold, randomness: 0.5, vary: { timing: 0 },
+          sequencer: { mode: 'manual', steps: seqLane({ prob: 0.5 }) },
+        },
+      },
+    }, { rng: seededRng(31) });
+    const log = record(engine);
+    try {
+      await engine.start();
+      await advance(20, FAST);
+    } finally {
+      engine.stop();
+    }
+    return log;
+  };
+
+  const window = barRange(6, 15);
+  const held = await run(true);
+  const plans = barPlans(held, 'melody');
+  assert.ok(held.bars.length > 16, `only ${held.bars.length} bars`);
+  assert.ok(window.some((bar) => planOf(plans, bar).length > 0), 'the held melody never played');
+  const period = loopLength(plans, window);
+  assert.ok(period > 0,
+    `the held material never settled into a loop: ${window.map((b) => planOf(plans, b)).join('\n')}`);
+
+  // the harmony must keep advancing underneath the frozen material
+  const chords = new Set();
+  for (const bar of window) {
+    const chord = held.notes
+      .filter((n) => n.track === 'pad' && held.barOf(n).bar === bar)
+      .map((n) => n.midi).sort((a, b) => a - b).join(',');
+    if (chord) chords.add(chord);
+  }
+  assert.ok(chords.size > 1, 'the pad never changed chord, so nothing proves harmony advanced');
+
+  // the same settings unheld must NOT loop, or the test proves nothing
+  const free = barPlans(await run(false), 'melody');
+  assert.equal(loopLength(free, window), 0,
+    'the unheld control looped too — hold proves nothing here');
+}));
+
+test('randomise() re-rolls held material exactly once', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+    tracks: {
+      ...tracksAll('off'),
+      melody: {
+        state: 'on', hold: true, randomness: 0.5, vary: { timing: 0 },
+        sequencer: { mode: 'manual', steps: seqLane({ prob: 0.5 }) },
+      },
+    },
+  }, { rng: seededRng(77) });
+  const log = record(engine);
+  try {
+    await engine.start();
+    await advance(12, FAST);
+    engine.randomise('melody');
+    await advance(16, FAST);
+  } finally {
+    engine.stop();
+  }
+
+  const plans = barPlans(log, 'melody');
+  const before = barRange(6, 11);
+  const after = barRange(18, 25);
+  assert.ok(log.bars.length > 26, `only ${log.bars.length} bars`);
+  assert.ok(loopLength(plans, before) > 0, 'the melody was not held before randomise()');
+  assert.ok(before.some((bar) => planOf(plans, bar).length > 0), 'the held melody never played');
+
+  assert.notDeepEqual([...planSet(plans, after)].sort(), [...planSet(plans, before)].sort(),
+    'randomise() did not re-roll the held material');
+  assert.ok(loopLength(plans, after) > 0,
+    'the re-rolled material must hold again — randomise() re-rolls exactly once');
+
+  const idle = createEngine();
+  idle.randomise();               // a no-op while stopped, but never a throw
+  idle.randomise('melody');
+  idle.randomise('nonsense');
+}));
+
+test('releasing hold resumes normal generation', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+    tracks: {
+      ...tracksAll('off'),
+      melody: {
+        state: 'on', hold: true, randomness: 0.5, vary: { timing: 0 },
+        sequencer: { mode: 'manual', steps: seqLane({ prob: 0.5 }) },
+      },
+    },
+  }, { rng: seededRng(129) });
+  const log = record(engine);
+  try {
+    await engine.start();
+    await advance(14, FAST);
+    engine.setParams({ tracks: { melody: { hold: false } } });
+    await advance(18, FAST);
+  } finally {
+    engine.stop();
+  }
+
+  const plans = barPlans(log, 'melody');
+  const held = barRange(6, 11);
+  const released = barRange(20, 27);
+  assert.ok(log.bars.length > 28, `only ${log.bars.length} bars`);
+  assert.ok(loopLength(plans, held) > 0, 'the plan was not held to begin with');
+  const heldPlans = planSet(plans, held);
+  assert.ok(released.some((bar) => !heldPlans.has(planOf(plans, bar))),
+    'the material stayed frozen after hold was released');
+}));
+
+// --------------------------------------------------------------------------
+// v6 amendment — manual step sequencers
+// --------------------------------------------------------------------------
+
+test('a manual sequencer fills the metre prefix at prob 1 and stays silent at prob 0', () => hiddenTab(async () => {
+  const full = await soloRun('melody', {
+    randomness: 0, sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+  });
+  const bars44 = [...full.byBar('melody')].filter(([bar]) => bar >= 3 && bar <= 11);
+  assert.ok(bars44.length >= 6, `only ${bars44.length} bars to judge`);
+  for (const [bar, notes] of bars44) {
+    assert.equal(notes.length, 16, `bar ${bar}: 4/4 uses the first 16 of the 20 slots`);
+  }
+
+  // the grid is sixteenths, so every onset sits on a sixteenth of the bar
+  const sixteenth = (60 / 240) / 4;
+  for (const [, notes] of bars44) {
+    for (const note of notes) {
+      const steps = note.offset / sixteenth;
+      assert.ok(Math.abs(steps - Math.round(steps)) < 1e-6,
+        `an onset ${note.offset}s into the bar is off the sixteenth grid`);
+    }
+  }
+
+  const six = await soloRun('melody', {
+    randomness: 0, sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+  }, { timeSignature: '6/8' });
+  const bars68 = [...six.byBar('melody')].filter(([bar]) => bar >= 3 && bar <= 11);
+  assert.ok(bars68.length >= 6, `only ${bars68.length} bars of 6/8 to judge`);
+  for (const [bar, notes] of bars68) {
+    assert.equal(notes.length, 12, `bar ${bar}: 6/8 uses the first 12 slots`);
+  }
+
+  const silent = await soloRun('melody', {
+    sequencer: { mode: 'manual', steps: seqLane({ prob: 0 }) },
+  });
+  assert.deepEqual(silent.notes, [], 'prob 0 must never fire');
+}));
+
+test('manual sequencer velocities stay inside the step band', () => hiddenTab(async () => {
+  const banded = await soloRun('melody', {
+    randomness: 0, vary: { volume: 0 },
+    sequencer: { mode: 'manual', steps: seqLane({ prob: 1, vmin: 0.35, vmax: 0.75 }) },
+  });
+  const velocities = banded.notes.map((n) => n.velocity);
+  assert.ok(velocities.length > 40, `only ${velocities.length} notes to judge the band`);
+  for (const velocity of velocities) {
+    assert.ok(velocity >= 0.35 - 1e-9 && velocity <= 0.75 + 1e-9,
+      `velocity ${velocity} escaped the 0.35–0.75 band`);
+  }
+  assert.ok(Math.max(...velocities) - Math.min(...velocities) > 0.1,
+    'the band must be sampled across, not pinned to one value');
+
+  const pinned = await soloRun('melody', {
+    randomness: 0, vary: { volume: 0 },
+    sequencer: { mode: 'manual', steps: seqLane({ prob: 1, vmin: 0.5, vmax: 0.5 }) },
+  });
+  for (const note of pinned.notes) {
+    assert.ok(Math.abs(note.velocity - 0.5) < 1e-9, `a vmin=vmax step played at ${note.velocity}`);
+  }
+
+  // randomness jitters velocity on top of the band, but stays a velocity
+  const jittered = await soloRun('melody', {
+    randomness: 1,
+    sequencer: { mode: 'manual', steps: seqLane({ prob: 1, vmin: 0.5, vmax: 0.5 }) },
+  });
+  assert.ok(jittered.notes.length > 40, 'the jittered run played too little to judge');
+  for (const note of jittered.notes) {
+    assert.ok(note.velocity > 0 && note.velocity <= 1, `jittered velocity ${note.velocity} is not a velocity`);
+  }
+  const mean = jittered.notes.reduce((sum, n) => sum + n.velocity, 0) / jittered.notes.length;
+  assert.ok(Math.abs(mean - 0.5) < 0.2, `randomness pulled the mean velocity to ${mean}`);
+}));
+
+test('manual percussion lanes map to their kinds', () => hiddenTab(async () => {
+  const lanesOnly = (only) => Object.fromEntries(PERCUSSION_LANES.map((lane) => [
+    lane, seqLane({ on: lane === only, prob: 1, vmin: 0.4, vmax: 0.8 }),
+  ]));
+
+  for (const lane of PERCUSSION_LANES) {
+    const log = await soloRun('percussion', {
+      randomness: 0, sequencer: { mode: 'manual', steps: lanesOnly(lane) },
+    }, { seconds: 14 });
+    const notes = [...log.byBar('percussion')]
+      .filter(([bar]) => bar >= 6 && bar <= 11)
+      .flatMap(([, inBar]) => inBar);
+    assert.ok(notes.length > 0, `the ${lane} lane never fired`);
+    assert.ok(notes.every((n) => n.kind === lane),
+      `a ${lane}-only grid played ${[...new Set(notes.map((n) => n.kind))]}`);
+    assert.ok(notes.every((n) => n.midi === null), 'percussion notes carry no pitch');
+  }
+
+  const all = await soloRun('percussion', {
+    randomness: 0,
+    sequencer: {
+      mode: 'manual',
+      steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => [lane, seqLane({ prob: 1 })])),
+    },
+  }, { seconds: 14 });
+  const bars = [...all.byBar('percussion')].filter(([bar]) => bar >= 6 && bar <= 11);
+  assert.ok(bars.length >= 4, `only ${bars.length} bars of three-lane percussion`);
+  for (const [bar, notes] of bars) {
+    assert.equal(notes.length, 48, `bar ${bar}: three lanes × 16 sixteenths`);
+  }
+}));
+
+test('the manual arp lane is indexed by arp step at the current rate', () => hiddenTab(async () => {
+  for (const [rate, perBar] of [['1/4', 4], ['1/8', 8], ['1/8T', 12], ['1/16', 16]]) {
+    const log = await soloRun('arp', {
+      randomness: 0, sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+    }, { seconds: 14, arp: { mode: 'manual', rate, octaves: 2, gate: 0.5 } });
+    const bars = [...log.byBar('arp')].filter(([bar]) => bar >= 5 && bar <= 10);
+    assert.ok(bars.length >= 4, `${rate}: only ${bars.length} eligible bars`);
+    for (const [bar, notes] of bars) {
+      assert.equal(notes.length, perBar, `${rate}: bar ${bar} played ${notes.length} of ${perBar} steps`);
+    }
+  }
+
+  // a masked lane fires only its enabled slots, on that rate's grid
+  const masked = seqLane({ prob: 1 }).map((step, i) => ({ ...step, on: i === 0 }));
+  const log = await soloRun('arp', {
+    randomness: 0, sequencer: { mode: 'manual', steps: masked },
+  }, { seconds: 14, arp: { mode: 'manual', rate: '1/8T', octaves: 1, gate: 0.5 } });
+  const bars = [...log.byBar('arp')].filter(([bar]) => bar >= 5 && bar <= 10);
+  assert.ok(bars.length >= 4, `only ${bars.length} eligible bars`);
+  for (const [bar, notes] of bars) {
+    assert.equal(notes.length, 1, `bar ${bar}: only slot 0 is enabled`);
+    assert.ok(Math.abs(notes[0].offset) < 1e-6, 'slot 0 must sit on the barline');
+  }
+}));
+
+test('a rangeable step probability drifts between its bounds', () => hiddenTab(async () => {
+  const measure = async (prob, seed) => {
+    const log = await soloRun('melody', {
+      randomness: 0, sequencer: { mode: 'manual', steps: seqLane({ prob }) },
+    }, { seconds: 26, seed });
+    const byBar = log.byBar('melody');
+    const bars = log.bars.filter((b) => b.bar >= 3 && b.bar <= 20);
+    assert.ok(bars.length >= 12, `only ${bars.length} bars to measure`);
+    const perBar = bars.map((b) => (byBar.get(b.bar) || []).length);
+    return { perBar, rate: perBar.reduce((a, b) => a + b, 0) / (perBar.length * 16) };
+  };
+
+  assert.equal((await measure({ min: 1, max: 1 }, 61)).rate, 1, 'a range pinned at 1 fires every step');
+  assert.equal((await measure({ min: 0, max: 0 }, 62)).rate, 0, 'a range pinned at 0 never fires');
+
+  const drifting = await measure({ min: 0.2, max: 0.6 }, 63);
+  assert.ok(drifting.rate > 0.1 && drifting.rate < 0.7,
+    `hit rate ${drifting.rate} is nowhere near the 0.2–0.6 range`);
+  assert.ok(new Set(drifting.perBar).size > 1, 'the effective probability never moved');
+}));
+
+// --------------------------------------------------------------------------
+// v6 amendment 2 — per-track randomisation targets
+// --------------------------------------------------------------------------
+
+test('vary.timing humanises within ±25 ms, and an explicit aspect beats the macro', () => hiddenTab(async () => {
+  const sixteenth = (60 / 120) / 4;   // bpm 120, speed 1 → half-second beats
+  const deviations = async (randomness, timing, seed) => {
+    const log = await soloRun('melody', {
+      randomness, vary: { timing },
+      sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+    }, { seconds: 20, speed: 1, seed });
+    const notes = [...log.byBar('melody')].filter(([bar]) => bar >= 3).flatMap(([, inBar]) => inBar);
+    assert.ok(notes.length > 40, `only ${notes.length} notes to measure`);
+    return notes.map((n) => n.offset - Math.round(n.offset / sixteenth) * sixteenth);
+  };
+
+  const overridden = await deviations(1, 0, 71);
+  assert.ok(overridden.every((d) => Math.abs(d) < 1e-9),
+    'vary.timing 0 must override a maxed randomness macro');
+
+  const humanised = await deviations(0, 1, 72);
+  assert.ok(humanised.some((d) => Math.abs(d) > 1e-4),
+    'vary.timing 1 must override a zeroed randomness macro');
+  for (const d of humanised) {
+    assert.ok(Math.abs(d) <= 0.025 + 1e-6, `timing spread ${d}s exceeds the ±25 ms bound`);
+  }
+
+  const macro = await deviations(1, null, 73);
+  assert.ok(macro.some((d) => Math.abs(d) > 1e-4), 'a null aspect must follow the randomness macro');
+  for (const d of macro) {
+    assert.ok(Math.abs(d) <= 0.025 + 1e-6, `timing spread ${d}s exceeds the ±25 ms bound`);
+  }
+
+  const calm = await deviations(0, null, 74);
+  assert.ok(calm.every((d) => Math.abs(d) < 1e-9),
+    'randomness 0 with a null aspect must sit exactly on the grid');
+}));
+
+test('vary.pan widens the stereo spread with its amount', () => hiddenTab(async () => {
+  const bank = bankFor('melody');
+  const spy = spyOnBank(bank);
+  try {
+    const spread = async (pan, seed) => {
+      spy.plays.length = 0;
+      await soloRun('melody', {
+        randomness: 0, vary: { pan },
+        sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+      }, { seconds: 14, seed });
+      const pans = spy.plays.map((p) => p.note.pan);
+      assert.ok(pans.length > 30, `only ${pans.length} notes reached the voice`);
+      for (const value of pans) {
+        assert.ok(value >= -1 && value <= 1, `pan ${value} is outside -1..1`);
+      }
+      return Math.max(...pans) - Math.min(...pans);
+    };
+
+    const none = await spread(0, 81);
+    const half = await spread(0.5, 81);
+    const wide = await spread(1, 81);
+    assert.ok(wide > none + 0.2, `vary.pan 1 (${wide}) barely widened on vary.pan 0 (${none})`);
+    assert.ok(half >= none - 1e-9 && wide >= half - 1e-9,
+      `pan spread must grow with the amount: ${none} → ${half} → ${wide}`);
+  } finally {
+    spy.restore();
+  }
+}));
+
+test('vary.voice wanders the sounding voice; getParams keeps the user\'s', () => hiddenTab(async () => {
+  const bank = bankFor('melody');
+  const userVoice = Object.keys(bank)[0];
+  // A second voice guarantees somewhere to wander to, whichever bank loaded.
+  bank.varyStandIn = { label: 'Vary stand-in', play: bank[userVoice].play };
+  const spy = spyOnBank(bank);
+  try {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+      tracks: {
+        ...tracksAll('off'),
+        melody: {
+          state: 'on', voice: userVoice, randomness: 0, vary: { voice: 1 },
+          sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+        },
+      },
+    }, { rng: seededRng(515) });
+    await engine.start();
+    await advance(26, FAST);
+    engine.stop();
+    assert.ok(spy.plays.length > 0, 'the melody never sounded');
+    const sounded = new Set(spy.plays.map((p) => p.id));
+    assert.ok(sounded.size > 1, `vary.voice 1 never wandered: only ${[...sounded]} sounded`);
+    assert.equal(engine.getParams().tracks.melody.voice, userVoice,
+      'the wander is ephemeral — getParams must still report the user voice');
+
+    // an off track never evaluates the wander: off is absolute
+    spy.plays.length = 0;
+    const off = createEngine({
+      bpm: 120, speed: 2, structure: 'drone',
+      tracks: { ...tracksAll('off'), melody: { state: 'off', voice: userVoice, vary: { voice: 1 } } },
+    }, { rng: seededRng(516) });
+    await off.start();
+    await advance(12, FAST);
+    off.stop();
+    assert.equal(spy.plays.length, 0, 'an off track sounded');
+    assert.equal(off.getParams().tracks.melody.voice, userVoice);
+  } finally {
+    spy.restore();
+    delete bank.varyStandIn;
+  }
+}));
+
+// --------------------------------------------------------------------------
+// v8 — the gain chain: TRACK_MIX × clamp(level-drift × volume-walk, ·, 1)
+// --------------------------------------------------------------------------
+
+test('the track gain chain never breaks the mix ceiling', () => hiddenTab(async () => {
+  const settled = async (tracks, seed) => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.8, tracks,
+    }, { rng: seededRng(seed) });
+    await engine.start();
+    await advance(10, FAST);
+    const gains = trackGains(liveContexts[liveContexts.length - 1]);
+    const values = Object.fromEntries(TRACK_ORDER.map((n) => [n, gains[n].gain.value]));
+    engine.stop();
+    return values;
+  };
+
+  // level 1 with no walk IS the ceiling: TRACK_MIX × clamp(1, ·, 1)
+  const ceiling = await settled(tracksAll('on', { level: 1, randomness: 0 }), 91);
+  for (const name of TRACK_ORDER) {
+    assert.ok(ceiling[name] > 0.01 && ceiling[name] <= 1,
+      `${name}: ${ceiling[name]} is not a plausible mix level`);
+  }
+
+  const defaults = await settled(tracksAll('on', { randomness: 0 }), 92);
+  for (const name of TRACK_ORDER) {
+    assert.ok(defaults[name] <= ceiling[name] + 1e-9,
+      `${name}: the default level pushed past the mix ceiling`);
+    assert.ok(Math.abs(defaults[name] - 0.8 * ceiling[name]) < 1e-6,
+      `${name}: the 0.8 default level must scale the mix level, got ${defaults[name]}`);
+  }
+
+  // a maxed level range and a maxed volume walk still cannot lift the ceiling
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.8,
+    tracks: tracksAll('on', { level: { min: 0.9, max: 1 }, randomness: 1, vary: { volume: 1 } }),
+  }, { rng: seededRng(93) });
+  await engine.start();
+  const gains = trackGains(liveContexts[liveContexts.length - 1]);
+  const peak = Object.fromEntries(TRACK_ORDER.map((n) => [n, 0]));
+  for (let i = 0; i < 16; i++) {
+    await advance(1, FAST);
+    for (const name of TRACK_ORDER) peak[name] = Math.max(peak[name], gains[name].gain.value);
+  }
+  engine.stop();
+  for (const name of TRACK_ORDER) {
+    assert.ok(peak[name] <= ceiling[name] + 1e-9,
+      `${name}: gain reached ${peak[name]}, past the ${ceiling[name]} ceiling`);
+    assert.ok(peak[name] > ceiling[name] * 0.2, `${name}: the walk all but silenced the track`);
+  }
+}));
+
+test('a {min,max} level drifts inside its bounds, and hold freezes the walk', () => hiddenTab(async () => {
+  const samples = async (settings, seed) => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+      tracks: { ...tracksAll('off'), pad: { state: 'on', ...settings } },
+    }, { rng: seededRng(seed) });
+    await engine.start();
+    const gain = trackGains(liveContexts[liveContexts.length - 1]).pad;
+    const values = [];
+    for (let i = 0; i < 14; i++) {
+      await advance(1, FAST);
+      values.push(gain.gain.value);
+    }
+    engine.stop();
+    return values;
+  };
+
+  const ceiling = (await samples({ level: 1, randomness: 0 }, 101))[10];
+  assert.ok(ceiling > 0.01, 'the pad never opened');
+
+  const drifting = await samples({ level: { min: 0.2, max: 0.6 }, randomness: 0 }, 102);
+  for (const value of drifting) {
+    const ratio = value / ceiling;
+    assert.ok(ratio >= 0.2 - 1e-6 && ratio <= 0.6 + 1e-6,
+      `the level drifted to ${ratio} of the mix, outside its 0.2–0.6 bounds`);
+  }
+  assert.ok(new Set(drifting.map((v) => v.toFixed(9))).size > 1, 'a ranged level never drifted');
+
+  // level 0.5, not the 0.8 default: at 0.8 a maxed walk spends most of its
+  // time pinned against the clamp-to-1 ceiling, which is a different test.
+  const walking = await samples({ level: 0.5, randomness: 1, vary: { volume: 1 } }, 103);
+  assert.ok(new Set(walking.map((v) => v.toFixed(9))).size > 1, 'the volume walk never moved');
+
+  const held = await samples({ level: 0.5, randomness: 1, hold: true, vary: { volume: 1 } }, 103);
+  const frozen = new Set(held.slice(4).map((v) => v.toFixed(9)));
+  assert.equal(frozen.size, 1, `the volume walk kept moving under hold: ${[...frozen]}`);
+}));
+
+// --------------------------------------------------------------------------
+// v9 — power budget and per-track stats (feature-detected)
+// --------------------------------------------------------------------------
+
+test('getStats() reports the load and setPowerBudget() caps the voices', () => hiddenTab(async () => {
+  const probe = createEngine();
+  if (typeof probe.getStats !== 'function' || typeof probe.setPowerBudget !== 'function') {
+    console.log('     (skipped: this engine build has no v9 getStats()/setPowerBudget())');
+    return;
+  }
+
+  const maxNotes = 4;
+  const spies = TRACK_ORDER.map((track) => spyOnBank(bankFor(track)));
+  try {
+    const engine = createEngine({
+      bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+      customStructure: [{ label: 'D', bars: 8, intensity: 1 }],
+      tracks: tracksAll('on'),
+    }, { rng: seededRng(111) });
+    engine.setPowerBudget({ maxNotes });
+    const log = record(engine);
+    await engine.start();
+    await advance(20, FAST);
+    const stats = engine.getStats();
+    engine.stop();
+
+    // Voice-steal: count only notes that were never cancelled — a stolen note
+    // stops sounding, whatever its scheduled duration said.
+    const sounding = spies
+      .flatMap((spy) => spy.plays)
+      .filter((play) => !play.cancelled)
+      .map((play) => ({ start: play.note.when, end: play.note.when + play.note.duration }));
+    assert.ok(log.notes.length > 0, 'the budgeted engine went silent');
+    assert.ok(sounding.length > 20, `only ${sounding.length} notes reached a voice`);
+    for (const note of sounding) {
+      const live = sounding.filter((other) => other.start <= note.start + 1e-9
+        && note.start < other.end - 1e-9).length;
+      assert.ok(live <= maxNotes,
+        `${live} notes sounding at ${note.start}s with a ${maxNotes}-note budget`);
+    }
+
+    assert.ok(stats && typeof stats === 'object', 'getStats() returned nothing usable');
+    assert.ok(stats.perTrack && typeof stats.perTrack === 'object', 'getStats().perTrack is missing');
+    assert.notEqual(stats.total, undefined, 'getStats().total is missing');
+    for (const track of TRACK_ORDER) {
+      const per = stats.perTrack[track];
+      assert.ok(per, `getStats().perTrack.${track} is missing`);
+      for (const key of ['activeNotes', 'nodesEstimate', 'notesPerMin']) {
+        assert.ok(Number.isFinite(per[key]) && per[key] >= 0,
+          `getStats().perTrack.${track}.${key} is ${per[key]}`);
+      }
+    }
+  } finally {
+    for (const spy of spies) spy.restore();
+  }
+}));
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 
@@ -1768,6 +2811,147 @@ async function settleWithin(promise, seconds, { step = 0.12, sleep = 8 } = {}) {
     await new Promise((resolve) => setTimeout(resolve, sleep));
   }
   return settled;
+}
+
+/** Clock settings for the fast (hidden-tab) path — see the file header. */
+const FAST = { step: 0.5, sleep: 10 };
+
+/**
+ * Run `fn` with the tab reported hidden, which widens the engine's scheduling
+ * lookahead from 0.12 s to 2.5 s. That is what makes the 0.5 s clock jumps of
+ * FAST safe: the scheduler still sees every bar, it just plans further ahead.
+ */
+async function hiddenTab(fn) {
+  globalThis.document = { hidden: true, addEventListener() {} };
+  try {
+    return await fn();
+  } finally {
+    delete globalThis.document;
+  }
+}
+
+/** Every track forced to one state, with the same settings applied to each. */
+function tracksAll(state, common = {}) {
+  return Object.fromEntries(TRACK_ORDER.map((name) => [name, { state, ...common }]));
+}
+
+/** A full 20-slot sequencer lane of identical steps. */
+function seqLane(step = {}) {
+  return Array.from({ length: SEQUENCER_STEP_COUNT }, () => ({
+    on: true, prob: 1, vmin: 0.4, vmax: 0.8, ...step,
+  }));
+}
+
+/** Subscribe to an engine's note/bar stream, with bar-relative lookups. */
+function record(engine) {
+  const notes = [];
+  const bars = [];
+  engine.on('note', (note) => notes.push(note));
+  engine.on('bar', (bar) => bars.push(bar));
+  const barOf = (note) => {
+    let owner = null;
+    for (const bar of bars) {
+      if (bar.time > note.time + 1e-9) break;
+      owner = bar;
+    }
+    return owner;
+  };
+  return {
+    notes,
+    bars,
+    barOf,
+    /** Map of bar number → that bar's notes, each carrying its bar-relative offset. */
+    byBar(track) {
+      const out = new Map();
+      for (const note of notes) {
+        if (track && note.track !== track) continue;
+        const owner = barOf(note);
+        if (!owner) continue;
+        if (!out.has(owner.bar)) out.set(owner.bar, []);
+        out.get(owner.bar).push({ ...note, offset: note.time - owner.time });
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * Solo one track (everything else off), play `seconds` of audio on the fast
+ * clock and hand back its recorded stream. Anything else in `options` that is
+ * not `seconds`/`seed` is passed through as an engine param.
+ */
+async function soloRun(track, settings, options = {}) {
+  const { seconds = 16, seed = 4242, ...params } = options;
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.5, repetition: 0.5,
+    ...params,
+    tracks: Object.fromEntries(TRACK_ORDER.map((name) => [
+      name, name === track ? { state: 'on', ...settings } : { state: 'off' },
+    ])),
+  }, { rng: seededRng(seed) });
+  const log = record(engine);
+  await engine.start();
+  await advance(seconds, FAST);
+  engine.stop();
+  return log;
+}
+
+/** The voice bank the engine will actually play `track` from. */
+function bankFor(track) {
+  const fromLibrary = voiceLib && voiceLib[track];
+  return fromLibrary && Object.keys(fromLibrary).length ? fromLibrary : FALLBACK_VOICES[track];
+}
+
+/**
+ * Wrap every voice in a bank so the suite can see which one actually sounded,
+ * with what note, and whether the engine later cancelled it. Restore when done.
+ */
+function spyOnBank(bank) {
+  const original = { ...bank };
+  const plays = [];
+  for (const [id, voice] of Object.entries(original)) {
+    bank[id] = {
+      ...voice,
+      play(ctx, destination, note, patch) {
+        const entry = { id, note, cancelled: false };
+        plays.push(entry);
+        const handle = voice.play(ctx, destination, note, patch);
+        if (handle && typeof handle.cancel === 'function') {
+          return {
+            ...handle,
+            cancel: (...args) => {
+              entry.cancelled = true;
+              return handle.cancel(...args);
+            },
+          };
+        }
+        return handle;
+      },
+    };
+  }
+  return {
+    plays,
+    restore() {
+      for (const id of Object.keys(bank)) delete bank[id];
+      Object.assign(bank, original);
+    },
+  };
+}
+
+/**
+ * The engine's per-track input gains — the node the v8 gain chain writes to.
+ * Found the same way sendGains finds the sends: the gain feeding the tone
+ * filter that feeds that track's reverb send.
+ */
+function trackGains(ctx) {
+  const sends = sendGains(ctx);
+  return Object.fromEntries(TRACK_ORDER.map((name) => {
+    const tone = ctx.nodes.find((n) => n.kind === 'biquad' && n.connections.includes(sends[name].reverb));
+    assert.ok(tone, `${name} has no tone filter`);
+    const input = ctx.nodes.find((n) => n.kind === 'gain' && n.connections.includes(tone));
+    assert.ok(input, `${name} has no input gain feeding its tone filter`);
+    return [name, input];
+  }));
 }
 
 /**
@@ -1809,6 +2993,13 @@ for (const [name, fn] of tests) {
   } catch (error) {
     failures += 1;
     console.error(`FAIL ${name}\n     ${error.message}`);
+  } finally {
+    for (const made of builtEngines) if (made.running) made.stop();
+    builtEngines.length = 0;
+    // Each mock context keeps every node it ever made; holding them all for the
+    // length of the suite is what turns a long run into a memory problem. No
+    // test outlives its own iteration, so dropping them here is safe.
+    liveContexts.length = 0;
   }
 }
 console.log(`\n${tests.length - failures}/${tests.length} passed`);

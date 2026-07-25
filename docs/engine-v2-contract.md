@@ -518,3 +518,47 @@ play(); RangeValue walk: w∈[0,1], ±0.15/bar, effective = min+(max-min)·w.
 - Factory presets: curated preset gallery (name + one-line character) shipping in
   the page alongside user presets; selecting one = full param snapshot load, fully
   editable afterwards (no lock-in).
+
+---
+
+# v10 addendum (user-editable everything)
+
+Phase 1 — graphical coverage of the remaining non-dial params: chord-progression
+editor (degree sequence per section label), structure intensity curve editor
+(drawable per-block or preset-curve), phrase/motif shape controls (contour, rest
+density, cell length). All params-only, preset-captured.
+
+Phase 2 — "open the hood" code seams: engine + voices expose named seams
+(voices.play per voice; phrase generator; chord walk; percussion pattern maker)
+whose REAL source ships as strings alongside the compiled functions. UI: per-seam
+editor panel (monospace, no external libs) showing that source; Save → compile via
+Blob dynamic import in a try/catch harness; any throw at compile OR during playback
+auto-reverts to factory and surfaces a one-line error; factory reset per seam;
+user code persists via prefs (consent-gated) under 'ambi4:code:<seam>'.
+
+Boundary (hard rule): shared/submitted presets serialise params ONLY. Code never
+travels in presets or the submit flow; user code runs only on the device that
+wrote it.
+
+---
+
+# v11 addendum (sharing, studio, hook — product roadmap + musicality brief)
+
+- Preset share links: tier 1 (free, next iterations) — params serialised into a
+  share URL (fragment or /p/#data, no server); tier 2 — named links ambi4.work/[name]
+  via Workers KV + submit/approve; tier 3 (PAID) — code-bearing presets: sandboxed
+  execution (isolated context) + AI review gate before public listing + payment.
+  Hard rule from v10 stands: code never auto-runs from a link without the sandbox.
+- Arrangement studio (PAID, roadmap): live-mix recording → MIDI capture from note
+  events; offline render via OfflineAudioContext; export WAV + FLAC (wasm encoder),
+  binaural (HRTF PannerNode) variant, mastering chain (limiter + LUFS normalise,
+  platform presets ~-14 LUFS).
+- MUSICALITY brief addition (hook system, addresses "pads monotonous on auto"):
+  auto harmony gains a HOOK — a 4-8 chord loop that establishes early, repeats with
+  small mutations (voicing, one-chord substitution), BANKS strong variants
+  (periodic snapshot + simple salience heuristic), and recalls banked variants on a
+  slow cycle (ear-worm return). Structure sections modulate which variant plays.
+  Pad anti-monotony: rhythmic breathing (occasional half-bar re-attack or rest),
+  dynamic swells tied to section intensity, default voice-wander slightly above
+  zero on pad/texture in auto. Property tests: chord-loop recurrence rate within
+  bounds; banked-variant recall happens; pad inter-onset variety above a floor.

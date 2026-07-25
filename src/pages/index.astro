@@ -24,20 +24,6 @@ const structures: [string, string][] = [
   ['custom', 'Custom'],
 ];
 
-const arpPatterns: [string, string][] = [
-  ['up', 'Up'],
-  ['down', 'Down'],
-  ['updown', 'Up-down'],
-  ['random', 'Random'],
-];
-
-const arpRates: [string, string][] = [
-  ['1/4', '1/4'],
-  ['1/8', '1/8'],
-  ['1/16', '1/16'],
-  ['1/8T', '1/8 triplet'],
-];
-
 // Hardcoded from the engine v2 contract's VOICES table. The UI never imports
 // engine-voices.js into frontmatter — the voice implementations aren't
 // relevant here, only the ids/labels the <select> options need. (The page
@@ -92,19 +78,86 @@ const VOICES: Record<string, [string, string][]> = {
 
   <div id="generator-app" hidden>
     <div class="module-panel transport-module">
-      <span class="screw screw-tl" aria-hidden="true"></span>
-      <span class="screw screw-tr" aria-hidden="true"></span>
-      <span class="screw screw-bl" aria-hidden="true"></span>
-      <span class="screw screw-br" aria-hidden="true"></span>
       <span class="panel-label transport-label" aria-hidden="true">Transport</span>
-      <button
-        id="toggle-play"
-        type="button"
-        class="play-toggle"
-        aria-pressed="false"
-      >
-        <span class="play-toggle-label">Play</span>
-      </button>
+      <div class="transport-main">
+        <button
+          id="toggle-play"
+          type="button"
+          class="play-toggle"
+          aria-pressed="false"
+        >
+          <span class="play-toggle-label">Play</span>
+        </button>
+        <div class="transport-icons">
+          <div class="popover-anchor">
+            <button
+              type="button"
+              id="sleep-toggle"
+              class="icon-button"
+              aria-label="Sleep timer"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="sleep-popover"
+            >
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3.5 2" />
+              </svg>
+            </button>
+            <span id="sleep-chip" class="countdown-chip" aria-hidden="true" hidden></span>
+            <div id="sleep-popover" class="popover module-panel" role="dialog" aria-labelledby="sleep-popover-title" hidden>
+              <span class="panel-label popover-title" id="sleep-popover-title">Sleep timer</span>
+              <div id="sleep-idle" class="timer-row">
+                <button type="button" class="secondary-button sleep-preset" data-minutes="15">15 min</button>
+                <button type="button" class="secondary-button sleep-preset" data-minutes="30">30 min</button>
+                <button type="button" class="secondary-button sleep-preset" data-minutes="60">1 h</button>
+                <button type="button" class="secondary-button sleep-preset" data-minutes="120">2 h</button>
+                <span class="timer-custom">
+                  <label for="sleep-custom" class="visually-hidden">Custom sleep timer minutes</label>
+                  <input id="sleep-custom" type="number" min="1" max="720" inputmode="numeric" placeholder="min" />
+                  <button type="button" id="sleep-start" class="secondary-button">Start</button>
+                </span>
+              </div>
+              <div id="sleep-active" class="timer-row" hidden>
+                <span id="sleep-countdown" class="timer-status"></span>
+                <button type="button" id="sleep-cancel" class="link-button">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <div class="popover-anchor">
+            <button
+              type="button"
+              id="alarm-toggle"
+              class="icon-button"
+              aria-label="Schedule start"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="alarm-popover"
+            >
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="13" r="8" />
+                <path d="M12 9v4l2.5 2" />
+                <path d="M5.2 3.2 2.8 5.4" />
+                <path d="M18.8 3.2 21.2 5.4" />
+              </svg>
+            </button>
+            <span id="alarm-chip" class="countdown-chip" aria-hidden="true" hidden></span>
+            <div id="alarm-popover" class="popover module-panel" role="dialog" aria-labelledby="alarm-popover-title" hidden>
+              <span class="panel-label popover-title" id="alarm-popover-title">Schedule start</span>
+              <div id="alarm-idle" class="timer-row">
+                <label for="alarm-time" class="visually-hidden">Alarm time</label>
+                <input id="alarm-time" type="time" />
+                <button type="button" id="alarm-set" class="secondary-button">Set alarm</button>
+              </div>
+              <div id="alarm-active" class="timer-row" hidden>
+                <span id="alarm-countdown" class="timer-status"></span>
+                <button type="button" id="alarm-cancel" class="link-button">Cancel</button>
+              </div>
+              <p class="hint">Only works while this tab stays open and the device is awake.</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
@@ -130,8 +183,6 @@ const VOICES: Record<string, [string, string][]> = {
 
     <section id="panel-simple" role="tabpanel" aria-labelledby="tab-simple" tabindex="0">
       <div class="module-panel sliders-module">
-        <span class="screw screw-tl" aria-hidden="true"></span>
-        <span class="screw screw-br" aria-hidden="true"></span>
         <div class="control">
           <div class="control-label-row">
             <label for="speed" class="panel-label">Speed</label>
@@ -162,52 +213,15 @@ const VOICES: Record<string, [string, string][]> = {
 
         <div class="control">
           <div class="control-label-row">
-            <label for="volume" class="panel-label">Volume</label>
+            <label for="volume" class="panel-label">Master volume</label>
           </div>
           <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" />
         </div>
       </div>
-
-      <fieldset class="timer-group">
-        <legend>Sleep timer</legend>
-        <div id="sleep-idle" class="timer-row">
-          <button type="button" class="secondary-button sleep-preset" data-minutes="15">15 min</button>
-          <button type="button" class="secondary-button sleep-preset" data-minutes="30">30 min</button>
-          <button type="button" class="secondary-button sleep-preset" data-minutes="60">1 h</button>
-          <button type="button" class="secondary-button sleep-preset" data-minutes="120">2 h</button>
-          <span class="timer-custom">
-            <label for="sleep-custom" class="visually-hidden">Custom sleep timer minutes</label>
-            <input id="sleep-custom" type="number" min="1" max="720" inputmode="numeric" placeholder="min" />
-            <button type="button" id="sleep-start" class="secondary-button">Start</button>
-          </span>
-        </div>
-        <div id="sleep-active" class="timer-row" hidden>
-          <span id="sleep-countdown" class="timer-status"></span>
-          <button type="button" id="sleep-cancel" class="link-button">Cancel</button>
-        </div>
-      </fieldset>
-
-      <fieldset class="timer-group">
-        <legend>Alarm</legend>
-        <div id="alarm-idle" class="timer-row">
-          <label for="alarm-time" class="visually-hidden">Alarm time</label>
-          <input id="alarm-time" type="time" />
-          <button type="button" id="alarm-set" class="secondary-button">Set alarm</button>
-        </div>
-        <div id="alarm-active" class="timer-row" hidden>
-          <span id="alarm-countdown" class="timer-status"></span>
-          <button type="button" id="alarm-cancel" class="link-button">Cancel</button>
-        </div>
-        <p class="hint">The sleep timer and alarm only work while this tab stays open and the device is awake.</p>
-      </fieldset>
     </section>
 
     <section id="panel-advanced" role="tabpanel" aria-labelledby="tab-advanced" tabindex="0" hidden>
       <div class="tracks-section module-panel">
-        <span class="screw screw-tl" aria-hidden="true"></span>
-        <span class="screw screw-tr" aria-hidden="true"></span>
-        <span class="screw screw-bl" aria-hidden="true"></span>
-        <span class="screw screw-br" aria-hidden="true"></span>
         <h2 class="tracks-heading panel-label">Tracks</h2>
         <div class="track-rows">
           {TRACKS.map(([id, label]) => (
@@ -225,6 +239,8 @@ const VOICES: Record<string, [string, string][]> = {
                 <select id={`track-voice-${id}`} class="track-voice" aria-label={`${label} voice`}>
                   {VOICES[id].map(([value, voiceLabel]) => <option value={value}>{voiceLabel}</option>)}
                 </select>
+                <div class="track-level" id={`track-level-${id}`}></div>
+                <div class="track-extras" id={`track-extras-${id}`}></div>
                 <button
                   type="button"
                   class="secondary-button voice-edit-toggle"
@@ -282,57 +298,6 @@ const VOICES: Record<string, [string, string][]> = {
         <p class="hint">Loops forever, in order. Up to 8 blocks.</p>
       </div>
 
-      <div class="control arp-control module-panel">
-        <span class="screw screw-tl" aria-hidden="true"></span>
-        <span class="screw screw-br" aria-hidden="true"></span>
-        <div class="control-label-row">
-          <span class="control-heading panel-label">Arpeggiator</span>
-        </div>
-        <div class="segmented" role="radiogroup" aria-label="Arpeggiator mode">
-          <input type="radio" name="arp-mode" id="arp-mode-auto" value="auto" checked />
-          <label for="arp-mode-auto">Auto</label>
-          <input type="radio" name="arp-mode" id="arp-mode-manual" value="manual" />
-          <label for="arp-mode-manual">Manual</label>
-        </div>
-
-        <div id="arp-manual-controls" hidden>
-          <div class="control">
-            <label for="arp-pattern">Pattern</label>
-            <select id="arp-pattern">
-              {arpPatterns.map(([value, label]) => <option value={value}>{label}</option>)}
-            </select>
-          </div>
-
-          <div class="control">
-            <label for="arp-rate">Rate</label>
-            <select id="arp-rate">
-              {arpRates.map(([value, label]) => <option value={value}>{label}</option>)}
-            </select>
-          </div>
-
-          <div class="control">
-            <div class="control-label-row">
-              <label for="arp-octaves">Octaves</label>
-              <span class="value-readout"><output for="arp-octaves" id="arp-octaves-value">2</output></span>
-            </div>
-            <input type="range" id="arp-octaves" min="1" max="3" step="1" value="2" />
-          </div>
-
-          <div class="control">
-            <div class="control-label-row">
-              <label for="arp-gate">Gate</label>
-              <span class="value-readout"><output for="arp-gate" id="arp-gate-value">0.6</output></span>
-            </div>
-            <input type="range" id="arp-gate" min="0.1" max="1" step="0.01" value="0.6" />
-          </div>
-
-          <div class="control">
-            <span class="control-heading panel-label">Steps</span>
-            <div id="arp-steps" class="step-grid" role="group" aria-label="Arpeggiator step pattern"></div>
-          </div>
-        </div>
-      </div>
-
       <fieldset class="presets-group">
         <legend>Presets</legend>
         <div class="preset-row">
@@ -373,6 +338,58 @@ const VOICES: Record<string, [string, string][]> = {
     const LEGACY_STORAGE_KEY = 'ambi4-generator-settings-v2';
 
     const TRACK_IDS = ['pad', 'bass', 'melody', 'texture', 'arp', 'percussion'];
+    const TRACK_LABELS = {
+      pad: 'Pad',
+      bass: 'Bass',
+      melody: 'Melody',
+      texture: 'Texture',
+      arp: 'Arp',
+      percussion: 'Percussion',
+    };
+
+    // ---- v6 step sequencers (shared shape) ------------------------------
+    // Steps-per-bar by metre; all 20 slots persist, the first N render/play.
+    const STEPS_PER_BAR = { '3/4': 12, '4/4': 16, '5/4': 20, '6/8': 12, '7/8': 14 };
+    const SEQ_SLOTS = 20;
+    const SEQ_SINGLE_TRACKS = ['melody', 'bass', 'arp'];
+    const PERC_LANES = [
+      ['low', 'Low'],
+      ['mid', 'Mid'],
+      ['high', 'High'],
+    ];
+    const VARY_KEYS = [
+      ['voice', 'Voice'],
+      ['volume', 'Volume'],
+      ['pitch', 'Pitch'],
+      ['timing', 'Timing'],
+      ['pan', 'Pan'],
+    ];
+
+    // Melodic lanes default all-on (gates nothing out); percussion lanes get
+    // a sparse, musical starting pattern for the first flip to Manual.
+    const SEQ_LANE_DEFAULT_ON = {
+      melody: () => true,
+      bass: () => true,
+      arp: () => true,
+      low: (i) => i % 4 === 0,
+      mid: (i) => i % 8 === 4,
+      high: (i) => i % 2 === 0,
+    };
+
+    function defaultLane(kind) {
+      const on = SEQ_LANE_DEFAULT_ON[kind] || (() => true);
+      return Array.from({ length: SEQ_SLOTS }, (_, i) => ({
+        on: !!on(i),
+        prob: 1,
+        vmin: 0.5,
+        vmax: 0.9,
+      }));
+    }
+
+    function defaultVary() {
+      // null = "follow this track's randomness" (the Auto detent).
+      return { voice: null, volume: null, pitch: null, timing: null, pan: null };
+    }
 
     const DEFAULTS = {
       complexity: 0.5,
@@ -396,12 +413,50 @@ const VOICES: Record<string, [string, string][]> = {
         steps: new Array(16).fill(true),
       },
       tracks: {
-        pad: { state: 'auto', voice: 'warm' },
-        bass: { state: 'auto', voice: 'sub' },
-        melody: { state: 'auto', voice: 'pluck' },
-        texture: { state: 'auto', voice: 'sparkle' },
-        arp: { state: 'auto', voice: 'softPluck' },
-        percussion: { state: 'auto', voice: 'soft' },
+        pad: { state: 'auto', voice: 'warm', level: 0.8, hold: false, randomness: 0.5, vary: defaultVary() },
+        // melody/bass default OFF (v8): the musicality rework hasn't yet
+        // passed the user's "catchy" gate, so these start silent until the
+        // listener explicitly asks for them (Auto or On).
+        bass: {
+          state: 'off',
+          voice: 'sub',
+          level: 0.8,
+          hold: false,
+          randomness: 0.5,
+          vary: defaultVary(),
+          sequencer: { mode: 'auto', steps: defaultLane('bass') },
+        },
+        melody: {
+          state: 'off',
+          voice: 'pluck',
+          level: 0.8,
+          hold: false,
+          randomness: 0.5,
+          vary: defaultVary(),
+          sequencer: { mode: 'auto', steps: defaultLane('melody') },
+        },
+        texture: { state: 'auto', voice: 'sparkle', level: 0.8, hold: false, randomness: 0.5, vary: defaultVary() },
+        arp: {
+          state: 'auto',
+          voice: 'softPluck',
+          level: 0.8,
+          hold: false,
+          randomness: 0.5,
+          vary: defaultVary(),
+          sequencer: { mode: 'auto', steps: defaultLane('arp') },
+        },
+        percussion: {
+          state: 'auto',
+          voice: 'soft',
+          level: 0.8,
+          hold: false,
+          randomness: 0.5,
+          vary: defaultVary(),
+          sequencer: {
+            mode: 'auto',
+            steps: { low: defaultLane('low'), mid: defaultLane('mid'), high: defaultLane('high') },
+          },
+        },
       },
       patches: {},
       ui: { activeTab: 'simple' },
@@ -440,6 +495,136 @@ const VOICES: Record<string, [string, string][]> = {
         return out;
       }
       return saved === undefined ? defaults : saved;
+    }
+
+    // ---- v7 RangeValue (number | {min,max}) helpers ----------------------
+
+    function isNumberOrRange(v) {
+      return (
+        (typeof v === 'number' && Number.isFinite(v)) ||
+        (isPlainObject(v) && typeof v.min === 'number' && typeof v.max === 'number')
+      );
+    }
+
+    /** Clamp/repair a RangeValue field; falls back to `fallback` (a plain
+     * number) when `v` is neither a finite number nor a {min,max} object. */
+    function normaliseRangeValue(v, fallback) {
+      if (typeof v === 'number' && Number.isFinite(v)) return clamp(v, 0, 1);
+      if (isPlainObject(v) && typeof v.min === 'number' && typeof v.max === 'number') {
+        let min = clamp(v.min, 0, 1);
+        let max = clamp(v.max, 0, 1);
+        if (min > max) [min, max] = [max, min];
+        return { min, max };
+      }
+      return fallback;
+    }
+
+    /** A representative plain number for a RangeValue field, for controls
+     * that don't (yet) render a dual-thumb range — the v8 ruling that the
+     * randomness knob stays a number until the page probe widens. */
+    function rangeMid(v) {
+      return typeof v === 'number' ? v : (v.min + v.max) / 2;
+    }
+
+    // ---- v6 sequencer migration + normalisation -------------------------
+
+    /**
+     * Pre-v6 saves (and submitted presets) carry the arp step mask as 16
+     * booleans in arp.steps with no tracks.arp.sequencer. Map them into the
+     * new Step shape once, per the contract (on → prob 1, band 0.5–0.9);
+     * slots 16–19 pad with "on" (the legacy default). Mutates `saved`.
+     */
+    function migrateLegacyArpSteps(saved) {
+      if (!isPlainObject(saved)) return;
+      const legacy =
+        isPlainObject(saved.arp) && Array.isArray(saved.arp.steps) ? saved.arp.steps : null;
+      if (!legacy) return;
+      if (
+        isPlainObject(saved.tracks) &&
+        isPlainObject(saved.tracks.arp) &&
+        isPlainObject(saved.tracks.arp.sequencer)
+      ) {
+        return; // already v6-shaped; the sequencer is the source of truth
+      }
+      const steps = Array.from({ length: SEQ_SLOTS }, (_, i) => ({
+        on: i < legacy.length ? !!legacy[i] : true,
+        prob: 1,
+        vmin: 0.5,
+        vmax: 0.9,
+      }));
+      if (!isPlainObject(saved.tracks)) saved.tracks = {};
+      if (!isPlainObject(saved.tracks.arp)) saved.tracks.arp = {};
+      saved.tracks.arp.sequencer = {
+        mode: saved.arp.mode === 'manual' ? 'manual' : 'auto',
+        steps,
+      };
+    }
+
+    function normaliseLane(arr, kind) {
+      const out = defaultLane(kind);
+      if (!Array.isArray(arr)) return out;
+      for (let i = 0; i < SEQ_SLOTS; i++) {
+        const s = arr[i];
+        if (typeof s === 'boolean') {
+          out[i] = { on: s, prob: 1, vmin: 0.5, vmax: 0.9 };
+          continue;
+        }
+        if (!isPlainObject(s)) continue;
+        const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, 0, 1) : d);
+        // prob is rangeable (v7 addendum) — preserve a valid {min,max}
+        // instead of collapsing it to the plain-number fallback. vmin/vmax
+        // are NOT rangeable (a per-note velocity band already), so they
+        // stay plain numbers via num().
+        const step = { on: s.on === true, prob: normaliseRangeValue(s.prob, 1), vmin: num(s.vmin, 0.5), vmax: num(s.vmax, 0.9) };
+        if (step.vmin > step.vmax) [step.vmin, step.vmax] = [step.vmax, step.vmin];
+        out[i] = step;
+      }
+      return out;
+    }
+
+    /**
+     * Runs after every deepMerge over DEFAULTS: clamps the v6 track fields,
+     * rebuilds step arrays as fresh 20-slot objects (also breaking any
+     * aliasing of DEFAULTS' arrays), and re-derives the legacy arp.steps
+     * boolean mirror from the arp sequencer's on-flags.
+     */
+    function normaliseV6Tracks(s) {
+      for (const id of TRACK_IDS) {
+        const t = s.tracks[id];
+        t.level = normaliseRangeValue(t.level, 0.8);
+        t.hold = t.hold === true;
+        // Rangeable (v7 addendum) — preserve a valid {min,max}; only a
+        // genuinely invalid value falls back to the 0.5 default.
+        t.randomness = normaliseRangeValue(t.randomness, 0.5);
+        const vary = isPlainObject(t.vary) ? t.vary : {};
+        t.vary = defaultVary();
+        for (const [key] of VARY_KEYS) {
+          const v = vary[key];
+          if (typeof v === 'number' && Number.isFinite(v)) t.vary[key] = clamp(v, 0, 1);
+        }
+      }
+      for (const id of SEQ_SINGLE_TRACKS) {
+        const t = s.tracks[id];
+        const seq = isPlainObject(t.sequencer) ? t.sequencer : {};
+        t.sequencer = {
+          mode: seq.mode === 'manual' ? 'manual' : 'auto',
+          steps: normaliseLane(seq.steps, id),
+        };
+      }
+      const tp = s.tracks.percussion;
+      const pseq = isPlainObject(tp.sequencer) ? tp.sequencer : {};
+      const psteps = isPlainObject(pseq.steps) ? pseq.steps : {};
+      tp.sequencer = {
+        mode: pseq.mode === 'manual' ? 'manual' : 'auto',
+        steps: {
+          low: normaliseLane(psteps.low, 'low'),
+          mid: normaliseLane(psteps.mid, 'mid'),
+          high: normaliseLane(psteps.high, 'high'),
+        },
+      };
+      // Legacy boolean mask follows the sequencer (kept for older engines
+      // and for the combined-complexity estimate).
+      s.arp.steps = s.tracks.arp.sequencer.steps.slice(0, 16).map((st) => !!st.on);
     }
 
     // ---- tempo mapping (one tempo, two views) ---------------------------
@@ -547,6 +732,39 @@ const VOICES: Record<string, [string, string][]> = {
       }
 
       const engine = createEngine();
+
+      // ---- v6 capability detection --------------------------------------
+      // Gating choice: the new params (hold / randomness / vary / sequencer)
+      // are always SENT — the engine sanitiser drops unknown keys safely, so
+      // a pre-v6 engine just ignores them and they still persist for later.
+      // But controls the user could see doing nothing are only RENDERED when
+      // the engine advertises support: getParams() exposing the field, and
+      // randomise being a function. Exception: the arp step grid always
+      // renders, because its on/off flags degrade gracefully to the legacy
+      // arp.steps boolean mask that every v2+ engine honours.
+      const engineCaps = {
+        randomise: typeof engine.randomise === 'function',
+        hold: {},
+        randomness: {},
+        vary: {},
+        sequencer: {},
+        level: {},
+      };
+      try {
+        const p = engine.getParams() || {};
+        const t = isPlainObject(p.tracks) ? p.tracks : {};
+        for (const id of TRACK_IDS) {
+          const entry = isPlainObject(t[id]) ? t[id] : {};
+          engineCaps.hold[id] = typeof entry.hold === 'boolean';
+          // Accept a plain {min,max} RangeValue too (v7), not just a bare
+          // number — a range-shipping engine must not make the knob vanish.
+          engineCaps.randomness[id] = isNumberOrRange(entry.randomness);
+          engineCaps.vary[id] = isPlainObject(entry.vary);
+          engineCaps.sequencer[id] = isPlainObject(entry.sequencer);
+          engineCaps.level[id] = isNumberOrRange(entry.level);
+        }
+      } catch {}
+
       const { prefs, consentPrompt } = await loadPrefsModule();
 
       // ---- settings load + legacy migration -----------------------------
@@ -584,7 +802,9 @@ const VOICES: Record<string, [string, string][]> = {
             localStorage.removeItem(LEGACY_STORAGE_KEY);
           } catch {}
         }
+        migrateLegacyArpSteps(saved);
         settings = deepMerge(DEFAULTS, saved || {});
+        normaliseV6Tracks(settings);
         if (migratedFromLegacy && prefs.consent() === 'granted') {
           prefs.set('generator', settings);
         }
@@ -736,8 +956,11 @@ const VOICES: Record<string, [string, string][]> = {
           }
         }
         if (settings.arp.mode === 'manual') {
-          const frac =
-            settings.arp.steps.filter(Boolean).length / settings.arp.steps.length;
+          // Density against the true per-bar step count, not the fixed
+          // 16-slot legacy mirror length — otherwise a slow arp rate (few
+          // steps actually in play) reads as artificially sparse.
+          const n = Math.min(16, arpStepsPerBar());
+          const frac = n > 0 ? settings.arp.steps.slice(0, n).filter(Boolean).length / n : 0;
           parts.push(frac * (ARP_RATE_WEIGHT[settings.arp.rate] ?? 0.6));
         }
         const forcedOn = TRACK_IDS.filter((id) => settings.tracks[id].state === 'on').length;
@@ -816,6 +1039,14 @@ const VOICES: Record<string, [string, string][]> = {
         select.addEventListener('change', () => {
           settings[key] = select.value;
           engine.setParams({ [key]: select.value });
+          if (key === 'timeSignature') {
+            // Metre drives steps-per-bar: re-render any open step grids.
+            for (const ed of openEditors.values()) {
+              try {
+                ed.seq?.refresh();
+              } catch {}
+            }
+          }
           persistSettings();
         });
       }
@@ -869,10 +1100,20 @@ const VOICES: Record<string, [string, string][]> = {
 
       // ---- tracks section ------------------------------------------------
 
+      // A default-off track (v8: melody/bass ship silent) needs its state
+      // obvious at a glance, not just implied by which segmented pill is
+      // lit — data-track-state drives a textual "— Off" cue in CSS so the
+      // listener isn't left wondering why a track is silent.
+      function syncTrackOffIndicator(id) {
+        const row = document.querySelector(`.track-row[data-track="${id}"]`);
+        if (row) row.dataset.trackState = settings.tracks[id].state;
+      }
+
       function syncTrackStateUI() {
         for (const id of TRACK_IDS) {
           const radio = document.getElementById(`track-${id}-${settings.tracks[id].state}`);
           if (radio) radio.checked = true;
+          syncTrackOffIndicator(id);
         }
         updateComplexityDisplay();
       }
@@ -887,6 +1128,7 @@ const VOICES: Record<string, [string, string][]> = {
             settings.tracks[id].state = radio.value;
             engine.setParams({ tracks: { [id]: { state: radio.value } } });
             updateComplexityDisplay();
+            syncTrackOffIndicator(id);
             persistSettings();
           });
         }
@@ -933,6 +1175,781 @@ const VOICES: Record<string, [string, string][]> = {
       // Representative pitch for the static scope trace, per track register.
       const SCOPE_FREQ = { pad: 220, bass: 55, melody: 330, texture: 440, arp: 330, percussion: 220 };
 
+      // ---- v6: per-track Random / Hold / Randomness + vary targets ------
+
+      const pctFormat = (v) => `${Math.round(v * 100)}%`;
+
+      const DICE_SVG =
+        '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">' +
+        '<rect x="3" y="3" width="18" height="18" rx="3"/>' +
+        '<circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/>' +
+        '<circle cx="16" cy="8" r="1.4" fill="currentColor" stroke="none"/>' +
+        '<circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>' +
+        '<circle cx="8" cy="16" r="1.4" fill="currentColor" stroke="none"/>' +
+        '<circle cx="16" cy="16" r="1.4" fill="currentColor" stroke="none"/>' +
+        '</svg>';
+
+      // The same Random/Hold/Randomness cluster renders in the tracks-panel
+      // row AND in the track's Edit panel header; instances register here so
+      // a change through one mirror syncs the other.
+      const extrasInstances = new Map(); // track -> Set of instances
+
+      function registerExtras(track, inst) {
+        if (!extrasInstances.has(track)) extrasInstances.set(track, new Set());
+        extrasInstances.get(track).add(inst);
+      }
+
+      function unregisterExtras(track, inst) {
+        if (inst) extrasInstances.get(track)?.delete(inst);
+      }
+
+      function syncTrackExtras(track, skip) {
+        const set = extrasInstances.get(track);
+        if (!set) return;
+        for (const inst of set) {
+          if (inst.holdBtn) {
+            inst.holdBtn.setAttribute('aria-pressed', String(!!settings.tracks[track].hold));
+          }
+          if (inst !== skip && inst.setRand) {
+            // The randomness knob itself is number-only for now (v8
+            // ruling); a RangeValue loaded from a preset/older save
+            // displays as its midpoint until that control widens.
+            inst.setRand(clamp(rangeMid(settings.tracks[track].randomness), 0, 1));
+          }
+        }
+      }
+
+      function syncAllTrackExtras() {
+        for (const id of TRACK_IDS) syncTrackExtras(id);
+      }
+
+      function buildTrackExtras(container, track, { knobs = null } = {}) {
+        const inst = { holdBtn: null, setRand: null };
+        if (engineCaps.randomise) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'secondary-button track-random';
+          btn.innerHTML = `${DICE_SVG}<span>Random</span>`;
+          btn.setAttribute('aria-label', `Randomise ${TRACK_LABELS[track]}`);
+          btn.addEventListener('click', () => {
+            try {
+              engine.randomise(track);
+            } catch {}
+          });
+          container.append(btn);
+        }
+        if (engineCaps.hold[track]) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'secondary-button track-hold';
+          btn.textContent = 'Hold';
+          btn.setAttribute('aria-label', `Hold ${TRACK_LABELS[track]}`);
+          btn.setAttribute('aria-pressed', String(!!settings.tracks[track].hold));
+          btn.addEventListener('click', () => {
+            const next = !settings.tracks[track].hold;
+            settings.tracks[track].hold = next;
+            engine.setParams({ tracks: { [track]: { hold: next } } });
+            syncTrackExtras(track);
+            persistSettings();
+          });
+          container.append(btn);
+          inst.holdBtn = btn;
+        }
+        if (engineCaps.randomness[track]) {
+          const onValue = (v) => {
+            v = clamp(v, 0, 1);
+            settings.tracks[track].randomness = v;
+            engine.setParams({ tracks: { [track]: { randomness: v } } });
+            syncTrackExtras(track, inst);
+            persistSettings();
+          };
+          if (knobApi) {
+            const cell = document.createElement('div');
+            cell.className = 'rand-knob';
+            container.append(cell);
+            try {
+              const handle = knobApi.createKnob(cell, {
+                label: 'Randomness',
+                min: 0,
+                max: 1,
+                value: clamp(rangeMid(settings.tracks[track].randomness), 0, 1),
+                format: pctFormat,
+                onInput: onValue,
+              });
+              if (knobs) knobs.push(handle);
+              inst.setRand = (v) => {
+                try {
+                  handle.set?.(v);
+                } catch {}
+              };
+            } catch {
+              cell.remove();
+            }
+          }
+          if (!inst.setRand) {
+            const wrap = document.createElement('label');
+            wrap.className = 'rand-slider';
+            const name = document.createElement('span');
+            name.className = 'visually-hidden';
+            name.textContent = `${TRACK_LABELS[track]} randomness`;
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.min = '0';
+            input.max = '1';
+            input.step = '0.01';
+            input.value = String(clamp(rangeMid(settings.tracks[track].randomness), 0, 1));
+            input.addEventListener('input', () => onValue(parseFloat(input.value)));
+            wrap.append(name, input);
+            container.append(wrap);
+            inst.setRand = (v) => {
+              input.value = String(v);
+            };
+          }
+        }
+        return inst;
+      }
+
+      // Vary knobs run on a 22-position scale: raw 0 is the Auto detent
+      // (null — "follows Randomness"); raw 1–21 map to explicit 0–100%.
+      const varyFormat = (raw) =>
+        Math.round(raw) <= 0 ? 'Auto (follows Randomness)' : pctFormat((Math.round(raw) - 1) / 20);
+      const varyRawFromValue = (v) => (v === null ? 0 : 1 + Math.round(clamp(v, 0, 1) * 20));
+      const varyValueFromRaw = (raw) =>
+        Math.round(raw) <= 0 ? null : clamp((Math.round(raw) - 1) / 20, 0, 1);
+
+      function buildVaryRow(container, track, knobs) {
+        if (!engineCaps.vary[track]) return;
+        const row = document.createElement('div');
+        row.className = 'vary-row';
+        const title = document.createElement('span');
+        title.className = 'panel-label';
+        title.textContent = 'Randomise';
+        const cells = document.createElement('div');
+        cells.className = 'vary-cells';
+        row.append(title, cells);
+        container.append(row);
+
+        for (const [key, label] of VARY_KEYS) {
+          const commitVary = (value) => {
+            settings.tracks[track].vary[key] = value;
+            engine.setParams({ tracks: { [track]: { vary: { [key]: value } } } });
+            persistSettings();
+          };
+          const raw = varyRawFromValue(settings.tracks[track].vary[key]);
+          let built = false;
+          if (knobApi) {
+            const cell = document.createElement('div');
+            cell.className = 'vary-knob';
+            cells.append(cell);
+            try {
+              const handle = knobApi.createKnob(cell, {
+                label,
+                min: 0,
+                max: 21,
+                step: 1,
+                value: raw,
+                marks: [0],
+                format: varyFormat,
+                onInput: (v) => commitVary(varyValueFromRaw(v)),
+              });
+              if (knobs) knobs.push(handle);
+              built = true;
+            } catch {
+              cell.remove();
+            }
+          }
+          if (!built) {
+            const wrap = document.createElement('div');
+            wrap.className = 'control vary-slider';
+            const id = `vary-${track}-${key}`;
+            const lrow = document.createElement('div');
+            lrow.className = 'control-label-row';
+            const lab = document.createElement('label');
+            lab.htmlFor = id;
+            lab.textContent = label;
+            const readout = document.createElement('span');
+            readout.className = 'value-readout';
+            readout.textContent = varyFormat(raw);
+            lrow.append(lab, readout);
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.id = id;
+            input.min = '0';
+            input.max = '21';
+            input.step = '1';
+            input.value = String(raw);
+            input.setAttribute('aria-valuetext', varyFormat(raw));
+            input.addEventListener('input', () => {
+              const r = parseInt(input.value, 10) || 0;
+              readout.textContent = varyFormat(r);
+              input.setAttribute('aria-valuetext', varyFormat(r));
+              commitVary(varyValueFromRaw(r));
+            });
+            wrap.append(lrow, input);
+            cells.append(wrap);
+          }
+        }
+      }
+
+      // ---- v6: shared step sequencer ------------------------------------
+
+      function currentStepsPerBar() {
+        return STEPS_PER_BAR[settings.timeSignature] || 16;
+      }
+
+      // Pulse (beat) marks come from where the metre's pulses actually
+      // start, not a naive "every 4th step" — that's only right for simple
+      // meters. Compound x/8 meters group in dotted-quarter (6/8: two
+      // groups of three eighths) or mixed (7/8: 2+2+3 eighths, the common
+      // grouping) pulses, so their marks land at irregular step offsets.
+      const SEQ_PULSE_STARTS = {
+        '3/4': [0, 4, 8],
+        '4/4': [0, 4, 8, 12],
+        '5/4': [0, 4, 8, 12, 16],
+        '6/8': [0, 6],
+        '7/8': [0, 4, 8],
+      };
+
+      function currentPulseStarts() {
+        return (
+          SEQ_PULSE_STARTS[settings.timeSignature] ||
+          // Unlisted signature: fall back to every-4th-step (the old,
+          // simple-meter assumption) rather than showing nothing.
+          Array.from({ length: Math.ceil(currentStepsPerBar() / 4) }, (_, i) => i * 4)
+        );
+      }
+
+      // ---- v8 exception: the ARP lane is indexed by arp-step-within-bar at
+      // the CURRENT rate, not the bar's metre — its length and pulse marks
+      // must be re-derived from settings.arp.rate (and re-rendered when the
+      // rate changes, same as a time-signature change re-renders the rest).
+      const ARP_RATE_WHOLE_FRACTION = { '1/4': 1 / 4, '1/8': 1 / 8, '1/16': 1 / 16, '1/8T': 1 / 12 };
+
+      function arpStepsPerBar() {
+        const [num, den] = String(settings.timeSignature).split('/').map(Number);
+        const barWhole = (num || 4) / (den || 4); // bar duration in whole notes
+        const rateFraction = ARP_RATE_WHOLE_FRACTION[settings.arp.rate] || ARP_RATE_WHOLE_FRACTION['1/8'];
+        // Nudge off an exact-integer float boundary before ceil (e.g.
+        // 1/0.125 landing at 8.000000000000002) so it can't over-count.
+        return clamp(Math.ceil(barWhole / rateFraction - 1e-6), 1, SEQ_SLOTS);
+      }
+
+      function arpPulseStarts(n) {
+        // One mark per quarter-note-equivalent worth of arp steps, so the
+        // grid still reads by the beat, just counted in the arp's own rate.
+        const rateFraction = ARP_RATE_WHOLE_FRACTION[settings.arp.rate] || ARP_RATE_WHOLE_FRACTION['1/8'];
+        const perBeat = Math.max(1, Math.round(0.25 / rateFraction));
+        const marks = [];
+        for (let i = 0; i < n; i += perBeat) marks.push(i);
+        return marks;
+      }
+
+      function stepsPerBarFor(track) {
+        return track === 'arp' ? arpStepsPerBar() : currentStepsPerBar();
+      }
+
+      function pulseStartsFor(track, n) {
+        return track === 'arp' ? arpPulseStarts(n) : currentPulseStarts();
+      }
+
+      function commitSequencer(track) {
+        const seq = settings.tracks[track].sequencer;
+        const partial = { tracks: { [track]: { sequencer: structuredClone(seq) } } };
+        if (track === 'arp') {
+          // Mirror the on-flags into the legacy boolean mask so pre-v6
+          // engines still honour the grid (and the complexity estimate
+          // keeps working). The mirror is fixed at 16 slots, but only the
+          // first arpStepsPerBar() of those actually sound this bar — pad
+          // the rest with false so a pre-v6 engine can't play a step that
+          // isn't really in the pattern (and the complexity estimate below
+          // isn't skewed by stale "on" flags left over from a faster rate).
+          const n = Math.min(16, arpStepsPerBar());
+          settings.arp.steps = Array.from({ length: 16 }, (_, i) => (i < n ? !!seq.steps[i].on : false));
+          partial.arp = { steps: settings.arp.steps.slice() };
+          updateComplexityDisplay();
+        }
+        engine.setParams(partial);
+        persistSettings();
+      }
+
+      /**
+       * Shared metre-aware step grid: one lane for melody/bass/arp, three
+       * (Low/Mid/High) for percussion. Per step: on/off, velocity band
+       * (vertical drag on the cell), probability (mini-bar under the cell).
+       * Cells form a roving-tabindex ARIA grid; all three values are
+       * keyboard-adjustable and announced via aria-label + aria-valuetext.
+       */
+      function buildSequencer(container, track) {
+        const label = TRACK_LABELS[track];
+        const lanes =
+          track === 'percussion'
+            ? PERC_LANES.map(([key, laneLabel]) => ({ key, label: laneLabel }))
+            : [{ key: null, label: null }];
+        const laneSteps = (lane) =>
+          lane.key
+            ? settings.tracks[track].sequencer.steps[lane.key]
+            : settings.tracks[track].sequencer.steps;
+
+        const root = document.createElement('div');
+        root.className = 'seq';
+        container.append(root);
+
+        const head = document.createElement('div');
+        head.className = 'seq-head';
+        const title = document.createElement('span');
+        title.className = 'panel-label';
+        title.textContent = 'Step sequencer';
+        const modeGroup = document.createElement('div');
+        modeGroup.className = 'segmented';
+        modeGroup.setAttribute('role', 'radiogroup');
+        modeGroup.setAttribute('aria-label', `${label} sequencer mode`);
+        for (const m of ['auto', 'manual']) {
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `seq-mode-${track}`;
+          input.id = `seq-mode-${track}-${m}`;
+          input.value = m;
+          input.checked = settings.tracks[track].sequencer.mode === m;
+          const lab = document.createElement('label');
+          lab.htmlFor = input.id;
+          lab.textContent = m === 'auto' ? 'Auto' : 'Manual';
+          input.addEventListener('change', () => {
+            if (!input.checked) return;
+            settings.tracks[track].sequencer.mode = m;
+            commitSequencer(track);
+          });
+          modeGroup.append(input, lab);
+        }
+        head.append(title, modeGroup);
+
+        const scroll = document.createElement('div');
+        scroll.className = 'seq-scroll';
+        const beatsEl = document.createElement('div');
+        beatsEl.className = 'seq-beats';
+        beatsEl.setAttribute('aria-hidden', 'true');
+        const gridEl = document.createElement('div');
+        gridEl.className = 'seq-rows';
+        gridEl.setAttribute('role', 'grid');
+        gridEl.setAttribute('aria-label', `${label} step sequencer`);
+        scroll.append(beatsEl, gridEl);
+
+        const legend = document.createElement('p');
+        legend.className = 'hint seq-legend';
+        legend.textContent =
+          'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
+          'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability. Pointer: drag a cell ' +
+          'vertically for the velocity band; drag the thin bar under a step for its probability.';
+
+        root.append(head, scroll, legend);
+
+        let cellRefs = []; // [lane][step] -> { cell, band, probFill }
+        let focusPos = { lane: 0, step: 0 };
+
+        function stepText(lane, i, s) {
+          const lanePart = lane.label ? `${lane.label} lane, ` : '';
+          return (
+            `${lanePart}step ${i + 1}: ${s.on ? 'on' : 'off'}, ` +
+            `velocity ${Math.round(s.vmin * 100)} to ${Math.round(s.vmax * 100)}%, ` +
+            `probability ${Math.round(rangeMid(s.prob) * 100)}%`
+          );
+        }
+
+        function updateCell(li, i) {
+          const lane = lanes[li];
+          const s = laneSteps(lane)[i];
+          const ref = cellRefs[li][i];
+          ref.cell.classList.toggle('seq-cell-on', s.on);
+          // role=gridcell + a label stating on/off/velocity/probability is
+          // the valid pattern here: aria-selected implies row/grid
+          // *selection* (not toggle state) and aria-pressed is only valid
+          // on button-role elements, so neither belongs on a gridcell —
+          // the label alone carries the state. aria-valuetext is likewise
+          // dropped: it's a range-widget attribute, inert on a gridcell.
+          const text = stepText(lane, i, s);
+          ref.cell.setAttribute('aria-label', text);
+          ref.band.style.bottom = `${s.vmin * 100}%`;
+          ref.band.style.height = `${Math.max(0, s.vmax - s.vmin) * 100}%`;
+          ref.probFill.style.width = `${rangeMid(s.prob) * 100}%`;
+        }
+
+        function setFocus(li, i, focus = true) {
+          const n = stepsPerBarFor(track);
+          li = clamp(li, 0, lanes.length - 1);
+          i = clamp(i, 0, n - 1);
+          const prev = (cellRefs[focusPos.lane] || [])[focusPos.step];
+          if (prev) prev.cell.tabIndex = -1;
+          focusPos = { lane: li, step: i };
+          const ref = cellRefs[li][i];
+          ref.cell.tabIndex = 0;
+          if (focus) ref.cell.focus();
+        }
+
+        function wireCell(li, i, cell, probEl) {
+          const getStep = () => laneSteps(lanes[li])[i];
+          const commit = () => {
+            updateCell(li, i);
+            commitSequencer(track);
+          };
+
+          cell.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.preventDefault();
+            setFocus(li, i);
+            const rect = cell.getBoundingClientRect();
+            const vAt = (clientY) => clamp(1 - (clientY - rect.top) / rect.height, 0, 1);
+            const v0 = vAt(e.clientY);
+            let dragging = false;
+            const onMove = (ev) => {
+              if (!dragging && Math.abs(ev.clientY - e.clientY) < 4) return;
+              dragging = true;
+              const v1 = vAt(ev.clientY);
+              const s = getStep();
+              s.on = true; // shaping a band implies the step should sound
+              s.vmin = Math.min(v0, v1);
+              s.vmax = Math.max(v0, v1);
+              updateCell(li, i);
+            };
+            const finish = (toggleOnTap) => (ev) => {
+              cell.removeEventListener('pointermove', onMove);
+              cell.removeEventListener('pointerup', up);
+              cell.removeEventListener('pointercancel', cancel);
+              if (!dragging && toggleOnTap) {
+                const s = getStep();
+                s.on = !s.on;
+                updateCell(li, i);
+              }
+              commitSequencer(track);
+            };
+            const up = finish(true);
+            const cancel = finish(false);
+            try {
+              cell.setPointerCapture(e.pointerId);
+            } catch {}
+            cell.addEventListener('pointermove', onMove);
+            cell.addEventListener('pointerup', up);
+            cell.addEventListener('pointercancel', cancel);
+          });
+
+          const probFromEvent = (ev) => {
+            const r = probEl.getBoundingClientRect();
+            const p = clamp((ev.clientX - r.left) / Math.max(1, r.width), 0, 1);
+            const s = getStep();
+            s.prob = Math.round(p * 20) / 20;
+            updateCell(li, i);
+          };
+          probEl.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.preventDefault();
+            setFocus(li, i);
+            probFromEvent(e);
+            const onMove = (ev) => probFromEvent(ev);
+            const onUp = () => {
+              probEl.removeEventListener('pointermove', onMove);
+              probEl.removeEventListener('pointerup', onUp);
+              probEl.removeEventListener('pointercancel', onUp);
+              commitSequencer(track);
+            };
+            try {
+              probEl.setPointerCapture(e.pointerId);
+            } catch {}
+            probEl.addEventListener('pointermove', onMove);
+            probEl.addEventListener('pointerup', onUp);
+            probEl.addEventListener('pointercancel', onUp);
+          });
+
+          cell.addEventListener('keydown', (e) => {
+            const s = getStep();
+            const nudge = 0.05;
+            const snap = (v) => Math.round(v * 20) / 20;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              s.on = !s.on;
+              commit();
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+              const d = e.key === 'ArrowUp' ? nudge : -nudge;
+              if (e.shiftKey) {
+                e.preventDefault();
+                s.vmax = clamp(snap(s.vmax + d), s.vmin, 1);
+                commit();
+              } else if (e.altKey) {
+                e.preventDefault();
+                s.vmin = clamp(snap(s.vmin + d), 0, s.vmax);
+                commit();
+              } else if (lanes.length > 1) {
+                e.preventDefault();
+                setFocus(li + (e.key === 'ArrowDown' ? 1 : -1), i);
+              } else {
+                // Single-lane track: there's no other lane for plain
+                // Up/Down to move focus to, so nudge the whole velocity
+                // band (vmin+vmax together) instead of silently eating
+                // the key (which would otherwise block page scroll for
+                // nothing).
+                e.preventDefault();
+                const width = s.vmax - s.vmin;
+                const vmin = clamp(snap(s.vmin + d), 0, 1 - width);
+                s.vmin = vmin;
+                s.vmax = clamp(snap(vmin + width), 0, 1);
+                commit();
+              }
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              setFocus(li, i + 1);
+            } else if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              setFocus(li, i - 1);
+            } else if (e.key === 'Home') {
+              e.preventDefault();
+              setFocus(li, 0);
+            } else if (e.key === 'End') {
+              e.preventDefault();
+              setFocus(li, stepsPerBarFor(track) - 1);
+            } else if (e.key === '[' || e.key === ',') {
+              e.preventDefault();
+              // Editing here always collapses a loaded RangeValue prob to
+              // a plain number, same as the pointer drag — the sequencer
+              // UI stays number-only for prob until the page probe widens.
+              s.prob = clamp(snap(rangeMid(s.prob) - nudge), 0, 1);
+              commit();
+            } else if (e.key === ']' || e.key === '.') {
+              e.preventDefault();
+              s.prob = clamp(snap(rangeMid(s.prob) + nudge), 0, 1);
+              commit();
+            }
+          });
+        }
+
+        function render() {
+          const n = stepsPerBarFor(track);
+          const pulseStarts = pulseStartsFor(track, n);
+          const pulseSet = new Set(pulseStarts);
+          root.style.setProperty('--seq-cols', String(n));
+          beatsEl.innerHTML = '';
+          gridEl.innerHTML = '';
+          cellRefs = lanes.map(() => []);
+          for (let i = 0; i < n; i++) {
+            const b = document.createElement('span');
+            const pulseIndex = pulseStarts.indexOf(i);
+            if (pulseIndex !== -1) {
+              b.textContent = String(pulseIndex + 1);
+              b.className = 'seq-beat-mark';
+            }
+            beatsEl.append(b);
+          }
+          lanes.forEach((lane, li) => {
+            const row = document.createElement('div');
+            row.className = 'seq-lane';
+            row.setAttribute('role', 'row');
+            if (lane.label) {
+              const lh = document.createElement('span');
+              lh.className = 'seq-lane-label';
+              lh.setAttribute('role', 'rowheader');
+              lh.textContent = lane.label;
+              row.append(lh);
+            }
+            // The probability mini-bars sit on the grid line directly under
+            // their cells (same columns, so each bar is tied to its step),
+            // but a role="row" must only own gridcell children — so they
+            // get their own row (role="row", cells aria-hidden) rather than
+            // living inside the cell row above.
+            const probRow = document.createElement('div');
+            probRow.className = 'seq-lane seq-prob-row';
+            probRow.setAttribute('role', 'row');
+            for (let i = 0; i < n; i++) {
+              const cell = document.createElement('div');
+              cell.className = 'seq-cell';
+              cell.setAttribute('role', 'gridcell');
+              if (pulseSet.has(i)) cell.classList.add('seq-cell-beat');
+              cell.tabIndex = -1;
+              const band = document.createElement('span');
+              band.className = 'seq-band';
+              cell.append(band);
+              const prob = document.createElement('span');
+              prob.className = 'seq-prob';
+              prob.setAttribute('aria-hidden', 'true');
+              const probFill = document.createElement('span');
+              probFill.className = 'seq-prob-fill';
+              prob.append(probFill);
+              probRow.append(prob);
+              cellRefs[li][i] = { cell, band, probFill };
+              wireCell(li, i, cell, prob);
+              row.append(cell);
+            }
+            gridEl.append(row, probRow);
+          });
+          for (let li = 0; li < lanes.length; li++) {
+            for (let i = 0; i < n; i++) updateCell(li, i);
+          }
+          focusPos = {
+            lane: Math.min(focusPos.lane, lanes.length - 1),
+            step: Math.min(focusPos.step, n - 1),
+          };
+          cellRefs[focusPos.lane][focusPos.step].cell.tabIndex = 0;
+        }
+
+        render();
+        return { refresh: render };
+      }
+
+      // ---- v6: arpeggiator section (lives in the Arp track's Edit panel) --
+
+      let arpUI = null; // control refs while the arp editor is open
+
+      const ARP_PATTERNS = [
+        ['up', 'Up'],
+        ['down', 'Down'],
+        ['updown', 'Up-down'],
+        ['random', 'Random'],
+      ];
+      const ARP_RATES = [
+        ['1/4', '1/4'],
+        ['1/8', '1/8'],
+        ['1/16', '1/16'],
+        ['1/8T', '1/8 triplet'],
+      ];
+
+      function buildArpSection(container) {
+        const panel = document.createElement('div');
+        panel.className = 'arp-inline';
+        const title = document.createElement('span');
+        title.className = 'panel-label';
+        title.textContent = 'Arpeggiator';
+        panel.append(title);
+
+        const modeGroup = document.createElement('div');
+        modeGroup.className = 'segmented';
+        modeGroup.setAttribute('role', 'radiogroup');
+        modeGroup.setAttribute('aria-label', 'Arpeggiator mode');
+        const modeRadios = [];
+        for (const m of ['auto', 'manual']) {
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = 'arp-mode';
+          input.id = `arp-mode-${m}`;
+          input.value = m;
+          const lab = document.createElement('label');
+          lab.htmlFor = input.id;
+          lab.textContent = m === 'auto' ? 'Auto' : 'Manual';
+          input.addEventListener('change', () => {
+            if (!input.checked) return;
+            settings.arp.mode = m;
+            manual.hidden = m !== 'manual';
+            engine.setParams({ arp: { mode: m } });
+            updateComplexityDisplay();
+            persistSettings();
+          });
+          modeGroup.append(input, lab);
+          modeRadios.push(input);
+        }
+        panel.append(modeGroup);
+
+        const manual = document.createElement('div');
+        manual.className = 'arp-manual';
+        panel.append(manual);
+
+        function arpSelect(labelText, options, value, onChange) {
+          const wrap = document.createElement('div');
+          wrap.className = 'control';
+          const id = `arp-${labelText.toLowerCase()}`;
+          const lab = document.createElement('label');
+          lab.htmlFor = id;
+          lab.textContent = labelText;
+          const select = document.createElement('select');
+          select.id = id;
+          for (const [v, text] of options) {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = text;
+            select.append(opt);
+          }
+          select.value = value;
+          select.addEventListener('change', () => onChange(select.value));
+          wrap.append(lab, select);
+          manual.append(wrap);
+          return select;
+        }
+
+        function arpRange(labelText, { min, max, step, value, onChange }) {
+          const wrap = document.createElement('div');
+          wrap.className = 'control';
+          const id = `arp-${labelText.toLowerCase()}`;
+          const row = document.createElement('div');
+          row.className = 'control-label-row';
+          const lab = document.createElement('label');
+          lab.htmlFor = id;
+          lab.textContent = labelText;
+          const readout = document.createElement('span');
+          readout.className = 'value-readout';
+          readout.textContent = String(value);
+          row.append(lab, readout);
+          const input = document.createElement('input');
+          input.type = 'range';
+          input.min = String(min);
+          input.max = String(max);
+          input.step = String(step);
+          input.value = String(value);
+          input.id = id;
+          input.addEventListener('input', () => {
+            readout.textContent = input.value;
+            onChange(input.value);
+          });
+          wrap.append(row, input);
+          manual.append(wrap);
+          return { input, readout };
+        }
+
+        const pattern = arpSelect('Pattern', ARP_PATTERNS, settings.arp.pattern, (v) => {
+          settings.arp.pattern = v;
+          engine.setParams({ arp: { pattern: v } });
+          persistSettings();
+        });
+        const rate = arpSelect('Rate', ARP_RATES, settings.arp.rate, (v) => {
+          settings.arp.rate = v;
+          engine.setParams({ arp: { rate: v } });
+          updateComplexityDisplay();
+          persistSettings();
+          // The arp lane's length/pulse-marks are rate-derived (v8 ruling):
+          // re-render its sequencer grid, same as a time-signature change.
+          try {
+            openEditors.get('arp')?.seq?.refresh();
+          } catch {}
+        });
+        const octaves = arpRange('Octaves', {
+          min: 1,
+          max: 3,
+          step: 1,
+          value: settings.arp.octaves,
+          onChange: (v) => {
+            settings.arp.octaves = parseInt(v, 10);
+            engine.setParams({ arp: { octaves: settings.arp.octaves } });
+            persistSettings();
+          },
+        });
+        const gate = arpRange('Gate', {
+          min: 0.1,
+          max: 1,
+          step: 0.01,
+          value: settings.arp.gate,
+          onChange: (v) => {
+            settings.arp.gate = parseFloat(v);
+            engine.setParams({ arp: { gate: settings.arp.gate } });
+            persistSettings();
+          },
+        });
+
+        container.append(panel);
+        arpUI = {
+          modeRadios,
+          manual,
+          pattern,
+          rate,
+          octaves: octaves.input,
+          octavesOut: octaves.readout,
+          gate: gate.input,
+          gateOut: gate.readout,
+        };
+        syncArpUI();
+      }
+
       // Per-open-editor scope + knob handles, so re-renders, close and
       // engine state changes can tear down rAF loops and swap OFFLINE/LIVE.
       const openEditors = new Map(); // track -> { scope|null, knobs: [] }
@@ -940,6 +1957,8 @@ const VOICES: Record<string, [string, string][]> = {
       function teardownEditor(track) {
         const ed = openEditors.get(track);
         if (!ed) return;
+        unregisterExtras(track, ed.extras);
+        if (track === 'arp') arpUI = null;
         if (ed.scope) {
           if (ed.scope.debounce !== null) clearTimeout(ed.scope.debounce);
           if (ed.scope.live) {
@@ -1016,15 +2035,6 @@ const VOICES: Record<string, [string, string][]> = {
 
       function updateAllScopeModes() {
         for (const track of openEditors.keys()) updateScopeMode(track);
-      }
-
-      function addScrews(el, corners = ['tl', 'tr', 'bl', 'br']) {
-        for (const corner of corners) {
-          const screw = document.createElement('span');
-          screw.className = `screw screw-${corner}`;
-          screw.setAttribute('aria-hidden', 'true');
-          el.append(screw);
-        }
       }
 
       let veControlId = 0;
@@ -1128,174 +2138,240 @@ const VOICES: Record<string, [string, string][]> = {
         return `${SHAPE_LABELS[Math.floor(v)]}~${SHAPE_LABELS[Math.ceil(v)]}`;
       };
 
+      // ---- v8: applicable-controls (voice metadata may hide sections) ----
+      // `controls` (VOICES[track][voiceId].controls, may be absent) is
+      // { source?, filter?, adsr?, sends? }, each true | false | string[] of
+      // field names. Absent whole descriptor, or an absent section key,
+      // means "applies" (render everything) — only an explicit false or a
+      // field array narrows what's shown. Field names match the Patch
+      // schema: source: shape1/shape2/mix/detune/octave; filter:
+      // type/cutoff/q/envAmount; adsr: attack/decay/sustain/release;
+      // sends: reverb/delay.
+      function controlsSectionSpec(controls, section) {
+        if (!isPlainObject(controls)) return true;
+        const v = controls[section];
+        return v === undefined ? true : v;
+      }
+      function controlsSectionVisible(spec) {
+        if (spec === false) return false;
+        if (Array.isArray(spec)) return spec.length > 0;
+        return true;
+      }
+      function controlsFieldAllowed(spec, field) {
+        if (spec === false) return false;
+        if (Array.isArray(spec)) return spec.includes(field);
+        return true;
+      }
+
       // Fallback editor: the pre-v5 slider/select controls — the path when
       // knob.js is missing or its API throws. Writes the same
       // shape-normalised patch the knob editor writes.
-      function buildSliderEditor(container, patch, commit) {
-        const source = veSection(container, 'Source');
-        veSelect(source, 'Osc 1', {
-          options: OSC_TYPES,
-          value: SHAPE_NAMES[Math.round(readShape(patch.source, 1) ?? 0)],
-          onChange: (v) => {
-            writeShape(patch.source, 1, SHAPE_FROM_STRING[v]);
-            commit();
-          },
-        });
-        const initialShape2 = readShape(patch.source, 2);
-        veSelect(source, 'Osc 2', {
-          options: [['none', 'None'], ...OSC_TYPES],
-          value: initialShape2 === null ? 'none' : SHAPE_NAMES[Math.round(initialShape2)],
-          onChange: (v) => {
-            writeShape(patch.source, 2, v === 'none' ? null : SHAPE_FROM_STRING[v]);
-            commit();
-          },
-        });
-        veRange(source, 'Mix', {
-          min: 0,
-          max: 1,
-          step: 0.01,
-          value: patch.source.mix,
-          onChange: (v) => {
-            patch.source.mix = v;
-            commit();
-          },
-        });
-        veRange(source, 'Detune', {
-          min: 0,
-          max: 50,
-          step: 1,
-          value: patch.source.detune,
-          format: (v) => `${Math.round(v)} ct`,
-          onChange: (v) => {
-            patch.source.detune = Math.round(v);
-            commit();
-          },
-        });
-        veSelect(source, 'Octave', {
-          options: [
-            ['-1', '-1'],
-            ['0', '0'],
-            ['1', '+1'],
-          ],
-          value: String(patch.source.octave),
-          onChange: (v) => {
-            patch.source.octave = parseInt(v, 10);
-            commit();
-          },
-        });
+      function buildSliderEditor(container, patch, commit, controls) {
+        const sourceSpec = controlsSectionSpec(controls, 'source');
+        const filterSpec = controlsSectionSpec(controls, 'filter');
+        const adsrSpec = controlsSectionSpec(controls, 'adsr');
+        const sendsSpec = controlsSectionSpec(controls, 'sends');
 
-        const filter = veSection(container, 'Filter');
-        veSelect(filter, 'Type', {
-          options: FILTER_TYPES,
-          value: patch.filter.type,
-          onChange: (v) => {
-            patch.filter.type = v;
-            commit();
-          },
-        });
-        veRange(filter, 'Cutoff', {
-          min: 40,
-          max: 12000,
-          log: true,
-          value: patch.filter.cutoff,
-          format: hzFormat,
-          onChange: (v) => {
-            patch.filter.cutoff = Math.round(v);
-            commit();
-          },
-        });
-        veRange(filter, 'Resonance', {
-          min: 0.1,
-          max: 20,
-          step: 0.1,
-          value: patch.filter.q,
-          onChange: (v) => {
-            patch.filter.q = v;
-            commit();
-          },
-        });
-        veRange(filter, 'Env amount', {
-          min: 0,
-          max: 1,
-          step: 0.01,
-          value: patch.filter.envAmount,
-          onChange: (v) => {
-            patch.filter.envAmount = v;
-            commit();
-          },
-        });
+        const source = controlsSectionVisible(sourceSpec) ? veSection(container, 'Source') : null;
+        if (source && controlsFieldAllowed(sourceSpec, 'shape1')) {
+          veSelect(source, 'Osc 1', {
+            options: OSC_TYPES,
+            value: SHAPE_NAMES[Math.round(readShape(patch.source, 1) ?? 0)],
+            onChange: (v) => {
+              writeShape(patch.source, 1, SHAPE_FROM_STRING[v]);
+              commit();
+            },
+          });
+        }
+        if (source && controlsFieldAllowed(sourceSpec, 'shape2')) {
+          const initialShape2 = readShape(patch.source, 2);
+          veSelect(source, 'Osc 2', {
+            options: [['none', 'None'], ...OSC_TYPES],
+            value: initialShape2 === null ? 'none' : SHAPE_NAMES[Math.round(initialShape2)],
+            onChange: (v) => {
+              writeShape(patch.source, 2, v === 'none' ? null : SHAPE_FROM_STRING[v]);
+              commit();
+            },
+          });
+        }
+        if (source && controlsFieldAllowed(sourceSpec, 'mix')) {
+          veRange(source, 'Mix', {
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: patch.source.mix,
+            onChange: (v) => {
+              patch.source.mix = v;
+              commit();
+            },
+          });
+        }
+        if (source && controlsFieldAllowed(sourceSpec, 'detune')) {
+          veRange(source, 'Detune', {
+            min: 0,
+            max: 50,
+            step: 1,
+            value: patch.source.detune,
+            format: (v) => `${Math.round(v)} ct`,
+            onChange: (v) => {
+              patch.source.detune = Math.round(v);
+              commit();
+            },
+          });
+        }
+        if (source && controlsFieldAllowed(sourceSpec, 'octave')) {
+          veSelect(source, 'Octave', {
+            options: [
+              ['-1', '-1'],
+              ['0', '0'],
+              ['1', '+1'],
+            ],
+            value: String(patch.source.octave),
+            onChange: (v) => {
+              patch.source.octave = parseInt(v, 10);
+              commit();
+            },
+          });
+        }
 
-        const adsr = veSection(container, 'Envelope');
-        veRange(adsr, 'Attack', {
-          min: 0.001,
-          max: 8,
-          log: true,
-          value: patch.adsr.attack,
-          format: secFormat,
-          onChange: (v) => {
-            patch.adsr.attack = v;
-            commit();
-          },
-        });
-        veRange(adsr, 'Decay', {
-          min: 0.001,
-          max: 8,
-          log: true,
-          value: patch.adsr.decay,
-          format: secFormat,
-          onChange: (v) => {
-            patch.adsr.decay = v;
-            commit();
-          },
-        });
-        veRange(adsr, 'Sustain', {
-          min: 0,
-          max: 1,
-          step: 0.01,
-          value: patch.adsr.sustain,
-          onChange: (v) => {
-            patch.adsr.sustain = v;
-            commit();
-          },
-        });
-        veRange(adsr, 'Release', {
-          min: 0.01,
-          max: 12,
-          log: true,
-          value: patch.adsr.release,
-          format: secFormat,
-          onChange: (v) => {
-            patch.adsr.release = v;
-            commit();
-          },
-        });
+        const filter = controlsSectionVisible(filterSpec) ? veSection(container, 'Filter') : null;
+        if (filter && controlsFieldAllowed(filterSpec, 'type')) {
+          veSelect(filter, 'Type', {
+            options: FILTER_TYPES,
+            value: patch.filter.type,
+            onChange: (v) => {
+              patch.filter.type = v;
+              commit();
+            },
+          });
+        }
+        if (filter && controlsFieldAllowed(filterSpec, 'cutoff')) {
+          veRange(filter, 'Cutoff', {
+            min: 40,
+            max: 12000,
+            log: true,
+            value: patch.filter.cutoff,
+            format: hzFormat,
+            onChange: (v) => {
+              patch.filter.cutoff = Math.round(v);
+              commit();
+            },
+          });
+        }
+        if (filter && controlsFieldAllowed(filterSpec, 'q')) {
+          veRange(filter, 'Resonance', {
+            min: 0.1,
+            max: 20,
+            step: 0.1,
+            value: patch.filter.q,
+            onChange: (v) => {
+              patch.filter.q = v;
+              commit();
+            },
+          });
+        }
+        if (filter && controlsFieldAllowed(filterSpec, 'envAmount')) {
+          veRange(filter, 'Env amount', {
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: patch.filter.envAmount,
+            onChange: (v) => {
+              patch.filter.envAmount = v;
+              commit();
+            },
+          });
+        }
 
-        const sends = veSection(container, 'Sends');
-        veRange(sends, 'Reverb', {
-          min: 0,
-          max: 1,
-          step: 0.01,
-          value: patch.sends.reverb,
-          onChange: (v) => {
-            patch.sends.reverb = v;
-            commit();
-          },
-        });
-        veRange(sends, 'Delay', {
-          min: 0,
-          max: 1,
-          step: 0.01,
-          value: patch.sends.delay,
-          onChange: (v) => {
-            patch.sends.delay = v;
-            commit();
-          },
-        });
+        const adsr = controlsSectionVisible(adsrSpec) ? veSection(container, 'Envelope') : null;
+        if (adsr && controlsFieldAllowed(adsrSpec, 'attack')) {
+          veRange(adsr, 'Attack', {
+            min: 0.001,
+            max: 8,
+            log: true,
+            value: patch.adsr.attack,
+            format: secFormat,
+            onChange: (v) => {
+              patch.adsr.attack = v;
+              commit();
+            },
+          });
+        }
+        if (adsr && controlsFieldAllowed(adsrSpec, 'decay')) {
+          veRange(adsr, 'Decay', {
+            min: 0.001,
+            max: 8,
+            log: true,
+            value: patch.adsr.decay,
+            format: secFormat,
+            onChange: (v) => {
+              patch.adsr.decay = v;
+              commit();
+            },
+          });
+        }
+        if (adsr && controlsFieldAllowed(adsrSpec, 'sustain')) {
+          veRange(adsr, 'Sustain', {
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: patch.adsr.sustain,
+            onChange: (v) => {
+              patch.adsr.sustain = v;
+              commit();
+            },
+          });
+        }
+        if (adsr && controlsFieldAllowed(adsrSpec, 'release')) {
+          veRange(adsr, 'Release', {
+            min: 0.01,
+            max: 12,
+            log: true,
+            value: patch.adsr.release,
+            format: secFormat,
+            onChange: (v) => {
+              patch.adsr.release = v;
+              commit();
+            },
+          });
+        }
+
+        const sends = controlsSectionVisible(sendsSpec) ? veSection(container, 'Sends') : null;
+        if (sends && controlsFieldAllowed(sendsSpec, 'reverb')) {
+          veRange(sends, 'Reverb', {
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: patch.sends.reverb,
+            onChange: (v) => {
+              patch.sends.reverb = v;
+              commit();
+            },
+          });
+        }
+        if (sends && controlsFieldAllowed(sendsSpec, 'delay')) {
+          veRange(sends, 'Delay', {
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: patch.sends.delay,
+            onChange: (v) => {
+              patch.sends.delay = v;
+              commit();
+            },
+          });
+        }
       }
 
       // Knob-based editor (v5 module look). Throws only if createKnob does —
       // the caller catches and falls back to buildSliderEditor.
-      function buildKnobEditor(container, patch, commit, knobs) {
+      function buildKnobEditor(container, patch, commit, knobs, controls) {
+        const sourceSpec = controlsSectionSpec(controls, 'source');
+        const filterSpec = controlsSectionSpec(controls, 'filter');
+        const adsrSpec = controlsSectionSpec(controls, 'adsr');
+        const sendsSpec = controlsSectionSpec(controls, 'sends');
+        const allowed = (spec, field) => controlsFieldAllowed(spec, field);
+
         const sections = document.createElement('div');
         sections.className = 'knob-sections';
         container.append(sections);
@@ -1336,205 +2412,253 @@ const VOICES: Record<string, [string, string][]> = {
         }
 
         // -- source --
-        const source = knobSection('Source');
-        addKnob(source, {
-          label: 'Shape 1',
-          min: 0,
-          max: 3,
-          value: readShape(patch.source, 1) ?? 0,
-          marks: SHAPE_MARKS,
-          format: shapeFormat,
-          onInput: (v) => {
-            writeShape(patch.source, 1, v);
-            commit();
-          },
-        });
+        const source = controlsSectionVisible(sourceSpec) ? knobSection('Source') : null;
+        if (source && allowed(sourceSpec, 'shape1')) {
+          addKnob(source, {
+            label: 'Shape 1',
+            min: 0,
+            max: 3,
+            value: readShape(patch.source, 1) ?? 0,
+            marks: SHAPE_MARKS,
+            format: shapeFormat,
+            onInput: (v) => {
+              writeShape(patch.source, 1, v);
+              commit();
+            },
+          });
+        }
 
         // Osc 2's "off" affordance: a toggle beside its dial (shape2 null).
-        let lastShape2 = readShape(patch.source, 2);
-        const osc2Cell = document.createElement('div');
-        osc2Cell.className = 'knob-cell knob-cell-toggle';
-        const osc2Toggle = document.createElement('button');
-        osc2Toggle.type = 'button';
-        osc2Toggle.className = 'secondary-button osc2-toggle';
-        osc2Toggle.textContent = 'Osc 2';
-        osc2Toggle.setAttribute('aria-pressed', String(lastShape2 !== null));
-        osc2Toggle.setAttribute('aria-label', 'Oscillator 2 on');
-        osc2Cell.append(osc2Toggle);
-        source.append(osc2Cell);
+        if (source && allowed(sourceSpec, 'shape2')) {
+          let lastShape2 = readShape(patch.source, 2);
+          const osc2Cell = document.createElement('div');
+          osc2Cell.className = 'knob-cell knob-cell-toggle';
+          const osc2Toggle = document.createElement('button');
+          osc2Toggle.type = 'button';
+          osc2Toggle.className = 'secondary-button osc2-toggle';
+          osc2Toggle.textContent = 'Osc 2';
+          osc2Toggle.setAttribute('aria-pressed', String(lastShape2 !== null));
+          osc2Toggle.setAttribute('aria-label', 'Oscillator 2 on');
+          osc2Cell.append(osc2Toggle);
+          source.append(osc2Cell);
 
-        const shape2Knob = addKnob(source, {
-          label: 'Shape 2',
-          min: 0,
-          max: 3,
-          value: lastShape2 ?? 0,
-          marks: SHAPE_MARKS,
-          format: shapeFormat,
-          onInput: (v) => {
-            lastShape2 = clamp(v, 0, 3);
-            writeShape(patch.source, 2, lastShape2);
-            commit();
-          },
-        });
-        shape2Knob.cell.hidden = lastShape2 === null;
+          const shape2Knob = addKnob(source, {
+            label: 'Shape 2',
+            min: 0,
+            max: 3,
+            value: lastShape2 ?? 0,
+            marks: SHAPE_MARKS,
+            format: shapeFormat,
+            onInput: (v) => {
+              lastShape2 = clamp(v, 0, 3);
+              writeShape(patch.source, 2, lastShape2);
+              commit();
+            },
+          });
+          shape2Knob.cell.hidden = lastShape2 === null;
 
-        osc2Toggle.addEventListener('click', () => {
-          const on = osc2Toggle.getAttribute('aria-pressed') !== 'true';
-          osc2Toggle.setAttribute('aria-pressed', String(on));
-          shape2Knob.cell.hidden = !on;
-          if (on) {
-            if (lastShape2 === null) lastShape2 = 0;
-            writeShape(patch.source, 2, lastShape2);
-            try {
-              shape2Knob.handle.set?.(lastShape2);
-            } catch {}
-          } else {
-            writeShape(patch.source, 2, null);
-          }
-          commit();
-        });
+          osc2Toggle.addEventListener('click', () => {
+            const on = osc2Toggle.getAttribute('aria-pressed') !== 'true';
+            osc2Toggle.setAttribute('aria-pressed', String(on));
+            shape2Knob.cell.hidden = !on;
+            if (on) {
+              if (lastShape2 === null) lastShape2 = 0;
+              writeShape(patch.source, 2, lastShape2);
+              try {
+                shape2Knob.handle.set?.(lastShape2);
+              } catch {}
+            } else {
+              writeShape(patch.source, 2, null);
+            }
+            commit();
+          });
+        }
 
-        addKnob(source, {
-          label: 'Mix',
-          min: 0,
-          max: 1,
-          value: clamp(patch.source.mix, 0, 1),
-          format: plainFormat,
-          onInput: (v) => {
-            patch.source.mix = clamp(v, 0, 1);
-            commit();
-          },
-        });
-        addKnob(source, {
-          label: 'Detune',
-          min: 0,
-          max: 50,
-          step: 1,
-          value: clamp(patch.source.detune, 0, 50),
-          format: (v) => `${Math.round(v)} ct`,
-          onInput: (v) => {
-            patch.source.detune = Math.round(clamp(v, 0, 50));
-            commit();
-          },
-        });
-        addKnob(source, {
-          label: 'Octave',
-          min: -1,
-          max: 1,
-          step: 1,
-          value: clamp(patch.source.octave, -1, 1),
-          marks: [-1, 0, 1],
-          format: (v) => (v > 0 ? `+${Math.round(v)}` : String(Math.round(v))),
-          onInput: (v) => {
-            patch.source.octave = Math.round(clamp(v, -1, 1));
-            commit();
-          },
-        });
+        if (source && allowed(sourceSpec, 'mix')) {
+          addKnob(source, {
+            label: 'Mix',
+            min: 0,
+            max: 1,
+            value: clamp(patch.source.mix, 0, 1),
+            format: plainFormat,
+            onInput: (v) => {
+              patch.source.mix = clamp(v, 0, 1);
+              commit();
+            },
+          });
+        }
+        if (source && allowed(sourceSpec, 'detune')) {
+          addKnob(source, {
+            label: 'Detune',
+            min: 0,
+            max: 50,
+            step: 1,
+            value: clamp(patch.source.detune, 0, 50),
+            format: (v) => `${Math.round(v)} ct`,
+            onInput: (v) => {
+              patch.source.detune = Math.round(clamp(v, 0, 50));
+              commit();
+            },
+          });
+        }
+        if (source && allowed(sourceSpec, 'octave')) {
+          addKnob(source, {
+            label: 'Octave',
+            min: -1,
+            max: 1,
+            step: 1,
+            value: clamp(patch.source.octave, -1, 1),
+            marks: [-1, 0, 1],
+            format: (v) => (v > 0 ? `+${Math.round(v)}` : String(Math.round(v))),
+            onInput: (v) => {
+              patch.source.octave = Math.round(clamp(v, -1, 1));
+              commit();
+            },
+          });
+        }
 
         // -- filter --
-        const filter = knobSection('Filter');
-        addKnob(filter, {
-          label: 'Type',
-          min: 0,
-          max: 3,
-          step: 1,
-          value: Math.max(0, FILTER_ORDER.indexOf(patch.filter.type)),
-          marks: [0, 1, 2, 3],
-          format: (v) => FILTER_DIAL_LABELS[Math.round(clamp(v, 0, 3))],
-          onInput: (v) => {
-            patch.filter.type = FILTER_ORDER[Math.round(clamp(v, 0, 3))];
+        const filter = controlsSectionVisible(filterSpec) ? knobSection('Filter') : null;
+        if (filter && allowed(filterSpec, 'type')) {
+          addKnob(filter, {
+            label: 'Type',
+            min: 0,
+            max: 3,
+            step: 1,
+            value: Math.max(0, FILTER_ORDER.indexOf(patch.filter.type)),
+            marks: [0, 1, 2, 3],
+            format: (v) => FILTER_DIAL_LABELS[Math.round(clamp(v, 0, 3))],
+            onInput: (v) => {
+              patch.filter.type = FILTER_ORDER[Math.round(clamp(v, 0, 3))];
+              commit();
+            },
+          });
+        }
+        if (filter && allowed(filterSpec, 'cutoff')) {
+          // Cutoff is rangeable-by-default per the v7 addendum, but wiring
+          // dual-knob range editing here is deliberately deferred to the
+          // v7 sweep — this stays a plain-number knob for now.
+          addLogKnob(filter, 'Cutoff', 40, 12000, patch.filter.cutoff, hzFormat, (v) => {
+            patch.filter.cutoff = Math.round(v);
             commit();
-          },
-        });
-        addLogKnob(filter, 'Cutoff', 40, 12000, patch.filter.cutoff, hzFormat, (v) => {
-          patch.filter.cutoff = Math.round(v);
-          commit();
-        });
-        addKnob(filter, {
-          label: 'Resonance',
-          min: 0.1,
-          max: 20,
-          step: 0.1,
-          value: clamp(patch.filter.q, 0.1, 20),
-          format: plainFormat,
-          onInput: (v) => {
-            patch.filter.q = clamp(v, 0.1, 20);
-            commit();
-          },
-        });
-        addKnob(filter, {
-          label: 'Env amount',
-          min: 0,
-          max: 1,
-          value: clamp(patch.filter.envAmount, 0, 1),
-          format: plainFormat,
-          onInput: (v) => {
-            patch.filter.envAmount = clamp(v, 0, 1);
-            commit();
-          },
-        });
+          });
+        }
+        if (filter && allowed(filterSpec, 'q')) {
+          addKnob(filter, {
+            label: 'Resonance',
+            min: 0.1,
+            max: 20,
+            step: 0.1,
+            value: clamp(patch.filter.q, 0.1, 20),
+            format: plainFormat,
+            onInput: (v) => {
+              patch.filter.q = clamp(v, 0.1, 20);
+              commit();
+            },
+          });
+        }
+        if (filter && allowed(filterSpec, 'envAmount')) {
+          addKnob(filter, {
+            label: 'Env amount',
+            min: 0,
+            max: 1,
+            value: clamp(patch.filter.envAmount, 0, 1),
+            format: plainFormat,
+            onInput: (v) => {
+              patch.filter.envAmount = clamp(v, 0, 1);
+              commit();
+            },
+          });
+        }
 
         // -- envelope --
-        const env = knobSection('Envelope');
-        addLogKnob(env, 'Attack', 0.001, 8, patch.adsr.attack, secFormat, (v) => {
-          patch.adsr.attack = v;
-          commit();
-        });
-        addLogKnob(env, 'Decay', 0.001, 8, patch.adsr.decay, secFormat, (v) => {
-          patch.adsr.decay = v;
-          commit();
-        });
-        addKnob(env, {
-          label: 'Sustain',
-          min: 0,
-          max: 1,
-          value: clamp(patch.adsr.sustain, 0, 1),
-          format: plainFormat,
-          onInput: (v) => {
-            patch.adsr.sustain = clamp(v, 0, 1);
+        const env = controlsSectionVisible(adsrSpec) ? knobSection('Envelope') : null;
+        if (env && allowed(adsrSpec, 'attack')) {
+          addLogKnob(env, 'Attack', 0.001, 8, patch.adsr.attack, secFormat, (v) => {
+            patch.adsr.attack = v;
             commit();
-          },
-        });
-        addLogKnob(env, 'Release', 0.01, 12, patch.adsr.release, secFormat, (v) => {
-          patch.adsr.release = v;
-          commit();
-        });
+          });
+        }
+        if (env && allowed(adsrSpec, 'decay')) {
+          addLogKnob(env, 'Decay', 0.001, 8, patch.adsr.decay, secFormat, (v) => {
+            patch.adsr.decay = v;
+            commit();
+          });
+        }
+        if (env && allowed(adsrSpec, 'sustain')) {
+          addKnob(env, {
+            label: 'Sustain',
+            min: 0,
+            max: 1,
+            value: clamp(patch.adsr.sustain, 0, 1),
+            format: plainFormat,
+            onInput: (v) => {
+              patch.adsr.sustain = clamp(v, 0, 1);
+              commit();
+            },
+          });
+        }
+        if (env && allowed(adsrSpec, 'release')) {
+          addLogKnob(env, 'Release', 0.01, 12, patch.adsr.release, secFormat, (v) => {
+            patch.adsr.release = v;
+            commit();
+          });
+        }
 
         // -- sends --
-        const sends = knobSection('Sends');
-        addKnob(sends, {
-          label: 'Reverb',
-          min: 0,
-          max: 1,
-          value: clamp(patch.sends.reverb, 0, 1),
-          format: plainFormat,
-          onInput: (v) => {
-            patch.sends.reverb = clamp(v, 0, 1);
-            commit();
-          },
-        });
-        addKnob(sends, {
-          label: 'Delay',
-          min: 0,
-          max: 1,
-          value: clamp(patch.sends.delay, 0, 1),
-          format: plainFormat,
-          onInput: (v) => {
-            patch.sends.delay = clamp(v, 0, 1);
-            commit();
-          },
-        });
+        // Both sends are rangeable-by-default too (v7 addendum); same
+        // deferral as Cutoff above — plain-number knobs until the v7 sweep.
+        const sends = controlsSectionVisible(sendsSpec) ? knobSection('Sends') : null;
+        if (sends && allowed(sendsSpec, 'reverb')) {
+          addKnob(sends, {
+            label: 'Reverb',
+            min: 0,
+            max: 1,
+            value: clamp(patch.sends.reverb, 0, 1),
+            format: plainFormat,
+            onInput: (v) => {
+              patch.sends.reverb = clamp(v, 0, 1);
+              commit();
+            },
+          });
+        }
+        if (sends && allowed(sendsSpec, 'delay')) {
+          addKnob(sends, {
+            label: 'Delay',
+            min: 0,
+            max: 1,
+            value: clamp(patch.sends.delay, 0, 1),
+            format: plainFormat,
+            onInput: (v) => {
+              patch.sends.delay = clamp(v, 0, 1);
+              commit();
+            },
+          });
+        }
       }
 
       async function renderVoiceEditor(track) {
         const container = document.getElementById(`voice-editor-${track}`);
         const voiceId = settings.tracks[track].voice;
+
+        // Claim the editor slot BEFORE the await, not after: a quick row
+        // switch closes this container (hiding it, tearing down whatever
+        // was registered) while we're still awaiting the voices module, so
+        // registering openEditors first lets that teardown actually find
+        // and cancel us instead of racing a build onto a hidden container.
+        teardownEditor(track);
+        container.innerHTML = '';
+        const ed = { scope: null, knobs: [], extras: null, seq: null };
+        openEditors.set(track, ed);
+
         const voices = await getVoicesTable();
-        // Feature-detect .defaults — absent on an older engine-voices build.
-        const defaults =
-          voices && voices[track] && voices[track][voiceId] && voices[track][voiceId].defaults
-            ? voices[track][voiceId].defaults
-            : null;
+        if (container.hidden) return; // closed while awaiting — leave no live rAF scope loop behind
+        const voiceEntry = voices && voices[track] && voices[track][voiceId] ? voices[track][voiceId] : null;
+        // Feature-detect .defaults / .controls — absent on an older
+        // engine-voices build; absent .controls = render every section/field
+        // (the pre-v8 behaviour).
+        const defaults = voiceEntry && voiceEntry.defaults ? voiceEntry.defaults : null;
+        const controls = voiceEntry && voiceEntry.controls ? voiceEntry.controls : null;
         const base = deepMerge(FALLBACK_PATCH, defaults || {});
         const patch = deepMerge(base, (settings.patches[track] || {})[voiceId] || {});
         // Normalise once so the dials and the scope always see numeric
@@ -1550,12 +2674,31 @@ const VOICES: Record<string, [string, string][]> = {
           persistSettings();
         }
 
-        teardownEditor(track);
-        container.innerHTML = '';
-        addScrews(container);
+        // v6 header: track name + the Random/Hold/Randomness mirror.
+        const header = document.createElement('div');
+        header.className = 've-header';
+        const headerTitle = document.createElement('span');
+        headerTitle.className = 'panel-label';
+        headerTitle.textContent = TRACK_LABELS[track];
+        const extrasBox = document.createElement('div');
+        extrasBox.className = 'track-extras ve-extras';
+        header.append(headerTitle, extrasBox);
+        container.append(header);
+        ed.extras = buildTrackExtras(extrasBox, track, { knobs: ed.knobs });
+        registerExtras(track, ed.extras);
+        buildVaryRow(container, track, ed.knobs);
 
-        const ed = { scope: null, knobs: [] };
-        openEditors.set(track, ed);
+        // v6 step sequencer at the top of the pulsed tracks' panels. Arp
+        // always shows it (on/off degrades to the legacy boolean mask);
+        // melody/bass/percussion need engine support or the grid is dead.
+        const showSeq =
+          track === 'arp' ||
+          ((SEQ_SINGLE_TRACKS.includes(track) || track === 'percussion') &&
+            engineCaps.sequencer[track]);
+        if (showSeq) ed.seq = buildSequencer(container, track);
+
+        // Arpeggiator controls live here now, above the voice sections.
+        if (track === 'arp') buildArpSection(container);
 
         if (scopeApi) {
           const head = document.createElement('div');
@@ -1581,7 +2724,7 @@ const VOICES: Record<string, [string, string][]> = {
         let knobsBuilt = false;
         if (knobApi) {
           try {
-            buildKnobEditor(container, patch, commit, ed.knobs);
+            buildKnobEditor(container, patch, commit, ed.knobs, controls);
             knobsBuilt = true;
           } catch {
             for (const k of ed.knobs) {
@@ -1594,7 +2737,7 @@ const VOICES: Record<string, [string, string][]> = {
             if (partial) partial.remove();
           }
         }
-        if (!knobsBuilt) buildSliderEditor(container, patch, commit);
+        if (!knobsBuilt) buildSliderEditor(container, patch, commit, controls);
 
         const resetButton = document.createElement('button');
         resetButton.type = 'button';
@@ -1616,16 +2759,143 @@ const VOICES: Record<string, [string, string][]> = {
         container.append(resetButton);
       }
 
+      // ---- v8: single-open voice-editor accordion ------------------------
+      // A track row gaining focus/selection (click or keyboard, anywhere
+      // except the Edit button, which has its own explicit toggle below)
+      // opens that track's editor and collapses any other open one. Both
+      // paths funnel through the same open/close pair so they can never
+      // fight each other, and both compose with teardownEditor (scope
+      // destroy, knob destroy, extras unregister).
+      function closeTrackEditor(id) {
+        const editor = document.getElementById(`voice-editor-${id}`);
+        const toggle = document.getElementById(`voice-edit-toggle-${id}`);
+        if (editor.hidden) return;
+        editor.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+        teardownEditor(id);
+      }
+
+      // restoreScroll: only click-initiated opens put the viewport back
+      // where the user's eye was — a keyboard/focusin-driven open (Tab
+      // landing in the row) already has the browser scrolling the newly
+      // focused control into view, and overriding that with the old
+      // scrollY would just scroll the focused control back out of sight.
+      function openTrackEditor(id, { restoreScroll = false } = {}) {
+        const editor = document.getElementById(`voice-editor-${id}`);
+        if (!editor.hidden) return; // already the one open
+        const scrollY = restoreScroll ? window.scrollY : null;
+        for (const other of TRACK_IDS) {
+          if (other !== id) closeTrackEditor(other);
+        }
+        const toggle = document.getElementById(`voice-edit-toggle-${id}`);
+        editor.hidden = false;
+        toggle.setAttribute('aria-expanded', 'true');
+        renderVoiceEditor(id);
+        if (restoreScroll) {
+          // The accordion swap changes page height above/below the fold;
+          // put the viewport back where the user's eye was.
+          requestAnimationFrame(() => window.scrollTo(0, scrollY));
+        }
+      }
+
+      function isEditToggle(el) {
+        return !!(el && el.closest && el.closest('.voice-edit-toggle'));
+      }
+
       for (const id of TRACK_IDS) {
         const toggle = document.getElementById(`voice-edit-toggle-${id}`);
         const editor = document.getElementById(`voice-editor-${id}`);
+        const row = document.querySelector(`.track-row[data-track="${id}"]`);
+
+        // Edit button: explicit, secondary affordance — still routes through
+        // the same accordion open/close so it can never desync from focus-
+        // driven opens.
         toggle.addEventListener('click', () => {
-          const opening = editor.hidden;
-          editor.hidden = !opening;
-          toggle.setAttribute('aria-expanded', String(opening));
-          if (opening) renderVoiceEditor(id);
-          else teardownEditor(id);
+          if (editor.hidden) openTrackEditor(id, { restoreScroll: true });
+          else closeTrackEditor(id);
         });
+
+        // Row focus/selection: click or keyboard-focus anywhere in the row
+        // (state pills, voice select, level knob, extras) opens it, EXCEPT
+        // the Edit button itself (handled above) to avoid a focusin-then-
+        // click race that would open-then-instantly-close it.
+        if (row) {
+          row.addEventListener('click', (event) => {
+            if (isEditToggle(event.target)) return;
+            openTrackEditor(id, { restoreScroll: true });
+          });
+          row.addEventListener('focusin', (event) => {
+            if (isEditToggle(event.target)) return;
+            openTrackEditor(id);
+          });
+        }
+      }
+
+      // Tracks-panel row instances of the Random/Hold/Randomness cluster.
+      for (const id of TRACK_IDS) {
+        const box = document.getElementById(`track-extras-${id}`);
+        registerExtras(id, buildTrackExtras(box, id));
+      }
+
+      // ---- v8: per-track Level knob (RangeValue: number | {min,max}) -----
+      // Lives in the main tracks-panel row (not just the Edit panel), so
+      // level is reachable without opening the accordion. Feature-tolerant:
+      // always sent, regardless of whether this engine build understands
+      // `tracks[track].level` — an older sanitiser just drops the key.
+      const levelControls = new Map(); // track -> { set(value) }
+
+      function buildLevelControl(container, track) {
+        const commitLevel = (value) => {
+          settings.tracks[track].level = value;
+          engine.setParams({ tracks: { [track]: { level: value } } });
+          persistSettings();
+        };
+        const readMid = (v) => (typeof v === 'number' ? v : (v.min + v.max) / 2);
+        if (knobApi) {
+          try {
+            const cell = document.createElement('div');
+            cell.className = 'level-knob';
+            container.append(cell);
+            const handle = knobApi.createKnob(cell, {
+              label: 'Level',
+              min: 0,
+              max: 1,
+              value: settings.tracks[track].level,
+              format: pctFormat,
+              allowRange: true,
+              onInput: commitLevel,
+            });
+            return {
+              set: (v) => {
+                try {
+                  handle.set?.(v);
+                } catch {}
+              },
+            };
+          } catch {
+            container.innerHTML = '';
+          }
+        }
+        const wrap = document.createElement('label');
+        wrap.className = 'level-slider';
+        const name = document.createElement('span');
+        name.className = 'visually-hidden';
+        name.textContent = `${TRACK_LABELS[track]} level`;
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.min = '0';
+        input.max = '1';
+        input.step = '0.01';
+        input.value = String(readMid(settings.tracks[track].level));
+        input.addEventListener('input', () => commitLevel(parseFloat(input.value)));
+        wrap.append(name, input);
+        container.append(wrap);
+        return { set: (v) => (input.value = String(readMid(v))) };
+      }
+
+      for (const id of TRACK_IDS) {
+        const box = document.getElementById(`track-level-${id}`);
+        if (box && engineCaps.level[id]) levelControls.set(id, buildLevelControl(box, id));
       }
 
       // ---- structure + custom structure builder -------------------------
@@ -1761,94 +3031,21 @@ const VOICES: Record<string, [string, string][]> = {
         persistSettings();
       });
 
-      // ---- arpeggiator editor -------------------------------------------
-
-      const arpModeRadios = document.querySelectorAll('input[name="arp-mode"]');
-      const arpManualControls = document.getElementById('arp-manual-controls');
-      const arpPattern = document.getElementById('arp-pattern');
-      const arpRate = document.getElementById('arp-rate');
-      const arpOctaves = document.getElementById('arp-octaves');
-      const arpOctavesValue = document.getElementById('arp-octaves-value');
-      const arpGate = document.getElementById('arp-gate');
-      const arpGateValue = document.getElementById('arp-gate-value');
-      const arpSteps = document.getElementById('arp-steps');
+      // ---- arpeggiator sync (controls live in the Arp Edit panel) -------
 
       function syncArpUI() {
-        for (const radio of arpModeRadios) {
+        updateComplexityDisplay();
+        if (!arpUI) return; // arp editor closed — nothing rendered to sync
+        for (const radio of arpUI.modeRadios) {
           radio.checked = radio.value === settings.arp.mode;
         }
-        arpManualControls.hidden = settings.arp.mode !== 'manual';
-        arpPattern.value = settings.arp.pattern;
-        arpRate.value = settings.arp.rate;
-        arpOctaves.value = String(settings.arp.octaves);
-        arpOctavesValue.textContent = String(settings.arp.octaves);
-        arpGate.value = String(settings.arp.gate);
-        arpGateValue.textContent = String(settings.arp.gate);
-        renderArpSteps();
-        updateComplexityDisplay();
-      }
-
-      for (const radio of arpModeRadios) {
-        radio.addEventListener('change', () => {
-          if (!radio.checked) return;
-          settings.arp.mode = radio.value;
-          arpManualControls.hidden = settings.arp.mode !== 'manual';
-          engine.setParams({ arp: { mode: radio.value } });
-          updateComplexityDisplay();
-          persistSettings();
-        });
-      }
-
-      arpPattern.addEventListener('change', () => {
-        settings.arp.pattern = arpPattern.value;
-        engine.setParams({ arp: { pattern: arpPattern.value } });
-        persistSettings();
-      });
-
-      arpRate.addEventListener('change', () => {
-        settings.arp.rate = arpRate.value;
-        engine.setParams({ arp: { rate: arpRate.value } });
-        updateComplexityDisplay();
-        persistSettings();
-      });
-
-      arpOctaves.addEventListener('input', () => {
-        const value = parseInt(arpOctaves.value, 10);
-        settings.arp.octaves = value;
-        arpOctavesValue.textContent = String(value);
-        engine.setParams({ arp: { octaves: value } });
-        persistSettings();
-      });
-
-      arpGate.addEventListener('input', () => {
-        const value = parseFloat(arpGate.value);
-        settings.arp.gate = value;
-        arpGateValue.textContent = String(value);
-        engine.setParams({ arp: { gate: value } });
-        persistSettings();
-      });
-
-      function renderArpSteps() {
-        arpSteps.innerHTML = '';
-        settings.arp.steps.forEach((on, index) => {
-          const step = document.createElement('button');
-          step.type = 'button';
-          step.className = 'step-cell';
-          const stepNumber = index + 1;
-          step.textContent = stepNumber % 4 === 1 ? String(stepNumber) : '•';
-          step.setAttribute('aria-label', `Step ${stepNumber}`);
-          step.setAttribute('aria-pressed', String(on));
-          if (stepNumber % 4 === 1) step.classList.add('step-cell-marked');
-          step.addEventListener('click', () => {
-            const next = !settings.arp.steps[index];
-            settings.arp.steps[index] = next;
-            step.setAttribute('aria-pressed', String(next));
-            engine.setParams({ arp: { steps: settings.arp.steps } });
-            updateComplexityDisplay();
-            persistSettings();
-          });
-          arpSteps.append(step);
-        });
+        arpUI.manual.hidden = settings.arp.mode !== 'manual';
+        arpUI.pattern.value = settings.arp.pattern;
+        arpUI.rate.value = settings.arp.rate;
+        arpUI.octaves.value = String(settings.arp.octaves);
+        arpUI.octavesOut.textContent = String(settings.arp.octaves);
+        arpUI.gate.value = String(settings.arp.gate);
+        arpUI.gateOut.textContent = String(settings.arp.gate);
       }
 
       // ---- transport (Play / Finish / Stop now) -------------------------
@@ -1982,6 +3179,78 @@ const VOICES: Record<string, [string, string][]> = {
       const alarmActive = document.getElementById('alarm-active');
       const alarmCountdown = document.getElementById('alarm-countdown');
       const alarmTimeInput = document.getElementById('alarm-time');
+      const sleepChip = document.getElementById('sleep-chip');
+      const alarmChip = document.getElementById('alarm-chip');
+
+      // ---- v6: sleep/alarm popovers (anchored, keyboard-operable dialogs) -
+      // Esc and outside-click close; focus moves into the panel on open and
+      // back to its button on close; Tab wraps within the panel while open.
+      function setupPopover(toggleId, popoverId) {
+        const toggle = document.getElementById(toggleId);
+        const popover = document.getElementById(popoverId);
+        const anchor = toggle.closest('.popover-anchor') || toggle.parentElement;
+
+        function focusables() {
+          return Array.from(
+            popover.querySelectorAll(
+              'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            )
+          ).filter((el) => !el.disabled && el.offsetParent !== null);
+        }
+
+        function open() {
+          if (!popover.hidden) return;
+          popover.hidden = false;
+          toggle.setAttribute('aria-expanded', 'true');
+          const first = focusables()[0];
+          try {
+            (first || popover).focus();
+          } catch {}
+        }
+
+        function close({ refocus = true } = {}) {
+          if (popover.hidden) return;
+          popover.hidden = true;
+          toggle.setAttribute('aria-expanded', 'false');
+          if (refocus) toggle.focus();
+        }
+
+        toggle.addEventListener('click', () => {
+          if (popover.hidden) open();
+          else close();
+        });
+
+        popover.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            close();
+            return;
+          }
+          if (event.key !== 'Tab') return;
+          const els = focusables();
+          if (els.length === 0) return;
+          const first = els[0];
+          const last = els[els.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        });
+
+        document.addEventListener('pointerdown', (event) => {
+          if (popover.hidden) return;
+          if (anchor.contains(event.target)) return;
+          close({ refocus: false });
+        });
+
+        return { open, close };
+      }
+
+      setupPopover('sleep-toggle', 'sleep-popover');
+      setupPopover('alarm-toggle', 'alarm-popover');
 
       let sleepTarget = null; // epoch ms
       let alarmTarget = null; // epoch ms
@@ -1997,12 +3266,35 @@ const VOICES: Record<string, [string, string][]> = {
         return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
       }
 
+      // Hiding the row that currently holds focus (e.g. clicking "Start" in
+      // sleep-idle, which then hides sleep-idle for sleep-active) drops
+      // focus to <body>, breaking Esc/Tab-wrap in the still-open popover.
+      // If that happened, move focus into the newly-visible counterpart.
+      function swapTimerRow(idleEl, activeEl, isActive) {
+        const focusWasInside = idleEl.contains(document.activeElement) || activeEl.contains(document.activeElement);
+        idleEl.hidden = isActive;
+        activeEl.hidden = !isActive;
+        if (focusWasInside && document.activeElement === document.body) {
+          const visible = isActive ? activeEl : idleEl;
+          const target = visible.querySelector(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          );
+          if (target) {
+            try {
+              target.focus();
+            } catch {}
+          }
+        }
+      }
+
       function updateTimerUI() {
         const now = Date.now();
-        sleepIdle.hidden = sleepTarget !== null;
-        sleepActive.hidden = sleepTarget === null;
-        alarmIdle.hidden = alarmTarget !== null;
-        alarmActive.hidden = alarmTarget === null;
+        swapTimerRow(sleepIdle, sleepActive, sleepTarget !== null);
+        swapTimerRow(alarmIdle, alarmActive, alarmTarget !== null);
+        sleepChip.hidden = sleepTarget === null;
+        if (sleepTarget !== null) sleepChip.textContent = formatCountdown(sleepTarget - now);
+        alarmChip.hidden = alarmTarget === null;
+        if (alarmTarget !== null) alarmChip.textContent = formatCountdown(alarmTarget - now);
         const bits = [];
         if (sleepTarget !== null) {
           const text = `Fades out in ${formatCountdown(sleepTarget - now)}`;
@@ -2272,7 +3564,14 @@ const VOICES: Record<string, [string, string][]> = {
         const preset = presets[index];
         if (!preset) return;
         const ui = settings.ui;
+        // Same migration/normalisation order as the init load path: a
+        // pre-v6 preset needs its arp mask mapped to a sequencer BEFORE the
+        // deepMerge, and every lane needs padding to SEQ_SLOTS right after —
+        // skipping either step leaves laneSteps()[i] undefined and throws
+        // inside the un-awaited renderVoiceEditor triggered by syncUIFromSettings.
+        migrateLegacyArpSteps(preset.params);
         settings = deepMerge(DEFAULTS, preset.params);
+        normaliseV6Tracks(settings);
         settings.ui = ui;
         engine.setParams(engineParamsFrom(settings));
         syncUIFromSettings();
@@ -2327,8 +3626,10 @@ const VOICES: Record<string, [string, string][]> = {
         syncStructureUI();
         syncArpUI();
         syncTrackStateUI();
+        syncAllTrackExtras();
         for (const id of TRACK_IDS) {
           document.getElementById(`track-voice-${id}`).value = settings.tracks[id].voice;
+          levelControls.get(id)?.set(settings.tracks[id].level);
           const editor = document.getElementById(`voice-editor-${id}`);
           if (!editor.hidden) renderVoiceEditor(id);
         }
@@ -2356,35 +3657,11 @@ const VOICES: Record<string, [string, string][]> = {
       max-width: 640px;
     }
 
-    /* -- 70s module furniture (theme owns the .module-panel / .panel-label /
-          .screw appearance and tokens; this positions the page's fittings) -- */
+    /* -- 70s module furniture (theme owns the .module-panel appearance /
+          tokens) -- */
 
     .module-panel {
       position: relative;
-    }
-
-    .screw-tl {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-    }
-
-    .screw-tr {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-    }
-
-    .screw-bl {
-      position: absolute;
-      bottom: 8px;
-      left: 8px;
-    }
-
-    .screw-br {
-      position: absolute;
-      bottom: 8px;
-      right: 8px;
     }
 
     .transport-module,
@@ -2466,6 +3743,91 @@ const VOICES: Record<string, [string, string][]> = {
       outline-offset: 2px;
     }
 
+    /* -- transport icon buttons + sleep/alarm popovers (v6) -- */
+
+    .transport-icons {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .popover-anchor {
+      position: relative;
+    }
+
+    .icon-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      color: var(--text);
+      background: linear-gradient(rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.03)), var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .icon-button:hover {
+      border-color: var(--accent-warm, var(--link));
+    }
+
+    .icon-button[aria-expanded='true'] {
+      color: var(--bg);
+      background: var(--link);
+      border-color: var(--link);
+    }
+
+    .icon-button:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    .countdown-chip {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.4;
+      color: var(--on-amber, var(--bg));
+      background: var(--accent-warm, var(--link));
+      border-radius: 999px;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .popover {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      z-index: 20;
+      width: max-content;
+      min-width: 240px;
+      max-width: calc(100vw - 32px);
+    }
+
+    .popover-title {
+      display: block;
+      margin-bottom: 10px;
+    }
+
+    .popover input[type='number'],
+    .popover input[type='time'] {
+      padding: 6px 8px;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .popover input[type='number'] {
+      width: 72px;
+    }
+
     #track-visualiser {
       display: block;
       width: 100%;
@@ -2532,8 +3894,7 @@ const VOICES: Record<string, [string, string][]> = {
       margin-bottom: 6px;
     }
 
-    .control label,
-    .control-heading {
+    .control label {
       font-weight: 700;
     }
 
@@ -2575,7 +3936,6 @@ const VOICES: Record<string, [string, string][]> = {
 
     .control input:focus-visible,
     .control select:focus-visible,
-    .timer-group input:focus-visible,
     .presets-group input:focus-visible,
     .presets-group select:focus-visible {
       outline: 3px solid var(--link);
@@ -2588,9 +3948,9 @@ const VOICES: Record<string, [string, string][]> = {
       font-size: 14px;
     }
 
-    /* -- sleep / alarm / presets fieldsets -- */
+    /* -- presets fieldset (the old sleep/alarm fieldset was replaced by the
+          transport popovers below) -- */
 
-    .timer-group,
     .presets-group {
       margin-bottom: 20px;
       padding: 12px;
@@ -2598,7 +3958,6 @@ const VOICES: Record<string, [string, string][]> = {
       border-radius: var(--radius);
     }
 
-    .timer-group legend,
     .presets-group legend {
       padding: 0 6px;
       font-weight: 700;
@@ -2619,8 +3978,6 @@ const VOICES: Record<string, [string, string][]> = {
       gap: 8px;
     }
 
-    .timer-group input[type='number'],
-    .timer-group input[type='time'],
     .presets-group input[type='text'] {
       padding: 6px 8px;
       font-size: 14px;
@@ -2628,13 +3985,6 @@ const VOICES: Record<string, [string, string][]> = {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-    }
-
-    .timer-group input[type='number'] {
-      width: 72px;
-    }
-
-    .presets-group input[type='text'] {
       flex: 1 1 160px;
     }
 
@@ -2720,6 +4070,18 @@ const VOICES: Record<string, [string, string][]> = {
       font-weight: 600;
     }
 
+    /* v8: melody/bass ship state 'off' — a textual cue (not colour alone)
+       so a silent track is obviously wake-able, not just quietly missing. */
+    .track-row[data-track-state='off'] .track-name {
+      color: var(--secondary);
+      font-weight: 400;
+      font-style: italic;
+    }
+
+    .track-row[data-track-state='off'] .track-name::after {
+      content: ' — off';
+    }
+
     .track-voice {
       flex: 1 1 140px;
       min-width: 120px;
@@ -2731,10 +4093,56 @@ const VOICES: Record<string, [string, string][]> = {
       border-radius: var(--radius);
     }
 
+    /* v8: per-track Level knob/slider, in the main tracks-panel row */
+    .track-level {
+      display: flex;
+      align-items: center;
+    }
+
+    .level-knob {
+      display: flex;
+      justify-content: center;
+      width: 84px;
+    }
+
+    .level-slider {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .level-slider input[type='range'] {
+      width: 120px;
+    }
+
     .voice-edit-toggle[aria-expanded='true'] {
       background: var(--link);
       color: var(--bg);
       border-color: var(--link);
+    }
+
+    /* -- track-extras: Random / Hold / Randomness cluster (main row AND the
+          voice editor header mirror share this class) -- */
+
+    .track-extras {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .rand-knob {
+      display: flex;
+      justify-content: center;
+      width: 84px;
+    }
+
+    .rand-slider {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .rand-slider input[type='range'] {
+      width: 120px;
     }
 
     /* -- voice editor module (faceplate look comes from .module-panel) -- */
@@ -2841,6 +4249,190 @@ const VOICES: Record<string, [string, string][]> = {
       border-radius: var(--radius);
     }
 
+    /* -- v6/v8: voice-editor header (track name + Random/Hold/Randomness) -- */
+
+    .ve-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .ve-extras {
+      flex: 1 1 auto;
+      justify-content: flex-end;
+    }
+
+    /* -- v6: per-track randomisation-target mini knobs -- */
+
+    .vary-row {
+      margin-bottom: 16px;
+    }
+
+    .vary-row > .panel-label {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .vary-cells {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 8px;
+    }
+
+    .vary-knob {
+      display: flex;
+      justify-content: center;
+      width: 84px;
+    }
+
+    .vary-slider {
+      flex: 1 1 160px;
+      margin-bottom: 0;
+    }
+
+    /* -- v6: arpeggiator section (relocated into the Arp track's editor) -- */
+
+    .arp-inline {
+      margin-bottom: 20px;
+    }
+
+    .arp-inline > .panel-label {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .arp-manual {
+      margin-top: 10px;
+    }
+
+    /* -- v6: shared step sequencer (melody/bass/arp single-lane,
+          percussion three-lane) — grid width driven by --seq-cols, set by
+          the page script per track/metre/arp-rate -- */
+
+    .seq {
+      margin-bottom: 20px;
+    }
+
+    .seq-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .seq-scroll {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .seq-beats,
+    .seq-lane {
+      display: grid;
+      grid-template-columns: repeat(var(--seq-cols, 16), minmax(22px, 1fr));
+      gap: 3px;
+    }
+
+    .seq-beats {
+      margin-bottom: 2px;
+    }
+
+    /* Pulls the (now separate role="row") probability strip back up
+       against its own cell row rather than sitting a full flex gap away. */
+    .seq-prob-row {
+      margin-top: -3px;
+    }
+
+    .seq-beat-mark {
+      font-size: 10px;
+      text-align: center;
+      color: var(--secondary);
+    }
+
+    .seq-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .seq-lane-label {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--secondary);
+    }
+
+    .seq-cell {
+      position: relative;
+      min-height: 40px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .seq-cell-beat {
+      border-left: 2px solid var(--accent-warm, var(--link));
+    }
+
+    .seq-cell-on {
+      border-color: var(--link);
+    }
+
+    .seq-cell:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    .seq-band {
+      position: absolute;
+      display: block;
+      left: 2px;
+      right: 2px;
+      bottom: 0;
+      height: 0;
+      background: var(--accent-warm, var(--link));
+      opacity: 0.55;
+      border-radius: 2px;
+      pointer-events: none;
+    }
+
+    .seq-cell-on .seq-band {
+      opacity: 0.85;
+    }
+
+    .seq-prob {
+      position: relative;
+      display: block;
+      height: 5px;
+      margin-top: 2px;
+      background: var(--border);
+      border-radius: 3px;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .seq-prob-fill {
+      position: absolute;
+      display: block;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 0;
+      background: var(--link);
+    }
+
+    .seq-legend {
+      margin-top: 8px;
+    }
+
     /* -- custom structure builder -- */
 
     .custom-structure {
@@ -2913,44 +4505,6 @@ const VOICES: Record<string, [string, string][]> = {
       outline-offset: 2px;
     }
 
-    /* -- arpeggiator step grid -- */
-
-    .arp-control {
-      margin-top: 24px;
-    }
-
-    .step-grid {
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      gap: 6px;
-      margin-top: 8px;
-    }
-
-    .step-cell {
-      padding: 10px 0;
-      font-size: 12px;
-      color: var(--secondary);
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      cursor: pointer;
-    }
-
-    .step-cell-marked {
-      font-weight: 700;
-    }
-
-    .step-cell[aria-pressed='true'] {
-      background: var(--link);
-      color: var(--bg);
-      border-color: var(--link);
-    }
-
-    .step-cell:focus-visible {
-      outline: 3px solid var(--link);
-      outline-offset: 2px;
-    }
-
     #generator-unavailable {
       color: var(--secondary);
     }
@@ -2958,16 +4512,6 @@ const VOICES: Record<string, [string, string][]> = {
     /* -- small-screen touch targets (~44px) -- */
 
     @media (max-width: 480px) {
-      .step-grid {
-        grid-template-columns: repeat(4, 1fr);
-      }
-
-      .step-cell {
-        min-height: 44px;
-        padding: 14px 0;
-        font-size: 14px;
-      }
-
       .segmented label {
         min-height: 44px;
         display: inline-flex;
