@@ -520,6 +520,217 @@ try {
     }
   }
 
+  // ---- v21 probe-gated surfaces --------------------------------------------
+  // The page renders these only where the engine's own sanitiser accepts the
+  // param behind them, so the gate has to ask the SAME question rather than
+  // assert unconditionally: with the engine landed the control must be there;
+  // against an engine that predates it, its absence is correct.
+  const engineModule = await import(
+    pathToFileURL(join(repoRoot, 'src/scripts/ambient-engine.js')).href
+  );
+  const sanitise = engineModule.sanitiseParams;
+  function probeTracks(partial) {
+    if (typeof sanitise !== 'function') return null;
+    try {
+      const out = sanitise({ tracks: partial });
+      return out && out.tracks ? out.tracks : null;
+    } catch {
+      return null;
+    }
+  }
+  const laneProbe = probeTracks({
+    percussion: { lanes: [{ id: '__probe', label: 'Lane 4', kind: 'mid' }] },
+  });
+  const engineTakesLanes = Boolean(
+    laneProbe &&
+      laneProbe.percussion &&
+      Array.isArray(laneProbe.percussion.lanes) &&
+      laneProbe.percussion.lanes.some((lane) => lane && lane.id === '__probe')
+  );
+  const feelProbe = probeTracks({ melody: { swing: 0.5, density: 1.5 } });
+  const feelNullProbe = probeTracks({ melody: { swing: null, density: null } });
+  const engineTakesSwing = Boolean(
+    feelProbe && feelProbe.melody && feelProbe.melody.swing === 0.5 &&
+      feelNullProbe && feelNullProbe.melody && feelNullProbe.melody.swing === null
+  );
+  const engineTakesDensity = Boolean(
+    feelProbe && feelProbe.melody && feelProbe.melody.density === 1.5 &&
+      feelNullProbe && feelNullProbe.melody && feelNullProbe.melody.density === null
+  );
+
+  async function openEditor(track) {
+    const editor = doc.getElementById(`voice-editor-${track}`);
+    if (editor && editor.hidden) doc.getElementById(`voice-edit-toggle-${track}`).click();
+    await waitUntil(() => {
+      const el = doc.getElementById(`voice-editor-${track}`);
+      return el && !el.hidden;
+    });
+    return doc.getElementById(`voice-editor-${track}`);
+  }
+
+  // Per-track Swing (pulsed tracks) and Density (tuned tracks). Melody is both,
+  // so one editor answers for both dials; percussion (untuned) must NOT grow a
+  // Density dial even though the engine accepts the param on every track.
+  {
+    await openEditor('melody');
+    const swingKnob = () =>
+      doc.querySelector('#voice-editor-melody .track-swing-knob, #voice-editor-melody [id^="swing-melody"]');
+    const densityKnob = () =>
+      doc.querySelector(
+        '#voice-editor-melody .track-density-knob, #voice-editor-melody [id^="density-melody"]'
+      );
+    if (engineTakesSwing) {
+      if (!(await waitUntil(() => !!swingKnob()))) {
+        failures.push('the engine accepts tracks.melody.swing but the melody editor has no Swing dial');
+      }
+    } else if (swingKnob()) {
+      failures.push('a per-track Swing dial rendered against an engine that drops the param');
+    }
+    if (engineTakesDensity) {
+      if (!(await waitUntil(() => !!densityKnob()))) {
+        failures.push('the engine accepts tracks.melody.density but the melody editor has no Density dial');
+      }
+    } else if (densityKnob()) {
+      failures.push('a per-track Density dial rendered against an engine that drops the param');
+    }
+    await openEditor('percussion');
+    if (doc.querySelector('#voice-editor-percussion .track-density-knob')) {
+      failures.push('the percussion editor grew a Density dial — it is a tuned-track control');
+    }
+  }
+
+  // Per-step note length: the third axis on a melodic lane, keyboard path.
+  {
+    const gateProbe = sanitise
+      ? sanitise({ tracks: { melody: { sequencer: { steps: [{ on: true, gate: 1.5 }] } } } })
+      : null;
+    const probedStep =
+      gateProbe && gateProbe.tracks.melody.sequencer
+        ? gateProbe.tracks.melody.sequencer.steps[0]
+        : null;
+    const engineTakesGate = Boolean(probedStep && probedStep.gate === 1.5);
+    const editor = await openEditor('melody');
+    const cell = editor.querySelector('.seq-cell');
+    if (!cell) {
+      failures.push('the melody editor rendered no step sequencer cells');
+    } else if (engineTakesGate) {
+      cell.dispatchEvent(new window.KeyboardEvent('keydown', { key: '=', bubbles: true }));
+      const labelled = await waitUntil(() =>
+        /length/.test(editor.querySelector('.seq-cell').getAttribute('aria-label') || '')
+      );
+      if (!labelled) {
+        failures.push(
+          'the engine accepts a per-step gate but "=" on a melody step changed no note length'
+        );
+      }
+    }
+  }
+
+  // Kit lanes: the list renders HIGH kinds at the top, "Add lane" copies the
+  // pattern of the lane it lands beside, the name is click-to-type, and the
+  // built-ins keep their remove-proof status.
+  {
+    const editor = await openEditor('percussion');
+    const heads = () => Array.from(editor.querySelectorAll('.seq-lane-head'));
+    const laneNames = () =>
+      heads().map((head) => (head.querySelector('.seq-lane-label') || {}).textContent);
+    const built = await waitUntil(() => heads().length >= 3);
+    if (!built) {
+      failures.push('the percussion sequencer rendered no lane headers');
+    } else {
+      const names = laneNames();
+      if (names[0] !== 'High' || names[names.length - 1] !== 'Low') {
+        failures.push(`percussion lanes are not HIGH-first / LOW-last: ${names.join(', ')}`);
+      }
+      const addButton = editor.querySelector('.seq-lane-add');
+      if (!engineTakesLanes) {
+        if (addButton && !addButton.closest('[hidden]')) {
+          failures.push('the Add lane button rendered against an engine with no dynamic lanes');
+        }
+      } else if (!addButton) {
+        failures.push('the engine accepts user percussion lanes but the sequencer has no Add lane button');
+      } else {
+        const before = heads().length;
+        // The new lane lands under Mid (its default kind), so the pattern it
+        // copies is Mid's — an empty new row would be the regression here.
+        const midRow = editor.querySelectorAll('.seq-rows > .seq-lane:not(.seq-lane-head-row):not(.seq-dot-row):not(.seq-prob-row)')[1];
+        const midPattern = midRow
+          ? Array.from(midRow.querySelectorAll('.seq-cell')).map((cell) =>
+              cell.classList.contains('seq-cell-on')
+            )
+          : null;
+        addButton.click();
+        const grew = await waitUntil(() => heads().length === before + 1);
+        if (!grew) {
+          failures.push(`Add lane did not add a lane (still ${heads().length} lanes)`);
+        } else {
+          const names2 = laneNames();
+          if (names2[2] !== 'Lane 4') {
+            failures.push(`the added lane is not "Lane 4" below Mid: ${names2.join(', ')}`);
+          }
+          const newRow = editor.querySelectorAll('.seq-rows > .seq-lane:not(.seq-lane-head-row):not(.seq-dot-row):not(.seq-prob-row)')[2];
+          const newPattern = newRow
+            ? Array.from(newRow.querySelectorAll('.seq-cell')).map((cell) =>
+                cell.classList.contains('seq-cell-on')
+              )
+            : null;
+          if (!midPattern || !newPattern || newPattern.join() !== midPattern.join()) {
+            failures.push('the added lane did not copy the nearest lane’s steps');
+          }
+          // Rename: the name is a button that swaps for a text input.
+          const nameButton = heads()[2].querySelector('.seq-lane-name');
+          if (!nameButton) {
+            failures.push('the added lane has no click-to-type name');
+          } else {
+            nameButton.click();
+            const input = heads()[2].querySelector('.seq-lane-input');
+            if (!input) {
+              failures.push('clicking a lane name did not open a text input');
+            } else {
+              input.value = 'Rim';
+              input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+              const renamed = await waitUntil(() => laneNames()[2] === 'Rim');
+              if (!renamed) failures.push(`renaming a lane did not stick: ${laneNames().join(', ')}`);
+            }
+          }
+          // The block editor is the same pattern seen a second way, so it has
+          // to be handed the same kit: a lane list it cannot adopt would show
+          // three lanes (or "[object Object]" names) while the grid shows four.
+          const blocksButton = editor.querySelector('.seq-blocks-button');
+          if (blocksButton && !blocksButton.hidden) {
+            blocksButton.click();
+            const laneRows = () => editor.querySelectorAll('.seq-blocks .block-lane').length;
+            const opened = await waitUntil(() => laneRows() > 0);
+            if (opened && laneRows() !== heads().length) {
+              failures.push(
+                `the block editor shows ${laneRows()} lanes where the grid shows ${heads().length}`
+              );
+            }
+            const blockNames = Array.from(
+              editor.querySelectorAll('.seq-blocks .block-lane-name')
+            ).map((el) => el.textContent);
+            if (blockNames.some((name) => /object Object/.test(name))) {
+              failures.push(`the block editor mangled the lane names: ${blockNames.join(', ')}`);
+            }
+            blocksButton.click(); // back to the grid
+          }
+          // Built-ins are protected; a user lane is removable.
+          if (heads()[0].querySelector('.seq-lane-remove')) {
+            failures.push('a built-in percussion lane offers a remove button');
+          }
+          const remove = heads()[2].querySelector('.seq-lane-remove');
+          if (!remove) {
+            failures.push('the added lane has no remove button');
+          } else {
+            remove.click();
+            const shrank = await waitUntil(() => heads().length === before);
+            if (!shrank) failures.push('removing a user lane left it in the grid');
+          }
+        }
+      }
+    }
+  }
+
   // v19 gate: the sculpting surface is only real if the dials actually build.
   // Texture's "Coloured noise" voice declares eleven source fields in its
   // `controls` (octave + the ten sculpting dials), grouped by the page into

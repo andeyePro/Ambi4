@@ -10,6 +10,16 @@
  *   export function toParams(layout)       => value     // blocks → params
  *   export function normaliseLayout(layout) => Layout   // sugar expanded
  *
+ * `lanes` accepts either the original plain id array (`['low','mid','high']`
+ * — legacy callers, unaffected: multi-lane still renders bottom-up so a
+ * caller handing the schema's low→mid→high order gets High at the top, same
+ * as always) OR the v21 dynamic form `[{id, label}]` for arbitrary lane ids —
+ * built-in or user-added (up to 8). The dynamic form renders in EXACTLY the
+ * given order (the caller owns visual top-to-bottom placement; nothing is
+ * reversed), and a lane's `label` (when given) replaces the capitalised-id
+ * fallback everywhere a lane name is shown (row header, aria text, the link
+ * block's lane picker).
+ *
  * ## Block vocabulary (the palette, top to bottom)
  *
  * | block            | meaning                                   | compiles to        |
@@ -21,6 +31,7 @@
  * | Chance           | firing probability, 0–100 %, optional     | `step.prob`        |
  * |                  | min–max (a drifting v7 RangeValue)        | (number/{min,max}) |
  * | Velocity         | loudness band for this beat               | `step.vmin/vmax`   |
+ * | Gate             | how long the beat holds, 10–200 %         | `step.gate`         |
  * | Group            | colour-coded conditional-trig group       | `step.group` (int) |
  * | Repeat x beats   | tile the x beats under it across the bar  | (expanded, sugar)  |
  *
@@ -28,6 +39,12 @@
  * it. Dropping a modifier on a rest promotes it to a step — the engine skips
  * `on:false` slots before it reads prob/group at all, so a modifier on a rest
  * could never mean anything.
+ *
+ * Gate composes with Tie the way the engine reads it: a tie run (this slot's
+ * `tie:true` through however many following slots the link/drag spans) plays
+ * as ONE merged note, and Gate — wherever it sits in that run — scales that
+ * whole merged span, not just its own slot's beat. The badge/aria text on a
+ * tied+gated slot says so explicitly rather than implying a per-slot effect.
  *
  * ## The link block ("Tie to beat N of lane L") — mapping
  *
@@ -88,6 +105,9 @@ const SLOT_COUNT = 20;
 const PERCUSSION_LANES = Object.freeze(['low', 'mid', 'high']);
 const SINGLE_LANE = 'main';
 
+/** v21: percussion (and any track) lanes are dynamic, built-in + user-added, capped. */
+const MAX_LANES = 8;
+
 /** Sixteenths per bar by metre — the engine's sequencerStepsPerBar() table. */
 const METRE_SLOTS = Object.freeze({ '3/4': 12, '4/4': 16, '5/4': 20, '6/8': 12, '7/8': 14 });
 const DEFAULT_METRE = '4/4';
@@ -96,12 +116,15 @@ const DEFAULT_METRE = '4/4';
 const DEFAULT_PROB = 1;
 const DEFAULT_VMIN = 0.5;
 const DEFAULT_VMAX = 0.9;
+const DEFAULT_GATE = 1;
+const GATE_MIN = 0.1;
+const GATE_MAX = 2;
 
 const DEFAULT_DEBOUNCE_MS = 120;
 const TARGET_PX = 44;
 
 /** Canonical order of the modifier blocks inside a slot (round-trip stability). */
-const BLOCK_ORDER = Object.freeze(['tie', 'prob', 'band', 'group', 'link', 'repeat']);
+const BLOCK_ORDER = Object.freeze(['tie', 'prob', 'band', 'gate', 'group', 'link', 'repeat']);
 
 export const BLOCK_TYPES = Object.freeze(['step', 'rest', ...BLOCK_ORDER]);
 
@@ -112,6 +135,7 @@ const PALETTE = Object.freeze([
   { type: 'link', label: 'Tie to beat…', hint: 'Link this beat to another' },
   { type: 'prob', label: 'Chance', hint: 'How likely this beat fires' },
   { type: 'band', label: 'Velocity', hint: 'How hard this beat plays' },
+  { type: 'gate', label: 'Gate', hint: 'How long this beat holds, 10–200%' },
   { type: 'group', label: 'Group', hint: 'Chain beats: each needs the last' },
   { type: 'repeat', label: 'Repeat x beats', hint: 'Tile these beats across the bar' },
 ]);
@@ -173,6 +197,11 @@ function cloneProb(value) {
   return isPlainObject(value) ? { min: value.min, max: value.max } : value;
 }
 
+/** A step `gate`: 0.1–2, how long the beat holds relative to a full beat. */
+function sanitiseGate(value) {
+  return clampNumber(value, GATE_MIN, GATE_MAX, DEFAULT_GATE);
+}
+
 function probEquals(a, b) {
   if (isPlainObject(a) || isPlainObject(b)) {
     return isPlainObject(a) && isPlainObject(b) && a.min === b.min && a.max === b.max;
@@ -211,6 +240,7 @@ function findBlock(slot, type) {
 function cloneBlock(block) {
   if (block.type === 'prob') return { type: 'prob', value: cloneProb(block.value) };
   if (block.type === 'band') return { type: 'band', vmin: block.vmin, vmax: block.vmax };
+  if (block.type === 'gate') return { type: 'gate', value: block.value };
   if (block.type === 'group') return { type: 'group', id: block.id };
   if (block.type === 'link') return { type: 'link', lane: block.lane, index: block.index };
   if (block.type === 'repeat') return { type: 'repeat', beats: block.beats };
@@ -253,6 +283,8 @@ function cloneLayout(layout) {
     timeSignature: layout.timeSignature,
     visibleSlots: layout.visibleSlots,
     laneForm: layout.laneForm,
+    laneLabels: { ...layout.laneLabels },
+    laneOrderGiven: layout.laneOrderGiven,
     lanes: layout.lanes.map(cloneLane),
     source: { form: layout.source.form, index: layout.source.index, original: cloneJson(layout.source.original) },
   };
@@ -283,18 +315,53 @@ function unwrapValue(value, index) {
   return { form: 'sequencer', sequencer: null, original: undefined };
 }
 
-function resolveLanes(optLanes, track, steps) {
-  if (Array.isArray(optLanes) && optLanes.length) {
-    const ids = optLanes.map(String).filter(Boolean);
-    if (ids.length) return { ids, form: ids.length > 1 || ids[0] !== SINGLE_LANE ? 'map' : 'single' };
+/**
+ * `opts.lanes` in the original (legacy) form is a plain id array — still
+ * accepted verbatim, still renders bottom-up (see displayOrder()) so the
+ * existing low→mid→high caller keeps getting High at the top unchanged.
+ * The v21 dynamic form is `[{id, label?}]`: arbitrary ids, an optional
+ * display label per lane, and the caller's own order is what renders — a
+ * mix of the two forms in one array still counts as dynamic. Either form
+ * dedupes ids and caps at MAX_LANES.
+ */
+function normaliseLaneSpec(optLanes) {
+  if (!Array.isArray(optLanes) || !optLanes.length) return null;
+  const ids = [];
+  const labels = {};
+  let dynamic = false;
+  for (const item of optLanes) {
+    if (ids.length >= MAX_LANES) break;
+    let id = null;
+    if (isPlainObject(item) && item.id != null) {
+      dynamic = true;
+      id = String(item.id);
+      if (id && typeof item.label === 'string' && item.label) labels[id] = item.label;
+    } else if (item != null) {
+      id = String(item);
+    }
+    if (!id || ids.includes(id)) continue;
+    ids.push(id);
   }
-  if (Array.isArray(steps)) return { ids: [SINGLE_LANE], form: 'single' };
+  return ids.length ? { ids, labels, dynamic } : null;
+}
+
+function resolveLanes(optLanes, track, steps) {
+  const spec = normaliseLaneSpec(optLanes);
+  if (spec) {
+    return {
+      ids: spec.ids,
+      labels: spec.labels,
+      form: spec.ids.length > 1 || spec.ids[0] !== SINGLE_LANE ? 'map' : 'single',
+      orderGiven: spec.dynamic,
+    };
+  }
+  if (Array.isArray(steps)) return { ids: [SINGLE_LANE], labels: {}, form: 'single', orderGiven: false };
   if (isPlainObject(steps)) {
     const ids = Object.keys(steps).filter((key) => Array.isArray(steps[key]));
-    if (ids.length) return { ids, form: 'map' };
+    if (ids.length) return { ids, labels: {}, form: 'map', orderGiven: false };
   }
-  if (track === 'percussion') return { ids: PERCUSSION_LANES.slice(), form: 'map' };
-  return { ids: [SINGLE_LANE], form: 'single' };
+  if (track === 'percussion') return { ids: PERCUSSION_LANES.slice(), labels: {}, form: 'map', orderGiven: false };
+  return { ids: [SINGLE_LANE], labels: {}, form: 'single', orderGiven: false };
 }
 
 /**
@@ -312,6 +379,8 @@ function slotFromStep(step) {
   let vmax = clampNumber(step.vmax, 0, 1, DEFAULT_VMAX);
   if (vmin > vmax) [vmin, vmax] = [vmax, vmin];
   if (vmin !== DEFAULT_VMIN || vmax !== DEFAULT_VMAX) slot.blocks.push({ type: 'band', vmin, vmax });
+  const gate = sanitiseGate('gate' in step ? step.gate : DEFAULT_GATE);
+  if (gate !== DEFAULT_GATE) slot.blocks.push({ type: 'gate', value: gate });
   if (step.tie === true) slot.blocks.push({ type: 'tie' });
   if (Number.isFinite(step.group) && step.group >= 0) {
     slot.blocks.push({ type: 'group', id: Math.round(step.group) });
@@ -324,6 +393,7 @@ function slotFromStep(step) {
 function compileSlot(slot) {
   const prob = findBlock(slot, 'prob');
   const band = findBlock(slot, 'band');
+  const gate = findBlock(slot, 'gate');
   const group = findBlock(slot, 'group');
   const step = {
     on: slot.kind === 'step',
@@ -331,6 +401,7 @@ function compileSlot(slot) {
     vmin: band ? band.vmin : DEFAULT_VMIN,
     vmax: band ? band.vmax : DEFAULT_VMAX,
   };
+  if (gate) step.gate = gate.value;
   if (findBlock(slot, 'tie')) step.tie = true;
   if (group) step.group = group.id;
   return step;
@@ -349,7 +420,8 @@ export function fromParams(value, options) {
   const track = typeof opts.track === 'string' && opts.track ? opts.track : 'melody';
   const timeSignature = opts.timeSignature in METRE_SLOTS ? opts.timeSignature : DEFAULT_METRE;
   const steps = sequencer ? sequencer.steps : null;
-  const { ids, form: laneForm } = resolveLanes(opts.lanes, track, steps);
+  const { ids, labels: laneLabels, form: laneForm, orderGiven: laneOrderGiven } =
+    resolveLanes(opts.lanes, track, steps);
 
   const lanes = ids.map((id) => {
     const source = laneForm === 'map'
@@ -375,6 +447,8 @@ export function fromParams(value, options) {
     timeSignature,
     visibleSlots: blockSlotsPerBar(timeSignature),
     laneForm,
+    laneLabels,
+    laneOrderGiven,
     lanes,
     source: { form, index, original: cloneJson(original) },
   };
@@ -488,7 +562,8 @@ export function toParams(layout) {
 // Descriptions (aria + badges)
 // --------------------------------------------------------------------------
 
-function laneLabel(id) {
+function laneLabel(id, labels) {
+  if (labels && typeof labels[id] === 'string' && labels[id]) return labels[id];
   return id === SINGLE_LANE ? '' : capitalise(id);
 }
 
@@ -502,18 +577,28 @@ function describeSlot(layout, laneId, index, slot) {
   }
   const band = findBlock(slot, 'band');
   if (band) parts.push(`velocity ${pct(band.vmin)} to ${pct(band.vmax)} per cent`);
-  if (findBlock(slot, 'tie')) parts.push('tied into the next beat');
+  const tie = findBlock(slot, 'tie');
+  if (tie) parts.push('tied into the next beat');
+  const gate = findBlock(slot, 'gate');
+  if (gate) {
+    // Composition with the engine's own merge rule: a tie run plays as ONE
+    // note, so a gate sat anywhere in that run scales the WHOLE merged span,
+    // not just this slot's own beat — say so, rather than implying otherwise.
+    parts.push(tie
+      ? `gate ${pct(gate.value)} per cent, scaling the tied span`
+      : `gate ${pct(gate.value)} per cent`);
+  }
   const group = findBlock(slot, 'group');
   if (group) parts.push(`group ${group.id}`);
   const link = findBlock(slot, 'link');
   if (link) {
-    const where = layout.lanes.length > 1 ? ` of ${laneLabel(link.lane)} lane` : '';
+    const where = layout.lanes.length > 1 ? ` of ${laneLabel(link.lane, layout.laneLabels)} lane` : '';
     parts.push(`tied to beat ${Math.round(link.index) + 1}${where}`);
   }
   const repeat = findBlock(slot, 'repeat');
   if (repeat) parts.push(`repeats every ${repeat.beats} beats`);
   const head = layout.lanes.length > 1
-    ? `Beat ${index + 1}, ${laneLabel(laneId)} lane`
+    ? `Beat ${index + 1}, ${laneLabel(laneId, layout.laneLabels)} lane`
     : `Beat ${index + 1}`;
   return `${head}: ${parts.join(', ')}`;
 }
@@ -531,6 +616,8 @@ function badgesFor(slot) {
   }
   const band = findBlock(slot, 'band');
   if (band) badges.push({ text: `v${pct(band.vmin)}–${pct(band.vmax)}`, color: SECONDARY_COLOR });
+  const gate = findBlock(slot, 'gate');
+  if (gate) badges.push({ text: `⏱${gate.value.toFixed(1)}×`, color: ACCENT_WARM });
   if (findBlock(slot, 'tie')) badges.push({ text: '⌐tie', color: SECONDARY_COLOR });
   const group = findBlock(slot, 'group');
   if (group) badges.push({ text: `G${group.id}`, color: groupColour(group.id) });
@@ -593,6 +680,7 @@ export function createBlockEditor(container, options) {
     probMax: null,
     vmin: DEFAULT_VMIN,
     vmax: DEFAULT_VMAX,
+    gate: DEFAULT_GATE,
     group: 1,
     linkLane: layout.lanes[0].id,
     linkBeat: 1,
@@ -724,7 +812,7 @@ export function createBlockEditor(container, options) {
       const option = el('option');
       option.setAttribute('value', choice);
       option.value = choice;
-      option.textContent = laneLabel(choice) || choice;
+      option.textContent = laneLabel(choice, layout.laneLabels) || choice;
       select.appendChild(option);
     }
     select.value = value;
@@ -753,6 +841,14 @@ export function createBlockEditor(container, options) {
       });
       numberField('Loudest %', pct(settings.vmax), 0, 100, 1, (raw) => {
         settings.vmax = clampNumber(Number(raw) / 100, 0, 1, settings.vmax);
+      });
+      return;
+    }
+    if (selectedType === 'gate') {
+      // A small value stepper: native number input, 0.1 increments across
+      // the full 10–200% range, keyboard-editable (type, or arrow up/down).
+      numberField('Gate ×', settings.gate, GATE_MIN, GATE_MAX, 0.1, (raw) => {
+        settings.gate = sanitiseGate(raw);
       });
       return;
     }
@@ -808,11 +904,15 @@ export function createBlockEditor(container, options) {
   /**
    * Percussion renders HIGH at the top and LOW at the bottom everywhere lanes
    * appear (v14), so the display order is the reverse of the schema order the
-   * params use.
+   * params use — that is the legacy `lanes` id-array behaviour and stays
+   * exactly as it was. A v21 dynamic `[{id, label}]` spec instead renders in
+   * EXACTLY the order given: the caller (which now names its own lanes) owns
+   * top-to-bottom placement, nothing is reversed underneath it.
    */
   function displayOrder() {
     const order = layout.lanes.map((lane, index) => index);
-    return layout.lanes.length > 1 ? order.reverse() : order;
+    if (layout.lanes.length > 1 && !layout.laneOrderGiven) order.reverse();
+    return order;
   }
 
   function buildGrid() {
@@ -837,7 +937,7 @@ export function createBlockEditor(container, options) {
       row.style.gap = '4px';
       const name = el('span', 'block-lane-name');
       name.setAttribute('role', 'rowheader');
-      name.textContent = laneLabel(lane.id) || capitalise(layout.track);
+      name.textContent = laneLabel(lane.id, layout.laneLabels) || capitalise(layout.track);
       name.style.minWidth = '64px';
       name.style.alignSelf = 'center';
       name.style.color = SECONDARY_COLOR;
@@ -910,6 +1010,20 @@ export function createBlockEditor(container, options) {
       node.style.padding = '0 2px';
       cell.appendChild(node);
     }
+    const gate = findBlock(slot, 'gate');
+    if (gate) {
+      // A width-fraction bar of the gate value against its own 0.1–2 range
+      // (so a full-width bar reads as the longest a beat can hold, not as
+      // "the whole cell" — the value badge above still carries the number).
+      const bar = el('span', 'block-slot-gate-bar');
+      bar.style.display = 'block';
+      bar.style.alignSelf = 'stretch';
+      bar.style.height = '3px';
+      bar.style.width = `${Math.round((gate.value / GATE_MAX) * 100)}%`;
+      bar.style.background = isStep ? PANEL : ACCENT_WARM;
+      bar.style.borderRadius = '2px';
+      cell.appendChild(bar);
+    }
   }
 
   function refreshAllSlots() {
@@ -953,6 +1067,8 @@ export function createBlockEditor(container, options) {
         const vmin = Math.min(settings.vmin, settings.vmax);
         const vmax = Math.max(settings.vmin, settings.vmax);
         setBlock(slot, { type: 'band', vmin, vmax });
+      } else if (type === 'gate') {
+        setBlock(slot, { type: 'gate', value: sanitiseGate(settings.gate) });
       } else if (type === 'group') {
         setBlock(slot, { type: 'group', id: settings.group });
       } else if (type === 'link') {

@@ -172,6 +172,37 @@ function percussionSequencer() {
   };
 }
 
+/** v21: a percussion kit extended past the three built-ins with a user lane. */
+function dynamicKitSequencer() {
+  return {
+    mode: 'manual',
+    weights: [1],
+    steps: {
+      high: lane({ 2: step({ on: true, tie: true }) }),
+      mid: lane({ 4: step({ on: true, group: 0 }) }),
+      low: lane({ 0: step({ on: true }) }),
+      toms: lane({ 8: step({ on: true, prob: 0.6 }) }),
+    },
+  };
+}
+
+const DYNAMIC_LANES_TOP_DOWN = [
+  { id: 'high', label: 'High' },
+  { id: 'mid', label: 'Mid' },
+  { id: 'low', label: 'Low' },
+  { id: 'toms', label: 'Toms' },
+];
+
+// Deliberately the SCHEMA (ascending) order, not the display order — proves
+// the dynamic form renders exactly what it is given, unlike the legacy
+// reversal below.
+const DYNAMIC_LANES_ASCENDING = [
+  { id: 'low', label: 'Low' },
+  { id: 'mid', label: 'Mid' },
+  { id: 'high', label: 'High' },
+  { id: 'toms', label: 'Toms' },
+];
+
 let blocks;
 
 // --------------------------------------------------------------------------
@@ -240,6 +271,35 @@ test('block decomposition: only non-default fields become modifier blocks', () =
   });
 });
 
+// --------------------------------------------------------------------------
+// Gate/Length block (v21): step.gate, 0.1–2
+// --------------------------------------------------------------------------
+
+test('gate: round-trips and stays invisible at the default (1 = a full beat)', () => {
+  const params = {
+    mode: 'manual',
+    weights: [1],
+    steps: lane({ 0: step({ on: true, gate: 1.5 }), 1: step({ on: true, gate: 1 }) }),
+  };
+  const layout = blocks.fromParams(params, { track: 'melody' });
+  assert.deepEqual(layout.lanes[0].slots[0], { kind: 'step', blocks: [{ type: 'gate', value: 1.5 }] });
+  assert.deepEqual(layout.lanes[0].slots[1], { kind: 'step', blocks: [] }, 'the engine default carries no block');
+  const out = blocks.toParams(layout);
+  assert.equal(out.steps[0].gate, 1.5);
+  assert.equal('gate' in out.steps[1], false);
+});
+
+test('gate: clamps to 0.1–2', () => {
+  const params = {
+    mode: 'manual',
+    weights: [1],
+    steps: lane({ 0: step({ on: true, gate: 5 }), 1: step({ on: true, gate: -3 }) }),
+  };
+  const layout = blocks.fromParams(params, { track: 'melody' });
+  assert.equal(layout.lanes[0].slots[0].blocks[0].value, 2);
+  assert.equal(layout.lanes[0].slots[1].blocks[0].value, 0.1);
+});
+
 test('metre: only the metre prefix renders, all 20 slots survive the round trip', () => {
   assert.equal(blocks.blockSlotsPerBar('3/4'), 12);
   assert.equal(blocks.blockSlotsPerBar('4/4'), 16);
@@ -293,6 +353,43 @@ test('missing/short lanes come back as rests, not as a sixteenth-note machine gu
   assert.deepEqual(shortOut.steps[1], step({ on: false }));
   assert.deepEqual(shortOut.steps[19], step({ on: false }));
   assert.ok(!('weights' in shortOut), 'a value without weights does not grow one');
+});
+
+test('legacy shape stability: unaffected callers see no new fields leak into compiled params', () => {
+  const params = melodicSequencer();
+  const layout = blocks.fromParams(params, { track: 'melody' });
+  assert.equal(layout.laneOrderGiven, false, 'no explicit lanes opt — legacy path');
+  assert.deepEqual(layout.laneLabels, {});
+  const out = blocks.toParams(layout);
+  assert.deepEqual(Object.keys(out).sort(), ['mode', 'steps', 'weights']);
+});
+
+// --------------------------------------------------------------------------
+// Dynamic lanes (v21): [{id, label}] — arbitrary ids, given-order rendering
+// --------------------------------------------------------------------------
+
+test('dynamic lanes: [{id,label}] round-trips arbitrary ids, canonical order = given order', () => {
+  const params = dynamicKitSequencer();
+  const layout = blocks.fromParams(params, { track: 'percussion', lanes: DYNAMIC_LANES_TOP_DOWN });
+  assert.deepEqual(layout.lanes.map((l) => l.id), ['high', 'mid', 'low', 'toms']);
+  assert.equal(layout.laneOrderGiven, true);
+  assert.deepEqual(blocks.toParams(layout), params);
+});
+
+test('dynamic lanes: caps at 8 lanes and dedupes ids', () => {
+  const tooMany = Array.from({ length: 11 }, (_, i) => ({ id: `lane${i % 9}`, label: `Lane ${i}` }));
+  const layout = blocks.fromParams(undefined, { track: 'percussion', lanes: tooMany });
+  assert.ok(layout.lanes.length <= 8, 'never more than 8 lanes');
+  assert.equal(new Set(layout.lanes.map((l) => l.id)).size, layout.lanes.length, 'no duplicate ids');
+});
+
+test('dynamic lanes: a bare string still works inside a [{id,label}] array (mixed form counts as dynamic)', () => {
+  const layout = blocks.fromParams(dynamicKitSequencer(), {
+    track: 'percussion',
+    lanes: ['high', { id: 'mid', label: 'Mid' }, 'low', 'toms'],
+  });
+  assert.equal(layout.laneOrderGiven, true);
+  assert.deepEqual(layout.lanes.map((l) => l.id), ['high', 'mid', 'low', 'toms']);
 });
 
 // --------------------------------------------------------------------------
@@ -549,6 +646,76 @@ test('DOM: a modifier dropped on a rest promotes it to a step', () => {
   editor.destroy();
 });
 
+test('DOM: Gate block — palette stepper places, edits and round-trips; badge and width-fraction bar', () => {
+  const { editor } = makeEditor();
+  const gateInput = () => {
+    const palette = editor.el.children.find((c) => c.className === 'block-palette');
+    const settingsEl = palette.children.find((c) => c.className === 'block-settings');
+    const field = settingsEl.children.find((c) => c.children[0].textContent === 'Gate ×');
+    return field.children[1];
+  };
+
+  paletteButton(editor, 'gate').dispatch('click');
+  assert.equal(gateInput().getAttribute('min'), '0.1');
+  assert.equal(gateInput().getAttribute('max'), '2');
+  gateInput().value = '1.7';
+  gateInput().dispatch('input');
+  slotCell(editor, 0, 4).dispatch('pointerup', {});
+
+  assert.equal(editor.getValue().steps[4].gate, 1.7);
+  assert.equal(editor.getValue().steps[4].on, true, 'a modifier on a rest promotes it to a step');
+  assert.equal(slotCell(editor, 0, 4).getAttribute('aria-label'), 'Beat 5: step, gate 170 per cent');
+  const badge = slotCell(editor, 0, 4).children.find((c) => c.textContent === '⏱1.7×');
+  assert.ok(badge, 'the badge carries the numeric multiplier');
+  const bar = slotCell(editor, 0, 4).children.find((c) => c.className === 'block-slot-gate-bar');
+  assert.equal(bar.style.width, '85%', 'width-fraction of the 0.1-2 range (1.7/2)');
+
+  // Editing the stepper again re-places with the new value (keyboard-editable, not one-shot).
+  gateInput().value = '0.4';
+  gateInput().dispatch('input');
+  slotCell(editor, 0, 4).dispatch('pointerup', {});
+  assert.equal(editor.getValue().steps[4].gate, 0.4);
+  editor.destroy();
+});
+
+test('DOM: tie + gate composition — the aria label says the gate scales the whole tied span', () => {
+  const { editor } = makeEditor({
+    value: {
+      mode: 'manual',
+      weights: [1],
+      steps: lane({
+        2: step({ on: true, tie: true, gate: 1.5 }),
+        5: step({ on: true, gate: 0.5 }), // gate alone, no tie — plain phrasing
+      }),
+    },
+  });
+  assert.equal(
+    slotCell(editor, 0, 2).getAttribute('aria-label'),
+    'Beat 3: step, tied into the next beat, gate 150 per cent, scaling the tied span',
+  );
+  assert.equal(
+    slotCell(editor, 0, 5).getAttribute('aria-label'),
+    'Beat 6: step, gate 50 per cent',
+  );
+  editor.destroy();
+});
+
+test('tie + gate composition: the compiled output carries gate on the slot it was placed on, ties across the run', () => {
+  const layout = blankLayout();
+  // Same-lane forward link (0 -> 3) is sugar for a tie run across 0,1,2; the
+  // gate rides on the run's SOUNDING (starting) slot, which is where the
+  // engine reads the note it schedules from.
+  layout.lanes[0].slots[0] = {
+    kind: 'step',
+    blocks: [{ type: 'link', lane: 'main', index: 3 }, { type: 'gate', value: 1.8 }],
+  };
+  const compiled = blocks.toParams(layout);
+  for (let i = 0; i < 3; i++) assert.equal(compiled.steps[i].tie, true, `slot ${i} ties into the run`);
+  assert.equal(compiled.steps[0].gate, 1.8, 'the gate rides on the run-starting slot');
+  assert.equal(compiled.steps[1].gate, undefined, 'interior tied filler slots carry no gate of their own');
+  assert.equal(compiled.steps[3].tie, undefined, 'the target beat is not itself tied');
+});
+
 test('DOM: percussion renders three lanes, High at the top, Low at the bottom', () => {
   const { editor } = makeEditor({
     track: 'percussion',
@@ -564,6 +731,50 @@ test('DOM: percussion renders three lanes, High at the top, Low at the bottom', 
   assert.equal(slotCell(editor, 1, 2).getAttribute('tabindex'), '0');
   slotCell(editor, 1, 2).dispatch('keydown', { key: 'ArrowUp' });
   assert.equal(slotCell(editor, 0, 2).getAttribute('tabindex'), '0');
+  editor.destroy();
+});
+
+test('DOM: legacy plain-string lanes array still reverses — the real page caller relies on this', () => {
+  // index.astro hands blocks.js the schema's own low→mid→high order (a plain
+  // string array, the pre-v21 API) and depends on blocks.js putting High on
+  // top underneath it. This must not regress.
+  const { editor } = makeEditor({
+    track: 'percussion',
+    value: percussionSequencer(),
+    lanes: ['low', 'mid', 'high'],
+  });
+  const laneRows = rows(editor);
+  assert.deepEqual(laneRows.map((row) => row.children[0].textContent), ['High', 'Mid', 'Low']);
+  editor.destroy();
+});
+
+test('DOM: dynamic [{id,label}] lanes render in EXACTLY the given order — nothing reversed', () => {
+  const { editor } = makeEditor({
+    track: 'percussion',
+    value: dynamicKitSequencer(),
+    lanes: DYNAMIC_LANES_ASCENDING, // low, mid, high, toms — the schema order, not the display order
+  });
+  const laneRows = rows(editor);
+  assert.equal(laneRows.length, 4);
+  assert.deepEqual(laneRows.map((row) => row.children[0].textContent), ['Low', 'Mid', 'High', 'Toms']);
+  editor.destroy();
+});
+
+test('DOM: dynamic lane labels override the capitalised-id fallback (row header, aria, link picker)', () => {
+  const { editor } = makeEditor({
+    track: 'percussion',
+    value: dynamicKitSequencer(),
+    lanes: [
+      { id: 'high', label: 'High' },
+      { id: 'toms', label: 'Floor Toms' },
+    ],
+  });
+  const laneRows = rows(editor);
+  assert.deepEqual(laneRows.map((row) => row.children[0].textContent), ['High', 'Floor Toms']);
+  assert.equal(
+    slotCell(editor, 1, 0).getAttribute('aria-label'),
+    'Beat 1, Floor Toms lane: rest',
+  );
   editor.destroy();
 });
 

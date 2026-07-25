@@ -15,26 +15,14 @@
 - [ ] Transport buttons: review which (if any) demote to Advanced-only (one-line gate ready)
 
 ### Next build queue (v20 shape model)
-- [ ] Skew-based tri→saw morph (peak-travel PeriodicWave) + Fold (wavefolder) modifier dial
 
 ### Next build queue (schema gaps from the preset psychologist)
-- [ ] Per-track density param (masking presets need one dense track without global thickening)
-- [ ] Per-track swing override; per-step gate/length on melodic lanes
 - [ ] Harmonic-rhythm control (chords-per-bar / hold-this-chord)
 - [ ] Pad breathing locked to bar phase (Breathe preset premise)
-- [ ] RangeValue drift-rate param (slow walks for masking)
-- [ ] Per-preset reverb tail (decouple from governor tier)
 - [ ] Modes: ionian, mixolydian, phrygian
 
 ### Next build queue
-- [ ] Voice editor "ghost common" upgrade: knob-level ghost pointers (current: secondary readout + dot)
-- [ ] Extensible percussion kit: user-added lanes (toms, cymbals), editable lane names (tier-gated)
-- [ ] Mono/glide UI exposure (params live engine-side, melody/bass defaults on)
 - [ ] Per-track swing overrides (global swing shipped)
-- [ ] visualFps setter in visualiser/scope so the governor's fps budget bites
-- [ ] Engine reverb-length hook so the governor's reverbSeconds budget bites
-- [ ] randomness default-range flip (probe ready; ship range default with matching UI)
-- [ ] Tutorial: add "algorithmic, not AI" provenance note; keep steps current with UI changes
 - [ ] Playlists rebuild: verified PD/CC0 artwork, broader instrumental artists, Ambi4-made playlist categories
 - [ ] Web Analytics privacy-page line (andeye.com/privacy mention of Cloudflare cookie-less beacon)
 
@@ -43,7 +31,6 @@
 - [ ] Live MIDI/QWERTY recording into tracks
 - [ ] Live play-along mode (same input path triggering track voices in real time)
 - [ ] Audio-in track: mic capture to a buffer (on-device only), trim/normalise/loop editing, played through the normal track chain
-- [ ] Parametric noise-sculpting surface + call-synthesis primitives (build queued)
 
 ### Product roadmap (specs in docs/engine-v2-contract.md + brain2 Ambi4-strategy)
 - [ ] Share tier 2: named links ambi4.work/[name] via Workers KV + submit/approve
