@@ -115,8 +115,8 @@ function makeFakeElement(tag) {
     removeEventListener(type, fn) {
       listeners.get(type)?.delete(fn);
     },
-    dispatch(type) {
-      for (const fn of listeners.get(type) || []) fn({ target: node });
+    dispatch(type, evt = {}) {
+      for (const fn of listeners.get(type) || []) fn({ target: node, ...evt });
     },
     click() { node.dispatch('click'); },
   };
@@ -203,6 +203,16 @@ function makeEngine() {
       };
     },
   };
+}
+
+// Wraps makeEngine() with mock setLoopRegion/clearLoopRegion (v15 repeat
+// brackets), recording every call so tests can assert on them.
+function makeLoopEngine() {
+  const engine = makeEngine();
+  const calls = { setLoopRegion: [], clearLoopRegion: 0 };
+  engine.setLoopRegion = (startBar, endBar) => { calls.setLoopRegion.push([startBar, endBar]); };
+  engine.clearLoopRegion = () => { calls.clearLoopRegion += 1; };
+  return { engine, calls };
 }
 
 // --------------------------------------------------------------------------
@@ -623,6 +633,226 @@ test('falls back to a derived accent colour when --track-<id> custom properties 
     'without a --track-pad custom property, the derived fallback accent must be used instead',
   );
 
+  inst.destroy();
+});
+
+// --------------------------------------------------------------------------
+// v15: piano-roll repeat brackets
+// --------------------------------------------------------------------------
+
+test('repeat brackets: no ruler overlay when the engine lacks setLoopRegion/clearLoopRegion (feature-gated)', () => {
+  const prevDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => makeFakeElement(tag) };
+  try {
+    const calls = {};
+    const root = makeFakeElement('div');
+    const canvas = makeDomCanvas(calls);
+    root.appendChild(canvas);
+    const engine = makeEngine(); // no setLoopRegion/clearLoopRegion
+
+    const inst = initVisualiser(canvas, engine);
+    const lampHost = canvas.parentNode;
+    engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 });
+
+    assert.equal(lampHost.children.length, 7, 'only the canvas + 6 lamp buttons — no ruler hit targets built');
+    const barButtons = lampHost.children.filter((c) => c.dataset.bar !== undefined);
+    assert.equal(barButtons.length, 0);
+
+    inst.destroy();
+  } finally {
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+  }
+});
+
+test('repeat brackets: builds per-bar ruler hit targets in the top strip when the engine supports loop methods', () => {
+  const prevDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => makeFakeElement(tag) };
+  try {
+    const calls = {};
+    const root = makeFakeElement('div');
+    const canvas = makeDomCanvas(calls);
+    root.appendChild(canvas);
+    const { engine } = makeLoopEngine();
+
+    const inst = initVisualiser(canvas, engine);
+    const lampHost = canvas.parentNode;
+
+    engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 });
+    engine.advance(2);
+    engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 2 });
+
+    const barButtons = lampHost.children.filter((c) => c.tagName === 'button' && c.dataset.bar !== undefined);
+    assert.equal(barButtons.length, 2, 'expected one ruler hit-target per visible bar');
+    const bar0 = barButtons.find((b) => b.dataset.bar === '0');
+    const bar1 = barButtons.find((b) => b.dataset.bar === '1');
+    assert.ok(bar0 && bar1);
+    assert.equal(bar0.getAttribute('aria-label'), 'Set repeat start at bar 0');
+    assert.equal(bar1.getAttribute('aria-label'), 'Set repeat start at bar 1');
+    assert.equal(bar0.style.top, '0px');
+    assert.equal(bar0.style.height, '16px', 'ruler row height matches the top strip (TOP_MARGIN) where chord names render');
+    assert.ok(
+      parseFloat(bar1.style.left) > parseFloat(bar0.style.left),
+      'bar 1 hit target must sit to the right of bar 0',
+    );
+
+    inst.destroy();
+  } finally {
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+  }
+});
+
+test('repeat brackets: open -> close cycle calls engine.setLoopRegion; the close mark clears via engine.clearLoopRegion', () => {
+  const prevDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => makeFakeElement(tag) };
+  try {
+    const calls = {};
+    const root = makeFakeElement('div');
+    const canvas = makeDomCanvas(calls);
+    root.appendChild(canvas);
+    const { engine, calls: loopCalls } = makeLoopEngine();
+
+    const inst = initVisualiser(canvas, engine);
+    const lampHost = canvas.parentNode;
+    const byBar = (n) => lampHost.children.find((c) => c.dataset.bar === String(n));
+
+    engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 });
+    engine.advance(2);
+    engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 2 });
+    engine.advance(2);
+    engine.emit('bar', { bar: 2, beatsPerBar: 4, time: 4 });
+
+    byBar(0).click(); // open mark at bar 0
+    assert.equal(byBar(0).getAttribute('aria-label'), 'Cancel repeat start at bar 0');
+    assert.equal(byBar(1).getAttribute('aria-label'), 'Set repeat end at bar 1');
+    assert.equal(byBar(2).getAttribute('aria-label'), 'Set repeat end at bar 2');
+    assert.equal(loopCalls.setLoopRegion.length, 0, 'a pending open must not call the engine yet');
+
+    byBar(2).click(); // close mark, to the right of the open mark
+    assert.deepEqual(loopCalls.setLoopRegion, [[0, 2]]);
+    assert.equal(byBar(0).getAttribute('aria-label'), 'Clear repeat');
+    assert.equal(byBar(2).getAttribute('aria-label'), 'Clear repeat');
+    assert.equal(byBar(1).getAttribute('aria-label'), 'Set repeat start at bar 1', 'bars inside the loop are unaffected');
+
+    byBar(2).click(); // close mark again
+    assert.equal(loopCalls.clearLoopRegion, 1);
+    assert.equal(byBar(0).getAttribute('aria-label'), 'Set repeat start at bar 0');
+    assert.equal(byBar(2).getAttribute('aria-label'), 'Set repeat start at bar 2');
+
+    inst.destroy();
+  } finally {
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+  }
+});
+
+test('repeat brackets: clicking the open mark again, or pressing Esc, cancels the pending mark without calling the engine', () => {
+  const prevDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => makeFakeElement(tag) };
+  try {
+    const calls = {};
+    const root = makeFakeElement('div');
+    const canvas = makeDomCanvas(calls);
+    root.appendChild(canvas);
+    const { engine, calls: loopCalls } = makeLoopEngine();
+
+    const inst = initVisualiser(canvas, engine);
+    const lampHost = canvas.parentNode;
+    const byBar = (n) => lampHost.children.find((c) => c.dataset.bar === String(n));
+
+    engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 });
+    engine.advance(2);
+    engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 2 });
+
+    byBar(0).click();
+    assert.equal(byBar(0).getAttribute('aria-label'), 'Cancel repeat start at bar 0');
+    byBar(0).click(); // clicking the open mark again cancels it
+    assert.equal(byBar(0).getAttribute('aria-label'), 'Set repeat start at bar 0');
+    assert.equal(loopCalls.setLoopRegion.length, 0);
+
+    byBar(1).click();
+    assert.equal(byBar(1).getAttribute('aria-label'), 'Cancel repeat start at bar 1');
+    byBar(1).dispatch('keydown', { key: 'Escape' });
+    assert.equal(byBar(1).getAttribute('aria-label'), 'Set repeat start at bar 1');
+    assert.equal(loopCalls.setLoopRegion.length, 0, 'Esc must cancel without ever calling the engine');
+
+    inst.destroy();
+  } finally {
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+  }
+});
+
+test('repeat brackets: active loop (read from bar-event loop info) dims bars outside it and draws the bracket glyphs', () => {
+  const calls = {};
+  calls.texts = [];
+  const canvas = makeCanvas(calls);
+  const { engine } = makeLoopEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+
+  engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 });
+  engine.advance(2);
+  engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 2, loop: { startBar: 0, endBar: 1 } });
+
+  calls.fillRect = 0;
+  calls.texts.length = 0;
+  engine.emit('state', { running: false }); // forces a synchronous static render
+
+  assert.ok(calls.fillRect >= 1, 'expected at least one dimming rect for bars outside the active loop');
+  assert.ok(calls.texts.includes('𝄆'), 'expected the open-repeat bracket glyph');
+  assert.ok(calls.texts.includes('𝄇'), 'expected the close-repeat bracket glyph');
+
+  inst.destroy();
+});
+
+test('repeat brackets: falls back to locally tracked state when bar events never carry loop info', () => {
+  const prevDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => makeFakeElement(tag) };
+  try {
+    const calls = {};
+    calls.texts = [];
+    const root = makeFakeElement('div');
+    const canvas = makeDomCanvas(calls);
+    root.appendChild(canvas);
+    const { engine } = makeLoopEngine();
+
+    const inst = initVisualiser(canvas, engine);
+    const lampHost = canvas.parentNode;
+    const byBar = (n) => lampHost.children.find((c) => c.dataset.bar === String(n));
+
+    engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 }); // no `loop` field — engine hasn't landed that part yet
+    engine.advance(2);
+    engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 2 });
+
+    calls.texts.length = 0;
+    byBar(0).click();
+    byBar(1).click(); // -> engine.setLoopRegion(0, 1); renders immediately off our own local state
+
+    assert.ok(
+      calls.texts.includes('𝄆') && calls.texts.includes('𝄇'),
+      'active loop must draw from locally tracked state when no bar event ever supplied loop info',
+    );
+
+    inst.destroy();
+  } finally {
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+  }
+});
+
+test('repeat brackets: malformed loop info on bar events is dropped, not thrown', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const { engine } = makeLoopEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+  engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0, loop: 'nonsense' });
+  engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 1, loop: { startBar: 'x' } });
+  engine.emit('bar', { bar: 2, beatsPerBar: 4, time: 2, loop: null }); // explicit "no active loop"
   inst.destroy();
 });
 

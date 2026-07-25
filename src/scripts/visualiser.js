@@ -1,6 +1,6 @@
 /**
  * visualiser.js — canvas track visualiser for the ambient engine (v2, v14
- * track-order/lamp/chord addendum).
+ * track-order/lamp/chord addendum, v15 repeat-bracket addendum).
  *
  * export function initVisualiser(canvas, engine) => { destroy() }
  *
@@ -21,6 +21,24 @@
  * destroy(). Lamp fills/labels are read from `engine.getParams()` and
  * refreshed on 'state'/'bar' events plus a light poll — never from inside
  * the rAF render loop.
+ *
+ * Piano-roll repeat brackets (v15, feature-detected on `engine.setLoopRegion`
+ * / `engine.clearLoopRegion`): the top strip of the canvas (where chord
+ * names render) gets its own overlay row of invisible-but-focusable per-bar
+ * <button>s, using the same host-div technique as the lamps. Clicking a bar
+ * sets a pending open-repeat mark; the next click to its right calls
+ * `engine.setLoopRegion(startBar, endBar)`; clicking the resulting close
+ * mark (or the open mark, mouse or keyboard) clears it via
+ * `engine.clearLoopRegion()`; clicking the open mark before a close exists
+ * cancels the pending mark; Esc on a ruler button also cancels a pending
+ * mark. Active-loop state is read from loop info carried on 'bar' events
+ * when present, falling back to the state produced by our own calls when the
+ * engine doesn't (yet) echo it. Without both engine methods, no ruler
+ * overlay is built and clicks do nothing. Ruler button positions are
+ * recomputed on 'bar' events, resize/theme changes, and a light poll — like
+ * the lamps, never from inside the rAF render loop; the bracket glyphs and
+ * the dimming of bars outside an active loop are drawn every frame inside
+ * draw(), since they move with the scroll.
  *
  * This module is a pure, self-contained script: no imports, and nothing at
  * module-import time touches `window`/`document`/canvas APIs — every browser
@@ -86,6 +104,12 @@ const LABEL_FONT = `11px ${FONT_STACK}`;
 // Smaller/secondary label used for the section letter once bar ticks carry
 // the primary chord-name label (once a 'chord' event has ever fired).
 const SECONDARY_FONT = `9px ${FONT_STACK}`;
+const BRACKET_FONT = `14px ${FONT_STACK}`;
+
+// Repeat-bracket glyphs (v15 addendum) drawn at the open/close loop marks.
+const OPEN_REPEAT_GLYPH = '𝄆';
+const CLOSE_REPEAT_GLYPH = '𝄇';
+const LOOP_DIM_ALPHA = 0.4; // alpha of the overlay dimming bars outside an active loop
 
 // ---------------------------------------------------------------------------
 // Colour helpers (no DOM required — pure string parsing/mixing)
@@ -263,6 +287,12 @@ export function initVisualiser(canvas, engine) {
   const sectionMarks = []; // { time, label, bar }
   const chordMarks = [];  // { time, bar, name } — from the feature-detected 'chord' event
   let hasChordEvents = false; // once true, chord names take over as the primary bar-tick label
+
+  // -- repeat-bracket state (v15) -----------------------------------------
+  let pendingOpenBar = null;  // bar clicked to open, awaiting a close click
+  let activeLoop = null;      // { start, end } | null — synced from bar events'
+                               // loop info when present, else tracked from our
+                               // own setLoopRegion/clearLoopRegion calls
   const midiRange = {};
   for (const t of TRACKS) {
     if (DEFAULT_MIDI_RANGE[t]) {
@@ -305,6 +335,39 @@ export function initVisualiser(canvas, engine) {
       // fall through
     }
     return 0;
+  }
+
+  function loopFeatureAvailable() {
+    try {
+      return typeof engine?.setLoopRegion === 'function' && typeof engine?.clearLoopRegion === 'function';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Normalises the optional loop info a 'bar' event may carry (parallel
+   * engine pass, feature-detected). Returns null when the event carries no
+   * loop info at all (older engine — caller should keep tracking locally),
+   * `{ active: false }` when the engine explicitly reports no active loop
+   * (evt.loop === null), or `{ active: true, start, end }` when it reports
+   * one. Accepts either startBar/endBar or start/end field names.
+   */
+  function loopInfoFromBarEvent(evt) {
+    try {
+      if (!evt || !('loop' in evt)) return null;
+      const loop = evt.loop;
+      if (loop === null || loop === undefined) return { active: false };
+      if (typeof loop === 'object') {
+        const start = typeof loop.startBar === 'number' ? loop.startBar : (typeof loop.start === 'number' ? loop.start : null);
+        const end = typeof loop.endBar === 'number' ? loop.endBar : (typeof loop.end === 'number' ? loop.end : null);
+        if (start !== null && end !== null) return { active: true, start, end };
+        return { active: false };
+      }
+    } catch {
+      // fall through
+    }
+    return null;
   }
 
   function refreshAnalysers() {
@@ -376,10 +439,15 @@ export function initVisualiser(canvas, engine) {
       if (!evt) return;
       barTicks.push({ time: typeof evt.time === 'number' ? evt.time : 0, bar: evt.bar });
       if (barTicks.length > MAX_MARKERS) barTicks.shift();
+      if (loopFeatureAvailable()) {
+        const info = loopInfoFromBarEvent(evt);
+        if (info) activeLoop = info.active ? { start: info.start, end: info.end } : null;
+      }
     } catch {
       // ignore malformed event
     }
     refreshLampStates(); // event-driven lamp refresh, outside the rAF loop
+    updateRulerOverlay(); // event-driven ruler-button refresh, outside the rAF loop
   }
 
   function onSection(evt) {
@@ -653,6 +721,12 @@ export function initVisualiser(canvas, engine) {
     }
     lampPollId = null;
     try {
+      if (rulerPollId !== null && typeof clearInterval === 'function') clearInterval(rulerPollId);
+    } catch {
+      // ignore
+    }
+    rulerPollId = null;
+    try {
       if (lampHost && lampParent) {
         lampParent.insertBefore(canvas, lampNextSibling || null);
         if (typeof lampHost.remove === 'function') lampHost.remove();
@@ -664,6 +738,7 @@ export function initVisualiser(canvas, engine) {
       lampParent = null;
       lampNextSibling = null;
       lampButtons.clear();
+      rulerButtons.clear();
     }
   }
 
@@ -687,6 +762,7 @@ export function initVisualiser(canvas, engine) {
     } catch {
       // best-effort; the canvas-drawn lane still functions without it
     }
+    updateRulerOverlay();
   }
 
   function applyLampState(track, state) {
@@ -731,6 +807,171 @@ export function initVisualiser(canvas, engine) {
       }
     } catch {
       // engine rejected the update; the lamp still reflects the click locally
+    }
+  }
+
+  // -- repeat-bracket ruler overlay: per-bar hit targets (v15) -------------
+  //
+  // A second row of real <button>s, invisible (no rendered content, so
+  // there's nothing to draw over the canvas's own bracket glyphs) but
+  // keyboard-reachable, overlaid on the top strip (0..TOP_MARGIN, same band
+  // where chord names render) using the same lampHost technique as the lane
+  // lamps. Unlike the lamps (one fixed button per track), bar positions
+  // scroll, so the set of buttons and their x positions are rebuilt from the
+  // currently-visible `barTicks` on 'bar' events, resize/theme changes, and
+  // a light poll — all outside the rAF render loop.
+
+  const rulerButtons = new Map(); // bar -> { btn }
+  let rulerPollId = null;
+
+  function callSetLoopRegion(startBar, endBar) {
+    pendingOpenBar = null;
+    activeLoop = { start: startBar, end: endBar };
+    try {
+      if (typeof engine?.setLoopRegion === 'function') engine.setLoopRegion(startBar, endBar);
+    } catch {
+      // engine rejected it; the overlay still reflects the click locally
+    }
+    updateRulerOverlay();
+    renderFrame();
+  }
+
+  function callClearLoopRegion() {
+    activeLoop = null;
+    try {
+      if (typeof engine?.clearLoopRegion === 'function') engine.clearLoopRegion();
+    } catch {
+      // engine rejected it; the overlay still reflects the click locally
+    }
+    updateRulerOverlay();
+    renderFrame();
+  }
+
+  function cancelPendingOpen() {
+    if (pendingOpenBar === null) return;
+    pendingOpenBar = null;
+    updateRulerOverlay();
+    renderFrame();
+  }
+
+  function onRulerBarClick(bar) {
+    if (!loopFeatureAvailable()) return;
+    if (activeLoop) {
+      if (bar === activeLoop.start || bar === activeLoop.end) {
+        callClearLoopRegion();
+      } else {
+        // Redefining bounds while a loop is active: start a fresh pending
+        // mark (the prior loop keeps looping in the engine until a new
+        // setLoopRegion call replaces it — no implicit clear here).
+        activeLoop = null;
+        pendingOpenBar = bar;
+        updateRulerOverlay();
+        renderFrame();
+      }
+      return;
+    }
+    if (pendingOpenBar !== null) {
+      if (bar === pendingOpenBar) {
+        cancelPendingOpen();
+      } else if (bar > pendingOpenBar) {
+        callSetLoopRegion(pendingOpenBar, bar);
+      } else {
+        pendingOpenBar = bar; // clicked left of the pending mark: move it here
+        updateRulerOverlay();
+        renderFrame();
+      }
+      return;
+    }
+    pendingOpenBar = bar;
+    updateRulerOverlay();
+    renderFrame();
+  }
+
+  function onRulerKeydown(e) {
+    try {
+      if (e && e.key === 'Escape') cancelPendingOpen();
+    } catch {
+      // ignore
+    }
+  }
+
+  function rulerButtonLabel(bar) {
+    if (activeLoop && (bar === activeLoop.start || bar === activeLoop.end)) {
+      return 'Clear repeat';
+    }
+    if (pendingOpenBar !== null && bar === pendingOpenBar) {
+      return `Cancel repeat start at bar ${bar}`;
+    }
+    if (pendingOpenBar !== null && bar > pendingOpenBar) {
+      return `Set repeat end at bar ${bar}`;
+    }
+    return `Set repeat start at bar ${bar}`;
+  }
+
+  function ensureRulerButton(bar) {
+    let entry = rulerButtons.get(bar);
+    if (entry) return entry;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.bar = String(bar);
+    btn.style.position = 'absolute';
+    btn.style.top = '0px';
+    btn.style.margin = '0';
+    btn.style.padding = '0';
+    btn.style.border = 'none';
+    btn.style.background = 'transparent';
+    btn.style.cursor = 'pointer';
+    btn.addEventListener('click', () => onRulerBarClick(bar));
+    btn.addEventListener('keydown', onRulerKeydown);
+    lampHost.appendChild(btn);
+    entry = { btn };
+    rulerButtons.set(bar, entry);
+    return entry;
+  }
+
+  function updateRulerOverlay() {
+    if (!lampHost) return;
+    if (!loopFeatureAvailable()) {
+      if (rulerButtons.size) {
+        for (const entry of rulerButtons.values()) {
+          try { entry.btn.remove(); } catch { /* ignore */ }
+        }
+        rulerButtons.clear();
+      }
+      return;
+    }
+    try {
+      const nowCtx = engineNow();
+      const { x0, w } = computeGeometry();
+      const visible = [];
+      let lastX = -Infinity;
+      for (const tick of barTicks) {
+        const x = x0 + fracForTime(tick.time, nowCtx) * w;
+        if (x < x0 - 4 || x > x0 + w + 4) continue;
+        if (x - lastX < MIN_BAR_TICK_SPACING_PX) continue;
+        lastX = x;
+        visible.push({ bar: tick.bar, x });
+      }
+
+      const visibleBars = new Set(visible.map((v) => v.bar));
+      for (const [bar, entry] of rulerButtons) {
+        if (!visibleBars.has(bar)) {
+          try { entry.btn.remove(); } catch { /* ignore */ }
+          rulerButtons.delete(bar);
+        }
+      }
+
+      visible.forEach(({ bar, x }, i) => {
+        const entry = ensureRulerButton(bar);
+        const nextX = i + 1 < visible.length ? visible[i + 1].x : x0 + w;
+        const width = Math.max(MIN_BAR_TICK_SPACING_PX, nextX - x);
+        entry.btn.style.left = `${clampRange(x - width / 2, 0, cssWidth)}px`;
+        entry.btn.style.width = `${width}px`;
+        entry.btn.style.height = `${TOP_MARGIN}px`;
+        entry.btn.setAttribute('aria-label', rulerButtonLabel(bar));
+      });
+    } catch {
+      // best-effort; the canvas-drawn brackets still function without it
     }
   }
 
@@ -1060,6 +1301,52 @@ export function initVisualiser(canvas, engine) {
     ctx2d.fillText(`Section ${current.label}`, snapPixel(x0), snapPixel(12));
   }
 
+  /** Time of the most recent recorded tick for a given bar number, or null if it's scrolled out of `barTicks`. */
+  function findBarTickTime(bar) {
+    for (let i = barTicks.length - 1; i >= 0; i--) {
+      if (barTicks[i].bar === bar) return barTicks[i].time;
+    }
+    return null;
+  }
+
+  /** Dims the lane area outside an active loop's bar range with a flat low-alpha overlay. */
+  function drawLoopDimming(nowCtx, x0, w, height) {
+    if (!activeLoop) return;
+    const startTime = findBarTickTime(activeLoop.start);
+    const endTime = findBarTickTime(activeLoop.end);
+    const xStart = startTime !== null ? x0 + fracForTime(startTime, nowCtx) * w : x0;
+    const xEnd = endTime !== null ? x0 + fracForTime(endTime, nowCtx) * w : x0 + w;
+    ctx2d.fillStyle = rgba(theme.border, LOOP_DIM_ALPHA);
+    const leftW = clampRange(xStart - x0, 0, w);
+    if (leftW > 0) ctx2d.fillRect(x0, TOP_MARGIN, leftW, height - TOP_MARGIN);
+    const rightX = clampRange(xEnd, x0, x0 + w);
+    const rightW = clampRange(x0 + w - rightX, 0, w);
+    if (rightW > 0) ctx2d.fillRect(rightX, TOP_MARGIN, rightW, height - TOP_MARGIN);
+  }
+
+  function drawLoopBracket(glyph, time, nowCtx, x0, w) {
+    if (time === null) return;
+    const x = x0 + fracForTime(time, nowCtx) * w;
+    if (x < x0 - 12 || x > x0 + w + 12) return;
+    ctx2d.fillStyle = rgba(theme.link, 0.95);
+    ctx2d.font = BRACKET_FONT;
+    ctx2d.textAlign = 'left';
+    ctx2d.textBaseline = 'alphabetic';
+    ctx2d.fillText(glyph, snapPixel(clampRange(x - 2, x0, x0 + w - 10)), snapPixel(TOP_MARGIN - 2));
+  }
+
+  /** Repeat-bracket glyphs + outside-loop dimming (v15); gated on engine support for the whole feature. */
+  function drawLoopMarkers(nowCtx, x0, w, height) {
+    if (!loopFeatureAvailable()) return;
+    if (activeLoop) {
+      drawLoopDimming(nowCtx, x0, w, height);
+      drawLoopBracket(OPEN_REPEAT_GLYPH, findBarTickTime(activeLoop.start), nowCtx, x0, w);
+      drawLoopBracket(CLOSE_REPEAT_GLYPH, findBarTickTime(activeLoop.end), nowCtx, x0, w);
+    } else if (pendingOpenBar !== null) {
+      drawLoopBracket(OPEN_REPEAT_GLYPH, findBarTickTime(pendingOpenBar), nowCtx, x0, w);
+    }
+  }
+
   function draw() {
     const width = cssWidth;
     const height = cssHeight;
@@ -1082,6 +1369,7 @@ export function initVisualiser(canvas, engine) {
     } else {
       drawTimeMarkers(nowCtx, x0, w, height);
     }
+    drawLoopMarkers(nowCtx, x0, w, height);
 
     TRACKS.forEach((track, i) => {
       const top = TOP_MARGIN + i * laneHeight;
@@ -1127,6 +1415,15 @@ export function initVisualiser(canvas, engine) {
   } catch {
     lampPollId = null;
   }
+  try {
+    // Bars scroll continuously, so the ruler overlay needs a tighter poll
+    // than the lamps' to track the visible bar range between 'bar' events.
+    if (lampHost && typeof setInterval === 'function') {
+      rulerPollId = setInterval(updateRulerOverlay, 250);
+    }
+  } catch {
+    rulerPollId = null;
+  }
 
   try {
     running = !!engine?.running;
@@ -1136,6 +1433,7 @@ export function initVisualiser(canvas, engine) {
   refreshAnalysers();
   resize(); // also renders the first frame and positions the lamp overlay
   refreshLampStates();
+  updateRulerOverlay();
   if (running) ensureLoop();
 
   function destroy() {

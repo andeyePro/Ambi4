@@ -16,9 +16,26 @@
  *   rAF time-domain trace (getFloatTimeDomainData, byte fallback) with a
  *   simple rising-edge trigger; pauses while document.hidden.
  *
- * Both are devicePixelRatio-aware and redraw on size changes
- * (ResizeObserver, device-pixel-content-box where supported). Colours come
- * from --scope-bg / --scope-grid / --scope-trace with amber fallbacks.
+ * export function attachMultiScope(canvas, engine, { tracks } = {}) =>
+ *   { destroy(), setTracks(ids) }
+ *   One phosphor trace per selected track (default: all six, canonical UI
+ *   order pad/arp/melody/bass/texture/percussion), sharing one graticule and
+ *   one rAF loop. Analysers come from engine.getAnalysers(), lazily
+ *   re-fetched on the engine's 'state' event and on tab-visible again (never
+ *   polled per frame) — the same lazy-refetch/identity-compare shape the
+ *   page uses for its single live scope. Each track gets its own auto-gain
+ *   (same law as attachLiveScope) and its own reused sample buffer, so a
+ *   quiet pad and a loud arp both read; a track under the silence floor
+ *   draws no trace at all. Trace colour: getComputedStyle(canvas)
+ *   --track-<id>, falling back to an evenly-spaced hue per track. A small
+ *   canvas-drawn legend (colour swatch + id) runs along the bottom —
+ *   labelling only, not interactive; track selection is the caller's UI.
+ *   setTracks(ids) narrows/reorders the drawn set; unknown ids are dropped.
+ *
+ * All three live-drawing exports are devicePixelRatio-aware (capped, see
+ * MAX_DPR) and redraw on size changes (ResizeObserver, device-pixel-
+ * content-box where supported). Colours come from --scope-bg / --scope-grid
+ * / --scope-trace with amber fallbacks.
  *
  * Shape numbers follow the v5 contract: 0 sine, 1 triangle, 2 sawtooth,
  * 3 square; fractional values interpolate the Fourier coefficients (the same
@@ -63,6 +80,17 @@ const SCROLL_STEP_SAMPLES = 37; // untriggered-window nudge per drawn frame
 const READOUT_FONT = '10px monospace';
 const READOUT_ALPHA = 0.55;
 const READOUT_PAD = 6;
+
+// -- multi-scope (attachMultiScope) --------------------------------------
+// Canonical UI track order — v13/v14 contract: "Track order everywhere:
+// pad, arp, melody, bass, texture, percussion." (Distinct from the engine's
+// own fixed pad/bass/melody/texture/arp/percussion param order.)
+const MULTISCOPE_ALL_TRACKS = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
+const MULTISCOPE_LEGEND_FONT = '10px monospace';
+const MULTISCOPE_LEGEND_ALPHA = 0.85;
+const MULTISCOPE_LEGEND_PAD = 4;
+const MULTISCOPE_LEGEND_SWATCH = 7;
+const MULTISCOPE_LEGEND_GAP = 12;
 
 const FALLBACK_BG = '#161009';
 const FALLBACK_GRID = 'rgba(245, 182, 66, 0.16)';
@@ -381,15 +409,12 @@ function readScopeColors(canvas) {
 }
 
 /**
- * `colors`, if supplied, skips the getComputedStyle reads (attachLiveScope
- * passes its cached theme colours in on every frame; renderPatchWave's
- * one-shot static render reads fresh each call).
+ * Backing-store fit + background fill + 8×4 graticule — the part every
+ * scope frame shares, whether it draws zero, one, or several traces on top.
  */
-function drawScope(canvas, ctx, samples, colors, opts) {
+function drawGraticule(canvas, ctx, colors) {
   const { w, h, dpr } = fitCanvas(canvas, ctx);
-  const resolved = colors || readScopeColors(canvas);
-  const { bg, grid, trace } = resolved;
-  const dimFactor = opts && opts.dim ? DIM_ALPHA : 1;
+  const { bg, grid } = colors;
 
   // Defensive: a caller (the live-scope gain readout) may leave globalAlpha
   // non-1 after its own draw; every frame must start from a known state.
@@ -397,7 +422,6 @@ function drawScope(canvas, ctx, samples, colors, opts) {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  // 8×4 graticule
   ctx.strokeStyle = grid;
   ctx.lineWidth = 1;
   for (let i = 0; i <= GRID_COLS; i++) {
@@ -415,9 +439,18 @@ function drawScope(canvas, ctx, samples, colors, opts) {
     ctx.stroke();
   }
 
-  if (!samples || samples.length < 2) return { w, h, dpr };
+  return { w, h, dpr };
+}
 
-  ctx.strokeStyle = trace;
+/**
+ * Strokes one trace (glow underlay + main line) in `color` over whatever is
+ * already on the canvas. No-ops on too-short/missing sample sets, so a
+ * caller can skip past a silent track just by not calling this.
+ */
+function strokeTraceLine(ctx, samples, w, h, color, dimFactor) {
+  if (!samples || samples.length < 2) return;
+
+  ctx.strokeStyle = color;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
@@ -446,7 +479,18 @@ function drawScope(canvas, ctx, samples, colors, opts) {
   ctx.lineWidth = 2;
   strokeTrace();
   ctx.globalAlpha = 1;
+}
 
+/**
+ * `colors`, if supplied, skips the getComputedStyle reads (attachLiveScope
+ * passes its cached theme colours in on every frame; renderPatchWave's
+ * one-shot static render reads fresh each call).
+ */
+function drawScope(canvas, ctx, samples, colors, opts) {
+  const resolved = colors || readScopeColors(canvas);
+  const { w, h, dpr } = drawGraticule(canvas, ctx, resolved);
+  const dimFactor = opts && opts.dim ? DIM_ALPHA : 1;
+  strokeTraceLine(ctx, samples, w, h, resolved.trace, dimFactor);
   return { w, h, dpr };
 }
 
@@ -463,6 +507,51 @@ function drawGainReadout(ctx, w, h, label, color, dpr = 1) {
     ctx.globalAlpha = 1;
   } catch {
     // a readout failure must never break the trace draw
+  }
+}
+
+/** measureText, if the canvas supports it; a monospace-width guess otherwise. */
+function textWidthEstimate(ctx, text) {
+  try {
+    if (typeof ctx.measureText === 'function') {
+      const m = ctx.measureText(text);
+      if (m && typeof m.width === 'number' && m.width > 0) return m.width;
+    }
+  } catch {
+    // fall through to the estimate
+  }
+  return text.length * 6;
+}
+
+/**
+ * Small canvas-drawn legend row along the bottom: a colour swatch + id per
+ * entry, left to right. Labelling only — non-interactive, the caller's page
+ * owns track selection UI. No-ops without fillText (bare Node).
+ */
+function drawMultiScopeLegend(ctx, w, h, entries, dpr) {
+  if (!entries.length || typeof ctx.fillText !== 'function') return;
+  try {
+    ctx.font = MULTISCOPE_LEGEND_FONT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    const y = snapPixel(h - MULTISCOPE_LEGEND_PAD, dpr);
+    let x = MULTISCOPE_LEGEND_PAD;
+    for (const { id, color } of entries) {
+      ctx.globalAlpha = MULTISCOPE_LEGEND_ALPHA;
+      ctx.fillStyle = color;
+      ctx.fillRect(
+        snapPixel(x, dpr),
+        snapPixel(y - MULTISCOPE_LEGEND_SWATCH, dpr),
+        MULTISCOPE_LEGEND_SWATCH,
+        MULTISCOPE_LEGEND_SWATCH
+      );
+      x += MULTISCOPE_LEGEND_SWATCH + 4;
+      ctx.fillText(id, snapPixel(x, dpr), y);
+      x += textWidthEstimate(ctx, id) + MULTISCOPE_LEGEND_GAP;
+    }
+    ctx.globalAlpha = 1;
+  } catch {
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -551,6 +640,237 @@ export function renderPatchWave(canvas, patch, opts) {
 }
 
 // ---------------------------------------------------------------------------
+// Shared live-trace state, auto-gain, and rAF-loop lifecycle
+// (attachLiveScope and attachMultiScope both build on these.)
+// ---------------------------------------------------------------------------
+
+/** Per-analyser scratch: sample buffers + auto-gain + trigger-scroll state. */
+function createTraceState() {
+  return { floatBuf: null, byteBuf: null, gainPeak: 0, lastGainTs: null, scrollOffset: 0 };
+}
+
+// A longer time-domain window means a slow, near-DC-per-buffer pad still has
+// somewhere for the trigger/scroll to find motion in. Only ever grow an
+// analyser's fftSize — never shrink one a caller deliberately set higher.
+function bumpFftSize(analyser) {
+  try {
+    if (typeof analyser.fftSize === 'number' && analyser.fftSize < LIVE_FFT_SIZE) {
+      analyser.fftSize = LIVE_FFT_SIZE;
+    }
+  } catch {
+    // analyser rejected the resize (e.g. a stub/mock) — keep its current fftSize
+  }
+}
+
+/** Reads one frame of time-domain samples into `state`'s reused buffer(s). */
+function readAnalyserSamples(analyser, state) {
+  const useFloat = typeof analyser.getFloatTimeDomainData === 'function';
+  const useByte = !useFloat && typeof analyser.getByteTimeDomainData === 'function';
+  if (!useFloat && !useByte) return null;
+  const size = analyser.fftSize || (analyser.frequencyBinCount ? analyser.frequencyBinCount * 2 : 1024);
+  if (useFloat) {
+    if (!state.floatBuf || state.floatBuf.length !== size) state.floatBuf = new Float32Array(size);
+    analyser.getFloatTimeDomainData(state.floatBuf);
+    return state.floatBuf;
+  }
+  if (!state.byteBuf || state.byteBuf.length !== size) state.byteBuf = new Uint8Array(size);
+  analyser.getByteTimeDomainData(state.byteBuf);
+  if (!state.floatBuf || state.floatBuf.length !== size) state.floatBuf = new Float32Array(size);
+  for (let i = 0; i < size; i++) state.floatBuf[i] = (state.byteBuf[i] - 128) / 128;
+  return state.floatBuf;
+}
+
+function bufferPeak(data) {
+  let peak = 0;
+  for (let i = 0; i < data.length; i++) {
+    const a = Math.abs(data[i]);
+    if (a > peak) peak = a;
+  }
+  return peak;
+}
+
+/** One-pole attack / half-life decay of `state.gainPeak` towards `target`. */
+function updateGainPeak(state, target, ts) {
+  if (state.lastGainTs === null) {
+    state.gainPeak = target;
+    state.lastGainTs = typeof ts === 'number' ? ts : 0;
+    return;
+  }
+  const dt = typeof ts === 'number' ? Math.max(0, ts - state.lastGainTs) : 0;
+  if (typeof ts === 'number') state.lastGainTs = ts;
+  if (target >= state.gainPeak) {
+    const alpha = 1 - Math.exp(-dt / GAIN_ATTACK_MS);
+    state.gainPeak += (target - state.gainPeak) * alpha;
+  } else {
+    const decay = Math.pow(0.5, dt / GAIN_DECAY_HALF_LIFE_MS);
+    state.gainPeak = target + (state.gainPeak - target) * decay;
+  }
+}
+
+function scaleWindow(win, factor) {
+  if (factor === 1) return win;
+  const out = new Float32Array(win.length);
+  for (let i = 0; i < win.length; i++) out[i] = win[i] * factor;
+  return out;
+}
+
+/**
+ * Rising-edge trigger: start the trace at a −→+ zero crossing. Slow pads are
+ * near-DC across a single buffer and may have no edge at all in the search
+ * window — falling back to a fixed start then looks frozen frame to frame
+ * even though fresh data IS arriving, because the same window position gets
+ * redrawn every time. Instead, walk `state.scrollOffset` forward each frame
+ * so the trace still visibly scrolls.
+ */
+function triggeredWindow(state, data) {
+  const windowLen = Math.max(2, Math.floor(data.length / 2));
+  const searchEnd = data.length - windowLen;
+  for (let i = 1; i < searchEnd; i++) {
+    if (data[i - 1] <= 0 && data[i] > 0) {
+      return data.subarray ? data.subarray(i, i + windowLen) : data;
+    }
+  }
+  const maxStart = Math.max(0, data.length - windowLen);
+  if (maxStart > 0) state.scrollOffset = (state.scrollOffset + SCROLL_STEP_SAMPLES) % (maxStart + 1);
+  const start = Math.min(state.scrollOffset, maxStart);
+  return data.subarray ? data.subarray(start, start + windowLen) : data;
+}
+
+function isDocumentHidden() {
+  try {
+    return typeof document !== 'undefined' && !!document.hidden;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Shared rAF-loop lifecycle: 30fps cap (timestamp-gated, still scheduled
+ * every tick so it never falls out of sync with the compositor),
+ * IntersectionObserver viewport gating, document.hidden pause, and a
+ * resize-triggered redraw while paused/no-rAF so a frozen frame stays
+ * current. `onVisible`, if supplied, fires when the tab becomes visible
+ * again, before the loop resumes — attachMultiScope hangs its "identity
+ * changed without a 'state' event" analyser re-fetch off this.
+ */
+function createRafLoop(canvas, drawFrame, { onVisible } = {}) {
+  let destroyed = false;
+  let rafId = null;
+  let inView = true; // no IO support → this axis never pauses the loop
+  let intersectionObserver = null;
+
+  function stopLoop() {
+    if (rafId !== null) {
+      try {
+        if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId);
+      } catch {
+        // ignore
+      }
+      rafId = null;
+    }
+  }
+
+  function ensureLoop() {
+    if (destroyed || rafId !== null || isDocumentHidden() || !inView) return;
+    const reqAF = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null;
+    if (!reqAF) {
+      drawFrame(); // no rAF (bare Node): single static frame
+      return;
+    }
+    let lastFrameTs = -Infinity;
+    const loop = (ts) => {
+      if (destroyed || isDocumentHidden() || !inView) {
+        rafId = null;
+        return;
+      }
+      if (ts - lastFrameTs >= FRAME_INTERVAL_MS) {
+        lastFrameTs = ts;
+        drawFrame(ts);
+      }
+      rafId = reqAF(loop);
+    };
+    rafId = reqAF(loop);
+  }
+
+  function onIntersect(entries) {
+    try {
+      const entry = entries && entries[entries.length - 1];
+      inView = entry ? !!entry.isIntersecting : true;
+    } catch {
+      inView = true;
+    }
+    if (inView) ensureLoop();
+    else stopLoop();
+  }
+  try {
+    if (typeof IntersectionObserver === 'function') {
+      intersectionObserver = new IntersectionObserver(onIntersect, { threshold: 0 });
+      intersectionObserver.observe(canvas);
+    }
+  } catch {
+    intersectionObserver = null;
+  }
+
+  function onVisibilityChange() {
+    if (isDocumentHidden()) {
+      stopLoop();
+      return;
+    }
+    if (typeof onVisible === 'function') {
+      try {
+        onVisible();
+      } catch {
+        // ignore
+      }
+    }
+    ensureLoop();
+  }
+  try {
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+  } catch {
+    // ignore
+  }
+
+  const ro = observeResize(canvas, () => {
+    if (!destroyed && rafId === null) {
+      try {
+        drawFrame();
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  return {
+    start: ensureLoop,
+    stop() {
+      if (destroyed) return;
+      destroyed = true;
+      stopLoop();
+      try {
+        if (ro) ro.disconnect();
+      } catch {
+        // ignore
+      }
+      try {
+        if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+          document.removeEventListener('visibilitychange', onVisibilityChange);
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        if (intersectionObserver) intersectionObserver.disconnect();
+      } catch {
+        // ignore
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // attachLiveScope — rAF time-domain trace
 // ---------------------------------------------------------------------------
 
@@ -570,31 +890,12 @@ export function attachLiveScope(canvas, analyser) {
   const useByte = typeof analyser.getByteTimeDomainData === 'function';
   if (!useFloat && !useByte) return { destroy() {} };
 
-  // A longer time-domain window means a slow, near-DC-per-buffer pad still
-  // has somewhere for the trigger/scroll to find motion in. Only ever grow
-  // it — never shrink an fftSize a caller deliberately set higher.
-  try {
-    if (typeof analyser.fftSize === 'number' && analyser.fftSize < LIVE_FFT_SIZE) {
-      analyser.fftSize = LIVE_FFT_SIZE;
-    }
-  } catch {
-    // analyser rejected the resize (e.g. a stub/mock) — keep its current fftSize
-  }
+  bumpFftSize(analyser);
 
   let destroyed = false;
-  let rafId = null;
-  let floatBuf = null;
-  let byteBuf = null;
+  const trace = createTraceState();
 
   liveCanvases.add(canvas);
-
-  function isHidden() {
-    try {
-      return typeof document !== 'undefined' && !!document.hidden;
-    } catch {
-      return false;
-    }
-  }
 
   // -- theme colours: read once, refresh only on an actual theme flip -----
   // (drawScope used to call getComputedStyle 3x per frame at up to 30fps;
@@ -615,90 +916,13 @@ export function attachLiveScope(canvas, analyser) {
     themeMedia = null;
   }
 
-  function readSamples() {
-    const size = analyser.fftSize || (analyser.frequencyBinCount ? analyser.frequencyBinCount * 2 : 1024);
-    if (useFloat) {
-      if (!floatBuf || floatBuf.length !== size) floatBuf = new Float32Array(size);
-      analyser.getFloatTimeDomainData(floatBuf);
-      return floatBuf;
-    }
-    if (!byteBuf || byteBuf.length !== size) byteBuf = new Uint8Array(size);
-    analyser.getByteTimeDomainData(byteBuf);
-    if (!floatBuf || floatBuf.length !== size) floatBuf = new Float32Array(size);
-    for (let i = 0; i < size; i++) floatBuf[i] = (byteBuf[i] - 128) / 128;
-    return floatBuf;
-  }
-
-  let scrollOffset = 0; // untriggered fallback: nudges the window each drawn frame
-
-  /**
-   * Rising-edge trigger: start the trace at a −→+ zero crossing. Slow pads
-   * are near-DC across a single buffer and may have no edge at all in the
-   * search window — falling back to a fixed start (old behaviour) then
-   * looks frozen frame to frame even though fresh data IS arriving, because
-   * the same window position gets redrawn every time. Instead, walk the
-   * start position forward each frame so the trace still visibly scrolls.
-   */
-  function triggeredWindow(data) {
-    const windowLen = Math.max(2, Math.floor(data.length / 2));
-    const searchEnd = data.length - windowLen;
-    for (let i = 1; i < searchEnd; i++) {
-      if (data[i - 1] <= 0 && data[i] > 0) {
-        return data.subarray ? data.subarray(i, i + windowLen) : data;
-      }
-    }
-    const maxStart = Math.max(0, data.length - windowLen);
-    if (maxStart > 0) scrollOffset = (scrollOffset + SCROLL_STEP_SAMPLES) % (maxStart + 1);
-    const start = Math.min(scrollOffset, maxStart);
-    return data.subarray ? data.subarray(start, start + windowLen) : data;
-  }
-
-  // -- auto-gain: smoothed running peak, fast attack / slow decay ---------
-
-  let gainPeak = 0;
-  let lastGainTs = null;
-
-  function bufferPeak(data) {
-    let peak = 0;
-    for (let i = 0; i < data.length; i++) {
-      const a = Math.abs(data[i]);
-      if (a > peak) peak = a;
-    }
-    return peak;
-  }
-
-  /** One-pole attack / half-life decay towards `target`, driven by rAF `ts`. */
-  function updateGainPeak(target, ts) {
-    if (lastGainTs === null) {
-      gainPeak = target;
-      lastGainTs = typeof ts === 'number' ? ts : 0;
-      return;
-    }
-    const dt = typeof ts === 'number' ? Math.max(0, ts - lastGainTs) : 0;
-    if (typeof ts === 'number') lastGainTs = ts;
-    if (target >= gainPeak) {
-      const alpha = 1 - Math.exp(-dt / GAIN_ATTACK_MS);
-      gainPeak += (target - gainPeak) * alpha;
-    } else {
-      const decay = Math.pow(0.5, dt / GAIN_DECAY_HALF_LIFE_MS);
-      gainPeak = target + (gainPeak - target) * decay;
-    }
-  }
-
-  function scaleWindow(win, factor) {
-    if (factor === 1) return win;
-    const out = new Float32Array(win.length);
-    for (let i = 0; i < win.length; i++) out[i] = win[i] * factor;
-    return out;
-  }
-
   function drawFrame(ts) {
     try {
-      const data = readSamples();
-      updateGainPeak(bufferPeak(data), ts);
-      const silent = gainPeak < SILENCE_FLOOR;
-      const gain = silent ? 0 : Math.min(GAIN_MAX, 1 / gainPeak);
-      const window = triggeredWindow(data);
+      const data = readAnalyserSamples(analyser, trace);
+      updateGainPeak(trace, bufferPeak(data), ts);
+      const silent = trace.gainPeak < SILENCE_FLOOR;
+      const gain = silent ? 0 : Math.min(GAIN_MAX, 1 / trace.gainPeak);
+      const window = triggeredWindow(trace, data);
       const size = drawScope(canvas, ctx, scaleWindow(window, gain), themeColors, { dim: silent });
       if (size) {
         const label = silent ? 'silent' : `×${gain.toFixed(1)} (${(20 * Math.log10(gain)).toFixed(1)} dB)`;
@@ -709,104 +933,182 @@ export function attachLiveScope(canvas, analyser) {
     }
   }
 
-  // -- viewport gating (IntersectionObserver) ------------------------------
-
-  let inView = true; // no IO support → this axis never pauses the loop
-  let intersectionObserver = null;
-
-  function onIntersect(entries) {
-    try {
-      const entry = entries && entries[entries.length - 1];
-      inView = entry ? !!entry.isIntersecting : true;
-    } catch {
-      inView = true;
-    }
-    if (inView) ensureLoop();
-    else stopLoop();
-  }
-
-  try {
-    if (typeof IntersectionObserver === 'function') {
-      intersectionObserver = new IntersectionObserver(onIntersect, { threshold: 0 });
-      intersectionObserver.observe(canvas);
-    }
-  } catch {
-    intersectionObserver = null;
-  }
-
-  function ensureLoop() {
-    if (destroyed || rafId !== null || isHidden() || !inView) return;
-    const reqAF = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null;
-    if (!reqAF) {
-      drawFrame(); // no rAF (bare Node): single static frame
-      return;
-    }
-    let lastFrameTs = -Infinity;
-    const loop = (ts) => {
-      if (destroyed || isHidden() || !inView) {
-        rafId = null;
-        return;
-      }
-      if (ts - lastFrameTs >= FRAME_INTERVAL_MS) {
-        // Timestamp-gated: still scheduled every rAF tick (skip frames, not
-        // timers), so we never fall out of sync with the compositor.
-        lastFrameTs = ts;
-        drawFrame(ts);
-      }
-      rafId = reqAF(loop);
-    };
-    rafId = reqAF(loop);
-  }
-
-  function stopLoop() {
-    if (rafId !== null) {
-      try {
-        if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId);
-      } catch {
-        // ignore
-      }
-      rafId = null;
-    }
-  }
-
-  function onVisibilityChange() {
-    if (isHidden()) stopLoop();
-    else ensureLoop();
-  }
-  try {
-    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-      document.addEventListener('visibilitychange', onVisibilityChange);
-    }
-  } catch {
-    // ignore
-  }
-
-  const ro = observeResize(canvas, () => {
-    if (!destroyed && rafId === null) drawFrame(); // paused/no-rAF: keep the frame fresh
-  });
-
-  ensureLoop();
+  const loop = createRafLoop(canvas, drawFrame);
+  loop.start();
 
   return {
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      stopLoop();
+      loop.stop();
       liveCanvases.delete(canvas);
       try {
-        if (ro) ro.disconnect();
-      } catch {
-        // ignore
-      }
-      try {
-        if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
-          document.removeEventListener('visibilitychange', onVisibilityChange);
+        if (themeMedia) {
+          if (typeof themeMedia.removeEventListener === 'function') {
+            themeMedia.removeEventListener('change', onThemeChange);
+          } else if (typeof themeMedia.removeListener === 'function') {
+            themeMedia.removeListener(onThemeChange);
+          }
         }
       } catch {
         // ignore
       }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// attachMultiScope — one phosphor trace per track, engine-driven
+// ---------------------------------------------------------------------------
+
+function fallbackTrackHue(id) {
+  const i = MULTISCOPE_ALL_TRACKS.indexOf(id);
+  return Math.round((360 * (i < 0 ? 0 : i)) / MULTISCOPE_ALL_TRACKS.length);
+}
+
+function trackColor(canvas, id) {
+  return cssColor(canvas, `--track-${id}`, `hsl(${fallbackTrackHue(id)}, 70%, 55%)`);
+}
+
+/** Filters/dedupes a requested track list to known ids, in caller order; falls back to all six. */
+function normaliseTracks(ids) {
+  if (!Array.isArray(ids)) return [...MULTISCOPE_ALL_TRACKS];
+  const seen = new Set();
+  const out = [];
+  for (const id of ids) {
+    if (typeof id === 'string' && MULTISCOPE_ALL_TRACKS.includes(id) && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+export function attachMultiScope(canvas, engine, opts) {
+  const inert = { destroy() {}, setTracks() {} };
+  if (!canvas || typeof canvas.getContext !== 'function' || !engine) return inert;
+  let ctx = null;
+  try {
+    ctx = canvas.getContext('2d');
+  } catch {
+    ctx = null;
+  }
+  if (!ctx) return inert;
+
+  let destroyed = false;
+  let selected = normaliseTracks(opts && opts.tracks);
+  const trackStates = new Map(); // track id -> createTraceState() + { analyser }
+
+  liveCanvases.add(canvas);
+
+  function getTrackState(id) {
+    let st = trackStates.get(id);
+    if (!st) {
+      st = { analyser: null, ...createTraceState() };
+      trackStates.set(id, st);
+    }
+    return st;
+  }
+
+  // -- theme + per-track colours: cache, refresh only on an actual theme flip --
+  let themeColors = readScopeColors(canvas);
+  let trackColors = new Map();
+  function refreshColors() {
+    themeColors = readScopeColors(canvas);
+    trackColors = new Map(MULTISCOPE_ALL_TRACKS.map((id) => [id, trackColor(canvas, id)]));
+  }
+  refreshColors();
+  let themeMedia = null;
+  function onThemeChange() {
+    refreshColors();
+  }
+  try {
+    themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+    if (typeof themeMedia.addEventListener === 'function') {
+      themeMedia.addEventListener('change', onThemeChange);
+    } else if (typeof themeMedia.addListener === 'function') {
+      themeMedia.addListener(onThemeChange);
+    }
+  } catch {
+    themeMedia = null;
+  }
+
+  // -- analyser identity: lazily re-fetched, never polled per frame -------
+  // Mirrors the page's own single-scope pattern: re-fetch engine.getAnalysers()
+  // on the engine's 'state' event, and again when the tab becomes visible
+  // (a context rebuild — e.g. iOS interrupt recovery — can swap analyser
+  // node identity without ever emitting 'state').
+  function refreshAnalysers() {
+    let analysers = null;
+    try {
+      if (engine.running && typeof engine.getAnalysers === 'function') {
+        analysers = engine.getAnalysers() || null;
+      }
+    } catch {
+      analysers = null;
+    }
+    for (const id of MULTISCOPE_ALL_TRACKS) {
+      const st = getTrackState(id);
+      const next = (analysers && analysers[id]) || null;
+      if (next !== st.analyser) {
+        st.analyser = next;
+        st.floatBuf = null;
+        st.byteBuf = null;
+        st.gainPeak = 0;
+        st.lastGainTs = null;
+        st.scrollOffset = 0;
+        if (next) bumpFftSize(next);
+      }
+    }
+  }
+  refreshAnalysers();
+
+  let unsubState = null;
+  try {
+    if (typeof engine.on === 'function') {
+      unsubState = engine.on('state', () => refreshAnalysers());
+    }
+  } catch {
+    unsubState = null;
+  }
+
+  function drawFrame(ts) {
+    try {
+      const { w, h, dpr } = drawGraticule(canvas, ctx, themeColors);
+      for (const id of selected) {
+        const st = getTrackState(id);
+        const analyser = st.analyser;
+        if (!analyser) continue;
+        const data = readAnalyserSamples(analyser, st);
+        if (!data) continue;
+        updateGainPeak(st, bufferPeak(data), ts);
+        if (st.gainPeak < SILENCE_FLOOR) continue; // silent: draw nothing, no flat-line clutter
+        const gain = Math.min(GAIN_MAX, 1 / st.gainPeak);
+        const windowSamples = triggeredWindow(st, data);
+        const color = trackColors.get(id) || themeColors.trace;
+        strokeTraceLine(ctx, scaleWindow(windowSamples, gain), w, h, color, 1);
+      }
+      const legendEntries = selected.map((id) => ({ id, color: trackColors.get(id) || themeColors.trace }));
+      drawMultiScopeLegend(ctx, w, h, legendEntries, dpr);
+    } catch {
+      // never let a draw error kill the loop
+    }
+  }
+
+  const loop = createRafLoop(canvas, drawFrame, { onVisible: refreshAnalysers });
+  loop.start();
+
+  return {
+    setTracks(ids) {
+      selected = normaliseTracks(ids);
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      loop.stop();
+      liveCanvases.delete(canvas);
       try {
-        if (intersectionObserver) intersectionObserver.disconnect();
+        if (unsubState) unsubState();
       } catch {
         // ignore
       }

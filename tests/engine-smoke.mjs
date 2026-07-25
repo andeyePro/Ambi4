@@ -4128,6 +4128,360 @@ test("getResolved() reports the shape and values the v14 live-readout contract p
 }));
 
 // --------------------------------------------------------------------------
+// v15 — repeat brackets (loop region)
+// --------------------------------------------------------------------------
+
+/**
+ * What each BAR OCCURRENCE was heard to play: every note that fell inside it,
+ * with its pitch (or drum kind), its bar-relative onset and its velocity.
+ * Indexed by position in the bar stream rather than by bar number, because a
+ * repeat plays the same bar number many times over.
+ */
+function occurrenceSignatures(log) {
+  const index = new Map(log.bars.map((bar, i) => [bar, i]));
+  const sigs = log.bars.map(() => []);
+  for (const note of log.notes) {
+    const owner = log.barOf(note);
+    if (!owner) continue;
+    sigs[index.get(owner)].push(
+      `${note.track}:${note.midi ?? note.kind}`
+      + `@${(note.time - owner.time).toFixed(6)}v${note.velocity.toFixed(6)}`,
+    );
+  }
+  return sigs.map((notes) => notes.join('|'));
+}
+
+/** The positions in the bar stream at which `number` was played. */
+const occurrencesOf = (log, number) => log.bars
+  .map((bar, i) => (bar.bar === number ? i : -1))
+  .filter((i) => i >= 0);
+
+/** A loop run: `loop` is a [start, end] pair, or null for the free control. */
+async function loopRun(loop, { seconds = 26, seed = 515, clearAfter = null } = {}) {
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.6, repetition: 0.4,
+    tracks: {
+      ...tracksAll('off'),
+      pad: { state: 'on' },
+      melody: { state: 'on' },
+      percussion: { state: 'on' },
+    },
+  }, { rng: seededRng(seed) });
+  const log = record(engine);
+  const chords = [];
+  engine.on('chord', (chord) => chords.push(chord));
+  log.chords = chords;
+  try {
+    if (loop) log.region = engine.setLoopRegion(loop[0], loop[1]);
+    await engine.start();
+    if (clearAfter === null) {
+      await advance(seconds, FAST);
+    } else {
+      await advance(clearAfter, FAST);
+      engine.clearLoopRegion();
+      await advance(seconds - clearAfter, FAST);
+    }
+  } finally {
+    engine.stop();
+  }
+  return log;
+}
+
+test('a repeat replays the material and the harmony its range captured', () => hiddenTab(async () => {
+  const looped = await loopRun([6, 10]);
+  assert.deepEqual(looped.region, { start: 6, end: 10 });
+
+  const numbers = looped.bars.map((bar) => bar.bar);
+  assert.ok(numbers.length > 20, `only ${numbers.length} bars`);
+  assert.deepEqual(numbers.slice(0, 11), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 6],
+    `the piece did not jump back at the close of the repeat: ${numbers.join(',')}`);
+
+  const starts = occurrencesOf(looped, 6);
+  assert.ok(starts.length >= 3, `only ${starts.length} passes of the repeat`);
+  const sigs = occurrenceSignatures(looped);
+  const pass = (at) => sigs.slice(at, at + 4);
+  const first = pass(starts[0]);
+  assert.ok(first.some((sig) => sig.length), 'the repeated range never played a note');
+  for (const at of starts.slice(1)) {
+    // A bar is only fully scheduled once the next one has begun, so the last
+    // bar of the log is always partial: judge a pass only when a bar follows it.
+    if (at + 4 >= looped.bars.length) continue;
+    assert.deepEqual(pass(at), first,
+      `pass at bar-stream position ${at} did not replay the captured material`);
+  }
+
+  // Harmony is frozen to the range: the same chords, in the same order, every
+  // pass — the hook does not advance inside the brackets.
+  const chordNames = (at) => looped.chords
+    .filter((chord) => chord.time >= looped.bars[at].time - 1e-9
+      && chord.time < looped.bars[at + 4].time - 1e-9)
+    .map((chord) => chord.name);
+  const firstChords = chordNames(starts[0]);
+  assert.equal(firstChords.length, 4, `expected four chord events per pass: ${firstChords}`);
+  for (const at of starts.slice(1)) {
+    if (at + 4 >= looped.bars.length) continue;
+    assert.deepEqual(chordNames(at), firstChords, 'the harmony moved under the repeat');
+  }
+
+  // The control: with no brackets, those same bars do not repeat themselves.
+  const free = occurrenceSignatures(await loopRun(null));
+  assert.notDeepEqual(free.slice(10, 14), free.slice(6, 10),
+    'the unlooped control repeated anyway — the loop test proves nothing here');
+}));
+
+test('a repeated piece is deterministic under a seeded rng', () => hiddenTab(async () => {
+  const once = await loopRun([5, 9], { seconds: 14, seed: 909 });
+  const twice = await loopRun([5, 9], { seconds: 14, seed: 909 });
+  const bars = Math.min(once.bars.length, twice.bars.length) - 1;
+  assert.ok(bars > 10, `only ${bars} comparable bars`);
+  assert.deepEqual(twice.bars.slice(0, bars).map((bar) => bar.bar),
+    once.bars.slice(0, bars).map((bar) => bar.bar));
+  assert.deepEqual(occurrenceSignatures(twice).slice(0, bars),
+    occurrenceSignatures(once).slice(0, bars),
+    'the same seed and the same brackets played a different piece');
+}));
+
+test('clearing a repeat resumes from its close at the next bar', () => hiddenTab(async () => {
+  const log = await loopRun([6, 10], { seconds: 26, clearAfter: 16 });
+  const numbers = log.bars.map((bar) => bar.bar);
+  assert.ok(occurrencesOf(log, 6).length >= 3, `only ${occurrencesOf(log, 6).length} passes`);
+
+  // Everything before the clear is inside the brackets; everything after is
+  // the piece playing on from the close, one bar at a time.
+  const resumed = numbers.findIndex((number) => number >= 10);
+  assert.ok(resumed > 0, `the piece never left the repeat: ${numbers.join(',')}`);
+  assert.equal(numbers[resumed], 10, 'generation must resume at the loop\'s end, not past it');
+  for (let i = resumed; i < numbers.length; i++) {
+    assert.equal(numbers[i], 10 + (i - resumed), `bar ${i} broke the resumed count`);
+  }
+  for (const bar of log.bars.slice(resumed)) {
+    assert.equal(bar.loop, null, 'a cleared repeat still advertised itself');
+  }
+
+  // The material moves again: a cleared repeat is not a permanent hold.
+  const sigs = occurrenceSignatures(log).slice(resumed);
+  assert.ok(new Set(sigs.filter((sig) => sig.length)).size > 1,
+    'the material stayed frozen after the repeat was cleared');
+}));
+
+test('a repeat over a held track is still the repeat that decides the material', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+    tracks: {
+      ...tracksAll('off'),
+      pad: { state: 'on' },
+      melody: {
+        state: 'on', hold: true, randomness: 0.5, vary: { timing: 0 },
+        sequencer: { mode: 'manual', steps: seqLane({ prob: 0.5 }) },
+      },
+    },
+  }, { rng: seededRng(707) });
+  const log = record(engine);
+  try {
+    engine.setLoopRegion(6, 9);
+    await engine.start();
+    await advance(24, FAST);
+  } finally {
+    engine.stop();
+  }
+
+  const starts = occurrencesOf(log, 6);
+  assert.ok(starts.length >= 3, `only ${starts.length} passes of the repeat`);
+  const sigs = occurrenceSignatures(log);
+  const first = sigs.slice(starts[0], starts[0] + 3);
+  assert.ok(first.some((sig) => sig.length), 'nothing sounded inside the repeat');
+  for (const at of starts.slice(1)) {
+    // As above: the log's last bar is only part-scheduled, so it never judges.
+    if (at + 3 >= log.bars.length) continue;
+    assert.deepEqual(sigs.slice(at, at + 3), first, 'hold and the repeat disagreed');
+  }
+}));
+
+test('bar events carry the repeat brackets while they are set', () => hiddenTab(async () => {
+  const log = await loopRun([6, 10], { seconds: 14 });
+  const before = log.bars.filter((bar) => bar.bar < 6);
+  assert.ok(before.length >= 6, 'expected the staged bars ahead of the brackets');
+  for (const bar of log.bars) {
+    assert.deepEqual(bar.loop, {
+      start: 6,
+      end: 10,
+      active: bar.bar >= 6 && bar.bar < 10,
+    }, `bar ${bar.bar} reported the wrong loop info`);
+  }
+
+  const unset = await loopRun(null, { seconds: 6 });
+  for (const bar of unset.bars) {
+    assert.equal(bar.loop, null, 'an engine with no brackets must say so, not stay silent');
+  }
+}));
+
+test('setLoopRegion sanitises its brackets; clearLoopRegion reports whether one was set', () => {
+  const engine = createEngine();
+  assert.deepEqual(engine.setLoopRegion(4, 8), { start: 4, end: 8 });
+  assert.deepEqual(engine.setLoopRegion(8, 4), { start: 4, end: 8 }, 'reversed brackets normalise');
+  assert.deepEqual(engine.setLoopRegion(3, 3), { start: 3, end: 4 }, 'an empty span is one bar');
+  assert.deepEqual(engine.setLoopRegion(-5, 2), { start: 0, end: 2 }, 'bar numbers start at 0');
+  assert.deepEqual(engine.setLoopRegion(-9, -3), { start: 0, end: 1 });
+  assert.deepEqual(engine.setLoopRegion(0, 500), { start: 0, end: 64 }, 'the span is clamped to 64 bars');
+  assert.deepEqual(engine.setLoopRegion(10, 999), { start: 10, end: 74 });
+  assert.deepEqual(engine.setLoopRegion(2.7, 9.9), { start: 2, end: 9 }, 'a bar number is an integer');
+
+  for (const args of [[], [4], [NaN, 4], [4, NaN], ['nonsense', 4], [null, 8], [{}, []]]) {
+    assert.equal(engine.setLoopRegion(...args), null, `setLoopRegion(${args}) should be a no-op`);
+  }
+
+  assert.equal(engine.clearLoopRegion(), true);
+  assert.equal(engine.clearLoopRegion(), false, 'clearing nothing clears nothing');
+  // Neither call may throw while the engine is stopped.
+  engine.setLoopRegion(2, 6);
+  engine.clearLoopRegion();
+});
+
+test('finish() during a repeat leaves the loop and then runs the outro', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.5,
+    tracks: { ...tracksAll('off'), pad: { state: 'on' }, melody: { state: 'on' } },
+  }, { rng: seededRng(616) });
+  const log = record(engine);
+  const states = [];
+  engine.on('state', (state) => states.push(state));
+  engine.setLoopRegion(4, 8);
+  await engine.start();
+  await advance(14, FAST);
+  assert.ok(occurrencesOf(log, 4).length >= 2, 'the piece never went round the repeat');
+
+  const ending = engine.finish({ fadeSeconds: 1 });
+  const settled = await settleWithin(ending, 30);
+  engine.stop();
+  assert.ok(settled, 'finish() never resolved out of a repeat');
+
+  const numbers = log.bars.map((bar) => bar.bar);
+  assert.ok(numbers[numbers.length - 1] >= 8,
+    `the outro played inside the brackets: ${numbers.join(',')}`);
+  assert.equal(log.bars[log.bars.length - 1].loop, null,
+    'the closing bar still carried a repeat');
+  assert.ok(states.some((state) => state.running === false && state.finished === true),
+    'the ending never announced itself');
+}));
+
+// --------------------------------------------------------------------------
+// v14 — kit editor: per-instrument patch overrides
+// --------------------------------------------------------------------------
+
+test('perKind overrides sanitise like any other patch and merge sparsely', () => {
+  const params = sanitiseParams({
+    patches: {
+      percussion: {
+        soft: {
+          filter: { cutoff: 900 },
+          perKind: {
+            low: { filter: { cutoff: 40000 }, source: { octave: 9 } },
+            high: { adsr: { release: 99 } },
+            bogus: { filter: { cutoff: 500 } },
+            mid: 'nonsense',
+          },
+        },
+      },
+    },
+  });
+  const patch = params.patches.percussion.soft;
+  assert.deepEqual(Object.keys(patch.perKind).sort(), ['high', 'low'], 'unknown kinds are dropped');
+  assert.equal(patch.perKind.low.filter.cutoff, 12000, 'an override clamps like a patch field');
+  assert.equal(patch.perKind.low.source.octave, 2);
+  assert.equal(patch.perKind.high.adsr.release, 12);
+  assert.equal(patch.filter.cutoff, 900, 'the common patch is untouched by its overrides');
+
+  // A later edit of one kind leaves the other kinds, and the common patch, alone.
+  const merged = sanitiseParams({
+    patches: { percussion: { soft: { perKind: { high: { adsr: { attack: 0.5 } } } } } },
+  }, params).patches.percussion.soft;
+  assert.equal(merged.filter.cutoff, 900);
+  assert.equal(merged.perKind.low.filter.cutoff, 12000);
+  assert.equal(merged.perKind.high.adsr.release, 12, 'a sparse edit dropped a sibling field');
+  assert.equal(merged.perKind.high.adsr.attack, 0.5);
+
+  // A patch that is nothing BUT overrides still survives, and getParams hands
+  // back a copy nobody can write through.
+  const engine = createEngine({
+    patches: { percussion: { tick: { perKind: { mid: { filter: { q: 8 } } } } } },
+  });
+  const reported = engine.getParams();
+  assert.equal(reported.patches.percussion.tick.perKind.mid.filter.q, 8);
+  reported.patches.percussion.tick.perKind.mid.filter.q = 1;
+  assert.equal(engine.getParams().patches.percussion.tick.perKind.mid.filter.q, 8);
+});
+
+test('a per-instrument override reaches play() for its own kind only', () => hiddenTab(async () => {
+  const percussion = spyOnBank(bankFor('percussion'));
+  const pad = spyOnBank(bankFor('pad'));
+  try {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+      tracks: {
+        ...tracksAll('off'),
+        pad: { state: 'on', vary: { voice: 0 } },
+        percussion: {
+          state: 'on',
+          vary: { voice: 0 },
+          sequencer: {
+            mode: 'manual',
+            steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => [lane, seqLane({ prob: 1 })])),
+          },
+        },
+      },
+      patches: {
+        percussion: {
+          soft: {
+            filter: { cutoff: 900 },
+            adsr: { release: 0.5 },
+            perKind: {
+              low: { filter: { cutoff: 200 } },
+              high: { adsr: { release: 2 } },
+            },
+          },
+        },
+        pad: { warm: { filter: { cutoff: 800 }, perKind: { low: { filter: { cutoff: 60 } } } } },
+      },
+    }, { rng: seededRng(4141) });
+    await engine.start();
+    await advance(14, FAST);
+    engine.stop();
+
+    const heard = new Map();
+    for (const play of percussion.plays) {
+      if (!heard.has(play.note.kind)) heard.set(play.note.kind, []);
+      heard.get(play.note.kind).push(play.patch);
+    }
+    for (const lane of PERCUSSION_LANES) {
+      assert.ok(heard.get(lane)?.length, `the ${lane} lane never sounded`);
+    }
+    for (const patch of heard.get('low')) {
+      assert.equal(patch.filter.cutoff, 200, 'the low override did not reach play()');
+      assert.equal(patch.adsr.release, 0.5, 'the common patch was lost under the override');
+      assert.equal(patch.perKind, undefined, 'a voice was handed the whole override map');
+    }
+    for (const patch of heard.get('mid')) {
+      assert.equal(patch.filter.cutoff, 900, 'an unoverridden kind must play the common patch');
+      assert.equal(patch.adsr.release, 0.5);
+    }
+    for (const patch of heard.get('high')) {
+      assert.equal(patch.filter.cutoff, 900, 'the low override leaked onto the high lane');
+      assert.equal(patch.adsr.release, 2);
+    }
+
+    assert.ok(pad.plays.length, 'the pad never sounded');
+    for (const play of pad.plays) {
+      assert.equal(play.note.kind, null, 'a melodic note carried a percussion kind');
+      assert.equal(play.patch.filter.cutoff, 800, 'the pad lost its common patch');
+      assert.equal(play.patch.perKind, undefined, 'per-instrument overrides leaked to a melodic track');
+    }
+  } finally {
+    percussion.restore();
+    pad.restore();
+  }
+}));
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 
@@ -4260,7 +4614,7 @@ function spyOnBank(bank) {
     bank[id] = {
       ...voice,
       play(ctx, destination, note, patch) {
-        const entry = { id, note, cancelled: false };
+        const entry = { id, note, patch, cancelled: false };
         plays.push(entry);
         const handle = voice.play(ctx, destination, note, patch);
         if (handle && typeof handle.cancel === 'function') {

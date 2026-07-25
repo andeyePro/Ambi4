@@ -1,5 +1,20 @@
 # Ambi4.work — manual release test (~15 min)
 
+## Automated gate before any of this: the page boot test
+
+The generator page has shipped blank twice (a crash inside its init, invisible to
+`astro build` and to the module smoke tests). It now has a permanent regression
+gate that executes the BUILT page bundle in jsdom with stubbed audio and asserts
+the app unhides:
+
+```
+npm run build && node tests/page-boot.mjs
+```
+
+Green = the page boots against today's modules. Red = do not deploy; the failure
+line quotes whatever init threw. Run it after ANY change to `src/pages/index.astro`
+or to a module the page imports.
+
 Tester: Martin, Mac (Chrome or Safari) + iPhone Safari. URL: https://ambi4.work (deploys from main ~2 min after push — check the commit you expect is live before starting). Start with device volume MODEST — new voices are untested at loud levels.
 
 Worst-first within each section: if a step fails, note it and keep going.
@@ -152,6 +167,73 @@ Everything else
 - [ ] Factory presets row (8 of them) on Advanced. Load one — everything changes and stays fully editable. Your own presets sit below, unchanged.
 - [ ] Melody now DEFAULTS TO AUTO (it used to be off); bass is still off by default.
 - [ ] Regression sweep: consent ask still appears on the first save-worthy change in a private window; save/load/delete/submit presets still work; sleep + alarm popovers unchanged; lock-screen transport keys still work; settings still persist across a reload.
+
+## v15 delta — front scope, share links, kit editor (2026-07-25)
+
+Front-page oscilloscope (Simple tab, under the piano roll)
+- [ ] An "Oscilloscope" panel sits between the piano roll and the dials, with a
+      row of six coloured track chips under the canvas.
+- [ ] Press Play: one trace per selected track, each in that track's colour,
+      sharing one grid. A silent track draws nothing (not a flat line).
+- [ ] Chips toggle: click Percussion off — its trace goes; click it back on — it
+      returns. Default selection is every track that isn't switched off, so a
+      track you set to Off drops out of the scope by itself.
+- [ ] Click the "Oscilloscope" heading to collapse the panel; reload — it stays
+      collapsed (and your chip selection survives too).
+- [ ] Switch to Advanced, or set Processor to Eco while playing: the trace stops
+      (the note beside the heading says why). Back to Simple / a higher tier
+      restarts it.
+- [ ] Scroll the panel off screen while playing: no frames are drawn while it's
+      out of view (heat check — the machine should not warm up with it scrolled
+      away).
+- [ ] If this build ships against an older scope.js, the whole panel is absent
+      rather than dead — expected, not a bug.
+
+Share links (Advanced → Your presets)
+- [ ] "Share" copies a link to the clipboard and confirms on the button. Paste it
+      somewhere: it starts `https://ambi4.work/#p=` and is a few KB long.
+- [ ] Open the link in a fresh window: the shared settings are live BEFORE
+      anything is drawn (dials, tracks, sequencers, voice patches all match), a
+      note reads "Loaded shared preset — Save to keep it", and the `#p=…` has
+      been stripped from the address bar. Reload: your own stored settings are
+      back — a shared link is a visit, not a takeover, until you Save it.
+- [ ] Mangle the fragment (delete some characters) and open it: the page boots
+      normally on your own settings, no error shown. Silence is correct here.
+- [ ] The link never carries code — only params (per the v10 boundary). If the
+      clipboard is refused, the link is printed in the note to copy by hand.
+
+Kit editor (Percussion → Edit)
+- [ ] Above the dials: Common | High | Mid | Low. Common is the whole kit's
+      sound and behaves exactly as the voice editor always has.
+- [ ] Pick High: the same dial set appears, each dial carrying a small
+      "common …" read-out beneath it (that is the ghost — knob.js draws only one
+      pointer, so the common value shows as a coloured-dot read-out rather than
+      a second pointer on the face).
+- [ ] Move a dial on High: it takes the track accent ring and a "follow" button
+      appears. Mid and Low are untouched — check by switching tabs.
+- [ ] Press "follow" on that dial: the override goes and the dial returns to the
+      common value. The button at the foot reads "Clear High overrides" on an
+      instrument tab (it clears only that instrument) and "Reset to default" on
+      Common.
+- [ ] Overrides persist across reload and travel in presets and share links.
+- [ ] EXPECTED until the engine's own pass lands: per-instrument overrides may
+      not be audible yet — the engine plays the common patch and ignores
+      `perKind`. The editing, persistence and capture are all live now.
+
+Dials
+- [ ] Simple reads Tempo / Complexity / Randomness / Volume (was Speed and
+      Master volume). Each name appears ONCE, under its dial — nothing repeated
+      above it.
+- [ ] The same four dials sit at the foot of the Advanced tab under "Main
+      dials". They are views, not copies: turn one, its twin follows, and so
+      does the BPM field for Tempo. Double-click resets on either.
+- [ ] Percussion lanes still render High at the top, Low at the bottom.
+- [ ] Transport is ONE row: Play / Stop / Record, the clock + alarm icons, and
+      the Processor dial — which now reads "Processor" ABOVE the dial with its
+      status ("Auto (med) · 22 notes · 30 fps") in small secondary text BELOW
+      it, and no repeated caption on the knob itself.
+- [ ] Narrow the window to ~360 px: the transport wraps gracefully — the
+      Processor dial may drop to a second line, but nothing overlaps or clips.
 
 ## v12 delta — UI round (2026-07-25)
 - [ ] Double-click ANY knob resets it to its declared default — a voice-editor knob resets to that VOICE's own factory value (not just whatever value it happened to load with, e.g. from a saved preset); a track's Level/Randomness knob resets to 80%/50%.

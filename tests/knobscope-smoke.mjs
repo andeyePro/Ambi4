@@ -3,12 +3,14 @@
  *   node tests/knobscope-smoke.mjs
  *
  * Drives createKnob() against a mock DOM (document/createElementNS/events)
- * and renderPatchWave()/attachLiveScope() against a mock 2d canvas context,
- * mock OfflineAudioContext and mock rAF — proving the aria contract, silent
- * set(), key/drag/dblclick interaction, destroy idempotence, the offline
- * audio-graph build (morphed PeriodicWave coefficients + filter config), the
- * math-model fallback, per-canvas render coalescing, and live-scope
- * subscribe/unsubscribe — including bare-Node import safety for both modules.
+ * and renderPatchWave()/attachLiveScope()/attachMultiScope() against a mock
+ * 2d canvas context, mock OfflineAudioContext, mock engine, and mock rAF —
+ * proving the aria contract, silent set(), key/drag/dblclick interaction,
+ * destroy idempotence, the offline audio-graph build (morphed PeriodicWave
+ * coefficients + filter config), the math-model fallback, per-canvas render
+ * coalescing, live-scope subscribe/unsubscribe, and multi-scope per-track
+ * traces/colours/gain/legend/perf discipline — including bare-Node import
+ * safety for both modules.
  */
 
 import assert from 'node:assert/strict';
@@ -111,19 +113,30 @@ function makeCtx2d(calls, propWrites) {
   // Every moveTo/lineTo issued while strokeStyle is the trace colour is the
   // actual waveform path (grid lines stroke in the grid colour); tests reset
   // this between frames to inspect one frame's drawn Y-span in isolation.
+  // `pointsByColor` is the generalised form for multi-scope tests, keyed by
+  // whatever strokeStyle was active — lets a test tell N distinct trace
+  // colours apart from each other and from the grid colour.
   const base = {
     clearRect() { record('clearRect'); },
-    fillRect() { record('fillRect'); },
+    fillRect(x, y, w, h) {
+      record('fillRect');
+      (calls.fillRects ||= []).push({ x, y, w, h, style: this.fillStyle });
+    },
     beginPath() {},
-    moveTo(x, y) { if (this.strokeStyle === TRACE_COLOR) (calls.tracePoints ||= []).push(y); },
+    moveTo(x, y) {
+      if (this.strokeStyle === TRACE_COLOR) (calls.tracePoints ||= []).push(y);
+      ((calls.pointsByColor ||= {})[this.strokeStyle] ||= []).push(y);
+    },
     lineTo(x, y) {
       record('lineTo');
       calls.lastLineY = y;
       if (this.strokeStyle === TRACE_COLOR) (calls.tracePoints ||= []).push(y);
+      ((calls.pointsByColor ||= {})[this.strokeStyle] ||= []).push(y);
     },
     stroke() { record('stroke'); },
     fill() { record('fill'); },
     setTransform() {},
+    measureText(text) { return { width: String(text).length * 6 }; },
     fillText(text) { record('fillText'); (calls.fillTexts ||= []).push(text); },
   };
   if (!propWrites) {
@@ -1189,6 +1202,327 @@ test('scope: live scope draws a tiny gain readout — dB while playing, "silent"
     assert.match(calls.fillTexts[0], /^×[\d.]+ \(-?[\d.]+ dB\)$/);
     live.destroy();
   });
+});
+
+// --------------------------------------------------------------------------
+// Scope tests — attachMultiScope
+// --------------------------------------------------------------------------
+
+const MULTI_TRACKS = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
+const FALLBACK_GRID_COLOR = 'rgba(245, 182, 66, 0.16)'; // matches scope.js's private FALLBACK_GRID
+
+function makeMockEngine({ running = true, analysers = {} } = {}) {
+  const listeners = new Map();
+  return {
+    running,
+    getAnalysers() { return analysers; },
+    on(type, cb) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(cb);
+      return () => listeners.get(type)?.delete(cb);
+    },
+    emit(type, payload) {
+      for (const cb of [...(listeners.get(type) || [])]) cb(payload);
+    },
+    listenerCount(type) { return listeners.get(type)?.size || 0; },
+  };
+}
+
+function traceColorsDrawn(calls) {
+  return Object.keys(calls.pointsByColor || {}).filter((c) => c !== FALLBACK_GRID_COLOR);
+}
+
+test('multiScope: draws one trace per selected track, each in its own colour (fallback hues)', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = Object.fromEntries(MULTI_TRACKS.map((t) => [t, makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 })]));
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine);
+    assert.equal(typeof live.destroy, 'function');
+    assert.equal(typeof live.setTracks, 'function');
+
+    stepFrame(0);
+    const colors = traceColorsDrawn(calls);
+    assert.equal(colors.length, 6, `expected 6 distinct trace colours, got ${colors.length}: ${colors}`);
+    assert.equal(new Set(colors).size, 6, 'fallback hues must be distinct per track');
+    assert.deepEqual(calls.fillTexts, MULTI_TRACKS, 'legend must label every selected track, in order');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: a silent track draws no trace, but stays in the legend', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = {
+      pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 }), // loud
+      arp: makeCustomAnalyser({ sample: (i) => Math.sin(i * 1.7) * 0.0005 }), // sub-floor
+    };
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad', 'arp'] });
+
+    stepFrame(0);
+    const colors = traceColorsDrawn(calls);
+    assert.equal(colors.length, 1, 'only the loud track draws a trace');
+    assert.deepEqual(calls.fillTexts, ['pad', 'arp'], 'the silent track still gets a legend label');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: setTracks() narrows the drawn + legend set', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = Object.fromEntries(MULTI_TRACKS.map((t) => [t, makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 })]));
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine);
+
+    stepFrame(0);
+    assert.equal(traceColorsDrawn(calls).length, 6);
+
+    live.setTracks(['bass', 'melody']);
+    calls.pointsByColor = {};
+    calls.fillTexts = [];
+    stepFrame(40); // past the 30fps budget, so this tick actually draws
+    assert.equal(traceColorsDrawn(calls).length, 2, 'narrowed selection must draw only 2 traces');
+    assert.deepEqual(calls.fillTexts, ['bass', 'melody']);
+
+    // Unknown ids are dropped silently, known order preserved.
+    live.setTracks(['percussion', 'not-a-track', 'pad']);
+    calls.pointsByColor = {};
+    calls.fillTexts = [];
+    stepFrame(80);
+    assert.equal(traceColorsDrawn(calls).length, 2);
+    assert.deepEqual(calls.fillTexts, ['percussion', 'pad']);
+
+    live.destroy();
+  });
+});
+
+test('multiScope: per-trace auto-gain is independent — a quiet track still reads as a visible trace', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = {
+      pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }), // loud
+      arp: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.03 }), // quiet, above floor
+    };
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad', 'arp'] });
+
+    stepFrame(0);
+    const byColor = calls.pointsByColor;
+    const spans = Object.entries(byColor)
+      .filter(([color]) => color !== FALLBACK_GRID_COLOR)
+      .map(([, ys]) => Math.max(...ys) - Math.min(...ys));
+    assert.equal(spans.length, 2);
+    for (const span of spans) {
+      assert.ok(
+        span >= 0.3 * canvas.height,
+        `expected both the loud and the quiet-but-audible track to read as a visible trace, got span ${span}`
+      );
+    }
+
+    live.destroy();
+  });
+});
+
+test('multiScope: draws the shared graticule exactly once per frame regardless of track count', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = Object.fromEntries(MULTI_TRACKS.map((t) => [t, makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 })]));
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine);
+    stepFrame(0);
+    const backgroundFills = calls.fillRects.filter((r) => r.w === canvas.width && r.h === canvas.height);
+    assert.equal(backgroundFills.length, 1, 'exactly one background fill (the shared graticule), not one per track');
+    live.destroy();
+  });
+});
+
+test('multiScope: analysers are re-fetched on the engine "state" event, not polled every frame', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const engine = makeMockEngine({ running: false, analysers: {} });
+    const live = scope.attachMultiScope(canvas, engine);
+
+    stepFrame(0);
+    assert.equal(traceColorsDrawn(calls).length, 0, 'not running yet: no analysers, no traces');
+
+    // Engine starts; analysers become available; only a 'state' event (or
+    // tab-visible-again) makes attachMultiScope pick them up.
+    engine.running = true;
+    engine.getAnalysers = () => ({ pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 }) });
+    calls.pointsByColor = {};
+    stepFrame(33);
+    assert.equal(traceColorsDrawn(calls).length, 0, 'must not pick up the new analyser without a state event');
+
+    engine.emit('state', { running: true });
+    calls.pointsByColor = {};
+    stepFrame(66);
+    assert.equal(traceColorsDrawn(calls).length, 1, 'the state event must trigger the re-fetch');
+
+    live.destroy();
+    assert.equal(engine.listenerCount('state'), 0, 'destroy must unsubscribe from the engine');
+  });
+});
+
+test('multiScope: identity change (context rebuild) is picked up on tab-visible-again', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analyserA = makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 });
+    const engine = makeMockEngine({ analysers: { pad: analyserA } });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad'] });
+    stepFrame(0);
+    assert.equal(traceColorsDrawn(calls).length, 1);
+
+    // A context rebuild swaps analyser identity without a 'state' event.
+    const analyserB = makeCustomAnalyser({ sample: () => 0 }); // silent replacement
+    engine.getAnalysers = () => ({ pad: analyserB });
+    mockDocument.hidden = true;
+    for (const cb of [...(docListeners.get('visibilitychange') || [])]) cb();
+    mockDocument.hidden = false;
+    for (const cb of [...(docListeners.get('visibilitychange') || [])]) cb();
+    calls.pointsByColor = {};
+    stepFrame(33);
+    assert.equal(traceColorsDrawn(calls).length, 0, 'must have switched to the new (silent) analyser');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: pauses when hidden and via IntersectionObserver, like the single live scope', () => {
+  withMockRaf(({ rafCbs }) => {
+    let ioCallback = null;
+    const prevIO = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class {
+      constructor(cb) { ioCallback = cb; }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      const calls = {};
+      const canvas = makeCanvas(calls);
+      const engine = makeMockEngine({ analysers: { pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 }) } });
+      const live = scope.attachMultiScope(canvas, engine);
+      assert.equal(rafCbs.size, 1, 'a frame must be scheduled');
+
+      ioCallback([{ isIntersecting: false }]);
+      assert.equal(rafCbs.size, 0, 'scrolling out of view must stop the loop');
+      ioCallback([{ isIntersecting: true }]);
+      assert.equal(rafCbs.size, 1, 'scrolling back into view must resume the loop');
+
+      mockDocument.hidden = true;
+      for (const cb of [...(docListeners.get('visibilitychange') || [])]) cb();
+      assert.equal(rafCbs.size, 0, 'hidden document must pause the loop');
+      mockDocument.hidden = false;
+      for (const cb of [...(docListeners.get('visibilitychange') || [])]) cb();
+      assert.equal(rafCbs.size, 1, 'visible again must resume the loop');
+
+      live.destroy();
+      assert.equal(rafCbs.size, 0, 'destroy must cancel the pending frame');
+    } finally {
+      if (prevIO === undefined) delete globalThis.IntersectionObserver;
+      else globalThis.IntersectionObserver = prevIO;
+    }
+  });
+});
+
+test('multiScope: caps at 30fps like the single live scope', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const engine = makeMockEngine({ analysers: { pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 }) } });
+    const live = scope.attachMultiScope(canvas, engine);
+
+    stepFrame(0);
+    const afterFirst = calls.stroke;
+    stepFrame(10); // inside the ~33.3ms/30fps budget
+    assert.equal(calls.stroke, afterFirst, 'must skip a frame inside the 30fps budget');
+    stepFrame(40); // past the budget
+    assert.ok(calls.stroke > afterFirst, 'must draw once the budget has elapsed');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: reuses one sample buffer per track across frames (no per-frame allocation)', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    let padBufs = new Set();
+    let arpBufs = new Set();
+    const padAnalyser = {
+      fftSize: 8192,
+      getFloatTimeDomainData(buf) {
+        padBufs.add(buf);
+        for (let i = 0; i < buf.length; i++) buf[i] = Math.sin(i / 4) * 0.05;
+      },
+    };
+    const arpAnalyser = {
+      fftSize: 8192,
+      getFloatTimeDomainData(buf) {
+        arpBufs.add(buf);
+        for (let i = 0; i < buf.length; i++) buf[i] = Math.sin(i / 3) * 0.05;
+      },
+    };
+    const engine = makeMockEngine({ analysers: { pad: padAnalyser, arp: arpAnalyser } });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad', 'arp'] });
+    stepFrame(0);
+    stepFrame(33);
+    stepFrame(66);
+    assert.equal(padBufs.size, 1, 'pad must reuse the same buffer instance every frame');
+    assert.equal(arpBufs.size, 1, 'arp must reuse the same buffer instance every frame');
+    assert.notEqual([...padBufs][0], [...arpBufs][0], 'each track must own its own buffer');
+    live.destroy();
+  });
+});
+
+test('multiScope: never sets shadowBlur/shadowColor during a normal frame', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const propWrites = new Set();
+    const canvas = makeCanvas(calls, { propWrites });
+    const engine = makeMockEngine({ analysers: { pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.05 }) } });
+    const live = scope.attachMultiScope(canvas, engine);
+    stepFrame(0);
+    live.destroy();
+    assert.ok(!propWrites.has('shadowBlur'), 'multi-scope must never set ctx.shadowBlur');
+    assert.ok(!propWrites.has('shadowColor'), 'multi-scope must never set ctx.shadowColor');
+  });
+});
+
+test('multiScope: caps devicePixelRatio backing-store sizing at 3 like the single live scope', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const engine = makeMockEngine({ analysers: {} });
+  const prevWindow = globalThis.window;
+  globalThis.window = { devicePixelRatio: 4 };
+  try {
+    scope.attachMultiScope(canvas, engine).destroy();
+    assert.equal(canvas.width, 1800, 'backing store must clamp to dpr 3, not 4');
+    assert.equal(canvas.height, 900);
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+});
+
+test('multiScope: degenerate inputs return inert handles, never throw', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const engine = makeMockEngine();
+  scope.attachMultiScope(null, engine).destroy();
+  scope.attachMultiScope(canvas, null).destroy();
+  const inert = scope.attachMultiScope({}, engine);
+  inert.setTracks(['pad']);
+  inert.destroy();
 });
 
 // --------------------------------------------------------------------------

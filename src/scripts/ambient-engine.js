@@ -746,9 +746,8 @@ const PATCH_SCHEMA = Object.freeze({
   }),
 });
 
-/** One patch, clamped and stripped of unknown keys. null when nothing survives. */
-function sanitisePatch(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+/** The four Patch sections, clamped and stripped of unknown keys. */
+function sanitisePatchSections(value) {
   const out = {};
   for (const [section, fields] of Object.entries(PATCH_SCHEMA)) {
     const raw = value[section];
@@ -769,7 +768,45 @@ function sanitisePatch(value) {
     }
     if (Object.keys(clean).length) out[section] = clean;
   }
+  return out;
+}
+
+/**
+ * v14 kit editor: `perKind = { low, mid, high }`, each a sparse Patch that
+ * overrides the common one for percussion notes of that kind. Sparse both
+ * ways — an absent kind, and an absent field inside one, both mean "follow
+ * the common patch" — and never nested, so a perKind inside a perKind is
+ * dropped like any other unknown key.
+ */
+function sanitisePerKind(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = {};
+  for (const kind of PERCUSSION_LANES) {
+    const raw = value[kind];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const patch = sanitisePatchSections(raw);
+    if (Object.keys(patch).length) out[kind] = patch;
+  }
   return Object.keys(out).length ? out : null;
+}
+
+/** One patch, clamped and stripped of unknown keys. null when nothing survives. */
+function sanitisePatch(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = sanitisePatchSections(value);
+  const perKind = sanitisePerKind(value.perKind);
+  if (perKind) out.perKind = perKind;
+  return Object.keys(out).length ? out : null;
+}
+
+/** Field-level merge of two already-sanitised section maps. */
+function mergeSections(from, patch) {
+  const out = {};
+  for (const section of Object.keys(PATCH_SCHEMA)) {
+    const merged = { ...(from?.[section] ?? {}), ...(patch?.[section] ?? {}) };
+    if (Object.keys(merged).length) out[section] = merged;
+  }
+  return out;
 }
 
 /** Field-level merge of `incoming` over `base`; an unusable patch keeps `base`. */
@@ -779,10 +816,18 @@ function mergePatch(base, incoming) {
   const patch = sanitisePatch(incoming);
   if (!patch) return from;
   if (!from) return patch;
-  const out = {};
-  for (const section of Object.keys(PATCH_SCHEMA)) {
-    const merged = { ...(from[section] ?? {}), ...(patch[section] ?? {}) };
-    if (Object.keys(merged).length) out[section] = merged;
+  const out = mergeSections(from, patch);
+  // Overrides merge per kind, so editing one dial of one instrument leaves the
+  // rest of that instrument — and every other instrument — where it was.
+  const kinds = new Set([
+    ...Object.keys(from.perKind ?? {}),
+    ...Object.keys(patch.perKind ?? {}),
+  ]);
+  if (kinds.size) {
+    out.perKind = {};
+    for (const kind of kinds) {
+      out.perKind[kind] = mergeSections(from.perKind?.[kind], patch.perKind?.[kind]);
+    }
   }
   return out;
 }
@@ -852,15 +897,22 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS) {
   return out;
 }
 
+/** A patch nobody can write through to the engine's own copy. */
+function copyPatch(patch) {
+  const out = {};
+  for (const [section, fields] of Object.entries(patch)) {
+    out[section] = section === 'perKind'
+      ? Object.fromEntries(Object.entries(fields).map(([kind, sections]) => [kind, copyPatch(sections)]))
+      : { ...fields };
+  }
+  return out;
+}
+
 function copyPatches(patches) {
   const out = {};
   for (const [track, bank] of Object.entries(patches)) {
     const copy = {};
-    for (const [id, patch] of Object.entries(bank)) {
-      copy[id] = Object.fromEntries(
-        Object.entries(patch).map(([section, fields]) => [section, { ...fields }]),
-      );
-    }
+    for (const [id, patch] of Object.entries(bank)) copy[id] = copyPatch(patch);
     out[track] = copy;
   }
   return out;
@@ -2122,6 +2174,13 @@ export function createEngine(initialParams, options = {}) {
   let currentBarTime = 0;      // ctx time of that bar's downbeat — the humanisation floor
   let delayTarget = 0;
 
+  // Repeat brackets (v15): the bar range the piece is looping over, and the
+  // realised decisions of every bar in it — captured on the first traversal,
+  // replayed verbatim on every later pass.
+  let loopRegion = null;            // { start, end } — end exclusive
+  const loopCapture = new Map();    // bar number → that bar's captured decisions
+  let loopRecord = null;            // the record the bar being scheduled reads/writes
+
   // Structure state
   let structureKey = '';
   let structureBar = 0;        // bars since this structure started
@@ -2191,6 +2250,8 @@ export function createEngine(initialParams, options = {}) {
   const activeSequencer = new Map();  // track → index into tracks[t].sequencers
   // vary.voice wander: EPHEMERAL, so it never reaches params/getParams.
   const wanderedVoice = new Map();  // track → the voice id actually sounding
+  // Per-kind patch merges (v14 kit), by `${track}:${voice}:${kind}`.
+  const kindPatches = new Map();
 
   // v9 cost accounting
   let maxNotes = Infinity;          // power budget: simultaneous sounding notes
@@ -2451,6 +2512,89 @@ export function createEngine(initialParams, options = {}) {
     return Boolean(sequencer && sequencer.mode === 'manual');
   }
 
+  // -- repeat brackets -------------------------------------------------------
+
+  /** The longest span a pair of brackets may enclose (v15). */
+  const MAX_LOOP_BARS = 64;
+
+  /**
+   * One decision of the bar being scheduled, taken once and replayed on every
+   * later pass of a repeat that encloses it. Outside a loop — and on the first
+   * traversal of one — this is just `realise()`, so nothing about the ordinary
+   * path changes.
+   */
+  function once(key, realise) {
+    if (!loopRecord) return realise();
+    if (key in loopRecord) return loopRecord[key];
+    const value = realise();
+    loopRecord[key] = value;
+    return value;
+  }
+
+  /**
+   * The record for the bar about to be scheduled: null outside the loop (or
+   * with no loop set), a fresh one on the range's first traversal, and the
+   * captured one on every pass after that.
+   */
+  function loopRecordFor(number) {
+    if (!loopRegion || number < loopRegion.start || number >= loopRegion.end) return null;
+    let record = loopCapture.get(number);
+    if (!record) {
+      record = {};
+      loopCapture.set(number, record);
+    }
+    return record;
+  }
+
+  /**
+   * `setLoopRegion(4, 8)` is the pair of brackets 𝄆4 … 8𝄇: bars 4–7 play, and
+   * the bar that would have been 8 is bar 4 again. Reversed brackets are
+   * normalised rather than rejected, an empty span becomes the single bar it
+   * was drawn around, and an over-long one is clamped — a repeat is a
+   * performance gesture, and the engine would rather play a sane range than
+   * ignore the click. Returns the range it actually took, or null.
+   */
+  function setLoopRegion(startBar, endBar) {
+    // Anything that is not a bar number — null, '', a boolean, a shape — is a
+    // caller mistake, and a mistake must not move brackets that are already set.
+    const barNumber = (value) => (value === null || value === undefined || value === ''
+      || typeof value === 'boolean' ? NaN : Math.floor(Number(value)));
+    const from = barNumber(startBar);
+    const to = barNumber(endBar);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+    const start = Math.max(0, Math.min(from, to));
+    let end = Math.max(start + 1, Math.max(0, Math.max(from, to)));
+    if (end - start > MAX_LOOP_BARS) end = start + MAX_LOOP_BARS;
+    // Re-setting the range that is already playing keeps its captured material:
+    // the brackets did not move, so nothing about the repeat should change.
+    if (loopRegion && loopRegion.start === start && loopRegion.end === end) {
+      return { start, end };
+    }
+    loopRegion = { start, end };
+    loopCapture.clear();
+    loopRecord = null;
+    return { start, end };
+  }
+
+  /**
+   * Release the repeat. The piece plays on from the close of the brackets —
+   * the next bar is the one after the range, not another pass of it — so
+   * clearing mid-loop resumes the piece where the repeat interrupted it
+   * instead of replaying the bars it has already been round.
+   */
+  function clearLoopRegion() {
+    if (!loopRegion) return false;
+    const { start, end } = loopRegion;
+    loopRegion = null;
+    loopCapture.clear();
+    loopRecord = null;
+    if (isRunning && barIndex > start && barIndex < end) {
+      structureBar += end - barIndex;
+      barIndex = end;
+    }
+    return true;
+  }
+
   // -- hold / re-roll --------------------------------------------------------
 
   const planKey = (track, sub) => (sub === undefined ? track : `${track}#${sub}`);
@@ -2460,16 +2604,21 @@ export function createEngine(initialParams, options = {}) {
    * fresh one. The plan holds the DRAWS, never absolute pitch, so a frozen bar
    * still follows the progression, root and mode — harmony keeps advancing
    * underneath a hold (ruling 5).
+   *
+   * A repeat is a positional hold laid over the top: inside the brackets the
+   * plan a bar realised is the plan that bar keeps, whatever hold says.
    */
   function planFor(track, sub, realise) {
-    if (!held.has(track)) return realise();
-    const key = planKey(track, sub);
-    let plan = frozenPlans.get(key);
-    if (!plan) {
-      plan = realise();
-      frozenPlans.set(key, plan);
-    }
-    return plan;
+    return once(`plan:${track}`, () => {
+      if (!held.has(track)) return realise();
+      const key = planKey(track, sub);
+      let plan = frozenPlans.get(key);
+      if (!plan) {
+        plan = realise();
+        frozenPlans.set(key, plan);
+      }
+      return plan;
+    });
   }
 
   function clearFrozen(track) {
@@ -2627,11 +2776,31 @@ export function createEngine(initialParams, options = {}) {
     }
   }
 
-  /** The patch the currently selected voice of `track` should be played with. */
-  function patchFor(track) {
+  /**
+   * The patch the currently selected voice of `track` should be played with,
+   * for a note of `kind` (v14 kit editor). A percussion note whose kind names
+   * a per-instrument override is played with that override merged over the
+   * common patch; every other note — every note of a melodic track included,
+   * since only percussion carries a kind — is played with the common patch
+   * alone, with the overrides stripped so they can never reach a voice they
+   * were not written for.
+   *
+   * Merged patches are cached per (track, voice, kind) because this is on the
+   * per-note path; setParams() drops the cache, and the voice is part of the
+   * key, so a wander needs no invalidation of its own.
+   */
+  function patchFor(track, kind = null) {
     const bank = params.patches[track];
     if (!bank) return undefined;
-    return bank[effectiveVoice(track)];
+    const common = bank[effectiveVoice(track)];
+    if (!common || !common.perKind) return common;
+    const key = `${track}:${effectiveVoice(track)}:${kind ?? ''}`;
+    let merged = kindPatches.get(key);
+    if (!merged) {
+      merged = mergeSections(common, kind === null ? null : common.perKind[kind]);
+      kindPatches.set(key, merged);
+    }
+    return merged;
   }
 
   /**
@@ -2908,7 +3077,7 @@ export function createEngine(initialParams, options = {}) {
         };
       }
       try {
-        const handle = voice.play(ctx, graph.tracks[track].input, full, patchFor(track));
+        const handle = voice.play(ctx, graph.tracks[track].input, full, patchFor(track, full.kind));
         const cancellable = handle && typeof handle.cancel === 'function' ? handle : null;
         pruneLiveNotes();
         if (reachable && handle && handle.legato === true) {
@@ -3370,16 +3539,22 @@ export function createEngine(initialParams, options = {}) {
    */
   function coverSilence(time) {
     if (currentBarNumber < STAGE_BARS || outroStarted) return;
-    if (barWillSound(time)) {
+    // Which track (if any) covers this bar is a decision like any other: a
+    // repeat that covered a gap on its first traversal covers it every pass.
+    const cover = once('cover', () => {
+      if (barWillSound(time)) {
+        silentRun = 0;
+        return null;
+      }
+      silentRun += 1;
+      const candidates = coverCandidates();
+      const chosen = candidates[0];
+      if (!chosen) return null;
+      if (candidates.length < 2 && silentRun <= SILENCE_TOLERANCE_BARS) return null;
       silentRun = 0;
-      return;
-    }
-    silentRun += 1;
-    const candidates = coverCandidates();
-    const cover = candidates[0];
+      return chosen;
+    });
     if (!cover) return;
-    if (candidates.length < 2 && silentRun <= SILENCE_TOLERANCE_BARS) return;
-    silentRun = 0;
     promoted.add(cover);
     // The promoted track may have been muted a moment ago; open its gain from
     // the note's own onset so the cover is actually audible.
@@ -4032,6 +4207,11 @@ export function createEngine(initialParams, options = {}) {
    * and nowhere else, which is what quantises those changes to bar boundaries.
    */
   function beginBar(time) {
+    // The close of a repeat: the bar that would have followed it is the bar
+    // the open bracket points at, and the piece plays the range again.
+    if (loopRegion && barIndex >= loopRegion.end) barIndex = loopRegion.start;
+    loopRecord = loopRecordFor(barIndex);
+    const replaying = Boolean(loopRecord && loopRecord.captured);
     currentBarNumber = barIndex;
     currentBarTime = time;
     if (params.timeSignature !== bankTimeSignature) {
@@ -4079,6 +4259,11 @@ export function createEngine(initialParams, options = {}) {
 
     retuneDelay(time, secPerBeat);
 
+    // A repeated bar is the same bar of the structure it was the first time
+    // round, so the section — and every activity decision the section drives —
+    // repeats with the material rather than sliding out from under it.
+    structureBar = once('structureBar', () => structureBar);
+
     const preset = resolveStructure(params.structure, params.complexity, params.customStructure);
     // Keyed on block count + labels only: dragging a block's intensity (or
     // bars) slider is an in-place edit of the playing structure, not a new
@@ -4097,7 +4282,20 @@ export function createEngine(initialParams, options = {}) {
     }
     const section = sectionAtBar(preset, structureBar, params.customStructure);
 
-    emit('bar', { bar: barIndex, beatsPerBar: bar.beats, time });
+    // v15: every bar says where the brackets are and whether the playhead is
+    // inside them, so a piano roll can draw them without tracking the
+    // transport itself. Explicitly null with none set — a roll that drew the
+    // brackets must learn that they are gone.
+    emit('bar', {
+      bar: barIndex,
+      beatsPerBar: bar.beats,
+      time,
+      loop: loopRegion ? {
+        start: loopRegion.start,
+        end: loopRegion.end,
+        active: barIndex >= loopRegion.start && barIndex < loopRegion.end,
+      } : null,
+    });
     // The opening section is always announced, so a listener that subscribes
     // before start() learns where the piece begins.
     const changed = section.label !== currentSection.label
@@ -4153,18 +4351,38 @@ export function createEngine(initialParams, options = {}) {
     // rhythm, so a two-bar chord still swells rather than sitting flat.
     padSwellPhase = (padSwellPhase + 1 / PAD_SWELL_BARS) % 1;
 
-    if (chordBarsLeft <= 0) {
+    // The chord frame of the bar, which under a repeat is the frame that bar
+    // sounded on the first traversal: inside the brackets the hook does not
+    // advance at all, so the range's harmony is frozen with its material.
+    const frame = once('harmony', () => {
       // Harmony advances even under hold: a held track keeps following the hook,
       // it just stops re-drawing its own material (ruling 5).
-      advanceHarmony(intensity);
-      // Slower harmonic rhythm when the listener wants repetition.
-      chordBarsLeft = rng() < 0.5 + params.repetition * 0.2 ? 2 : 1;
+      const fresh = chordBarsLeft <= 0;
+      if (fresh) advanceHarmony(intensity);
+      return {
+        fresh,
+        degree: chordDegree,
+        inversion: chordInversion,
+        extension: chordExtension,
+        // Slower harmonic rhythm when the listener wants repetition. Drawn
+        // only where a span actually begins, so a bar mid-chord costs nothing.
+        span: fresh ? (rng() < 0.5 + params.repetition * 0.2 ? 2 : 1) : 0,
+      };
+    });
+    // Every bar of a repeat re-reads its captured frame, not just the ones a
+    // chord change lands on: a range whose first bar sits mid-chord would
+    // otherwise inherit the chord of the range's LAST bar on the way round.
+    chordDegree = frame.degree;
+    chordInversion = frame.inversion;
+    chordExtension = frame.extension;
+    if (frame.fresh) {
+      chordBarsLeft = frame.span;
       if (isActive('pad')) {
         const plan = planFor('pad', undefined, planPad);
         // The no-two-consecutive-rests rule is enforced HERE rather than in the
         // plan, so a held pad whose frozen plan says "rest" breathes in and out
         // instead of going silent for the length of the hold.
-        const resting = plan.rest && !padRested;
+        const resting = once('padRest', () => plan.rest && !padRested);
         padRested = resting;
         if (!resting) playChordVoicing(time, bar.duration * chordBarsLeft, plan);
       }
@@ -4174,10 +4392,13 @@ export function createEngine(initialParams, options = {}) {
     if (isActive('bass')) {
       scheduleBass(time, bar.duration, planFor('bass', undefined, planBass));
       // The groove's own clock: bar 0 of every four-bar cycle states it plain.
-      bassGrooveBar += 1;
+      if (!replaying) bassGrooveBar += 1;
     }
 
-    advanceMelodyPhrase(intensity);
+    // A repeated bar sings the phrase it sang before, so the phrase clock —
+    // and the cell it would develop or replace — stands still inside the
+    // brackets rather than evolving where nothing can be heard of it.
+    if (!replaying) advanceMelodyPhrase(intensity);
 
     // Each bar of the phrase freezes separately, so a held melody loops at the
     // phrase's own length instead of collapsing to one bar. A manual grid has
@@ -4189,7 +4410,7 @@ export function createEngine(initialParams, options = {}) {
     melodyShift = melodyOctave(melodyPlan);
     // The answering instrument takes the melody's bar; it does not also play
     // its own, or the answer arrives underneath an arpeggio of itself.
-    responder = melodyPlan.notes.length ? responderTrack() : null;
+    responder = melodyPlan.notes.length ? once('responder', responderTrack) : null;
     texturePlan = isActive('texture')
       ? planFor('texture', undefined, () => planTexture(intensity)) : [];
     arpPlan = isActive('arp') && responder !== 'arp'
@@ -4201,6 +4422,8 @@ export function createEngine(initialParams, options = {}) {
     coverSilence(time);
     emitChord(barIndex, time);
 
+    // The bar is fully realised: every later pass of a repeat replays it.
+    if (loopRecord) loopRecord.captured = true;
     barIndex += 1;
     structureBar += 1;
   }
@@ -4720,6 +4943,10 @@ export function createEngine(initialParams, options = {}) {
       walkPhases.clear();
       frozenPlans.clear();
       held.clear();
+      // Brackets the user drew stay drawn, but they enclose bar numbers this
+      // performance has not reached yet: nothing captured is worth keeping.
+      loopCapture.clear();
+      loopRecord = null;
       // The voice wander is ephemeral: a new performance starts on the voices
       // the user actually selected.
       wanderedVoice.clear();
@@ -4763,6 +4990,9 @@ export function createEngine(initialParams, options = {}) {
       FINISH_FADE_RANGE,
       FINISH_FADE,
     );
+    // An ending leaves the repeat first: the piece plays on from the close of
+    // the brackets and then resolves, rather than fading out mid-loop.
+    clearLoopRegion();
     let resolve;
     const promise = new Promise((r) => { resolve = r; });
     finishRequest = { promise, resolve, fadeSeconds };
@@ -4818,6 +5048,7 @@ export function createEngine(initialParams, options = {}) {
 
   function setParams(partial) {
     params = sanitiseParams(partial, params);
+    kindPatches.clear();
     invalidateEditedPlans(partial);
     clearWanderedVoices(partial);
     if (ctx && graph) applyLevels(0.15);
@@ -4857,9 +5088,7 @@ export function createEngine(initialParams, options = {}) {
     const patches = {};
     for (const name of TRACK_ORDER) {
       const patch = patchFor(name);
-      patches[name] = patch
-        ? Object.fromEntries(Object.entries(patch).map(([section, fields]) => [section, { ...fields }]))
-        : null;
+      patches[name] = patch ? copyPatch(patch) : null;
     }
     return {
       running: isRunning,
@@ -4946,6 +5175,8 @@ export function createEngine(initialParams, options = {}) {
       return isRunning;
     },
     randomise,
+    setLoopRegion,
+    clearLoopRegion,
     setParams,
     getParams,
     getResolved,

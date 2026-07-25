@@ -38,6 +38,16 @@ const TRACKS: [string, string][] = [
   ['percussion', 'Percussion'],
 ];
 
+// The four main dials. They render TWICE — once on Simple, once at the foot of
+// Advanced — as two views of the same four values (page script mirrors them).
+// [param id, label, low end-mark, mid end-mark, high end-mark]
+const SIMPLE_DIALS: [string, string, string, string | null, string][] = [
+  ['speed', 'Tempo', 'Slow', null, 'Fast'],
+  ['complexity', 'Complexity', 'Calm', null, 'Complex'],
+  ['randomness', 'Randomness', 'Repetitive', 'Evolving', 'Random'],
+  ['volume', 'Volume', 'Quiet', null, 'Loud'],
+];
+
 const VOICES: Record<string, [string, string][]> = {
   pad: [
     ['warm', 'Warm'],
@@ -192,10 +202,9 @@ const VOICES: Record<string, [string, string][]> = {
           </div>
         </div>
         <div class="processor-row">
-          <div class="dial-slot" id="processor-dial"></div>
-          <div class="processor-info">
-            <span id="processor-readout" class="value-readout"></span>
-          </div>
+          <span class="panel-label processor-label">Processor</span>
+          <div class="dial-slot dial-label-external" id="processor-dial"></div>
+          <span id="processor-readout" class="value-readout processor-readout"></span>
         </div>
       </div>
 
@@ -217,19 +226,33 @@ const VOICES: Record<string, [string, string][]> = {
 
     <div id="consent-slot"></div>
 
+    <p id="share-note" class="hint share-note" hidden></p>
+
     <div class="tabs" role="tablist" aria-label="Generator controls">
       <button type="button" role="tab" id="tab-simple" aria-selected="true" aria-controls="panel-simple">Simple</button>
       <button type="button" role="tab" id="tab-advanced" aria-selected="false" aria-controls="panel-advanced" tabindex="-1">Advanced</button>
     </div>
 
     <section id="panel-simple" role="tabpanel" aria-labelledby="tab-simple" tabindex="0">
+      <div class="module-panel scope-module" id="front-scope-module" hidden>
+        <div class="scope-module-head">
+          <button
+            type="button"
+            id="front-scope-toggle"
+            class="panel-label scope-collapse"
+            aria-expanded="true"
+            aria-controls="front-scope-body"
+          >Oscilloscope</button>
+          <span id="front-scope-note" class="value-readout scope-note"></span>
+        </div>
+        <div id="front-scope-body">
+          <canvas id="front-scope" class="front-scope" aria-label="Live oscilloscope of the selected tracks"></canvas>
+          <div id="front-scope-chips" class="scope-chips" role="group" aria-label="Tracks shown on the oscilloscope"></div>
+        </div>
+      </div>
+
       <div class="module-panel sliders-module">
-        {[
-          ['speed', 'Speed', 'Slow', null, 'Fast'],
-          ['complexity', 'Complexity', 'Calm', null, 'Complex'],
-          ['randomness', 'Randomness', 'Repetitive', 'Evolving', 'Random'],
-          ['volume', 'Master volume', 'Quiet', null, 'Loud'],
-        ].map(([id, label, lowMark, midMark, highMark]) => (
+        {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => (
           <div class="control simple-dial" id={`dial-${id}`}>
             <div class="control-label-row">
               <label for={id} class="panel-label">{label}</label>
@@ -376,11 +399,33 @@ const VOICES: Record<string, [string, string][]> = {
           <button type="button" id="preset-delete" class="secondary-button">Delete</button>
         </div>
         <div class="preset-row">
+          <button type="button" id="preset-share" class="secondary-button">Share</button>
           <button type="button" id="preset-submit" class="secondary-button">Submit preset</button>
           <button type="button" id="preset-copy" class="secondary-button">Copy JSON</button>
         </div>
         <p class="hint">Submitting opens our contact form prefilled with the preset; if that doesn&rsquo;t load, copy the JSON and send it however suits.</p>
       </fieldset>
+
+      <div class="module-panel sliders-module" id="advanced-dials">
+        <span class="panel-label">Main dials</span>
+        <div class="advanced-dial-row">
+          {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => (
+            <div class="control simple-dial" id={`dial-${id}-adv`}>
+              <div class="control-label-row">
+                <label for={`${id}-adv`} class="panel-label">{label}</label>
+              </div>
+              <div class="dial-slot" id={`${id}-dial-adv`}>
+                {midMark && <span class="dial-mid" aria-hidden="true">{midMark}</span>}
+                <span class="dial-ends" aria-hidden="true">
+                  <span class="dial-end dial-end-low">{lowMark}</span>
+                  <span class="dial-end dial-end-high">{highMark}</span>
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p class="hint">The same four values as the Simple tab &mdash; two views, one setting.</p>
+      </div>
     </section>
   </div>
 
@@ -725,8 +770,21 @@ const VOICES: Record<string, [string, string][]> = {
       patches: {},
       // `ui` is page-only state: stripped before anything reaches the engine
       // (engineParamsFrom) or a preset snapshot (paramsSnapshot).
-      ui: { activeTab: 'simple', processor: 'auto', tutorialOpen: false, tutorialStep: 0 },
+      // scopeTracks null = "whichever tracks aren't off" (the live default);
+      // an array is an explicit chip selection the user made.
+      ui: {
+        activeTab: 'simple',
+        processor: 'auto',
+        tutorialOpen: false,
+        tutorialStep: 0,
+        scopeOpen: true,
+        scopeTracks: null,
+      },
     };
+
+    // The v3 Patch schema's sections, in editor order. Anything else on a
+    // patch object (v14 `perKind`) is state, not an editable section.
+    const PATCH_SECTIONS = ['source', 'filter', 'adsr', 'sends'];
 
     // Used only when a voice doesn't export .defaults (older engine-voices).
     const FALLBACK_PATCH = {
@@ -1132,6 +1190,52 @@ const VOICES: Record<string, [string, string][]> = {
       source[`osc${n}`] = SHAPE_NAMES[Math.round(v)];
     }
 
+    // ---- v11 share links, tier 1 (fragment, no server) -------------------
+    // A share link carries PARAMS ONLY — never user code (v10 hard rule). The
+    // payload is JSON → UTF-8 → base64url in the URL fragment: fragments are
+    // never sent to the server, so the preset only ever exists between the two
+    // people holding the link. No compression: a full settings snapshot is a
+    // few KB, which every browser and messaging app handles as a URL.
+    const SHARE_BASE = 'https://ambi4.work/';
+    const SHARE_PARAM = 'p';
+
+    function encodeShareParams(params) {
+      const bytes = new TextEncoder().encode(JSON.stringify(params));
+      let binary = '';
+      for (const b of bytes) binary += String.fromCharCode(b);
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    function decodeShareParams(value) {
+      const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+      const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+      const parsed = JSON.parse(new TextDecoder().decode(bytes));
+      return isPlainObject(parsed) ? parsed : null;
+    }
+
+    /**
+     * Read a `#p=…` share fragment, then strip it from the URL either way
+     * (history.replaceState — a reload must not re-apply a preset the user has
+     * since edited). Anything malformed is ignored SILENTLY: a truncated link
+     * pasted into a chat window is not an error worth shouting about, and the
+     * page simply boots on the stored settings instead.
+     */
+    function takeSharedParams() {
+      try {
+        const hash = String(location.hash || '').replace(/^#/, '');
+        if (!hash) return null;
+        const value = new URLSearchParams(hash).get(SHARE_PARAM);
+        try {
+          history.replaceState(null, '', location.pathname + location.search);
+        } catch {}
+        if (!value) return null;
+        return decodeShareParams(value);
+      } catch {
+        return null;
+      }
+    }
+
     async function loadPrefsModule() {
       try {
         const mod = await import('../scripts/prefs.js');
@@ -1220,6 +1324,7 @@ const VOICES: Record<string, [string, string][]> = {
       // ---- settings load + legacy migration -----------------------------
 
       let settings;
+      let sharedParams = null;
       {
         let saved = null;
         try {
@@ -1257,6 +1362,24 @@ const VOICES: Record<string, [string, string][]> = {
         normaliseV6Tracks(settings);
         if (migratedFromLegacy && prefs.consent() === 'granted') {
           prefs.set('generator', settings);
+        }
+        // A `#p=` share link wins over the stored settings for THIS visit, and
+        // takes the same migrate → merge → normalise path a preset load does
+        // (so a link made by an older build still lands). Applied here, before
+        // any dial is built, so the first render is already the shared preset.
+        // Nothing is persisted: the note tells the user to Save to keep it.
+        sharedParams = takeSharedParams();
+        if (sharedParams) {
+          const ui = settings.ui;
+          try {
+            const clone = structuredClone(sharedParams);
+            migrateLegacyArpSteps(clone);
+            settings = deepMerge(DEFAULTS, clone);
+            normaliseV6Tracks(settings);
+            settings.ui = ui;
+          } catch {
+            sharedParams = null;
+          }
         }
       }
 
@@ -1336,6 +1459,12 @@ const VOICES: Record<string, [string, string][]> = {
       // updateScopeMode reads the budget and can run before it.
       let governor = null;
       let powerBudget = null;
+      // Assigned by the front-scope block much further down. It must be
+      // DECLARED here: activateTab / updateAllScopeModes / setTrackState all
+      // call it and all of them can run before that block's line is reached —
+      // a `let` declared later would be a temporal-dead-zone crash (the
+      // shipped blank-page bug, 6105e0d).
+      let updateFrontScope = () => {};
       try {
       const { initVisualiser } = await import('../scripts/visualiser.js');
         visualiserHandle = initVisualiser(canvas, engine);
@@ -1537,6 +1666,8 @@ const VOICES: Record<string, [string, string][]> = {
           if (active && focus) button.focus();
         });
         applyTransportVisibility(name);
+        // The front scope only draws while its panel is actually on screen.
+        updateFrontScope();
         if (settings.ui.activeTab !== name) {
           settings.ui.activeTab = name;
           if (persist) persistSettings();
@@ -1645,6 +1776,9 @@ const VOICES: Record<string, [string, string][]> = {
         updateComplexityDisplay();
         syncTrackOffIndicator(id);
         stateControls.get(id)?.set(state);
+        // With no explicit chip selection the scope traces "everything that
+        // isn't off", so a state change moves the default set.
+        updateFrontScope();
         persistSettings();
       }
 
@@ -1915,11 +2049,57 @@ const VOICES: Record<string, [string, string][]> = {
         };
       }
 
-      speedDial = buildSimpleDial(
-        'speed-dial',
+      /**
+       * The same dial in two places (Simple, and the foot of Advanced) as two
+       * VIEWS of one value — not two params. Each view commits through the one
+       * shared callback and then pushes the new value into its sibling, so
+       * either can be dragged and both stay honest. The dragged view is never
+       * written back to mid-gesture (that fights the pointer), which is the
+       * same rule `setTempo`'s skipSpeedThumb already followed.
+       */
+      function buildMirroredDial(slots, opts, commit) {
+        const handles = [];
+        const set = (value, except) => {
+          for (const handle of handles) {
+            if (handle !== except) handle.set(value);
+          }
+        };
+        for (const [slotId, suffix] of slots) {
+          let handle = null;
+          handle = buildSimpleDial(
+            slotId,
+            { ...opts, ...(opts.id ? { id: opts.id + suffix } : {}) },
+            (value) => {
+              commit(value);
+              set(value, handle);
+            }
+          );
+          handles.push(handle);
+        }
+        return {
+          el: handles.length ? handles[0].el : null,
+          els: handles.map((handle) => handle.el).filter(Boolean),
+          set: (value) => set(value, null),
+        };
+      }
+
+      /** Attach the same tooltip/description to every view of a mirrored dial. */
+      function describeDial(dial, text) {
+        for (const el of dial.els || [dial.el]) describe(el, text);
+        return dial;
+      }
+
+      // Slot pairs: the Simple tab's dial and its Advanced-tab twin.
+      const MAIN_DIAL_SLOTS = (name) => [
+        [`${name}-dial`, ''],
+        [`${name}-dial-adv`, '-adv'],
+      ];
+
+      speedDial = buildMirroredDial(
+        MAIN_DIAL_SLOTS('speed'),
         {
           id: 'speed',
-          label: 'Speed',
+          label: 'Tempo',
           min: 0,
           max: 1,
           step: 0.001,
@@ -1930,8 +2110,8 @@ const VOICES: Record<string, [string, string][]> = {
         (t) => setTempo(bpmFromSpeedT(t), { skipSpeedThumb: true })
       );
 
-      complexityDial = buildSimpleDial(
-        'complexity-dial',
+      complexityDial = buildMirroredDial(
+        MAIN_DIAL_SLOTS('complexity'),
         {
           id: 'complexity',
           label: 'Complexity',
@@ -2002,8 +2182,8 @@ const VOICES: Record<string, [string, string][]> = {
       // ambient-engine.js's NUMERIC_RANGES only accept plain numbers there.
       // So a range from this dial is written verbatim to every track's
       // randomness, and repetition takes 1 - (midpoint of that range).
-      randomnessDial = buildSimpleDial(
-        'randomness-dial',
+      randomnessDial = buildMirroredDial(
+        MAIN_DIAL_SLOTS('randomness'),
         {
           id: 'randomness',
           label: 'Randomness',
@@ -2031,16 +2211,16 @@ const VOICES: Record<string, [string, string][]> = {
           persistSettings();
         }
       );
-      describe(
-        randomnessDial.el,
+      describeDial(
+        randomnessDial,
         `${RANDOMNESS_HINT} It sets repetition and every track's randomness together.`
       );
 
-      volumeDial = buildSimpleDial(
-        'volume-dial',
+      volumeDial = buildMirroredDial(
+        MAIN_DIAL_SLOTS('volume'),
         {
           id: 'volume',
-          label: 'Master volume',
+          label: 'Volume',
           min: 0,
           max: 1,
           step: 0.01,
@@ -3347,6 +3527,7 @@ const VOICES: Record<string, [string, string][]> = {
 
       function updateAllScopeModes() {
         for (const track of openEditors.keys()) updateScopeMode(track);
+        updateFrontScope();
       }
 
       let veControlId = 0;
@@ -3687,7 +3868,14 @@ const VOICES: Record<string, [string, string][]> = {
       // (FALLBACK_PATCH, voice.defaults) in renderVoiceEditor) — every knob's
       // `defaultValue` comes from it, so double-click resets to what the
       // VOICE ships with, not just whatever the patch happened to load with.
-      function buildKnobEditor(container, patch, commit, knobs, controls, defaults) {
+      /**
+       * `ghost` (v14 kit editor, percussion only) is null on the Common tab and
+       * otherwise describes the per-instrument override being edited:
+       *   { get(field), isOverridden(field), follow(field), refreshers }
+       * `field` on a knob's options is the dotted patch path it edits
+       * ('filter.cutoff'); it is consumed here, never passed to createKnob.
+       */
+      function buildKnobEditor(container, patch, commit, knobs, controls, defaults, ghost = null) {
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -3715,9 +3903,52 @@ const VOICES: Record<string, [string, string][]> = {
           const cell = document.createElement('div');
           cell.className = 'knob-cell';
           row.append(cell);
-          const handle = knobApi.createKnob(cell, options);
+          const { field, ghostMap, ...knobOptions } = options;
+          const handle = knobApi.createKnob(cell, knobOptions);
           knobs.push(handle);
+          if (ghost && field) addGhost(cell, field, knobOptions.format, ghostMap);
           return { cell, handle };
+        }
+
+        /**
+         * knob.js draws one pointer and exposes no "ghost pointer" API, and it
+         * isn't this agent's file — so the common value is shown as a
+         * secondary readout under the dial ("common 2.0 kHz") with a dot in the
+         * track colour, and an overridden dial takes the track accent (a ring
+         * on the cell) plus a "follow" button that clears the override.
+         */
+        function addGhost(cell, field, format, ghostMap) {
+          const common = ghost.get(field);
+          // No common value to ghost (an absent field, or Osc 2 switched off).
+          if (common === undefined || common === null) return;
+          const shown = ghostMap ? ghostMap(common) : common;
+          const fmt = typeof format === 'function' ? format : (v) => String(v);
+          const row = document.createElement('div');
+          row.className = 'knob-ghost';
+          const dot = document.createElement('span');
+          dot.className = 'knob-ghost-dot';
+          dot.setAttribute('aria-hidden', 'true');
+          const text = document.createElement('span');
+          text.className = 'knob-ghost-value';
+          text.textContent = `common ${
+            isPlainObject(shown) ? `${fmt(shown.min)}–${fmt(shown.max)}` : fmt(shown)
+          }`;
+          const follow = document.createElement('button');
+          follow.type = 'button';
+          follow.className = 'link-button knob-follow';
+          follow.textContent = 'follow';
+          follow.addEventListener('click', () => ghost.follow(field));
+          describe(follow, 'Drop this instrument’s own value and follow the Common dial again.');
+          row.append(dot, text, follow);
+          cell.classList.add('knob-cell-ghosted');
+          cell.append(row);
+          const refresh = () => {
+            const overridden = ghost.isOverridden(field);
+            cell.classList.toggle('knob-cell-overridden', overridden);
+            follow.hidden = !overridden;
+          };
+          refresh();
+          ghost.refreshers.push(refresh);
         }
 
         // The page owns the log transforms: the knob itself is linear, its
@@ -3738,6 +3969,10 @@ const VOICES: Record<string, [string, string][]> = {
             value: mapRV(value, toLog),
             format: (t) => format(fromLog(t)),
             onInput: (t) => onValue(mapRV(t, fromLog)),
+            // The ghost readout is handed the COMMON patch value in this
+            // param's own units, so it needs the same linear→log mapping the
+            // live value got before the (log-domain) format runs on it.
+            ghostMap: (v) => mapRV(v, toLog),
             ...(defaultLinear != null ? { defaultValue: mapRV(defaultLinear, toLog) } : {}),
             ...knobOpts,
           });
@@ -3748,6 +3983,7 @@ const VOICES: Record<string, [string, string][]> = {
         if (source && allowed(sourceSpec, 'shape1')) {
           addKnob(source, {
             label: 'OSC 1',
+            field: 'source.shape1',
             glyphOnly: true,
             min: 0,
             max: 3,
@@ -3781,6 +4017,7 @@ const VOICES: Record<string, [string, string][]> = {
 
           const shape2Knob = addKnob(source, {
             label: 'OSC 2',
+            field: 'source.shape2',
             glyphOnly: true,
             min: 0,
             max: 3,
@@ -3822,6 +4059,7 @@ const VOICES: Record<string, [string, string][]> = {
         if (source && allowed(sourceSpec, 'mix')) {
           addKnob(source, {
             label: 'Mix',
+            field: 'source.mix',
             min: 0,
             max: 1,
             value: sanitiseRangeValueIn(patch.source.mix, 0, 1, 0.5),
@@ -3842,6 +4080,7 @@ const VOICES: Record<string, [string, string][]> = {
         if (source && allowed(sourceSpec, 'detune')) {
           addKnob(source, {
             label: 'Detune',
+            field: 'source.detune',
             min: 0,
             max: 50,
             step: 1,
@@ -3863,6 +4102,7 @@ const VOICES: Record<string, [string, string][]> = {
         if (source && allowed(sourceSpec, 'octave')) {
           addKnob(source, {
             label: 'Octave',
+            field: 'source.octave',
             min: -1,
             max: 1,
             step: 1,
@@ -3882,6 +4122,9 @@ const VOICES: Record<string, [string, string][]> = {
         if (filter && allowed(filterSpec, 'type')) {
           addKnob(filter, {
             label: 'Type',
+            field: 'filter.type',
+            // The dial's domain is the index, the patch stores the name.
+            ghostMap: (v) => Math.max(0, FILTER_ORDER.indexOf(v)),
             min: 0,
             max: 3,
             step: 1,
@@ -3910,13 +4153,14 @@ const VOICES: Record<string, [string, string][]> = {
               patch.filter.cutoff = mapRV(v, Math.round);
               commit();
             },
-            { allowRange: true, rangeDefault: true },
+            { allowRange: true, rangeDefault: true, field: 'filter.cutoff' },
             defaults.filter.cutoff
           );
         }
         if (filter && allowed(filterSpec, 'q')) {
           addKnob(filter, {
             label: 'Resonance',
+            field: 'filter.q',
             min: 0.1,
             max: 20,
             step: 0.1,
@@ -3933,6 +4177,7 @@ const VOICES: Record<string, [string, string][]> = {
         if (filter && allowed(filterSpec, 'envAmount')) {
           addKnob(filter, {
             label: 'Env amount',
+            field: 'filter.envAmount',
             min: 0,
             max: 1,
             value: sanitiseRangeValueIn(patch.filter.envAmount, 0, 1, 0.3),
@@ -3960,7 +4205,7 @@ const VOICES: Record<string, [string, string][]> = {
               patch.adsr.attack = v;
               commit();
             },
-            { allowRange: true },
+            { allowRange: true, field: 'adsr.attack' },
             defaults.adsr.attack
           );
         }
@@ -3976,13 +4221,14 @@ const VOICES: Record<string, [string, string][]> = {
               patch.adsr.decay = v;
               commit();
             },
-            { allowRange: true },
+            { allowRange: true, field: 'adsr.decay' },
             defaults.adsr.decay
           );
         }
         if (env && allowed(adsrSpec, 'sustain')) {
           addKnob(env, {
             label: 'Sustain',
+            field: 'adsr.sustain',
             min: 0,
             max: 1,
             value: sanitiseRangeValueIn(patch.adsr.sustain, 0, 1, 0.7),
@@ -4007,7 +4253,7 @@ const VOICES: Record<string, [string, string][]> = {
               patch.adsr.release = v;
               commit();
             },
-            { allowRange: true },
+            { allowRange: true, field: 'adsr.release' },
             defaults.adsr.release
           );
         }
@@ -4019,6 +4265,7 @@ const VOICES: Record<string, [string, string][]> = {
         if (sends && allowed(sendsSpec, 'reverb')) {
           addKnob(sends, {
             label: 'Reverb',
+            field: 'sends.reverb',
             min: 0,
             max: 1,
             value: sanitiseRangeValueIn(patch.sends.reverb, 0, 1, 0.3),
@@ -4035,6 +4282,7 @@ const VOICES: Record<string, [string, string][]> = {
         if (sends && allowed(sendsSpec, 'delay')) {
           addKnob(sends, {
             label: 'Delay',
+            field: 'sends.delay',
             min: 0,
             max: 1,
             value: sanitiseRangeValueIn(patch.sends.delay, 0, 1, 0.15),
@@ -4086,12 +4334,71 @@ const VOICES: Record<string, [string, string][]> = {
         writeShape(patch.source, 1, readShape(patch.source, 1) ?? 0);
         writeShape(patch.source, 2, readShape(patch.source, 2));
 
-        function commit() {
+        // ---- v14 kit editor: Common | High | Mid | Low -------------------
+        // The percussion patch may carry sparse per-instrument overrides at
+        // patch.perKind[kind]; `kitKind` is null on the Common tab and the
+        // kind id on an instrument tab. The dials always edit ONE object:
+        // `editView` — the patch itself on Common, or a merged
+        // common+override view on an instrument tab, whose differences from
+        // common are folded back into perKind on every commit (so an
+        // override only ever exists for a dial the user actually moved).
+        // The engine may not honour perKind yet; the overrides persist and
+        // are preset-captured regardless, and an engine that ignores the key
+        // simply plays the common patch.
+        const KIT_KINDS = [
+          ['high', 'High'],
+          ['mid', 'Mid'],
+          ['low', 'Low'],
+        ];
+        const kitCapable = track === 'percussion';
+        let kitKind = kitCapable && KIT_KINDS.some(([k]) => k === opts.kind) ? opts.kind : null;
+        let editView = patch;
+        let ghostRefreshers = [];
+
+        function commonPatch() {
+          const clone = structuredClone(patch);
+          delete clone.perKind;
+          return clone;
+        }
+
+        function kindOverride(kind) {
+          const per = isPlainObject(patch.perKind) ? patch.perKind : null;
+          return per && isPlainObject(per[kind]) ? per[kind] : {};
+        }
+
+        /** Fields of `view` that differ from `common`, section by section. */
+        function sparseOverride(common, view) {
+          const out = {};
+          for (const section of PATCH_SECTIONS) {
+            const from = isPlainObject(common[section]) ? common[section] : {};
+            const to = isPlainObject(view[section]) ? view[section] : {};
+            for (const field of Object.keys(to)) {
+              if (JSON.stringify(to[field]) === JSON.stringify(from[field])) continue;
+              if (!out[section]) out[section] = {};
+              out[section][field] = structuredClone(to[field]);
+            }
+          }
+          return out;
+        }
+
+        function storePatch() {
           if (!settings.patches[track]) settings.patches[track] = {};
           settings.patches[track][voiceId] = patch;
           sendPatch(track, voiceId, patch);
           scheduleScopeRender(track);
           persistSettings();
+        }
+
+        function commit() {
+          if (kitKind) {
+            const over = sparseOverride(commonPatch(), editView);
+            if (!isPlainObject(patch.perKind)) patch.perKind = {};
+            if (Object.keys(over).length) patch.perKind[kitKind] = over;
+            else delete patch.perKind[kitKind];
+            if (!Object.keys(patch.perKind).length) delete patch.perKind;
+            for (const refresh of ghostRefreshers) refresh();
+          }
+          storePatch();
         }
 
         // v14 header: track name + "sounding" note, the Off/Auto/On state
@@ -4147,34 +4454,143 @@ const VOICES: Record<string, [string, string][]> = {
             live: null,
             analyser: null, // the analyser node s.live is currently attached to
             debounce: null,
-            getPatch: () => patch,
+            // The scope traces whatever the dials are editing — the common
+            // patch, or the instrument view on a kit tab.
+            getPatch: () => editView,
           };
           updateScopeMode(track); // draws the static trace or attaches live
         }
 
-        let knobsBuilt = false;
-        if (knobApi) {
-          try {
-            buildKnobEditor(container, patch, commit, ed.knobs, controls, base);
-            knobsBuilt = true;
-          } catch {
-            for (const k of ed.knobs) {
-              try {
-                k.destroy?.();
-              } catch {}
-            }
-            ed.knobs = [];
-            const partial = container.querySelector('.knob-sections');
-            if (partial) partial.remove();
+        // Kit tabs (percussion only), directly above the dials they retarget.
+        let kitTabs = null;
+        if (kitCapable) {
+          kitTabs = document.createElement('div');
+          kitTabs.className = 'segmented kit-tabs';
+          kitTabs.setAttribute('role', 'radiogroup');
+          kitTabs.setAttribute('aria-label', 'Kit editor target');
+          for (const [value, labelText] of [['common', 'Common'], ...KIT_KINDS]) {
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = `kit-kind-${track}`;
+            input.id = `kit-kind-${track}-${value}`;
+            input.value = value;
+            input.checked = (kitKind || 'common') === value;
+            const label = document.createElement('label');
+            label.htmlFor = input.id;
+            label.textContent = labelText;
+            input.addEventListener('change', () => {
+              if (!input.checked) return;
+              kitKind = value === 'common' ? null : value;
+              opts.kind = kitKind;
+              buildPatchControls();
+              scheduleScopeRender(track, true);
+            });
+            kitTabs.append(input, label);
           }
+          container.append(kitTabs);
+          describe(
+            kitTabs,
+            'Common holds the whole kit’s sound. Pick an instrument to give it its own values for any dial — the rest keep following Common.'
+          );
         }
-        if (!knobsBuilt) buildSliderEditor(container, patch, commit, controls);
+
+        // The dial set is rebuilt in place whenever the kit tab changes; the
+        // knobs it owns are tracked separately so a rebuild destroys exactly
+        // those and leaves the header/vary/sequencer knobs alone.
+        const patchBox = document.createElement('div');
+        patchBox.className = 'patch-controls';
+        container.append(patchBox);
+        let patchKnobs = [];
+
+        function buildPatchControls() {
+          for (const knob of patchKnobs) {
+            try {
+              knob.destroy?.();
+            } catch {}
+          }
+          ed.knobs = ed.knobs.filter((knob) => !patchKnobs.includes(knob));
+          patchKnobs = [];
+          ghostRefreshers = [];
+          patchBox.innerHTML = '';
+
+          let ghost = null;
+          if (kitKind) {
+            const common = commonPatch();
+            editView = deepMerge(common, kindOverride(kitKind));
+            const readPath = (source, field) => {
+              const [section, key] = field.split('.');
+              const box = isPlainObject(source[section]) ? source[section] : null;
+              return box ? box[key] : undefined;
+            };
+            ghost = {
+              refreshers: ghostRefreshers,
+              get: (field) => readPath(common, field),
+              isOverridden: (field) => readPath(kindOverride(kitKind), field) !== undefined,
+              follow: (field) => {
+                const [section, key] = field.split('.');
+                const per = isPlainObject(patch.perKind) ? patch.perKind : null;
+                if (per && isPlainObject(per[kitKind]) && isPlainObject(per[kitKind][section])) {
+                  delete per[kitKind][section][key];
+                  if (!Object.keys(per[kitKind][section]).length) delete per[kitKind][section];
+                  if (!Object.keys(per[kitKind]).length) delete per[kitKind];
+                  if (!Object.keys(per).length) delete patch.perKind;
+                }
+                storePatch();
+                buildPatchControls();
+                scheduleScopeRender(track, true);
+              },
+            };
+          } else {
+            editView = patch;
+          }
+
+          let knobsBuilt = false;
+          if (knobApi) {
+            try {
+              buildKnobEditor(patchBox, editView, commit, patchKnobs, controls, base, ghost);
+              knobsBuilt = true;
+            } catch {
+              for (const knob of patchKnobs) {
+                try {
+                  knob.destroy?.();
+                } catch {}
+              }
+              patchKnobs = [];
+              patchBox.innerHTML = '';
+            }
+          }
+          // Slider fallback: no knob.js, so no ghost pointers either — the
+          // instrument tabs still edit the override, just without the
+          // "common" read-out.
+          if (!knobsBuilt) buildSliderEditor(patchBox, editView, commit, controls);
+          ed.knobs.push(...patchKnobs);
+          if (resetButton) resetButton.textContent = resetLabel();
+        }
+
+        function resetLabel() {
+          if (!kitKind) return 'Reset to default';
+          const found = KIT_KINDS.find(([k]) => k === kitKind);
+          return `Clear ${found ? found[1] : kitKind} overrides`;
+        }
 
         const resetButton = document.createElement('button');
         resetButton.type = 'button';
         resetButton.className = 'secondary-button';
-        resetButton.textContent = 'Reset to default';
         resetButton.addEventListener('click', () => {
+          if (kitKind) {
+            // On an instrument tab, reset means "drop THIS instrument's
+            // overrides" — the common patch the whole kit shares is not the
+            // thing the user is looking at.
+            const per = isPlainObject(patch.perKind) ? patch.perKind : null;
+            if (per) {
+              delete per[kitKind];
+              if (!Object.keys(per).length) delete patch.perKind;
+            }
+            storePatch();
+            buildPatchControls();
+            scheduleScopeRender(track, true);
+            return;
+          }
           if (settings.patches[track]) {
             delete settings.patches[track][voiceId];
             if (Object.keys(settings.patches[track]).length === 0) {
@@ -4187,6 +4603,8 @@ const VOICES: Record<string, [string, string][]> = {
           persistSettings();
           renderVoiceEditor(track);
         });
+
+        buildPatchControls(); // also sets the reset button's label
         container.append(resetButton);
       }
 
@@ -4449,6 +4867,128 @@ const VOICES: Record<string, [string, string][]> = {
         setProcessorTier(settings.ui.processor);
       } else {
         document.querySelector('.processor-row')?.remove();
+      }
+
+      // ---- v13 front-page oscilloscope (Simple tab) -----------------------
+      // One canvas, one coloured trace per selected track, under the piano
+      // roll. scope.js owns the drawing, the colours (--track-<id> read off
+      // the canvas), the analyser re-fetch and the fps/IntersectionObserver
+      // gating; this block owns WHICH tracks are traced and whether the trace
+      // may run at all (governor budget, collapsed panel, other tab, engine
+      // stopped), plus the persisted panel state.
+      //
+      // attachMultiScope(canvas, engine, { tracks }) is feature-detected — the
+      // page can deploy ahead of the scope.js that exports it, and then the
+      // whole module stays hidden rather than showing a dead canvas. So is
+      // setTracks(ids): without it, a selection change re-attaches instead.
+      {
+        const scopeModule = document.getElementById('front-scope-module');
+        const scopeCanvas = document.getElementById('front-scope');
+        const scopeBody = document.getElementById('front-scope-body');
+        const scopeChips = document.getElementById('front-scope-chips');
+        const scopeToggle = document.getElementById('front-scope-toggle');
+        const scopeNote = document.getElementById('front-scope-note');
+        const available =
+          !!scopeModule &&
+          !!scopeCanvas &&
+          !!scopeApi &&
+          typeof scopeApi.attachMultiScope === 'function';
+
+        if (!available) {
+          if (scopeModule) scopeModule.hidden = true;
+        } else {
+          scopeModule.hidden = false;
+          const chipButtons = new Map();
+          let handle = null;
+          let attachedKey = '';
+
+          const selectedTracks = () => {
+            const stored = settings.ui.scopeTracks;
+            if (Array.isArray(stored)) return TRACK_IDS.filter((id) => stored.includes(id));
+            // The live default: every track that isn't switched off.
+            return TRACK_IDS.filter((id) => settings.tracks[id].state !== 'off');
+          };
+
+          const detach = () => {
+            if (!handle) return;
+            try {
+              handle.destroy?.();
+            } catch {}
+            handle = null;
+            attachedKey = '';
+          };
+
+          for (const id of TRACK_IDS) {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = `scope-chip track-color-${id}`;
+            chip.textContent = TRACK_LABELS[id];
+            chip.setAttribute('aria-pressed', 'true');
+            chip.addEventListener('click', () => {
+              const current = selectedTracks();
+              const next = current.includes(id)
+                ? current.filter((t) => t !== id)
+                : TRACK_IDS.filter((t) => t === id || current.includes(t));
+              settings.ui.scopeTracks = next;
+              persistSettings();
+              updateFrontScope();
+            });
+            describe(chip, `Show ${TRACK_LABELS[id]} on the oscilloscope.`);
+            chipButtons.set(id, chip);
+            scopeChips.append(chip);
+          }
+
+          scopeToggle.addEventListener('click', () => {
+            settings.ui.scopeOpen = !settings.ui.scopeOpen;
+            persistSettings();
+            updateFrontScope();
+          });
+
+          updateFrontScope = function updateFrontScopeImpl() {
+            const open = settings.ui.scopeOpen !== false;
+            scopeBody.hidden = !open;
+            scopeToggle.setAttribute('aria-expanded', String(open));
+            const ids = selectedTracks();
+            for (const [id, chip] of chipButtons) {
+              chip.setAttribute('aria-pressed', String(ids.includes(id)));
+            }
+
+            const allowed = powerBudget ? powerBudget.scopeEnabled !== false : true;
+            const onScreen = open && !tabPanels.simple.hidden;
+            if (!allowed || !onScreen || !ids.length || !engine.running) {
+              detach();
+              scopeNote.textContent = !allowed
+                ? 'paused — Processor tier'
+                : !ids.length
+                  ? 'no tracks selected'
+                  : engine.running
+                    ? ''
+                    : 'press Play';
+              return;
+            }
+            scopeNote.textContent = '';
+
+            const key = ids.join(',');
+            if (handle && key === attachedKey) return;
+            if (handle && typeof handle.setTracks === 'function') {
+              try {
+                handle.setTracks(ids);
+                attachedKey = key;
+                return;
+              } catch {
+                // fall through to a clean re-attach
+              }
+            }
+            detach();
+            try {
+              handle = scopeApi.attachMultiScope(scopeCanvas, engine, { tracks: ids });
+            } catch {
+              handle = null;
+            }
+            if (handle) attachedKey = key;
+            else scopeNote.textContent = 'unavailable';
+          };
+        }
       }
 
       // ---- v14 sequencer playhead ----------------------------------------
@@ -5337,6 +5877,8 @@ const VOICES: Record<string, [string, string][]> = {
       const presetDelete = document.getElementById('preset-delete');
       const presetSubmit = document.getElementById('preset-submit');
       const presetCopy = document.getElementById('preset-copy');
+      const presetShare = document.getElementById('preset-share');
+      const shareNote = document.getElementById('share-note');
 
       let presets = [];
       try {
@@ -5347,6 +5889,26 @@ const VOICES: Record<string, [string, string][]> = {
       function paramsSnapshot() {
         const s = structuredClone(settings);
         delete s.ui;
+        return s;
+      }
+
+      /**
+       * The same snapshot, minus the two REDUNDANT mirrors the normaliser
+       * rebuilds on load: `tracks[t].sequencers` when it holds a single
+       * sequencer (identical to `tracks[t].sequencer`), and the legacy
+       * `arp.steps` boolean mask (re-derived from the arp sequencer). Both are
+       * long arrays, and a share link is a URL somebody has to paste — this
+       * roughly halves it, losslessly.
+       */
+      function shareSnapshot() {
+        const s = paramsSnapshot();
+        for (const id of SEQ_TRACKS) {
+          const track = s.tracks[id];
+          if (Array.isArray(track.sequencers) && track.sequencers.length <= 1) {
+            delete track.sequencers;
+          }
+        }
+        delete s.arp.steps;
         return s;
       }
 
@@ -5454,6 +6016,40 @@ const VOICES: Record<string, [string, string][]> = {
         window.open(url, '_blank', 'noopener');
       });
 
+      // Share: params only, in the fragment, straight to the clipboard. If the
+      // clipboard is refused (Safari without a user-gesture-bound permission,
+      // an insecure context), the link is printed in the note instead so it
+      // can still be copied by hand — a failed copy must not lose the link.
+      presetShare?.addEventListener('click', async () => {
+        let url = '';
+        try {
+          url = `${SHARE_BASE}#${SHARE_PARAM}=${encodeShareParams(shareSnapshot())}`;
+        } catch {
+          presetShare.textContent = 'Share failed';
+          setTimeout(() => {
+            presetShare.textContent = 'Share';
+          }, 2000);
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(url);
+          presetShare.textContent = 'Link copied';
+          if (shareNote) {
+            shareNote.textContent = 'Share link copied — it carries your settings, never any code.';
+            shareNote.hidden = false;
+          }
+        } catch {
+          presetShare.textContent = 'Copy failed';
+          if (shareNote) {
+            shareNote.textContent = `Copy this link: ${url}`;
+            shareNote.hidden = false;
+          }
+        }
+        setTimeout(() => {
+          presetShare.textContent = 'Share';
+        }, 2000);
+      });
+
       presetCopy.addEventListener('click', async () => {
         try {
           await navigator.clipboard.writeText(presetJSON());
@@ -5479,7 +6075,7 @@ const VOICES: Record<string, [string, string][]> = {
         {
           tab: 'simple',
           target: '.sliders-module',
-          text: 'These five dials are the whole instrument for most people. Drag up and down, or click the number under a dial to type one. Double-click any dial to put it back to its default.',
+          text: 'These four dials are the whole instrument for most people: Tempo, Complexity, Randomness, Volume. Drag up and down, or click the number under a dial to type one. Double-click any dial to put it back to its default. The same four sit at the foot of the Advanced tab.',
         },
         {
           tab: 'simple',
@@ -5586,6 +6182,7 @@ const VOICES: Record<string, [string, string][]> = {
           if (!editor.hidden) renderVoiceEditor(id);
         }
         updateComplexityDisplay();
+        updateFrontScope();
       }
 
       syncUIFromSettings();
@@ -5596,6 +6193,10 @@ const VOICES: Record<string, [string, string][]> = {
       setTransportUI();
       updateTimerUI();
       if (settings.ui.tutorialOpen) setTutorialOpen(true);
+      if (sharedParams && shareNote) {
+        shareNote.textContent = 'Loaded shared preset — Save to keep it.';
+        shareNote.hidden = false;
+      }
 
       app.hidden = false;
     }
@@ -5615,6 +6216,17 @@ const VOICES: Record<string, [string, string][]> = {
        script, so Astro's scoped-style attribute would never reach them.
        Class names are page-unique (checked against the other pages). -->
   <style is:global>
+    /* `hidden` is only a UA `display: none` rule, so ANY author display
+       declaration beats it — and nearly every panel/row/cell below sets one.
+       That silently defeated `el.hidden = true` in the page script: the dial
+       label rows buildSimpleDial hides stayed visible (every dial showed its
+       name twice, once above and once under the knob), the switched-off Osc 2
+       cell still drew, the empty cost meters still drew. One rule fixes the
+       whole class of bug; `!important` is what makes it beat the class rules. */
+    [hidden] {
+      display: none !important;
+    }
+
     #generator-app {
       max-width: 640px;
     }
@@ -5651,9 +6263,16 @@ const VOICES: Record<string, [string, string][]> = {
       margin-bottom: 8px;
     }
 
+    /* ONE transport row: Play/Stop/Record, the sleep+schedule icons and the
+       Processor dial all live on the same line. `wrap` is the narrow-screen
+       escape hatch — at ~360 px the dial drops to a second line rather than
+       squashing the buttons. `center` (not `stretch`) keeps the buttons at
+       their own height now that the tallest item in the row is a dial with a
+       caption above and a read-out below it. */
     .transport-main {
       display: flex;
-      align-items: stretch;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 12px;
       margin-bottom: 8px;
     }
@@ -6075,17 +6694,35 @@ const VOICES: Record<string, [string, string][]> = {
 
     /* -- processor dial (transport panel) -- */
 
+    /* Title above the dial, status below it — the same "one visible label,
+       named once" rule every other dial follows. */
     .processor-row {
       display: flex;
+      flex: 0 0 auto;
+      flex-direction: column;
       align-items: center;
-      gap: 12px;
-      --knob-size: 64px;
+      gap: 2px;
+      --knob-size: 56px;
     }
 
-    .processor-info {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
+    .processor-label {
+      display: block;
+    }
+
+    .processor-readout {
+      max-width: 150px;
+      font-size: 10px;
+      line-height: 1.3;
+      text-align: center;
+      color: var(--secondary);
+    }
+
+    /* The page has already named this dial above it, so knob.js's own caption
+       is suppressed — the same string stays on the knob as its aria-label
+       (knob.js sets role="slider" + aria-label from `label`), so nothing is
+       lost to assistive tech and the name is drawn exactly once. */
+    .dial-label-external .knob-label {
+      display: none;
     }
 
     /* -- v13 tooltips + ⓘ info boxes -- */
@@ -6506,6 +7143,96 @@ const VOICES: Record<string, [string, string][]> = {
       color: var(--accent-warm, #d98324);
     }
 
+    /* -- v13 front-page oscilloscope (Simple tab, under the piano roll) -- */
+
+    .scope-module {
+      margin-bottom: 20px;
+    }
+
+    .scope-module-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .scope-collapse {
+      background: none;
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+    }
+
+    .scope-collapse::before {
+      content: '▾ ';
+    }
+
+    .scope-collapse[aria-expanded='false']::before {
+      content: '▸ ';
+    }
+
+    .scope-note {
+      font-size: 11px;
+    }
+
+    .front-scope {
+      display: block;
+      width: 100%;
+      height: 120px;
+      background: var(--scope-bg, #10140f);
+      border: 1px solid var(--panel-edge, var(--border));
+      border-radius: var(--radius);
+    }
+
+    .scope-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .scope-chip {
+      border: 1px solid var(--track-accent, var(--border));
+      border-radius: 999px;
+      background: none;
+      color: var(--secondary);
+      padding: 4px 10px;
+      font-family: var(--label-font, inherit);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      min-height: 28px;
+    }
+
+    .scope-chip[aria-pressed='true'] {
+      background: var(--track-accent, var(--link));
+      color: var(--bg);
+    }
+
+    .scope-chip:focus-visible {
+      outline: 2px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    /* -- share links -- */
+
+    .share-note {
+      overflow-wrap: anywhere;
+    }
+
+    /* -- the Advanced tab's copy of the four main dials -- */
+
+    .advanced-dial-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
     .knob-sections {
       display: flex;
       flex-direction: column;
@@ -6535,6 +7262,56 @@ const VOICES: Record<string, [string, string][]> = {
 
     .knob-cell-toggle {
       align-self: center;
+    }
+
+    /* -- v14 kit editor (percussion): Common | High | Mid | Low -- */
+
+    .kit-tabs {
+      margin: 0 0 14px;
+    }
+
+    .knob-cell-ghosted {
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* The "ghost pointer": knob.js draws one pointer only, so the common
+       value shows as a secondary read-out under the dial with a dot in the
+       track's colour. */
+    .knob-ghost {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--label-font, inherit);
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      color: var(--secondary);
+    }
+
+    .knob-ghost-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--track-accent, var(--secondary));
+      opacity: 0.55;
+      flex: none;
+    }
+
+    .knob-follow {
+      font-size: 10px;
+    }
+
+    /* An overridden dial takes the track accent so the kit's exceptions are
+       visible at a glance. */
+    .knob-cell-overridden {
+      border-radius: var(--radius);
+      box-shadow: inset 0 0 0 1px var(--track-accent, var(--link));
+      padding: 4px 2px;
+    }
+
+    .knob-cell-overridden .knob-ghost-dot {
+      opacity: 1;
     }
 
     /* v12: shape-dial glyph readout (knob.js's `glyph` option) — icon(s)
