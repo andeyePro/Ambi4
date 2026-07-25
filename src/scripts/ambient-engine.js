@@ -1911,7 +1911,7 @@ export function developMotif(motif, op, {
   return cell;
 }
 
-// -- the bass groove (v14) --------------------------------------------------
+// -- the bass groove (v14, craft pass v24) -----------------------------------
 //
 // The v12 bass drew a bar of rhythm from a density and repeated it. The user's
 // verdict on that was blunt: "it's a rhythm instrument, not a low-pitch
@@ -1920,6 +1920,28 @@ export function developMotif(motif, op, {
 // length per step (a bassist's staccato/held mix is half of what makes a line
 // recognisable). The groove is stated once per section and DEVELOPED bar to
 // bar the way the melody's motif is, rather than re-rolled.
+//
+// v24 (the second failed verdict, "still definitely the weakest link") is a
+// FEEL pass on top of that. The notes were already right; what was missing was
+// everything a bassist does between the notes:
+//
+//  - POCKET.  Timing was the generic ±25 ms per-note humanisation, drawn
+//    independently for every note, which reads as drunk rather than deep. A
+//    bassist picks ONE relationship to the beat and keeps it all night, so the
+//    groove now carries a single lay-back constant every note of the section
+//    shares.
+//  - ARTICULATION.  The gate table was per ROLE (anchor/pulse/offbeat), so
+//    every pulse in a bar was the same length; on a mono track that makes the
+//    whole spine either slur or re-strike as one. Grooves now carry an
+//    articulation cycle, so which notes ring into the next and which stop short
+//    is part of the line's identity.
+//  - CONTOUR.  The ghost velocity was 0.42 against a 0.74 pulse — five decibels,
+//    which is a slightly quiet note, not a ghost. Ghosts are 0.25 now and the
+//    anchor accent is worth hearing.
+//  - FILLS.  There were none. A line that never turns around is a loop.
+//  - INTERNAL PULSE.  With no kit playing, every non-anchor pulse was an
+//    independent coin flip. The bass now supplies its own anchor grid on the
+//    same terms it locks to a kick, so a drummerless line still has a spine.
 //
 // The harmonic contract is untouched: every felt pulse takes the root; the
 // fifth and the octave only ever appear between the pulses.
@@ -1937,6 +1959,76 @@ const BASS_FEELS = Object.freeze({
 export const BASS_FEEL_NAMES = Object.freeze(Object.keys(BASS_FEELS));
 
 /**
+ * How a groove spreads its note lengths ACROSS the bar: a multiplier cycle
+ * applied to the pulse spine, step by step, on top of the feel's own gate.
+ *
+ * This is the half of articulation the v14 table could not express. A gate is
+ * only ever a fraction of the span to the next note, and on the shipped mono
+ * bass a note that reaches the next onset is slurred into it while anything
+ * shorter is re-struck and cut at that onset — so a bar whose steps all carry
+ * one gate has exactly one articulation, however that gate is tuned. Cycling
+ * the multiplier is what makes "long, short, long, short" a thing the line can
+ * say, and saying the same one every bar is what makes it the line's identity.
+ */
+const BASS_ARTICULATIONS = Object.freeze({
+  even: [1],                        // the pump: every pulse the same length
+  longShort: [1.8, 0.5],            // the dotted lean — ring, clip, ring, clip
+  shortLong: [0.5, 1.8],            // the same lean the other way up
+  holdOne: [2, 0.55, 0.75, 0.55],   // hold the anchor, clip everything under it
+});
+
+export const BASS_ARTICULATION_NAMES = Object.freeze(Object.keys(BASS_ARTICULATIONS));
+
+/**
+ * What each role of note is played at. The gaps between these are the contour:
+ * an accent nobody can hear is not an accent, and a ghost note is a bassist's
+ * quietest gesture — felt through the fingers, barely present in the mix.
+ */
+const BASS_VELOCITIES = Object.freeze({
+  accent: 0.92,
+  pulse: 0.68,
+  offbeat: 0.58,
+  ghost: 0.25,
+  fill: 0.74,
+});
+
+/** Where a ghost's velocity has to sit for it to read as one, after shaping. */
+export const BASS_GHOST_CEILING = 0.34;
+
+/**
+ * The bass's lay-back, in seconds behind the grid at vary.timing 1. A rhythm
+ * section is heard as one instrument when the bass sits in a CONSISTENT
+ * relationship to the kick — a fraction behind it, all night — so this is a
+ * per-groove constant rather than a per-note draw, and it never runs early.
+ */
+const BASS_POCKET = 0.022;
+
+/** The shortest note the bass will play, and the shortest bass line worth one. */
+const BASS_MIN_NOTE = 0.06;
+
+/**
+ * The register the line lives in: E1 to G3. An octave pop off a high chord root
+ * would otherwise land in the tune's own register, where it stops sounding like
+ * a bass at all.
+ */
+const BASS_RANGE = Object.freeze({ low: 28, high: 55 });
+
+/** The turnaround: which bar of a section may carry a fill, and how often. */
+const BASS_FILL_CYCLE = 8;
+const BASS_FILL_CHANCE = 0.7;
+
+/**
+ * One groove's pocket: the seconds every note of the line sits behind its grid
+ * position. `amount` is the track's timing vary — at 0 the bass is machine-tight
+ * (the user asked for no humanisation and gets none), and everywhere above it
+ * the line leans back by a groove-constant few milliseconds.
+ */
+export function bassPocketSeconds(amount = 0, rng = Math.random) {
+  const depth = clamp(Number(amount) || 0, 0, 1);
+  return clamp(BASS_POCKET * depth * (0.6 + rng() * 0.8), 0, BASS_POCKET);
+}
+
+/**
  * Offbeat placements a groove syncopates on, as a fraction of the pulse that
  * carries them. Every cell is a real rhythmic figure rather than a random
  * offbeat: the "and" of the beat, the push into the next one, the two-note
@@ -1949,8 +2041,21 @@ const BASS_CELLS = Object.freeze([
   [0.25, 0.75],     // a syncopated pair straddling the beat
 ]);
 
+/**
+ * The runs a fill is drawn from: beats BEFORE the barline, paired with the tone
+ * each takes. Every placement is off the pulse, so the root discipline survives
+ * a fill intact, and the last note of the run is the one scheduleBass re-pitches
+ * towards the chord ahead — which is what turns a run into an approach.
+ */
+const BASS_FILLS = Object.freeze([
+  { before: [0.5, 0.25], tones: ['fifth', 'octave'] },
+  { before: [0.75, 0.5, 0.25], tones: ['root', 'fifth', 'octave'] },
+  { before: [0.75, 0.5, 0.25], tones: ['octave', 'fifth', 'octave'] },
+  { before: [0.5, 0.25], tones: ['octave', 'fifth'] },
+]);
+
 export const BASS_GROOVE_OPS = Object.freeze([
-  'state', 'ghost', 'push', 'simplify', 'double',
+  'state', 'ghost', 'push', 'simplify', 'double', 'fill',
 ]);
 
 /**
@@ -1962,7 +2067,7 @@ export const BASS_GROOVE_OPS = Object.freeze([
  */
 export function buildBassGroove({
   starts = [0, 1, 2, 3], beats = 4, intensity = 0.5, complexity = 0.5,
-  lowLane = null, densityScale = 1, rng = Math.random,
+  lowLane = null, densityScale = 1, timingVary = 0, rng = Math.random,
 } = {}) {
   // v21 densityScale (0–2) is the track's own density param: it multiplies the
   // rate the groove was going to have, and 1 leaves it exactly where it was.
@@ -1975,14 +2080,26 @@ export function buildBassGroove({
     rng,
   );
   const gates = BASS_FEELS[feelName];
+  const articulation = BASS_ARTICULATIONS[pick(
+    density < 0.4 ? ['holdOne', 'longShort'] : ['longShort', 'shortLong', 'holdOne', 'even'], rng,
+  )];
+  const pocket = bassPocketSeconds(timingVary, rng);
+
+  // v24: the anchor grid the groove is built against. With a kit playing it is
+  // the kick's own onsets, which is what makes the two read as one instrument;
+  // with no kit it is a stride through the bar's felt pulses, drawn once. Either
+  // way the line has a spine it keeps, instead of an independent coin flip on
+  // every beat, which is what a drummerless bass used to be.
   const locked = Array.isArray(lowLane) && lowLane.length ? lowLane : null;
-  const near = (beat) => locked !== null && locked.some((hit) => Math.abs(hit - beat) < 0.13);
+  const stride = density > 0.66 ? 1 : density > 0.4 ? 2 : 2 + Math.floor(rng() * 2);
+  const anchors = locked ?? starts.filter((_, i) => i % stride === 0);
+  const near = (beat) => anchors.some((hit) => Math.abs(hit - beat) < 0.13);
 
   // The anchor: root, accented, the thing the ear counts from. It sits on the
   // downbeat unless the kick does not — a groove whose first low hit is the
   // second pulse anchors there instead, which is what locking to the low lane
   // means when the pattern is not four-on-the-floor.
-  const anchorAt = locked && !near(starts[0] ?? 0)
+  const anchorAt = !near(starts[0] ?? 0)
     ? starts.find((start) => near(start)) ?? starts[0] ?? 0
     : starts[0] ?? 0;
   const steps = [{ beat: anchorAt, tone: 'root', gate: gates.anchor, accent: true }];
@@ -1994,12 +2111,21 @@ export function buildBassGroove({
   for (let i = 1; i < starts.length; i++) {
     // v14: when percussion is playing, its low lane IS the bass's grid — every
     // pulse the kick lands on is taken, so the two are heard as one instrument.
-    // Away from the kick (or with no percussion at all) it is a density draw.
-    const chance = near(starts[i]) ? 1 : density * 0.8;
+    // Away from the anchor grid it is a density draw, and a thinner one than
+    // v14's: a pulse the line DOESN'T take is where a bass line breathes, and
+    // the shipped bass took nearly all of them.
+    const chance = near(starts[i]) ? 1 : density * 0.55;
     if (rng() < chance) {
       steps.push({ beat: starts[i], tone: 'root', gate: gates.pulse, accent: false });
     }
   }
+
+  // The articulation cycle runs over the pulse spine in the order it is played,
+  // so the same step of the line is the same length every bar it is stated.
+  const spine = sortGroove(steps);
+  spine.forEach((step, i) => {
+    step.gate = clamp(step.gate * articulation[i % articulation.length], 0.12, 1);
+  });
 
   // Syncopation: one cell, hung off a pulse, plus a second when the section is
   // busy enough to carry it. Off-pulse notes are where the fifth and octave
@@ -2012,8 +2138,8 @@ export function buildBassGroove({
     for (const offset of cell) {
       const beat = pulse + offset;
       if (beat >= beats - 1e-9) continue;
-      if (steps.some((step) => Math.abs(step.beat - beat) < 1e-9)) continue;
-      steps.push({
+      if (spine.some((step) => Math.abs(step.beat - beat) < 1e-9)) continue;
+      spine.push({
         beat,
         tone: rng() < 0.65 ? 'fifth' : 'octave',
         gate: gates.offbeat,
@@ -2023,13 +2149,27 @@ export function buildBassGroove({
     }
   }
 
-  return { feel: feelName, beats, steps: sortGroove(steps) };
+  // The phrase ending. Whatever the line's last note of the bar is, it commits
+  // to one of the two things a bassist does into a change: a held groove rings
+  // across the barline and lets the mono glide carry the root over, anything
+  // shorter lifts off it so the next downbeat lands in air. Doing neither is
+  // what made every bar of the shipped line the same shape as the one before.
+  const sorted = sortGroove(spine);
+  const tail = sorted[sorted.length - 1];
+  if (tail) tail.gate = feelName === 'held' ? 1 : Math.min(tail.gate ?? 0.9, 0.45);
+
+  return { feel: feelName, beats, pocket, steps: sorted };
 }
 
 const sortGroove = (steps) => steps.slice().sort((a, b) => a.beat - b.beat);
 
 export function cloneBassGroove(groove) {
-  return { feel: groove.feel, beats: groove.beats, steps: groove.steps.map((step) => ({ ...step })) };
+  return {
+    feel: groove.feel,
+    beats: groove.beats,
+    pocket: groove.pocket ?? 0,
+    steps: groove.steps.map((step) => ({ ...step })),
+  };
 }
 
 /**
@@ -2041,6 +2181,8 @@ export function cloneBassGroove(groove) {
  * - push       one off-pulse note anticipated by a semiquaver
  * - simplify   the last off-pulse note dropped
  * - double     an off-pulse note repeated an eighth later
+ * - fill       the turnaround: the bar's last quarter cleared for a short run
+ *              into whatever comes next (v24)
  *
  * `starts` is passed so every branch can re-assert the harmonic contract: a
  * step that lands on a felt pulse is the root, whatever it was before.
@@ -2076,6 +2218,20 @@ export function developBassGroove(groove, op, {
     if (beat < beats - 1e-9 && !onPulse(beat) && !taken(beat)) {
       next.steps.push({ ...step, beat, gate: 0.3, accent: false, ghost: true });
     }
+  } else if (op === 'fill') {
+    // The turnaround. Everything the groove had in the bar's last quarter is
+    // cleared — a fill REPLACES the tail of the line rather than crowding it —
+    // and the felt pulses are left alone, so the bar still lands where it did.
+    const run = pick(BASS_FILLS, rng);
+    const from = beats - Math.max(...run.before);
+    next.steps = next.steps.filter((step) => onPulse(step.beat) || step.beat < from - 1e-9);
+    run.before.forEach((before, i) => {
+      const beat = beats - before;
+      if (beat <= 0 || onPulse(beat) || taken(beat)) return;
+      next.steps.push({
+        beat, tone: run.tones[i] ?? 'octave', gate: 0.45, accent: false, fill: true,
+      });
+    });
   }
 
   // The contract, re-asserted after every branch: felt pulses voice the root.
@@ -2092,17 +2248,29 @@ export function developBassGroove(groove, op, {
  * what the bar before said, because a development stated twice is the one the
  * ear actually catches.
  *
- * All three draws are made whatever the variation is — the rule the register
+ * All four draws are made whatever the variation is — the rule the register
  * wander already follows: the dial changes the LINE, not the position every
  * later draw in the bar takes in the stream. At variation 0 the groove is
  * stated every bar, so a frozen bass is frozen bar for bar.
+ *
+ * v24 adds the turnaround. A fill only ever lands on the last bar of an
+ * eight-bar count, which is also why it can never fall in the opening bars of a
+ * section: the ear has to have learnt the line before a fill can be heard as
+ * leaving it. `intensity` scales how often, so a quiet section barely fills at
+ * all, and a fill is never said twice running.
  */
-export function bassGrooveOp(barInCycle, variation = 0.5, rng = Math.random, previousOp = 'state') {
+export function bassGrooveOp(
+  barInCycle, variation = 0.5, rng = Math.random, previousOp = 'state', intensity = 0.5,
+) {
   const roll = rng();
   const again = rng();
   const choice = rng();
+  const turnaround = rng();
   if (barInCycle % 4 === 0 || variation <= 0) return 'state';
-  if (previousOp !== 'state' && again < 0.25 + (1 - variation) * 0.45) return previousOp;
+  if (barInCycle % BASS_FILL_CYCLE === BASS_FILL_CYCLE - 1
+    && turnaround < clamp(intensity, 0, 1) * BASS_FILL_CHANCE) return 'fill';
+  if (previousOp !== 'state' && previousOp !== 'fill'
+    && again < 0.25 + (1 - variation) * 0.45) return previousOp;
   if (roll >= variation * 0.6) return 'state';
   const weights = [
     ['ghost', 1.2],
@@ -2737,6 +2905,9 @@ export function createEngine(initialParams, options = {}) {
   let bassGrooveKey = '';
   let bassGrooveBar = 0;
   let bassGrooveOpLast = 'state';
+  // The line's lay-back: ONE constant every bass note of the section shares
+  // (v24). Null until the groove — or, on a manual grid, the first bar — draws it.
+  let bassPocket = null;
 
   // Realised bar plans (see planFor): every random draw a bar needs is made
   // once, at the barline, so hold can replay a bar identically.
@@ -3226,6 +3397,7 @@ export function createEngine(initialParams, options = {}) {
           bassGrooveKey = '';
           bassGrooveBar = 0;
           bassGrooveOpLast = 'state';
+          bassPocket = null;
           break;
         case 'melody':
           motifBank.clear();
@@ -3741,19 +3913,27 @@ export function createEngine(initialParams, options = {}) {
 
   function playNote(track, note) {
     const midi = note.midi ?? null;
-    // Timing humanisation can pull a note behind its grid position, so it is
-    // floored at the current downbeat: a note dragged back over the barline
-    // would land in a bar the scheduler has already dispatched. The lookahead
-    // itself needs no clamp — the spread (±25 ms) is a fifth of LOOKAHEAD, so
-    // a nudge can never reach behind the horizon the pulse was scheduled in.
+    // Timing humanisation moves a note off its grid position in both
+    // directions, and a note belongs to the bar it was planned in, so it is
+    // held inside that bar at both ends. Behind: a note dragged back over the
+    // barline would land in a bar the scheduler has already dispatched. Ahead:
+    // a note on the bar's last subdivision, pushed forward, sounds in the NEXT
+    // bar — which is inaudible in the middle of a piece and is exactly wrong at
+    // the end of one, where the bar that follows is the resolving closing bar
+    // and nothing but pad and bass belongs in it. The lookahead itself needs no
+    // clamp — the spread (±25 ms) is a fifth of LOOKAHEAD, so a nudge can never
+    // reach behind the horizon the pulse was scheduled in.
     const wanted = Number.isFinite(note.when) ? note.when : (ctx ? ctx.currentTime : 0);
     const floor = currentBarTime;
+    // A hair inside the barline, not on it: a note landing exactly on the next
+    // downbeat is that bar's note as far as anything reading the stream knows.
+    const ceiling = bar ? floor + bar.duration - 1e-4 : Infinity;
     const full = {
       midi,
       freq: note.freq ?? (midi === null ? null : midiToFreq(midi)),
       velocity: clamp(Number(note.velocity) || 0.7, 0.01, 1),
       duration: Math.max(0.02, Number(note.duration) || 0.3),
-      when: Math.max(wanted, floor),
+      when: clamp(wanted, floor, Math.max(floor, ceiling)),
       pan: clamp(Number(note.pan) || 0, -1, 1),
       kind: note.kind ?? null,
       // v21: which lane of the kit struck this. Null for every melodic track,
@@ -4330,11 +4510,24 @@ export function createEngine(initialParams, options = {}) {
         // every manual bass grid before it had.
         gate: step.gate,
         velocity: between(step.vmin, step.vmax, rng) * velocityJitter('bass'),
-        nudge: timingNudge('bass'),
+        nudge: bassPocketFor(),
       });
     }
     steps = mergeTies(steps, lane, slots);
     return { manual: true, steps };
+  }
+
+  /**
+   * The bass's pocket: how far behind the grid the whole line sits, in seconds
+   * (v24). One constant per section, NOT a per-note draw — the generic timing
+   * humanisation every other track uses scatters a note either side of the beat
+   * independently, and a bass scattered that way reads as unsteady rather than
+   * deep. An auto line takes the groove's own pocket; a manual grid, which has
+   * no groove, draws its own on the same terms.
+   */
+  function bassPocketFor() {
+    if (bassPocket === null) bassPocket = bassPocketSeconds(varyAmount('bass', 'timing'), rng);
+    return bassPocket;
   }
 
   /**
@@ -4346,15 +4539,30 @@ export function createEngine(initialParams, options = {}) {
    *
    * When percussion is playing, the groove is handed the low lane's onsets
    * from the bar just gone and locks onto them where it can.
+   *
+   * v24: the key BANDS the section intensity instead of reading it to three
+   * decimals. `waves` and `build` hand out a fresh intensity for every bar (a
+   * cosine and a ramp), so a three-decimal key re-rolled the groove bar by bar
+   * under both of them — which is to say the v14 groove never engaged at all
+   * for two of the five structure presets, and the user's "low-pitch random"
+   * verdict was literally correct there. A quarter-wide band re-states the line
+   * when the section's energy has actually moved, and holds it in between.
    */
   function ensureBassGroove() {
     const key = [
-      currentSection.label, round3(sectionIntensity()), params.timeSignature,
+      currentSection.label, bassIntensityBand(), params.timeSignature,
       round3(params.complexity), round3(trackDensity('bass')),
     ].join(':');
     if (bassGroove && bassGrooveKey === key) return bassGroove;
+    // The four- and eight-bar counts the groove is developed against belong to
+    // the SECTION, not to one statement of the line: a swell that restates the
+    // groove mid-section must not also restart the turnaround clock, or a
+    // modulating structure would never reach a fill.
+    if (!bassGrooveKey.startsWith(`${currentSection.label}:`)) {
+      bassGrooveBar = 0;
+      bassGrooveOpLast = 'state';
+    }
     bassGrooveKey = key;
-    bassGrooveBar = 0;
     bassGroove = buildBassGroove({
       starts: bar.starts,
       beats: bar.beats,
@@ -4362,9 +4570,16 @@ export function createEngine(initialParams, options = {}) {
       complexity: params.complexity,
       lowLane: percussionLowBeats(),
       densityScale: trackDensity('bass'),
+      timingVary: varyAmount('bass', 'timing'),
       rng,
     });
+    bassPocket = bassGroove.pocket;
     return bassGroove;
+  }
+
+  /** The section's energy, to the nearest quarter — the groove's own resolution. */
+  function bassIntensityBand() {
+    return Math.round(clamp(sectionIntensity(), 0, 1) * 4) / 4;
   }
 
   /** Where percussion's low lane last landed, in beats — the groove's anchor grid. */
@@ -4383,26 +4598,34 @@ export function createEngine(initialParams, options = {}) {
     const groove = ensureBassGroove();
     // The groove is stated, then developed — the same relationship the melody
     // has with its motif. randomness 0 states it every bar and draws nothing.
-    const op = bassGrooveOp(bassGrooveBar, trackRandomness('bass'), rng, bassGrooveOpLast);
+    const op = bassGrooveOp(bassGrooveBar, trackRandomness('bass'), rng,
+      bassGrooveOpLast, sectionIntensity());
     bassGrooveOpLast = op;
     const shape = op === 'state' ? groove
       : developBassGroove(groove, op, { starts: bar.starts, rng });
+    const pocket = bassPocketFor();
     return {
       manual: false,
       op,
-      steps: shape.steps.map((step, i) => ({
+      steps: shape.steps.map((step) => ({
         beat: step.beat,
         tone: step.tone,
         // The gate is what makes it sound played rather than held: a staccato
         // groove leaves air between its notes, a sustained one does not.
         gate: step.gate ?? 0.9,
+        ghost: step.ghost === true,
+        fill: step.fill === true,
         velocity: clamp(
-          (step.ghost ? 0.42 : step.accent ? 0.85 : step.tone === 'root' ? 0.74 : 0.62)
+          (step.ghost ? BASS_VELOCITIES.ghost
+            : step.accent ? BASS_VELOCITIES.accent
+              : step.fill ? BASS_VELOCITIES.fill
+                : step.tone === 'root' ? BASS_VELOCITIES.pulse : BASS_VELOCITIES.offbeat)
           * velocityJitter('bass'),
           0.05, 1,
         ),
-        nudge: timingNudge('bass'),
-        accent: i === 0,
+        // Every note of the line leans back by the same amount: the pocket is
+        // the groove's, not the note's.
+        nudge: pocket,
       })),
     };
   }
@@ -4447,7 +4670,13 @@ export function createEngine(initialParams, options = {}) {
       return;
     }
 
-    const midiOf = (tone) => (tone === 'fifth' ? fifth : tone === 'octave' ? root + 12 : root);
+    // v24: the octave pop keeps the line in the bass's own register. Off a high
+    // chord root, root + 12 lands in the tune's octave and stops reading as a
+    // bass at all, so it drops instead — and if THAT is below the bottom of the
+    // range it stays on the root, which is always in it.
+    const octave = root + 12 <= BASS_RANGE.high ? root + 12
+      : root - 12 >= BASS_RANGE.low ? root - 12 : root;
+    const midiOf = (tone) => (tone === 'fifth' ? fifth : tone === 'octave' ? octave : root);
     const events = plan.steps.map((step) => ({ ...step, midi: midiOf(step.tone) }));
 
     // The approach: on a bar that turns to a new chord, the last off-beat note
@@ -4461,7 +4690,7 @@ export function createEngine(initialParams, options = {}) {
       ? nextChordAhead() : null;
     if (target !== null) {
       const to = scaleDegreeToMidi(target, scale(), rootPc, 2);
-      const options = [root, fifth, root + 12];
+      const options = [root, fifth, octave];
       last.midi = options.reduce(
         (best, midi) => (Math.abs(midi - to) < Math.abs(best - to) ? midi : best),
       );
@@ -4472,19 +4701,31 @@ export function createEngine(initialParams, options = {}) {
     const legato = params.tracks.bass.mono ? 1.02 : 0.95;
     events.forEach((event, i) => {
       const next = i + 1 < events.length ? events[i + 1].beat : bar.beats;
-      const gate = clamp(event.gate ?? 0.9, 0.1, 1);
+      const gate = clamp(event.gate ?? 0.9, 0.12, 1);
       const at = swung(event.beat, 'bass');
       const span = (swung(next, 'bass') - at) * bar.secPerBeat;
+      // The floor is the shortest note worth playing, NOT a flat 0.1 s: a fixed
+      // floor is longer than a clipped sixteenth at anything above a slow tempo,
+      // so every short note in the line came out the same length whatever its
+      // gate said, and the staccato/held mix the groove had chosen never reached
+      // the ear. Capped at the span so it can never stretch a note past its slot.
+      const floor = Math.min(BASS_MIN_NOTE, span * 0.6);
       playNote('bass', {
         midi: event.midi,
         when: time + at * bar.secPerBeat + event.nudge,
-        duration: Math.max(0.1, span * (gate >= 0.95 ? legato : gate)),
+        duration: Math.max(floor, span * (gate >= 0.95 ? legato : gate)),
         velocity: event.velocity,
       });
     });
     if (!events.length) {
-      // A pattern that emptied itself still owes the bar its root.
-      playNote('bass', { midi: root, when: time, duration: barDuration * 0.95, velocity: 0.8 });
+      // A pattern that emptied itself still owes the bar its root — in the
+      // line's own pocket, like every other note it plays.
+      playNote('bass', {
+        midi: root,
+        when: time + bassPocketFor(),
+        duration: barDuration * 0.95,
+        velocity: 0.8,
+      });
     }
   }
 
@@ -4997,6 +5238,7 @@ export function createEngine(initialParams, options = {}) {
       bassGrooveKey = '';
       bassGrooveBar = 0;
       bassGrooveOpLast = 'state';
+      bassPocket = null;
       frozenPlans.clear();
     }
     const pulses = TIME_SIGNATURES[params.timeSignature];
@@ -5719,6 +5961,7 @@ export function createEngine(initialParams, options = {}) {
       bassGrooveKey = '';
       bassGrooveBar = 0;
       bassGrooveOpLast = 'state';
+      bassPocket = null;
       monoNotes.clear();
       // A performance starts from a fresh set of decisions: no frozen bar from
       // the last run, and drift walks that begin wherever this run takes them.

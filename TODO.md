@@ -4,7 +4,8 @@
 
 ### Awaiting Martin (decisions / actions)
 - [ ] GitHub branch swap (default → main-clean, delete main, rename → main) then repo → public (AGPL prepped)
-- [ ] Bass verdict FAILED TWICE — dedicated bass-craft pass queued (pocket vs kick, articulation, velocity contour, fills, register); stays off until user passes it
+- [ ] Bass verdict FAILED TWICE — craft pass BUILT (v24: pocket, articulation, contour, fills, register, drummerless anchor; see CHANGELOG + contract § v24). Needs Martin's ears; stays default-off until it passes
+- [ ] Bass voice envelopes cap articulation — `sub` attack 0.12 s / release 0.75 s means the shortest note any bass voice can sound is ~1 s, so true staccato is unreachable from the engine. Owner: engine-voices.js (shortening the patch ADSR per note also swaps the filter path and adds a node, so it is a deliberate timbre decision, not a tweak)
 - [ ] Record button tier decision (free now vs gated when payments exist)
 - [ ] xander. playlist copy + NotXander filename: keep / reword / drop
 - [ ] Official andeye logo asset for the footer (placeholder deleted)
