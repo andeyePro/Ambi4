@@ -642,6 +642,11 @@ const VOICES: Record<string, [string, string][]> = {
           <button type="button" id="preset-submit" class="secondary-button">Submit preset</button>
           <button type="button" id="preset-copy" class="secondary-button">Copy JSON</button>
         </div>
+        <p class="preset-row share-name-row">
+          <span class="panel-label share-name-label">Link name</span>
+          <span id="share-name-value" class="share-name-value" aria-live="polite">&mdash;</span>
+        </p>
+        <p class="hint">Every share link has its own three words, so you can say which link you mean out loud. It&rsquo;s a nickname the link works out for itself &mdash; not a web address, and not reserved to you.</p>
         <p class="hint">Submitting opens our contact form prefilled with the preset; if that doesn&rsquo;t load, copy the JSON and send it however suits.</p>
       </fieldset>
 
@@ -683,6 +688,13 @@ const VOICES: Record<string, [string, string][]> = {
   <script id="factory-presets-data" type="application/json" is:inline set:html={factoryPresetsJSON}></script>
 
   <script>
+    // The page's own modules are loaded dynamically, below, so a browser that
+    // cannot run one of them still boots. These two are the exception: pure
+    // data and pure arithmetic, no feature to detect, and both are needed the
+    // instant a shared link lands (see § v29 share names).
+    import WORDLIST from '../data/wordlist.json';
+    import { shareNameFor, wordPoolFrom } from '../scripts/share-name.js';
+
     const app = document.getElementById('generator-app');
     const unavailable = document.getElementById('generator-unavailable');
 
@@ -1923,6 +1935,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     const SHARE_BASE = 'https://ambi4.work/';
     const SHARE_PARAM = 'p';
 
+    // v29: every link also gets a three-word name — a handle for a wall of
+    // base64, computed from the fragment itself so both ends of the link read
+    // the same three words without anything being registered anywhere. The
+    // arithmetic is a module (src/scripts/share-name.js) so a test can prove
+    // the determinism; the wordlist is the vetted one, bundled at build time
+    // because the name has to be on screen the moment a link is copied.
+    // DISPLAY ONLY: ambi4.work/[name] is the paid ladder, not this.
+    const SHARE_WORDS = wordPoolFrom(WORDLIST);
+
+    /**
+     * The fragment payload the current visit arrived on (empty on an ordinary
+     * visit). Recorded by takeSharedParams as it strips the fragment, because
+     * by the time the page has settings to show a note about, the URL it came
+     * in on is gone.
+     */
+    let arrivedSharePayload = '';
+
     function encodeShareParams(params) {
       const bytes = new TextEncoder().encode(JSON.stringify(params));
       let binary = '';
@@ -1954,7 +1983,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           history.replaceState(null, '', location.pathname + location.search);
         } catch {}
         if (!value) return null;
-        return decodeShareParams(value);
+        const params = decodeShareParams(value);
+        if (params) arrivedSharePayload = value;
+        return params;
       } catch {
         return null;
       }
@@ -2422,6 +2453,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       let settings;
       let sharedParams = null;
       let routePreset = null;
+      // The three-word name of the link this visit arrived on — the same name
+      // the sender saw when they copied it (both ends hash the same payload).
+      // A /[slug] factory route has a real name of its own and gets none.
+      let arrivedShareName = '';
       {
         let saved = null;
         try {
@@ -2479,6 +2514,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             settings = deepMerge(DEFAULTS, clone);
             normaliseV6Tracks(settings);
             settings.ui = ui;
+            if (!routePreset) arrivedShareName = shareNameFor(arrivedSharePayload, SHARE_WORDS);
           } catch {
             sharedParams = null;
             routePreset = null;
@@ -10299,6 +10335,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const presetCopy = document.getElementById('preset-copy');
       const presetShare = document.getElementById('preset-share');
       const shareNote = document.getElementById('share-note');
+      const shareNameValue = document.getElementById('share-name-value');
+
+      /**
+       * The reserved line under the Share row. It is never hidden and never
+       * empty — an em dash holds the space before there is a name — so a name
+       * appearing cannot push the fieldset around under the cursor.
+       */
+      function setShareName(name) {
+        if (shareNameValue) shareNameValue.textContent = name || '—';
+      }
 
       let presets = [];
       try {
@@ -10505,8 +10551,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // can still be copied by hand — a failed copy must not lose the link.
       presetShare?.addEventListener('click', async () => {
         let url = '';
+        let name = '';
         try {
-          url = `${SHARE_BASE}#${SHARE_PARAM}=${encodeShareParams(shareSnapshot())}`;
+          const fragment = `${SHARE_PARAM}=${encodeShareParams(shareSnapshot())}`;
+          url = `${SHARE_BASE}#${fragment}`;
+          // The same fragment the receiver's browser will hash on arrival, so
+          // both ends read the same three words off the same link.
+          name = shareNameFor(fragment, SHARE_WORDS);
         } catch {
           presetShare.textContent = 'Share failed';
           setTimeout(() => {
@@ -10514,17 +10565,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }, 2000);
           return;
         }
+        setShareName(name);
+        // A suggestion, never an overwrite: the link's own name is a better
+        // starting point than "Untitled" for the Save the user is about to do.
+        if (name && !presetName.value.trim()) presetName.value = name;
         try {
           await navigator.clipboard.writeText(url);
           presetShare.textContent = 'Link copied';
           if (shareNote) {
-            shareNote.textContent = 'Share link copied — it carries your settings, never any code.';
+            shareNote.textContent = name
+              ? `Share link copied — its name is ${name}. It carries your settings, never any code.`
+              : 'Share link copied — it carries your settings, never any code.';
             shareNote.hidden = false;
           }
         } catch {
           presetShare.textContent = 'Copy failed';
           if (shareNote) {
-            shareNote.textContent = `Copy this link: ${url}`;
+            shareNote.textContent = name
+              ? `Copy this link (${name}): ${url}`
+              : `Copy this link: ${url}`;
             shareNote.hidden = false;
           }
         }
@@ -10716,8 +10775,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           : '';
         shareNote.textContent = (routePreset
           ? `Loaded the ${routePreset.name} preset — Save to keep it.`
-          : 'Loaded shared preset — Save to keep it.') + madeNote;
+          : arrivedShareName
+            ? `Loaded ${arrivedShareName} — this link's name. Save to keep it.`
+            : 'Loaded shared preset — Save to keep it.') + madeNote;
         shareNote.hidden = false;
+      }
+      // v29: a link announces itself by name in the Share row too, and offers
+      // that name for the Save the note just asked for.
+      if (arrivedShareName) {
+        setShareName(arrivedShareName);
+        if (!presetName.value.trim()) presetName.value = arrivedShareName;
       }
       if (routePreset) presetName.value = routePreset.name;
 
@@ -12314,6 +12381,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* -- share links -- */
 
     .share-note {
+      overflow-wrap: anywhere;
+    }
+
+    /* v29 link name: an engraved read-out under the Share row. The line is
+       always in the layout (the value falls back to an em dash), so a name
+       arriving never moves the buttons above it — the same reserved-space rule
+       the dial rows follow. */
+    .share-name-row {
+      margin-bottom: 6px;
+      min-height: 22px;
+    }
+
+    .share-name-label {
+      color: var(--secondary);
+    }
+
+    .share-name-value {
+      color: var(--text);
+      font-size: 15px;
+      letter-spacing: 0.04em;
       overflow-wrap: anywhere;
     }
 

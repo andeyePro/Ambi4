@@ -311,6 +311,27 @@ try {
 }
 window.devicePixelRatio = 1;
 
+// v29 share names: jsdom ships no Clipboard API, and the page's Share button
+// is the only way to see the name a link gets. The stub records what was
+// copied, which is also how the gate below gets hold of the fragment.
+const clipboard = { text: '' };
+installClipboard(window);
+
+function installClipboard(win) {
+  const stub = {
+    writeText: (text) => {
+      clipboard.text = String(text);
+      return Promise.resolve();
+    },
+  };
+  try {
+    win.navigator.clipboard = stub;
+    if (win.navigator.clipboard !== stub) throw new Error('read-only');
+  } catch {
+    Object.defineProperty(win.navigator, 'clipboard', { configurable: true, value: stub });
+  }
+}
+
 // Copy the DOM globals the bundle expects onto this realm. The bundle is a
 // plain ES module: Node executes it, so `document`/`window` have to be here.
 const passthrough = [
@@ -344,6 +365,21 @@ const engineModule = await import(
 );
 const REGISTRY_TRACKS = typeof engineModule.getTracks === 'function' ? engineModule.getTracks() : [];
 const REGISTRY_IDS = REGISTRY_TRACKS.map((track) => track.id);
+
+// --------------------------------------------------------------------------
+// Share names (v29)
+// --------------------------------------------------------------------------
+// The name a link shows is recomputed HERE, from source, over the fragment the
+// page actually produced — the gate is that the two agree. tests/
+// share-name-smoke.mjs proves the arithmetic itself; this proves the page is
+// wired to it, at both ends of a link.
+
+const shareNameModule = await import(
+  pathToFileURL(join(repoRoot, 'src/scripts/share-name.js')).href
+);
+const SHARE_POOL = shareNameModule.wordPoolFrom(
+  JSON.parse(readFileSync(join(repoRoot, 'src/data/wordlist.json'), 'utf8'))
+);
 
 // --------------------------------------------------------------------------
 // Boot
@@ -1682,6 +1718,81 @@ try {
     }
   }
 
+  // ---- v29 share names, sending end ----------------------------------------
+  // Copying a link must show the link's three-word name: in the reserved line
+  // under the Share row, in the share note, and as the suggested preset name
+  // while the name box is still empty. The expected name is computed here from
+  // the copied fragment, so a page that shows A name but not THE name fails.
+  {
+    const shareButton = doc.getElementById('preset-share');
+    const nameValue = doc.getElementById('share-name-value');
+    const nameBox = doc.getElementById('preset-name');
+    const note = doc.getElementById('share-note');
+    if (!shareButton || !nameValue || !nameBox || !note) {
+      failures.push('the Share row has no #share-name-value read-out');
+    } else {
+      // Reserved space: the line is in the layout BEFORE any link exists, so
+      // a name appearing cannot push the buttons above it.
+      // (The Advanced panel itself is hidden while the Simple tab is up — the
+      // gate is that the NAME LINE never hides inside its own row.)
+      if (nameValue.hidden || nameValue.parentElement?.hidden) {
+        failures.push('the link-name line is hidden before a share — it must hold its space');
+      }
+      if (!nameValue.textContent.trim()) {
+        failures.push('the link-name line is empty before a share — it must hold its space');
+      }
+      nameBox.value = '';
+      clipboard.text = '';
+      shareButton.click();
+      const copied = await waitUntil(() => clipboard.text.includes('#'));
+      if (!copied) {
+        failures.push('clicking Share copied nothing to the clipboard');
+      } else {
+        const fragment = clipboard.text.slice(clipboard.text.indexOf('#') + 1);
+        const expected = shareNameModule.shareNameFor(fragment, SHARE_POOL);
+        if (!/^[a-z]+-[a-z]+-[a-z]+$/.test(expected)) {
+          failures.push(`the copied fragment produced no three-word name ("${expected}")`);
+        }
+        const shown = await waitUntil(() => nameValue.textContent.trim() === expected);
+        if (!shown) {
+          failures.push(
+            `the Share row shows "${nameValue.textContent.trim()}" for a link named "${expected}"`
+          );
+        }
+        if (!note.textContent.includes(expected)) {
+          failures.push(`the share note does not name the link: "${note.textContent}"`);
+        }
+        if (nameBox.value !== expected) {
+          failures.push(
+            `Share left the empty preset name as "${nameBox.value}" instead of suggesting "${expected}"`
+          );
+        }
+        // Deterministic: the same settings, shared again, is the same name.
+        clipboard.text = '';
+        shareButton.click();
+        const again = await waitUntil(() => clipboard.text.includes('#'));
+        const secondName = again
+          ? shareNameModule.shareNameFor(
+              clipboard.text.slice(clipboard.text.indexOf('#') + 1),
+              SHARE_POOL
+            )
+          : '';
+        if (secondName !== expected) {
+          failures.push(`sharing the same settings twice named "${expected}" then "${secondName}"`);
+        }
+        // A name the user has typed is theirs — Share must not overwrite it.
+        nameBox.value = 'My own name';
+        clipboard.text = '';
+        shareButton.click();
+        await waitUntil(() => clipboard.text.includes('#'));
+        if (nameBox.value !== 'My own name') {
+          failures.push(`Share overwrote a typed preset name with "${nameBox.value}"`);
+        }
+        nameBox.value = '';
+      }
+    }
+  }
+
   // ---- v27 blank slate (fromMartin 25) --------------------------------------
   // Clicking Blank slate must leave every track OFF — the "all you" state.
   // Runs LAST: it rewrites the whole params object, so it must follow every
@@ -1701,6 +1812,86 @@ try {
         const on = doc.querySelectorAll('.track-row:not([data-track-state="off"])').length;
         failures.push(`after Blank slate, ${on} track(s) are still not off`);
       }
+    }
+  }
+
+  // ---- v29 share names, receiving end --------------------------------------
+  // A `#p=` link must announce itself by the SAME three words its sender saw.
+  // Nothing in the first boot can show this — that page arrived with no
+  // fragment — so this is a second, deliberately minimal boot of the same
+  // bundle in a second jsdom, against a URL that carries a share link. It runs
+  // LAST because it swaps the DOM globals the bundle reads.
+  {
+    const payload = Buffer.from(JSON.stringify({ bpm: 71, reverb: 0.42 }), 'utf8').toString(
+      'base64url'
+    );
+    const expected = shareNameModule.shareNameFor(`p=${payload}`, SHARE_POOL);
+    const arrivalDom = new JSDOM(html, {
+      url: `https://ambi4.work/#p=${payload}`,
+      pretendToBeVisual: true,
+      runScripts: 'outside-only',
+    });
+    const arrivalWindow = arrivalDom.window;
+    const arrivalContexts = new WeakMap();
+    arrivalWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
+      let ctx = arrivalContexts.get(this);
+      if (!ctx) {
+        ctx = stubCanvasContext();
+        ctx.canvas = this;
+        arrivalContexts.set(this, ctx);
+      }
+      return ctx;
+    };
+    arrivalWindow.HTMLCanvasElement.prototype.toDataURL = () => 'data:,';
+    arrivalWindow.AudioContext = StubAudioContext;
+    arrivalWindow.OfflineAudioContext = undefined;
+    arrivalWindow.devicePixelRatio = 1;
+    installClipboard(arrivalWindow);
+    for (const key of passthrough) {
+      if (arrivalWindow[key] !== undefined) globalThis[key] = arrivalWindow[key];
+    }
+    globalThis.self = arrivalWindow;
+
+    try {
+      // The query is a cache-buster: Node caches an ES module by URL, and this
+      // boot needs the page's top-level code to run again against the new DOM.
+      await import(`${pathToFileURL(bundlePath).href}?share-arrival`);
+      const arrivalDoc = arrivalWindow.document;
+      const booted = await waitUntil(() => {
+        const el = arrivalDoc.getElementById('generator-app');
+        return Boolean(el) && !el.hidden;
+      }, 8000);
+      if (!booted) {
+        failures.push('the page did not boot on a #p= share link');
+      } else {
+        const note = arrivalDoc.getElementById('share-note');
+        const nameValue = arrivalDoc.getElementById('share-name-value');
+        const nameBox = arrivalDoc.getElementById('preset-name');
+        if (!note || note.hidden) {
+          failures.push('a #p= link arrived without the shared-preset note');
+        } else if (!note.textContent.includes(expected)) {
+          failures.push(
+            `an arriving link named "${expected}" announced itself as "${note.textContent}"`
+          );
+        }
+        if (!nameValue || nameValue.textContent.trim() !== expected) {
+          failures.push(
+            `the Share row shows "${nameValue ? nameValue.textContent.trim() : '(missing)'}" ` +
+              `for an arriving link named "${expected}"`
+          );
+        }
+        if (!nameBox || nameBox.value !== expected) {
+          failures.push(
+            `an arriving link left the preset name as "${nameBox ? nameBox.value : '(missing)'}" ` +
+              `instead of suggesting "${expected}"`
+          );
+        }
+        if (arrivalWindow.location.hash) {
+          failures.push('the share fragment was left in the URL after it was applied');
+        }
+      }
+    } catch (err) {
+      failures.push(`booting on a #p= share link threw: ${err && err.stack ? err.stack : err}`);
     }
   }
 

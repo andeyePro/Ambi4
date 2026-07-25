@@ -253,10 +253,17 @@ Front-page oscilloscope (Simple tab, under the piano roll)
 Share links (Advanced → Your presets)
 - [ ] "Share" copies a link to the clipboard and confirms on the button. Paste it
       somewhere: it starts `https://ambi4.work/#p=` and is a few KB long.
+- [ ] v29 link name: the "Link name" line under the Share row fills with three
+      words (`misty-harbour-lantern`), the note names the same three words, and
+      the Preset name box — if you left it empty — is filled with them too. A
+      name you had TYPED is left alone. Share the same setup twice: same name.
+      Change a dial and share again: a different name. Nothing above the line
+      moves when the name appears.
 - [ ] Open the link in a fresh window: the shared settings are live BEFORE
       anything is drawn (dials, tracks, sequencers, voice patches all match), a
-      note reads "Loaded shared preset — Save to keep it", and the `#p=…` has
-      been stripped from the address bar. Reload: your own stored settings are
+      note reads "Loaded misty-harbour-lantern — this link's name. Save to keep
+      it" with the SAME three words the sender saw, and the `#p=…` has been
+      stripped from the address bar. Reload: your own stored settings are
       back — a shared link is a visit, not a takeover, until you Save it.
 - [ ] Mangle the fragment (delete some characters) and open it: the page boots
       normally on your own settings, no error shown. Silence is correct here.

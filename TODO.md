@@ -38,7 +38,9 @@
 - [ ] Arrangement studio: MIDI capture, offline render, mastered binaural/lossless exports
 - [ ] Stereo recording tier polish (wav via offline render; webm live capture shipped free for now)
 - [ ] Standalone one-off-purchase Mac/iOS build (Tauri/Capacitor)
-- [ ] Three-random-word preset naming for free-tier shares
+- [x] Three-random-word preset naming for free-tier shares — shipped (deterministic
+      name per `#p=` link, shown at share time and on arrival; display only, no
+      registry — `ambi4.work/[name]` is still tier 2 above)
 
 ## Parked
 - [!] Playlists section (out of nav) — no AI art allowed; needs PD/CC0 imagery for all artists before revival

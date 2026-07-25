@@ -2,6 +2,19 @@
 
 ## 2026-07-25
 
+- [x] **v0.0.33 — three-word names for share links (free tier)** — every `#p=` link now has a
+  deterministic three-word name drawn from the 938-word vetted list
+  (`misty-harbour-lantern`): FNV-1a/32 over the fragment payload, three frozen seeds,
+  murmur3 finaliser, indices made distinct — no clock, no randomness, no server, so the
+  sender and the receiver read the same three words off the same link forever. Shown
+  when the link is copied (reserved line under the Share row, in the share note, and
+  offered as the preset name only while that box is empty) and again when a link
+  arrives. Display only — a handle for a wall of base64, not a claim: `ambi4.work/[name]`
+  stays the paid registry tier. New module `src/scripts/share-name.js` +
+  `tests/share-name-smoke.mjs` (13 checks), 5 new page-boot gates covering both ends of
+  a link (the receiving end is a second jsdom boot against a real share URL); 4/4
+  mutation checks bit. Contract v29 addendum.
+
 - [x] **v0.0.32 — play the instrument: live play-along + capture** — engine noteOn/noteOff/allNotesOff through each track's existing chain (custom tracks included, stopped or playing, never perturbing the deterministic stream — proven byte-identical over 3 seeds); QWERTY two-row keyboard with octave shift that never captures while typing; feature-detected Web MIDI on the same seam; Capture arms a take and quantises rhythm/velocity/length into the track's sequencer with one-click Undo (pitches follow the piece's harmony — step lanes hold no pitch, stated honestly in the UI). Transport row probe-gated; engine 211→222; ~20 new page-boot checks incl. a mocked MIDI device; 9/9 mutation checks bit. Free tier. Contract v28 addendum.
 
 - [x] **v0.0.31 — custom tracks SHIP (registry commit 4/4)** — instrument manifests (sanitised, range-derived dials, code-shaped content rejected whole, zero-dial manifests refused, engine.getTrackManifest accessor) + the Add Track UI: name-and-family form, live rows built by the same wiring as the built-in six (pre-mortem blocker 4 cleared by extraction), kit grids for percussive user tracks, remove on user tracks only, --track-user-1…6 CVD-searched palette, genre/Blank-slate keep user tracks. Also fixed: a stored setup carrying userTracks would have blank-paged init. Engine 208→211, +3 page-boot gates, byte-identity clean, all suites green. Custom tracks are free-tier.
