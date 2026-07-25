@@ -5,6 +5,7 @@ interface Props {
 }
 const { title, description = 'Customisable endless music generated just for you, to help you work.' } = Astro.props;
 import '../styles/global.css';
+import pkg from '../../package.json';
 
 const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
 // Playlists parked 2026-07-25 (imagery + artist range being rebuilt) — page stays
@@ -24,7 +25,7 @@ try {
   buildSha = '';
 }
 const buildDate = new Date().toISOString().slice(0, 10);
-const buildStamp = buildSha ? `build ${buildDate} ${buildSha}` : `build ${buildDate}`;
+const buildStamp = `v${pkg.version} · ${buildDate}${buildSha ? ' ' + buildSha : ''}`;
 ---
 <html lang="en-gb">
   <head>
