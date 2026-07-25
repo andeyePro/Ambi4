@@ -7094,6 +7094,368 @@ test('v23 byte-identity: with no user tracks the seeded note stream is unchanged
   }));
 
 // --------------------------------------------------------------------------
+// addTrack / removeTrack / canAddTrack (v23) — the API over commit 2
+//
+// Sugar, and nothing but: every one of these writes params.userTracks and lets
+// the sanitiser and syncTracks do what a hand-written blob already made them
+// do. What the API owes on top is a probe a button can be disabled from, an id
+// a caller need not invent, a fault code a caller can act on, and an opening
+// grid that sounds like a decision.
+// --------------------------------------------------------------------------
+
+/** A well-formed addTrack spec, overridable field by field. */
+const addSpec = (extra = {}) => ({ label: 'Drone', family: 'melodic', voiceSet: 'pad', ...extra });
+
+/** Which slots of a lane are on, as a string of 1s and 0s. */
+const laneMask = (lane) => lane.map((step) => (step.on ? 1 : 0)).join('');
+
+test('v23 addTrack: canAddTrack answers with the code addTrack throws', () => {
+  const engine = createEngine();
+  // The probe a control has before the user has typed anything: is there room.
+  assert.equal(engine.canAddTrack(), null, 'an empty engine has room');
+  assert.equal(engine.canAddTrack(addSpec()), null);
+
+  const faults = [
+    // A malformed shape is a malformed id: there is nothing else to name it by.
+    [null, 'bad-id'], ['nope', 'bad-id'], [[], 'bad-id'],
+    [addSpec({ id: 'Drone' }), 'bad-id'],
+    [addSpec({ id: 'a' }), 'bad-id'],
+    [addSpec({ id: 'my#track' }), 'bad-id'],
+    [addSpec({ id: 7 }), 'bad-id'],
+    [addSpec({ id: 'pad' }), 'reserved-id'],
+    [addSpec({ id: 'auto' }), 'reserved-id'],
+    [addSpec({ label: '   ' }), 'bad-label'],
+    [addSpec({ label: 42 }), 'bad-label'],
+    [{ family: 'melodic' }, 'bad-label'],
+    [addSpec({ family: 'tuned' }), 'bad-family'],
+    [addSpec({ family: undefined }), 'bad-family'],
+    [addSpec({ voiceSet: 'nonesuch' }), 'bad-voice-set'],
+    // A kit needs the drum voices, and a pitched line has nothing to say
+    // through them — the pairing rule the stored shape keeps too.
+    [addSpec({ family: 'percussive', voiceSet: 'pad' }), 'bad-voice-set'],
+    [addSpec({ family: 'melodic', voiceSet: 'percussion' }), 'bad-voice-set'],
+    // The sanitiser tolerates an unusable colour because it reads STORED data;
+    // an API call is a bug in the caller, and gets told so.
+    [addSpec({ colourToken: '--Bad' }), 'bad-colour-token'],
+    [addSpec({ colourToken: 'red' }), 'bad-colour-token'],
+  ];
+  for (const [spec, code] of faults) {
+    assert.equal(engine.canAddTrack(spec), code, `${JSON.stringify(spec)} → ${code}`);
+    assert.throws(() => engine.addTrack(spec), (error) => error instanceof TypeError
+      && error.code === code && typeof error.message === 'string' && error.message.length > 0,
+    `addTrack must throw ${code} for ${JSON.stringify(spec)}`);
+  }
+  // The probe must never throw, whatever it is handed.
+  for (const junk of [0, NaN, true, () => {}, Symbol('x')]) {
+    assert.equal(typeof engine.canAddTrack(junk), 'string', `canAddTrack(${String(junk)}) must answer`);
+  }
+  assert.deepEqual(engine.getParams().userTracks, [], 'a refused spec must leave nothing behind');
+
+  engine.addTrack(addSpec({ id: 'drone' }));
+  assert.equal(engine.canAddTrack(addSpec({ id: 'drone' })), 'duplicate-id');
+  assert.throws(() => engine.addTrack(addSpec({ id: 'drone' })), (e) => e.code === 'duplicate-id');
+});
+
+test('v23 addTrack: the twelfth track is the last one', () => {
+  const engine = createEngine();
+  for (let i = 1; i <= 6; i++) {
+    assert.equal(engine.canAddTrack(addSpec()), null, `there must be room for user track ${i}`);
+    assert.equal(engine.addTrack(addSpec({ label: `Track ${i}` })).id, `track-${i}`);
+    assert.equal(engine.getTracks().length, TRACK_ORDER.length + i);
+  }
+  assert.equal(engine.getTracks().length, 12, 'six built-ins and six of the user\'s own');
+  assert.equal(engine.canAddTrack(), 'cap');
+  assert.equal(engine.canAddTrack(addSpec()), 'cap');
+  // Full is the fault to report first: a user staring at a rejected name cannot
+  // fix the real problem, which is that there is no room for any name.
+  assert.equal(engine.canAddTrack(addSpec({ id: 'Bad' })), 'cap');
+  assert.throws(() => engine.addTrack(addSpec()), (error) => error instanceof RangeError
+    && error.code === 'cap', 'the cap is a RangeError, not a TypeError');
+
+  // And removing one makes room again, without disturbing the rest.
+  assert.equal(engine.removeTrack('track-3'), true);
+  assert.equal(engine.canAddTrack(addSpec()), null);
+  assert.equal(engine.addTrack(addSpec({ label: 'Late' })).id, 'late');
+  assert.deepEqual(engine.getTracks().map((t) => t.id).slice(TRACK_ORDER.length),
+    ['track-1', 'track-2', 'track-4', 'track-5', 'track-6', 'late'],
+    'creation order survives a removal in the middle');
+});
+
+test('v23 addTrack: an id the caller did not invent cannot collide', () => {
+  const engine = createEngine();
+  // The label, lowercased and hyphenated — the same label always lands on the
+  // same id, so a caller can predict one without being made to supply it.
+  assert.equal(engine.addTrack(addSpec({ label: 'Deep Drone!' })).id, 'deep-drone');
+  assert.equal(engine.addTrack(addSpec({ label: '  Deep  Drone  ' })).id, 'deep-drone-2',
+    'a taken id is suffixed, never overwritten');
+  assert.equal(engine.addTrack(addSpec({ label: '****' })).id, 'track',
+    'a label of pure punctuation still deserves a track');
+  // A built-in and a reserved word are as taken as a user track is.
+  assert.equal(engine.addTrack(addSpec({ label: 'Pad' })).id, 'pad-2');
+  assert.equal(engine.addTrack(addSpec({ label: 'Auto' })).id, 'auto-2');
+  assert.equal(engine.addTrack(addSpec({ label: 'x'.repeat(40) })).id, 'x'.repeat(24),
+    'a generated id is cut to the grammar\'s 24 characters');
+  for (const view of engine.getTracks()) {
+    assert.ok(/^[a-z][a-z0-9-]{1,23}$/.test(view.id), `${view.id} is not a legal id`);
+  }
+  assert.equal(new Set(engine.getTracks().map((t) => t.id)).size, 12, 'every id is distinct');
+
+  // An id the caller DID supply is taken exactly as given.
+  const fresh = createEngine();
+  assert.equal(fresh.addTrack(addSpec({ id: 'my-track', label: 'Anything' })).id, 'my-track');
+});
+
+test('v23 addTrack: a new track opens on the beat, not on every sixteenth', () => {
+  const engine = createEngine();
+  const drone = engine.addTrack(addSpec({ label: 'Drone' })).id;
+  const kit = engine.addTrack(addSpec({ label: 'Kit', family: 'percussive', voiceSet: 'percussion' })).id;
+  const params = engine.getParams();
+
+  // One hit per quarter-note beat. A track that opened on the stock lane would
+  // sound sixteen notes a bar before its maker had chosen anything.
+  assert.equal(laneMask(params.tracks[drone].sequencer.steps), '10001000100010001000');
+  assert.equal(laneMask(params.tracks[kit].sequencer.steps.low), '10001000100010001000');
+  for (const lane of ['mid', 'high']) {
+    assert.equal(laneMask(params.tracks[kit].sequencer.steps[lane]), '0'.repeat(SEQUENCER_STEP_COUNT),
+      'a kit opens with one voice on the beat, not three at once');
+  }
+  // Everything else about the step is the stock step: only `on` is the ruling.
+  for (const step of params.tracks[drone].sequencer.steps) {
+    assert.equal(step.prob, 1);
+    assert.equal(step.vmin, 0.5);
+    assert.equal(step.vmax, 0.9);
+  }
+
+  // The ADD PATH alone. A stored blob keeps whatever it says, so a preset
+  // written before this ruling loads exactly as it was saved.
+  const stored = sanitiseParams({ userTracks: [userTrack('drone')] });
+  assert.equal(laneMask(stored.tracks.drone.sequencer.steps), '1'.repeat(SEQUENCER_STEP_COUNT),
+    'the sanitiser must not have learned the opening pulse');
+  assert.equal(laneMask(DEFAULT_PARAMS.tracks.percussion.sequencer.steps.low),
+    '1'.repeat(SEQUENCER_STEP_COUNT), 'no built-in default may have moved');
+});
+
+test('v23 addTrack: the new track arrives on every surface, with a built-in\'s defaults', () => {
+  const engine = createEngine();
+  const view = engine.addTrack(addSpec({ label: 'Deep Drone' }));
+  assert.deepEqual(Object.keys(view), ['id', 'label', 'builtin', 'colourToken', 'family'],
+    'addTrack returns the public view, five keys and no sixth');
+  assert.ok(Object.isFrozen(view));
+  assert.deepEqual(view, {
+    id: 'deep-drone', label: 'Deep Drone', builtin: false,
+    colourToken: '--track-user-1', family: 'melodic',
+  });
+  assert.equal(engine.getTracks().at(-1), view, 'the returned view IS the one in the list');
+
+  const order = [...TRACK_ORDER, 'deep-drone'];
+  assert.deepEqual(Object.keys(engine.getParams().tracks), order);
+  assert.deepEqual(Object.keys(engine.getStats().perTrack), order);
+  assert.deepEqual(Object.keys(engine.getResolved().tracks), order);
+  assert.deepEqual(Object.keys(engine.getAnalysers()), [...order, 'total']);
+  assert.deepEqual(engine.getParams().userTracks, [{
+    id: 'deep-drone', label: 'Deep Drone', family: 'melodic',
+    voiceSet: 'pad', colourToken: '--track-user-1',
+  }]);
+
+  // The same defaults a stored entry gets — addTrack seeds nothing of its own
+  // beyond the opening grid.
+  const track = engine.getParams().tracks['deep-drone'];
+  assert.equal(track.state, 'on', 'the user just made it — it should sound');
+  assert.equal(track.voice, DEFAULT_PARAMS.tracks.pad.voice);
+  assert.equal(track.level, 0.8);
+  assert.deepEqual(track.randomness, { min: 0.35, max: 0.65 });
+  assert.equal(track.driftRate, 1);
+  assert.equal(track.swing, null);
+  assert.equal(track.density, null);
+  assert.equal(track.hold, false);
+  assert.equal(track.mono, false);
+  assert.equal(track.glide, 0);
+  assert.equal(track.dissonance, 0);
+  assert.deepEqual(track.vary, Object.fromEntries(VARY_ASPECTS.map((a) => [a, null])));
+
+  // An absent voiceSet follows the family, so a control that asks for a name
+  // and a kind is a complete caller.
+  const kit = engine.addTrack({ label: 'Kit', family: 'percussive' });
+  assert.equal(engine.getParams().userTracks[1].voiceSet, 'percussion');
+  assert.equal(kit.colourToken, '--track-user-2', 'colours follow creation order');
+  assert.deepEqual(engine.getParams().tracks.kit.lanes.map((lane) => lane.id), [...PERCUSSION_LANES]);
+  const chosen = engine.addTrack(addSpec({ label: 'Mine', colourToken: '--my-colour' }));
+  assert.equal(chosen.colourToken, '--my-colour', 'a colour the caller chose is kept');
+});
+
+test('v23 removeTrack: built-ins throw, unknown ids are false twice', () => {
+  const engine = createEngine();
+  engine.addTrack(addSpec({ id: 'drone', label: 'Drone' }));
+
+  for (const name of TRACK_ORDER) {
+    assert.throws(() => engine.removeTrack(name), (error) => error instanceof Error
+      && !(error instanceof TypeError) && error.code === 'builtin',
+    `${name} is a built-in: removing it is a programming fault, not a user outcome`);
+  }
+  assert.deepEqual(Object.keys(engine.getParams().tracks).length, 7, 'nothing may have gone');
+
+  // Idempotent: an id this engine does not have is false, not a throw, however
+  // many times it is asked.
+  for (const unknown of ['ghost', '', 'Drone', null, undefined, 7, {}]) {
+    assert.equal(engine.removeTrack(unknown), false, `${String(unknown)} must be a quiet false`);
+    assert.equal(engine.removeTrack(unknown), false);
+  }
+  assert.equal(engine.removeTrack('drone'), true);
+  assert.equal(engine.removeTrack('drone'), false, 'the second removal is not an error');
+  assert.deepEqual(engine.getParams().userTracks, []);
+  assert.deepEqual(Object.keys(engine.getParams().tracks), [...TRACK_ORDER]);
+});
+
+test('v23 addTrack/removeTrack: getParams round-trips through the API', () => {
+  const engine = createEngine();
+  engine.addTrack(addSpec({ label: 'Drone' }));
+  engine.addTrack(addSpec({ label: 'Kit', family: 'percussive', voiceSet: 'percussion' }));
+  engine.setParams({ tracks: { drone: { level: 0.42 } } });
+  engine.setParams({ patches: { drone: { warm: { filter: { cutoff: 900 } } } } });
+
+  // What getParams() hands out reloads into a second engine unchanged: the API
+  // writes nothing a stored blob cannot carry.
+  const saved = engine.getParams();
+  const loaded = createEngine(saved);
+  assert.deepEqual(loaded.getParams(), saved, 'a saved API-built engine must reload verbatim');
+  assert.deepEqual(loaded.getTracks().map((t) => t.id), engine.getTracks().map((t) => t.id));
+  assert.equal(loaded.getParams().tracks.drone.level, 0.42);
+  assert.equal(laneMask(loaded.getParams().tracks.drone.sequencer.steps), '10001000100010001000',
+    'the opening grid travels as ordinary params');
+
+  // And a removal leaves nothing behind for the next save to carry.
+  engine.removeTrack('drone');
+  const after = engine.getParams();
+  assert.deepEqual(after.userTracks.map((t) => t.id), ['kit']);
+  assert.equal('drone' in after.tracks, false);
+  assert.equal('drone' in after.patches, false);
+  assert.deepEqual(createEngine(after).getParams(), after);
+});
+
+test('v23 addTrack/removeTrack: a tracks event announces every registry change', () => {
+  const engine = createEngine();
+  const seen = [];
+  const off = engine.on('tracks', (payload) => seen.push(payload));
+
+  const view = engine.addTrack(addSpec({ label: 'Drone' }));
+  assert.equal(seen.length, 1, 'addTrack must announce the new registry');
+  assert.equal(seen[0].tracks, engine.getTracks(), 'the payload IS the list getTracks() returns');
+  assert.equal(seen[0].tracks.at(-1), view);
+
+  // An ordinary edit is not a registry change, however much of the track it
+  // touches: a consumer that re-renders its rows on this must not be woken by
+  // a level drag.
+  engine.setParams({ tracks: { drone: { level: 0.3 } } });
+  engine.setParams({ bpm: 100 });
+  assert.equal(seen.length, 1, 'a params edit that adds and removes nothing must stay quiet');
+
+  // A params-driven change is a registry change too — loading a preset that
+  // carries user tracks, which no UI can poll for.
+  engine.setParams({ userTracks: [...engine.getParams().userTracks, userTrack('extra')] });
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen[1].tracks.map((t) => t.id), [...engine.getTracks().map((t) => t.id)]);
+
+  engine.removeTrack('drone');
+  assert.equal(seen.length, 3, 'removeTrack must announce too');
+  assert.equal(seen[2].tracks.map((t) => t.id).includes('drone'), false);
+  assert.equal(engine.removeTrack('drone'), false);
+  assert.equal(seen.length, 3, 'a removal that removed nothing announces nothing');
+
+  off();
+  engine.addTrack(addSpec({ label: 'Quiet' }));
+  assert.equal(seen.length, 3, 'the unsubscribe handle must work here as everywhere');
+});
+
+test('v23 addTrack: a track added mid-playback sounds from the next bar and rings out on removal',
+  () => hiddenTab(async () => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+      customStructure: [{ label: 'D', bars: 24, intensity: 1 }],
+      // The built-ins silent, so any note still sounding after the removal can
+      // only be one of the added track's own.
+      tracks: tracksAll('off'),
+    }, { rng: seededRng(2307) });
+    const log = record(engine);
+    await engine.start();
+    await advance(4, FAST);
+
+    const ctx = liveContexts[liveContexts.length - 1];
+    const bus = reverbBus(ctx);
+    const sends = () => ctx.nodes.filter((n) => n.kind === 'gain' && n.connections.includes(bus));
+    assert.equal(sends().length, TRACK_ORDER.length);
+
+    const madeAt = ctx.currentTime;
+    const view = engine.addTrack(addSpec({ label: 'Drone' }));
+    // The chain is built at once: a note reaching a track with no graph node is
+    // a TypeError inside the scheduler's lookahead, which stops the piece.
+    assert.equal(sends().length, TRACK_ORDER.length + 1, 'the added track got no chain');
+    assert.ok(engine.getAnalysers().drone, 'the added track got no analyser');
+    // Loud enough to judge, on the grid addTrack chose for it.
+    engine.setParams({ tracks: { drone: { level: 1, randomness: 0 } } });
+
+    const heard = () => log.notes.filter((note) => note.track === view.id);
+    assert.ok(await advanceUntil(() => heard().length > 8, 48, FAST), 'the added track never sounded');
+    assert.ok(heard().every((note) => note.time >= madeAt), 'it sounded before it existed');
+
+    const SETTLED = { step: 0.05, sleep: 20 };
+    await advance(0.6, SETTLED);
+    const sounded = heard().length;
+    const chain = sends()[TRACK_ORDER.length];
+    assert.equal(engine.removeTrack('drone'), true);
+
+    // Params drop on the same tick; the SOUND does not. Cutting a ringing note
+    // is the click the 50 ms-fade rule exists to prevent.
+    assert.equal('drone' in engine.getParams().tracks, false);
+    assert.equal(engine.getAnalysers().drone, undefined);
+    assert.equal(sends().length, TRACK_ORDER.length + 1,
+      'the chain was cut while its notes were still ringing');
+    assert.ok(await advanceUntil(() => engine.getStats().totalActiveNotes > 0, 4, SETTLED),
+      'nothing of the removed track ever rang, so the ring-out is untested');
+    assert.equal(sends().length, TRACK_ORDER.length + 1, 'the chain was cut mid-note');
+
+    await advance(20, FAST);
+    assert.equal(heard().length, sounded, 'a removed track kept being scheduled');
+    assert.equal(sends().length, TRACK_ORDER.length, 'the retired chain was never dropped');
+    assert.ok(chain.disconnects.length, 'the retired send was never disconnected');
+    engine.stop();
+  }));
+
+test('v23 byte-identity: adding and removing through the API leaves the built-ins alone',
+  () => hiddenTab(async () => {
+    const play = async (before) => {
+      const engine = createEngine({
+        bpm: 120, speed: 2, complexity: 0.7, repetition: 0.4, structure: 'journey',
+        tracks: tracksAll('on'),
+      }, { rng: seededRng(2308) });
+      if (before) before(engine);
+      const log = record(engine);
+      await engine.start();
+      await advance(20, FAST);
+      engine.stop();
+      return log.notes.map((note) => [note.track, note.midi, note.kind, note.lane,
+        tick(note.time), tick(note.duration), note.velocity].join('|'));
+    };
+
+    const plain = await play(null);
+    // The same piece on an engine the API has churned: validating a spec,
+    // generating an id, building a chain and tearing it down must not draw a
+    // single rng(), and the layer must be back on the module's own frozen lists.
+    const churned = await play((engine) => {
+      assert.equal(engine.canAddTrack(addSpec()), null);
+      const view = engine.addTrack(addSpec({ label: 'Drone' }));
+      engine.addTrack(addSpec({ label: 'Kit', family: 'percussive', voiceSet: 'percussion' }));
+      assert.equal(engine.removeTrack(view.id), true);
+      assert.equal(engine.removeTrack('kit'), true);
+      assert.deepEqual(engine.getTracks(), getTracks());
+    });
+
+    const shared = Math.min(plain.length, churned.length);
+    assert.ok(shared > 200, `only ${shared} shared notes — too few to judge`);
+    assert.deepEqual(churned.slice(0, shared), plain.slice(0, shared),
+      'an added-and-removed user track changed the six built-ins\' note stream');
+  }));
+
+// --------------------------------------------------------------------------
 // v26 — the hook seed, the master analyser tap, pause
 // --------------------------------------------------------------------------
 
