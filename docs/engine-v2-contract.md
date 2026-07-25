@@ -796,3 +796,31 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
   the close mark again (or the open mark to cancel). Engine API:
   engine.setLoopRegion(startBar, endBar) / engine.clearLoopRegion(); visualiser
   draws the brackets + dims bars outside; 'bar' events carry loop info.
+
+---
+
+# v16 addendum (overnight wave 2)
+
+- Factory presets move to src/data/factory-presets.json (page imports it):
+  [{slug, name, oneLiner, rationale, params}] — psychology-informed (arousal/
+  tempo mapping vs use-case; rationale field documents the reasoning, shown as
+  a tooltip). Slugs are URL-safe.
+- Preset URL routes: ambi4.work/[slug] for every factory preset (Astro static
+  route per slug from the JSON — src/pages/[preset].astro with getStaticPaths;
+  loads the generator with that preset applied, canonical → /). User presets
+  stay #p= links.
+- Presets gallery moves BELOW the Simple dials (both tabs keep access).
+- Knob push-through: in range mode, dragging min above max PUSHES max along
+  (and max below min pushes min down) — replaces cross-clamping; allowRange
+  becomes the default for every continuous dial (single-value params just
+  collapse identically; discrete/stepped dials excluded).
+- Piano roll: simultaneous notes in one lane get vertical offset slots
+  (alternating high/low, up to 4 positions) so chord blips never overlap.
+- Block editor v1 (src/scripts/blocks.js, own module): Scratch-style block
+  surface for PATTERNS (not arbitrary code): palette of step/tie/group/
+  probability/velocity-band/lane blocks; drag to arrange; "tie to beat N [of
+  lane L]" blocks link beats (compiles to sequencer step.tie + group chains);
+  compiles to tracks[t].sequencer(s) params via a pure toParams()/fromParams()
+  round-trip; page hosts it behind the code-block icon on sequencer panels
+  (v13 entry: block icon → blocks; >_ stays reserved for the future JS editor).
+  Fully keyboard operable; no external libs.
