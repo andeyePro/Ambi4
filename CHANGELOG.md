@@ -2,6 +2,8 @@
 
 ## 2026-07-25
 
+- [x] **v0.0.34 — the guided tour tells the truth again** — TUTORIAL_STEPS rewritten 10→14 for the shipped product (genres + Surprise me + favourites + Pause/Next, play-along + Capture, spread/fullscreen displays, Add Track, share flow with its three-word name); the closing step's stale claims corrected. New tutorial-smoke suite (every step's target resolves to exactly one element in the BUILT page, tabs real, copy brand-free UK English, arc Simple→Advanced→share; 8 checks + 8 mutations bit) + a page-boot tutorial gate for script-built targets. TODO: greyed paid-button item struck as superseded by the hidden-until-purchasable rule.
+
 - [x] **v0.0.33 — three-word names for share links (free tier)** — every `#p=` link now has a
   deterministic three-word name drawn from the 938-word vetted list
   (`misty-harbour-lantern`): FNV-1a/32 over the fragment payload, three frozen seeds,

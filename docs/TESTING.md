@@ -75,6 +75,40 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   every first-time visitor: nothing is persisted before consent is granted, every
   track row builds a randomness control, and no dial read-out comes up NaN
   (the failure mode when a param arrives as a `{min,max}` range default).
+- Guided tour — every step of `TUTORIAL_STEPS` rings a control that exists,
+  exactly once, in the BOOTED document, and switches to a tab the page has.
+  This is the half `tutorial-smoke` cannot reach: the targets the page script
+  builds itself (Add track) are absent from the markup.
+
+## The suites
+
+Every one runs on a bare `node`, no bundler and no test runner. Counts are as of
+v0.0.33 — a suite that suddenly reports fewer checks has lost tests, which is a
+failure in itself.
+
+```
+node tests/engine-smoke.mjs        # 222 — engine core against a mock AudioContext
+node tests/voices-smoke.mjs        # 283 — the voice library
+node tests/genre-smoke.mjs         #  29 — genre compiler + every genre played
+node tests/knobscope-smoke.mjs     # 106 — knob.js + scope.js
+node tests/visualiser-smoke.mjs    #  45 — piano roll
+node tests/blocks-smoke.mjs        #  41 — structure blocks
+node tests/power-smoke.mjs         #  12 — the governor
+node tests/prefs-smoke.mjs         #  22 — consent + persistence
+node tests/share-name-smoke.mjs    #  13 — three-word link names
+npm run build && node tests/tutorial-smoke.mjs   # 8 + 8 mutations — the guided tour
+npm run build && node tests/page-boot.mjs        # the built page in jsdom (above)
+```
+
+`tutorial-smoke` reads `TUTORIAL_STEPS` out of `src/pages/index.astro` and checks
+it against the BUILT page: every target resolves to exactly one element (an
+ambiguous selector rings whichever came first, so two matches fail as loudly as
+none), every `tab` is a tab the page renders, no two steps ring the same control,
+the arc runs Simple → Advanced and closes on sharing, and the copy is non-empty,
+plain text, UK-spelled and free of brand names. It carries its own mutation
+checks — a bogus selector, an ambiguous one, an unknown tab, a duplicate target,
+empty copy, a brand name, a US spelling and a step that sends a newcomer back to
+Simple all have to be caught, or the gate is not a gate.
 
 Tester: Martin, Mac (Chrome or Safari) + iPhone Safari. URL: https://ambi4.work (deploys from main ~2 min after push — check the commit you expect is live before starting). Start with device volume MODEST — new voices are untested at loud levels.
 
