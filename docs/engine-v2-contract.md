@@ -693,3 +693,68 @@ boolean `motif` field (true iff the bar's notes derive from the current cell);
 `note.legatoFrom = {freq, handle, glide}` with glide in SECONDS, and a takeover
 handle marks `handle.legato === true`. Bass vary.voice defaults to 0 (wind-report
 fix); pad/texture stay 0.15. Patch detune is now -50..50, octave -2..2.
+
+## v13 addition (04:4xZ)
+- Click-to-type on ALL numeric readouts (knob values incl. range min/max, BPM,
+  structure bars, timer minutes, step values): click swaps readout for an input;
+  Enter/blur commits through the same clamp/sanitise path as the control; Esc
+  cancels; keyboard reachable (readouts become buttons). Zero idle cost.
+
+---
+
+# v14 addendum (the "deliver everything" run, 2026-07-25 ~04:50Z)
+
+USER VERDICTS: melody default state becomes 'auto' (user-authorised). Bass FAILED the
+gate — "it's a rhythm instrument, not a low-pitch random": bass rework = groove-led:
+a per-section rhythmic PATTERN with real identity (anchor pulse + syncopation cells,
+locked to percussion's low lane where active), root-note discipline unchanged, note
+lengths/gates shaping groove (staccato/held mix), pattern develops like the motif
+system (variation of a stated groove, not re-rolls). Stays default-off until the user
+passes it.
+
+DEFECT (high priority): defaults can fall silent for long stretches. Fix with a
+musical floor: at least one track audibly sounding at all times at default params —
+pad breathing rests capped (never >1 bar of total silence; texture or pad must cover
+gaps), auto-activation never drops below 1 active track, staging never yields an
+empty bar after bar 0.
+
+Simple tab: single labelling — dial label once, end-marks say Slow/Fast (etc.) at
+the tick extremes; remove the duplicated above-dial end-label text.
+
+Random+Hold merge (ships now, was v13): remove both buttons; tracks get ONE row;
+randomness dial 0 = hold (loop current material exactly); Hold param stays engine-
+side (UI writes hold=true iff randomness===0 or maps continuously — engine keeps
+both, UI drives them from the one dial). Keep engine.randomise() API for power use.
+
+Knob interaction v2: range mode editing = drag INSIDE the dial circle for min,
+OUTSIDE (ring/beyond) for max (replaces Shift); all range-capable dials get it.
+Click-to-type on every numeric readout (v13 spec).
+
+Track colours: theme defines --track-pad/-arp/-melody/-bass/-texture/-percussion
+(AA in both themes); used in visualiser lanes, lamps, row accents, editor accents.
+Track ORDER everywhere: pad, arp, melody, bass, texture, percussion.
+
+Visualiser: lane name = clickable lamp (auto grey/on white/off black) in Simple and
+Advanced; bar labels show the CHORD NAME (engine emits 'chord' event {name, midis,
+bar, time}); section label secondary.
+
+Dissonance: tracks[t].dissonance 0-1 RangeValue (tuned tracks only; default 0) —
+permitted deviation from the group chord (passing/neighbour tones at low values,
+borrowed tones higher). Call-and-response: hook/motif statements can alternate
+between two chosen instruments (engine picks pairs in auto; param later).
+
+Live readouts: dials show the currently-resolved drifting value (≤4 Hz poll via
+getParams + resolved-values accessor engine.getResolved?.() — engine may expose it
+cheaply). Editor follows the SOUNDING voice (wander switches the visible dial set).
+
+Power governor (v9 ships now): src/scripts/power.js + Processor dial (Eco-Full+Auto)
++ per-track cost meters from getStats(); auto-tier from PressureObserver/frame-time.
+Factory presets: 6-10 curated snapshots in the page (name + one-liner), fully
+editable after load. Footer build stamp (short SHA + build date).
+
+Sequencer 2.0 (engine + page): fat velocity-top hit zones; drag-across-cells merges
+into tied notes (step gains `tie`); probability GROUPS (dot row, colour-coded;
+in-group conditional multiplication — a note's effective prob scales by whether the
+group's previous note sounded); MULTIPLE sequencers per track with end-of-loop
+transition probabilities (Markov chain; add copies current; engine param
+tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [0]).
