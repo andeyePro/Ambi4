@@ -444,6 +444,104 @@ function sanitiseUserTracks(value, base) {
   return list;
 }
 
+/**
+ * Why `addTrack` would refuse this spec, as one of the contract's codes, or
+ * null when it would take it. Pure, allocates nothing beyond the answer, and
+ * makes no decision the add path then makes differently — `canAddTrack` IS
+ * this function, so the probe a UI disables its button from can never disagree
+ * with the call it guards.
+ *
+ * `taken` is the set of ids already spoken for: this engine's user tracks. The
+ * reserved ones are checked separately so the caller gets `reserved-id` rather
+ * than `duplicate-id` for a built-in.
+ *
+ * Two fields are OPTIONAL here and required by the sanitiser, which is not an
+ * inconsistency: `sanitiseUserTracks` reads stored data that must survive a
+ * round trip byte for byte, while this reads a UI's request and may fill a
+ * blank in. An id that is ABSENT is generated (see `uniqueTrackId`); an id that
+ * is PRESENT and malformed is still a fault. Same for `voiceSet`, whose only
+ * sensible value for a kit is the kit bank.
+ */
+function userTrackFault(spec, taken) {
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return 'bad-id';
+  if (spec.id !== undefined) {
+    if (typeof spec.id !== 'string' || !USER_TRACK_ID.test(spec.id)) return 'bad-id';
+    if (RESERVED_TRACK_IDS.includes(spec.id)) return 'reserved-id';
+    if (taken.has(spec.id)) return 'duplicate-id';
+  }
+  if (typeof spec.label !== 'string' || !spec.label.trim()) return 'bad-label';
+  if (!TRACK_FAMILIES.includes(spec.family)) return 'bad-family';
+  const voiceSet = spec.voiceSet === undefined ? defaultVoiceSet(spec.family) : spec.voiceSet;
+  if (!VOICE_SETS.includes(voiceSet)) return 'bad-voice-set';
+  // The kit bank and the percussive family imply each other, exactly as they do
+  // in a stored entry: the drum voices are the only ones that synthesise a
+  // struck, pitchless sound.
+  if ((spec.family === 'percussive') !== (voiceSet === 'percussion')) return 'bad-voice-set';
+  if (spec.colourToken !== undefined
+    && (typeof spec.colourToken !== 'string' || !COLOUR_TOKEN.test(spec.colourToken))) {
+    // The sanitiser TOLERATES an unusable colour (it assigns one instead),
+    // because it reads untrusted stored data and must never lose a preset over
+    // presentation. A call from a UI is not that: it is a bug in the caller.
+    return 'bad-colour-token';
+  }
+  return null;
+}
+
+/** The bank a family plays from when the caller names none. */
+const defaultVoiceSet = (family) => (family === 'percussive' ? 'percussion' : VOICE_SETS[0]);
+
+/** What each fault code means, in the words the thrown error carries. */
+const TRACK_FAULTS = Object.freeze({
+  'bad-id': 'a track id is 2-24 characters of lowercase ASCII, digits and hyphen, starting with a letter',
+  'reserved-id': 'that id is a built-in track or a reserved word',
+  'duplicate-id': 'this engine already has a track with that id',
+  'bad-label': 'a track needs a label: a non-empty string',
+  'bad-family': `a track family is one of ${TRACK_FAMILIES.join(', ')}`,
+  'bad-voice-set': `a voice set is one of ${VOICE_SETS.join(', ')}, and a percussive track takes the kit`,
+  'bad-colour-token': 'a colour token looks like --track-something',
+  cap: `an engine carries ${MAX_TRACKS} tracks: the six built-ins and ${MAX_USER_TRACKS} of your own`,
+});
+
+/**
+ * The error a fault throws. A code is carried on the error rather than encoded
+ * in the message: "your id is bad" and "you are full" are different answers and
+ * a caller has to be able to tell them apart, which a returned `false` never
+ * let it do.
+ */
+function trackFaultError(code) {
+  const Fault = code === 'cap' ? RangeError : TypeError;
+  const error = new Fault(TRACK_FAULTS[code] ?? code);
+  error.code = code;
+  return error;
+}
+
+/**
+ * An id for a track whose caller supplied none: the label, lowercased and
+ * hyphenated, with a numeric suffix if that name is already spoken for. Stable
+ * in the sense that matters — the same label on the same engine always lands on
+ * the same id — and collision-safe against the built-ins, the reserved words
+ * and every user track already here.
+ */
+function uniqueTrackId(label, taken) {
+  const slug = String(label).toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^[^a-z]+/, '')
+    .replace(/-+$/, '')
+    .slice(0, 24);
+  // A label of nothing but punctuation or digits still deserves a track.
+  const base = USER_TRACK_ID.test(slug) ? slug : 'track';
+  const free = (id) => !taken.has(id) && !RESERVED_TRACK_IDS.includes(id);
+  if (free(base)) return base;
+  for (let n = 2; n <= MAX_TRACKS + 2; n++) {
+    const suffix = `-${n}`;
+    const id = `${base.slice(0, 24 - suffix.length)}${suffix}`;
+    if (free(id)) return id;
+  }
+  // Unreachable while the cap is checked first: there are more candidates above
+  // than an engine can hold tracks.
+  return null;
+}
+
 export const VARY_ASPECTS = Object.freeze(['voice', 'volume', 'pitch', 'timing', 'pan']);
 
 const DEFAULT_TRACK_LEVEL = 0.8;
@@ -603,6 +701,42 @@ function defaultSequencer(percussive) {
     };
   }
   return { mode: 'auto', weights: [1], steps: defaultStepLane() };
+}
+
+/**
+ * How many grid slots apart the opening pulse strikes: four sixteenths, so one
+ * hit on each quarter-note beat, in every metre the grid counts.
+ */
+const OPENING_PULSE_SLOTS = 4;
+
+/** A lane whose steps are on wherever `on(i)` says so, off everywhere else. */
+const openingLane = (on) => Array.from({ length: SEQUENCER_STEP_COUNT },
+  (unused, i) => ({ ...DEFAULT_STEP, on: on(i) }));
+
+/**
+ * The grid a track ADDED THROUGH THE API opens on: a pulse on the beat, not the
+ * stock lane's note on every sixteenth. A new track should sound like a
+ * decision before it is edited, and sixteen notes a bar out of the box is a
+ * texture nobody chose.
+ *
+ * This is the add path's default alone (chair ruling, v0.0.29 backlog): a
+ * stored params blob keeps whatever it says, and `defaultTracks` is untouched,
+ * so nothing already written changes under anyone.
+ */
+function openingGrid(family) {
+  const pulse = (i) => i % OPENING_PULSE_SLOTS === 0;
+  if (family !== 'percussive') return { sequencer: { steps: openingLane(pulse) } };
+  // One voice on the beat rather than the whole kit at once: three lanes
+  // striking together on every beat is a thud, not an opening.
+  const [first, ...rest] = PERCUSSION_LANES;
+  return {
+    sequencer: {
+      steps: {
+        [first]: openingLane(pulse),
+        ...Object.fromEntries(rest.map((lane) => [lane, openingLane(() => false)])),
+      },
+    },
+  };
 }
 
 /** The kit a fresh params object ships: the three built-ins, in their own order. */
@@ -3250,7 +3384,7 @@ export function createEngine(initialParams, options = {}) {
   // be able to stand on top of.
   const layer = createTrackLayer();
   const {
-    trackOrder, sequencedTracks, trackViews, userTrackIds,
+    trackOrder, sequencedTracks, trackViews, userTrackIds, trackById,
     mixFor, autoThresholdFor, voiceSetFor, stageIndexOf, stageBars,
   } = layer;
 
@@ -4308,18 +4442,100 @@ export function createEngine(initialParams, options = {}) {
   function syncTracks() {
     const before = trackOrder();
     layer.setUserTracks(params.userTracks);
-    const wanted = new Set(trackOrder());
+    const after = trackOrder();
+    // Compared id by id, not by reference: while any user track exists the layer
+    // builds a fresh list on every call, and a mix edit is not a registry change.
+    const changed = after.length !== before.length
+      || after.some((name, i) => name !== before[i]);
+    const wanted = new Set(after);
     for (const name of before) if (!wanted.has(name)) forgetTrack(name);
-    if (!graph) return;
-    for (const name of trackOrder()) {
-      if (!graph.tracks[name]) graph.tracks[name] = createTrackChain(ctx, graph, mixFor(name));
+    if (graph) {
+      for (const name of after) {
+        if (!graph.tracks[name]) graph.tracks[name] = createTrackChain(ctx, graph, mixFor(name));
+      }
+      for (const name of Object.keys(graph.tracks)) {
+        if (wanted.has(name)) continue;
+        retiring.set(name, graph.tracks[name]);
+        delete graph.tracks[name];
+      }
+      retireChains();
     }
-    for (const name of Object.keys(graph.tracks)) {
-      if (wanted.has(name)) continue;
-      retiring.set(name, graph.tracks[name]);
-      delete graph.tracks[name];
+    return changed;
+  }
+
+  /**
+   * Whether `addTrack(spec)` would take this spec: null when it would, else the
+   * code it would throw. Non-throwing and side-effect free — it is the probe an
+   * Add Track control enables itself from, and it asks the SAME function the add
+   * path validates with, so the button and the call can never disagree.
+   *
+   * Called with NO argument it asks only "is there room", which is the question
+   * a control has before the user has typed anything. The cap is therefore
+   * tested first: an engine that is full answers `cap` whatever else the spec
+   * gets wrong, because that is the fault the user has to fix first.
+   */
+  function canAddTrack(spec) {
+    const taken = new Set(userTrackIds());
+    if (taken.size >= MAX_USER_TRACKS) return 'cap';
+    return spec === undefined ? null : userTrackFault(spec, taken);
+  }
+
+  /**
+   * Add a user track and hand back its public view — sugar over the params
+   * `userTracks` list, which stays the authority: this writes an entry and lets
+   * `setParams` create the track, exactly as loading a preset that carries one
+   * does.
+   *
+   * THROWS rather than returning false, with `err.code` naming the fault: a
+   * false cannot tell "your id is bad" from "you are full", and the sanitiser's
+   * tolerance convention is for stored data, not for a UI-driven call.
+   *
+   * An absent `id` is generated from the label and an absent `voiceSet` follows
+   * the family, so a control that asks the user for a name and a kind is a
+   * complete caller.
+   */
+  function addTrack(spec) {
+    // A missing spec is a malformed one; a full engine is full whatever it holds.
+    const fault = canAddTrack(spec ?? null);
+    if (fault) throw trackFaultError(fault);
+    const taken = new Set(userTrackIds());
+    const label = spec.label.trim().slice(0, USER_TRACK_LABEL_MAX);
+    const entry = {
+      id: spec.id ?? uniqueTrackId(label, taken),
+      label,
+      family: spec.family,
+      voiceSet: spec.voiceSet ?? defaultVoiceSet(spec.family),
+    };
+    // An absent colour is assigned by the sanitiser, by creation ordinal, so
+    // the theme always has a var to define and a consumer never meets a track
+    // with no colour at all.
+    if (spec.colourToken !== undefined) entry.colourToken = spec.colourToken;
+    setParams({
+      userTracks: [...params.userTracks, entry],
+      tracks: { [entry.id]: openingGrid(entry.family) },
+    });
+    return trackViews().find((view) => view.id === entry.id) ?? null;
+  }
+
+  /**
+   * Remove a user track: true when one went, false for an id this engine does
+   * not have — idempotent, so a double click is not an error. A BUILT-IN throws:
+   * deleting one is a programming fault, not a user outcome.
+   *
+   * What the caller hears is the removal's whole point: the track stops being
+   * scheduled on this tick and its params go with it, but notes already sounding
+   * RING OUT and the chain is unwired only behind them.
+   */
+  function removeTrack(id) {
+    const row = trackById(id);
+    if (row && row.builtin) {
+      const error = new Error(`${id} is a built-in track and cannot be removed`);
+      error.code = 'builtin';
+      throw error;
     }
-    retireChains();
+    if (!row) return false;
+    setParams({ userTracks: params.userTracks.filter((entry) => entry.id !== id) });
+    return true;
   }
 
   /** Hard-stop every sounding note. The voices' cancel fades are click-free. */
@@ -6833,13 +7049,18 @@ export function createEngine(initialParams, options = {}) {
     // params.userTracks is AUTHORITATIVE: supplying an entry creates the track
     // and omitting one removes it, so the accessors and the graph follow it
     // before anything below reads either.
-    syncTracks();
+    const tracksChanged = syncTracks();
     kindPatches.clear();
     resolvedPatches.clear();
     invalidateEditedPlans(partial);
     clearWanderedVoices(partial);
     if (ctx && graph) applyLevels(0.15);
     ensureReverbTail();
+    // Announced once the whole edit has landed, so a listener that re-renders
+    // from it reads a settled engine. It fires for a params-driven change as
+    // well as for addTrack/removeTrack — loading a preset that carries user
+    // tracks is a registry change too, and a UI cannot poll for one.
+    if (tracksChanged) emit('tracks', { tracks: trackViews() });
   }
 
   function getParams() {
@@ -7019,6 +7240,9 @@ export function createEngine(initialParams, options = {}) {
     getParams,
     getResolved,
     getTracks: trackViews,
+    canAddTrack,
+    addTrack,
+    removeTrack,
     getAnalysers,
     getMasterAnalyser,
     getStats,

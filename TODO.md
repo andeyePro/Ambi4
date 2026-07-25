@@ -25,8 +25,7 @@
 
 ### Product roadmap additions (v19+)
 - [ ] AI-free pledge labelling: a listed preset/album can carry "AI-free" if the user signs a pledge that no external AI compiled it (pairs with Blank slate; enforcement = pledge + moderation, not detection)
-- [ ] Custom tracks commits 3–4: addTrack/removeTrack/canAddTrack sugar, then manifests + Add Track UI (commits 1–2 landed: registry + params.userTracks with live chains, ring-out teardown, grid planners)
-- [ ] User-track opening default: stock all-on lane = a note every sixteenth until edited — settle a sparser default (quarter-note pulse?) before the commit-4 UI lands
+- [ ] Custom tracks commit 4 (last): manifests + Add Track UI + --track-user-1…6 theme vars + page-boot user-track gates (commits 1–3 landed: registry, params.userTracks live chains, addTrack/removeTrack/canAddTrack API with sparse quarter-note opening grid)
 - [ ] Live MIDI/QWERTY recording into tracks
 - [ ] Live play-along mode (same input path triggering track voices in real time)
 - [ ] Audio-in track: mic capture to a buffer (on-device only), trim/normalise/loop editing, played through the normal track chain
