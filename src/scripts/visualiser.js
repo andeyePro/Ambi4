@@ -99,6 +99,21 @@ const DEFAULT_MIDI_RANGE = {
 
 const PERCUSSION_KIND_ORDER = { low: 0, mid: 1, high: 2 };
 
+// Piano-roll de-overlap (v16 addendum): when two time-overlapping notes in
+// the same (non-percussion) lane land within SLOT_COLLISION_FRAC of each
+// other in normalised pitch space, they'd draw on top of one another. Give
+// the later-added note the first free "slot" from this list — offsets in
+// units of one blip-height `h` (h expressed as a fraction of the lane's
+// inner height so the stack scales with lane size at draw time). The
+// alternating +0/-0.5h/+0.5h/-1h pattern reads as a tidy vertical ladder
+// once sorted (-1h, -0.5h, 0, +0.5h), each step wider than the collision
+// threshold below so slotted notes never re-collide with each other.
+const SLOT_OFFSET_STEPS = [0, -0.5, 0.5, -1];
+const SLOT_OFFSET_UNIT_FRAC = 0.4; // one `h`, as a fraction of a lane's inner height
+const SLOT_OFFSET_FRACS = SLOT_OFFSET_STEPS.map((s) => s * SLOT_OFFSET_UNIT_FRAC);
+const SLOT_COLLISION_FRAC = 0.15; // pitch-frac distance under which time-overlapping notes are treated as colliding
+const TIME_OVERLAP_EPS = 1e-6; // lets same-onset zero-duration notes still count as overlapping
+
 const FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const LABEL_FONT = `11px ${FONT_STACK}`;
 // Smaller/secondary label used for the section letter once bar ticks carry
@@ -410,6 +425,55 @@ export function initVisualiser(canvas, engine) {
 
   // -- event handlers ------------------------------------------------------
 
+  /** Normalised (0..1) pitch position within a lane's known midi range; percussion isn't mapped this way. */
+  function pitchFrac(track, midi) {
+    if (midi === null) return 0.5;
+    const range = midiRange[track] || { min: midi - 12, max: midi + 12 };
+    const span = Math.max(1, range.max - range.min);
+    return clamp01((midi - range.min) / span);
+  }
+
+  /** A note's vertical position in normalised (top=0) frac-space, including its already-assigned slot offset. */
+  function notePosFrac(track, note) {
+    return (1 - pitchFrac(track, note.midi)) + SLOT_OFFSET_FRACS[note.slot || 0];
+  }
+
+  /**
+   * Assigns `note.slot` (an index into SLOT_OFFSET_FRACS) once, at add time —
+   * not per frame, and not from draw order. Scans the lane's still-live
+   * notes for ones that time-overlap the new note, then walks candidate
+   * slots in order [0, 1, 2, 3] (offsets +0, -0.5h, +0.5h, -1h) picking the
+   * first whose resulting position doesn't collide (within
+   * SLOT_COLLISION_FRAC) with any time-overlapping note's ACTUAL position
+   * (base pitch + that note's own already-assigned offset) — not just its
+   * base pitch — so a three-note chord where only adjacent pairs are close
+   * still ends up as a fully separated stack. Earlier notes' slots are never
+   * revisited, so the scroll never jitters. Percussion lanes have fixed
+   * low/mid/high heights and are left at slot 0 (no offset).
+   */
+  function assignSlot(track, note, list) {
+    note.slot = 0;
+    if (track === 'percussion' || !list || !list.length) return;
+    const overlapping = list.filter(
+      (other) =>
+        other.time < note.time + note.duration + TIME_OVERLAP_EPS &&
+        note.time < other.time + other.duration + TIME_OVERLAP_EPS,
+    );
+    if (!overlapping.length) return;
+    const basePos = 1 - pitchFrac(track, note.midi);
+    for (let s = 0; s < SLOT_OFFSET_FRACS.length; s++) {
+      const candidatePos = basePos + SLOT_OFFSET_FRACS[s];
+      const collides = overlapping.some((other) => Math.abs(candidatePos - notePosFrac(track, other)) < SLOT_COLLISION_FRAC);
+      if (!collides) {
+        note.slot = s;
+        return;
+      }
+    }
+    // Degrade gracefully for >4-note clusters: hash by pitch identity rather
+    // than draw order, still deterministic per note.
+    note.slot = (note.midi !== null ? Math.abs(note.midi) : 0) % SLOT_OFFSET_FRACS.length;
+  }
+
   function onNote(evt) {
     try {
       if (!evt || typeof evt.track !== 'string') return;
@@ -421,12 +485,14 @@ export function initVisualiser(canvas, engine) {
         velocity: clamp01(typeof evt.velocity === 'number' ? evt.velocity : 0.6),
         midi: typeof evt.midi === 'number' ? evt.midi : null,
         kind: typeof evt.kind === 'string' ? evt.kind : null,
+        slot: 0,
       };
       if (note.midi !== null && midiRange[evt.track]) {
         const r = midiRange[evt.track];
         if (note.midi < r.min) r.min = note.midi;
         if (note.midi > r.max) r.max = note.midi;
       }
+      assignSlot(evt.track, note, list);
       list.push(note);
       if (list.length > MAX_NOTES_PER_TRACK) list.shift();
     } catch {
@@ -1109,11 +1175,11 @@ export function initVisualiser(canvas, engine) {
       const frac = 1 - idx / 2; // low → bottom, high → top
       return innerTop + frac * innerH;
     }
-    if (note.midi === null) return innerTop + innerH / 2;
-    const range = midiRange[track] || { min: note.midi - 12, max: note.midi + 12 };
-    const span = Math.max(1, range.max - range.min);
-    const frac = clamp01((note.midi - range.min) / span);
-    return innerTop + (1 - frac) * innerH; // higher pitch → higher on screen
+    const frac = pitchFrac(track, note.midi);
+    let y = innerTop + (1 - frac) * innerH; // higher pitch → higher on screen
+    const slot = note.slot || 0;
+    if (slot) y += SLOT_OFFSET_FRACS[slot] * innerH; // de-overlap offset (v16), assigned once at add time
+    return clampRange(y, innerTop, innerTop + innerH);
   }
 
   // -- drawing -----------------------------------------------------------

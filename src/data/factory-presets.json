@@ -1,0 +1,3017 @@
+[
+  {
+    "slug": "deep-focus",
+    "name": "Deep Focus",
+    "oneLiner": "A slow heartbeat under a dark hum. Nothing asks for your attention.",
+    "rationale": "Set at 72 beats a minute — a shade above a working pulse, quick enough to keep you awake but far too steady to chase. The drums are a two-part heartbeat rather than a pattern, and the bass sits on the same pulse, so there is a floor to lean on and no new event to notice. No melody at all: a tune is the one thing that reliably steals attention from what you are reading.",
+    "params": {
+      "bpm": 72,
+      "root": "D",
+      "mode": "dorian",
+      "timeSignature": "4/4",
+      "swing": 0,
+      "complexity": 0.3,
+      "repetition": 0.9,
+      "structure": "drone",
+      "volume": 0.75,
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "strings",
+          "level": 0.72,
+          "randomness": 0.12,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0,
+            "volume": 0.15,
+            "pitch": 0,
+            "timing": 0.1,
+            "pan": 0.25
+          }
+        },
+        "arp": {
+          "state": "off",
+          "voice": "softPluck",
+          "level": 0.5,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "melody": {
+          "state": "off",
+          "voice": "keys",
+          "level": 0.5,
+          "randomness": 0.3,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "on",
+          "voice": "sub",
+          "level": 0.6,
+          "randomness": 0.1,
+          "dissonance": 0,
+          "glide": 0.12,
+          "vary": {
+            "voice": 0,
+            "volume": 0.1,
+            "pitch": 0,
+            "timing": 0.1,
+            "pan": 0
+          },
+          "sequencer": {
+            "mode": "manual",
+            "weights": [
+              1
+            ],
+            "steps": [
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.52,
+                "vmax": 0.62
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.52,
+                "vmax": 0.62
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              }
+            ]
+          }
+        },
+        "texture": {
+          "state": "on",
+          "voice": "grains",
+          "level": {
+            "min": 0.3,
+            "max": 0.48
+          },
+          "randomness": 0.25,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.08,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.5
+          }
+        },
+        "percussion": {
+          "state": "on",
+          "voice": "soft",
+          "level": 0.42,
+          "randomness": 0.15,
+          "vary": {
+            "voice": 0,
+            "volume": 0.15,
+            "pitch": null,
+            "timing": 0.12,
+            "pan": 0.1
+          },
+          "sequencer": {
+            "mode": "manual",
+            "weights": [
+              1
+            ],
+            "steps": {
+              "low": [
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.34,
+                  "vmax": 0.44
+                },
+                {
+                  "on": true,
+                  "prob": 0.92,
+                  "vmin": 0.13,
+                  "vmax": 0.2
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.34,
+                  "vmax": 0.44
+                },
+                {
+                  "on": true,
+                  "prob": 0.92,
+                  "vmin": 0.13,
+                  "vmax": 0.2
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.34,
+                  "vmax": 0.44
+                },
+                {
+                  "on": true,
+                  "prob": 0.92,
+                  "vmin": 0.13,
+                  "vmax": 0.2
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.34,
+                  "vmax": 0.44
+                },
+                {
+                  "on": true,
+                  "prob": 0.92,
+                  "vmin": 0.13,
+                  "vmax": 0.2
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ],
+              "mid": [
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ],
+              "high": [
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ]
+            }
+          }
+        }
+      },
+      "patches": {
+        "pad": {
+          "strings": {
+            "source": {
+              "mix": 0.45,
+              "detune": 12
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 620,
+              "q": 0.8
+            },
+            "adsr": {
+              "attack": 3.2,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 6
+            },
+            "sends": {
+              "reverb": 0.62,
+              "delay": 0.12
+            }
+          }
+        },
+        "bass": {
+          "sub": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 190,
+              "q": 0.6
+            },
+            "adsr": {
+              "attack": 0.14,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 1.1
+            },
+            "sends": {
+              "reverb": 0.06,
+              "delay": 0
+            }
+          }
+        },
+        "percussion": {
+          "soft": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 900,
+              "q": 0.7
+            },
+            "adsr": {
+              "attack": 0.006,
+              "decay": 0.26,
+              "sustain": 0,
+              "release": 0.05
+            },
+            "sends": {
+              "reverb": 0.18,
+              "delay": 0.04
+            },
+            "perKind": {
+              "low": {
+                "filter": {
+                  "cutoff": 260,
+                  "q": 0.9
+                },
+                "adsr": {
+                  "decay": 0.34
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "open-plan",
+    "name": "Open Plan",
+    "oneLiner": "A wide, even wash sitting exactly where voices live.",
+    "rationale": "Built to cover office chatter rather than compete with it: the texture holds a steady band of sound across the frequencies speech occupies, so a conversation two desks away stops resolving into words you can follow. Everything that could make you look up — drums, plucked notes, sudden entries — is switched off, and the slow drift in level stops your ears filing the whole thing away as machinery.",
+    "params": {
+      "bpm": 63,
+      "root": "F",
+      "mode": "aeolian",
+      "timeSignature": "4/4",
+      "swing": 0,
+      "complexity": 0.6,
+      "repetition": 0.88,
+      "structure": "drone",
+      "volume": 0.8,
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "glass",
+          "level": 0.6,
+          "randomness": 0.1,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0,
+            "volume": 0.2,
+            "pitch": 0,
+            "timing": 0.1,
+            "pan": 0.35
+          }
+        },
+        "arp": {
+          "state": "off",
+          "voice": "crystal",
+          "level": 0.5,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "melody": {
+          "state": "off",
+          "voice": "flute",
+          "level": 0.5,
+          "randomness": 0.3,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "off",
+          "voice": "sub",
+          "level": 0.6,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "texture": {
+          "state": "on",
+          "voice": "wash",
+          "level": {
+            "min": 0.55,
+            "max": 0.75
+          },
+          "randomness": 0.3,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.1,
+            "volume": 0.35,
+            "pitch": 0.15,
+            "timing": null,
+            "pan": 0.7
+          }
+        },
+        "percussion": {
+          "state": "off",
+          "voice": "soft",
+          "level": 0.4,
+          "randomness": 0.2
+        }
+      },
+      "patches": {
+        "pad": {
+          "glass": {
+            "source": {
+              "detune": 6
+            },
+            "filter": {
+              "type": "highpass",
+              "cutoff": 240,
+              "q": 0.5
+            },
+            "adsr": {
+              "attack": 3.4,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 6.5
+            },
+            "sends": {
+              "reverb": 0.75,
+              "delay": 0.3
+            }
+          }
+        },
+        "texture": {
+          "wash": {
+            "filter": {
+              "type": "bandpass",
+              "cutoff": 1100,
+              "q": 0.9,
+              "envAmount": 0.35
+            },
+            "adsr": {
+              "attack": 4.5,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 6
+            },
+            "sends": {
+              "reverb": 0.9,
+              "delay": 0.2
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "glass-office",
+    "name": "Glass Office",
+    "oneLiner": "Cold daylight on hard surfaces, with a crystal figure turning over.",
+    "rationale": "Lydian is the brightest of the everyday modes — the raised fourth is what film music reaches for when it wants sky — and against glass and crystal timbres it reads as daylight rather than evening. Held at 74 beats, just over a resting pulse, so it lifts without pushing; the little arpeggio repeats far more than it varies, which is what lets it become furniture inside a minute.",
+    "params": {
+      "bpm": 74,
+      "root": "C",
+      "mode": "lydian",
+      "timeSignature": "4/4",
+      "swing": 0,
+      "complexity": 0.42,
+      "repetition": 0.72,
+      "structure": "waves",
+      "volume": 0.78,
+      "arp": {
+        "mode": "manual",
+        "pattern": "updown",
+        "rate": "1/8",
+        "octaves": 2,
+        "gate": 0.4
+      },
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "glass",
+          "level": 0.62,
+          "randomness": 0.15,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.08,
+            "volume": 0.2,
+            "pitch": 0,
+            "timing": null,
+            "pan": 0.4
+          }
+        },
+        "arp": {
+          "state": "on",
+          "voice": "crystal",
+          "level": 0.5,
+          "randomness": 0.25,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0,
+            "volume": 0.2,
+            "pitch": 0.15,
+            "timing": 0.15,
+            "pan": 0.5
+          },
+          "sequencer": {
+            "mode": "manual",
+            "weights": [
+              1
+            ],
+            "steps": [
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.62
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.36,
+                "vmax": 0.46
+              },
+              {
+                "on": true,
+                "prob": 0.85,
+                "vmin": 0.3,
+                "vmax": 0.4
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.4,
+                "vmax": 0.5
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 0.6,
+                "vmin": 0.26,
+                "vmax": 0.36
+              }
+            ]
+          }
+        },
+        "melody": {
+          "state": "off",
+          "voice": "bell",
+          "level": 0.5,
+          "randomness": 0.35,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "off",
+          "voice": "sub",
+          "level": 0.6,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "texture": {
+          "state": "auto",
+          "voice": "chimes",
+          "level": {
+            "min": 0.28,
+            "max": 0.44
+          },
+          "randomness": 0.3,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.1,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.65
+          }
+        },
+        "percussion": {
+          "state": "off",
+          "voice": "tick",
+          "level": 0.35,
+          "randomness": 0.2
+        }
+      },
+      "patches": {
+        "pad": {
+          "glass": {
+            "source": {
+              "detune": 4
+            },
+            "filter": {
+              "type": "highpass",
+              "cutoff": 300,
+              "q": 0.5
+            },
+            "adsr": {
+              "attack": 2.4,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 5.5
+            },
+            "sends": {
+              "reverb": 0.7,
+              "delay": 0.4
+            }
+          }
+        },
+        "arp": {
+          "crystal": {
+            "filter": {
+              "type": "highpass",
+              "cutoff": 420,
+              "q": 0.7
+            },
+            "adsr": {
+              "attack": 0.003,
+              "decay": 0.42,
+              "sustain": 0,
+              "release": 0.05
+            },
+            "sends": {
+              "reverb": 0.5,
+              "delay": 0.55
+            }
+          }
+        },
+        "texture": {
+          "chimes": {
+            "source": {
+              "detune": 4
+            },
+            "filter": {
+              "type": "highpass",
+              "cutoff": 400,
+              "q": 0.5
+            },
+            "adsr": {
+              "attack": 0.008,
+              "decay": 5.5,
+              "sustain": 0,
+              "release": 0.05
+            },
+            "sends": {
+              "reverb": 0.8,
+              "delay": 0.45
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "long-read",
+    "name": "Long Read",
+    "oneLiner": "A warm waltz with no tune in it — for reading, not for working to a beat.",
+    "rationale": "Reading words and following a melody compete for the same machinery, so this one has no melodic line at all: a warm chord turning over in three-four, a grain of texture above it, and a marimba note every bar or so to mark time. At 66 beats it sits at a calm working pulse, and the repetition is set high enough that nothing new arrives to make you lose your place.",
+    "params": {
+      "bpm": 66,
+      "root": "G",
+      "mode": "majorPentatonic",
+      "timeSignature": "3/4",
+      "swing": 0,
+      "complexity": 0.28,
+      "repetition": 0.85,
+      "structure": "waves",
+      "volume": 0.76,
+      "arp": {
+        "mode": "manual",
+        "pattern": "up",
+        "rate": "1/4",
+        "octaves": 1,
+        "gate": 0.8
+      },
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "warm",
+          "level": 0.75,
+          "randomness": 0.15,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.08,
+            "volume": 0.2,
+            "pitch": 0,
+            "timing": 0.1,
+            "pan": 0.3
+          }
+        },
+        "arp": {
+          "state": "on",
+          "voice": "marimba",
+          "level": 0.34,
+          "randomness": 0.2,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0,
+            "volume": 0.2,
+            "pitch": 0.1,
+            "timing": 0.15,
+            "pan": 0.35
+          },
+          "sequencer": {
+            "mode": "manual",
+            "weights": [
+              1
+            ],
+            "steps": [
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.42,
+                "vmax": 0.54
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 0.45,
+                "vmin": 0.26,
+                "vmax": 0.36
+              }
+            ]
+          }
+        },
+        "melody": {
+          "state": "off",
+          "voice": "keys",
+          "level": 0.5,
+          "randomness": 0.3,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "off",
+          "voice": "round",
+          "level": 0.55,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "texture": {
+          "state": "on",
+          "voice": "grains",
+          "level": {
+            "min": 0.28,
+            "max": 0.44
+          },
+          "randomness": 0.25,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.1,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.5
+          }
+        },
+        "percussion": {
+          "state": "off",
+          "voice": "soft",
+          "level": 0.35,
+          "randomness": 0.2
+        }
+      },
+      "patches": {
+        "pad": {
+          "warm": {
+            "source": {
+              "mix": 0.5,
+              "detune": 9
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 520,
+              "q": 0.7,
+              "envAmount": 0.6
+            },
+            "adsr": {
+              "attack": 2.8,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 5
+            },
+            "sends": {
+              "reverb": 0.6,
+              "delay": 0.18
+            }
+          }
+        },
+        "arp": {
+          "marimba": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 2200,
+              "q": 0.8
+            },
+            "adsr": {
+              "attack": 0.004,
+              "decay": 0.62,
+              "sustain": 0,
+              "release": 0.05
+            },
+            "sends": {
+              "reverb": 0.4,
+              "delay": 0.2
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "first-light",
+    "name": "First Light",
+    "oneLiner": "Marimba, hand drums and a light shuffle. The first hour of the day.",
+    "rationale": "A morning ramp. 84 beats with a swing is well above resting but nowhere near exercise tempo, which is the band that lifts mood without dragging your heart rate up to meet it. The arrangement builds rather than starting at full pelt, so the first couple of minutes are sparse and the room fills as you settle — much easier to begin work to than something already busy.",
+    "params": {
+      "bpm": 84,
+      "root": "E",
+      "mode": "majorPentatonic",
+      "timeSignature": "4/4",
+      "swing": 0.32,
+      "complexity": 0.55,
+      "repetition": 0.6,
+      "structure": "build",
+      "volume": 0.8,
+      "tracks": {
+        "pad": {
+          "state": "auto",
+          "voice": "warm",
+          "level": 0.55,
+          "randomness": 0.3,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.15,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.35
+          }
+        },
+        "arp": {
+          "state": "on",
+          "voice": "marimba",
+          "level": 0.6,
+          "randomness": 0.4,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0,
+            "volume": 0.3,
+            "pitch": 0.25,
+            "timing": 0.3,
+            "pan": 0.5
+          }
+        },
+        "melody": {
+          "state": "auto",
+          "voice": "keys",
+          "level": 0.5,
+          "randomness": 0.45,
+          "dissonance": 0.08,
+          "glide": 0.25,
+          "vary": {
+            "voice": 0.1,
+            "volume": null,
+            "pitch": null,
+            "timing": 0.35,
+            "pan": 0.4
+          }
+        },
+        "bass": {
+          "state": "on",
+          "voice": "round",
+          "level": 0.6,
+          "randomness": 0.3,
+          "dissonance": 0,
+          "glide": 0.15,
+          "vary": {
+            "voice": 0,
+            "volume": 0.25,
+            "pitch": null,
+            "timing": 0.25,
+            "pan": 0
+          }
+        },
+        "texture": {
+          "state": "auto",
+          "voice": "sparkle",
+          "level": {
+            "min": 0.28,
+            "max": 0.42
+          },
+          "randomness": 0.35,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.15,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.6
+          }
+        },
+        "percussion": {
+          "state": "on",
+          "voice": "hand",
+          "level": 0.5,
+          "randomness": 0.35,
+          "vary": {
+            "voice": 0,
+            "volume": 0.3,
+            "pitch": null,
+            "timing": 0.35,
+            "pan": 0.35
+          },
+          "sequencer": {
+            "mode": "manual",
+            "weights": [
+              1
+            ],
+            "steps": {
+              "low": [
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.64
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.7,
+                  "vmin": 0.34,
+                  "vmax": 0.46
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.5,
+                  "vmin": 0.3,
+                  "vmax": 0.42
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ],
+              "mid": [
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.4,
+                  "vmax": 0.54
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.4,
+                  "vmax": 0.54
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ],
+              "high": [
+                {
+                  "on": true,
+                  "prob": 0.9,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.8,
+                  "vmin": 0.14,
+                  "vmax": 0.24
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.9,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.8,
+                  "vmin": 0.14,
+                  "vmax": 0.24
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.9,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.8,
+                  "vmin": 0.14,
+                  "vmax": 0.24
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.9,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.8,
+                  "vmin": 0.14,
+                  "vmax": 0.24
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ]
+            }
+          }
+        }
+      },
+      "patches": {
+        "arp": {
+          "marimba": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 3000,
+              "q": 0.8
+            },
+            "adsr": {
+              "attack": 0.003,
+              "decay": 0.5,
+              "sustain": 0,
+              "release": 0.05
+            },
+            "sends": {
+              "reverb": 0.35,
+              "delay": 0.28
+            }
+          }
+        },
+        "percussion": {
+          "hand": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 7000,
+              "q": 0.7
+            },
+            "sends": {
+              "reverb": 0.28,
+              "delay": 0.14
+            },
+            "perKind": {
+              "low": {
+                "filter": {
+                  "cutoff": 420
+                },
+                "adsr": {
+                  "decay": 0.22
+                }
+              },
+              "high": {
+                "adsr": {
+                  "decay": 0.07
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "push",
+    "name": "Push",
+    "oneLiner": "Ticking sixteenths and a bass locked to the kick. Head down, timer running.",
+    "rationale": "The energising band — 112 beats, about the pace of a brisk walk — with almost everything repeated rather than varied, because propulsion helps a deadline and novelty does not. Dorian keeps it purposeful instead of cheerful, and the bass is pinned to the same slots as the kick so the rhythm section reads as one moving object you can ride instead of several things happening.",
+    "params": {
+      "bpm": 112,
+      "root": "A",
+      "mode": "dorian",
+      "timeSignature": "4/4",
+      "swing": 0,
+      "complexity": 0.6,
+      "repetition": 0.85,
+      "structure": "custom",
+      "customStructure": [
+        {
+          "label": "A",
+          "bars": 8,
+          "intensity": 0.5
+        },
+        {
+          "label": "B",
+          "bars": 8,
+          "intensity": 0.72
+        },
+        {
+          "label": "A",
+          "bars": 8,
+          "intensity": 0.5
+        },
+        {
+          "label": "C",
+          "bars": 8,
+          "intensity": 0.88
+        }
+      ],
+      "volume": 0.78,
+      "tracks": {
+        "pad": {
+          "state": "auto",
+          "voice": "warm",
+          "level": 0.45,
+          "randomness": 0.15,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.08,
+            "volume": 0.15,
+            "pitch": 0,
+            "timing": null,
+            "pan": 0.3
+          }
+        },
+        "arp": {
+          "state": "auto",
+          "voice": "softPluck",
+          "level": 0.4,
+          "randomness": 0.25,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0,
+            "volume": 0.2,
+            "pitch": 0.15,
+            "timing": 0.15,
+            "pan": 0.5
+          }
+        },
+        "melody": {
+          "state": "off",
+          "voice": "pluck",
+          "level": 0.5,
+          "randomness": 0.3,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "on",
+          "voice": "round",
+          "level": 0.62,
+          "randomness": 0.15,
+          "dissonance": 0,
+          "glide": 0.08,
+          "vary": {
+            "voice": 0,
+            "volume": 0.15,
+            "pitch": 0,
+            "timing": 0.12,
+            "pan": 0
+          },
+          "sequencer": {
+            "mode": "manual",
+            "weights": [
+              1
+            ],
+            "steps": [
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.6,
+                "vmax": 0.72
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 0.4,
+                "vmin": 0.36,
+                "vmax": 0.48
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.48,
+                "vmax": 0.6
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.6,
+                "vmax": 0.72
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              },
+              {
+                "on": true,
+                "prob": 1,
+                "vmin": 0.48,
+                "vmax": 0.6
+              },
+              {
+                "on": false,
+                "prob": 1,
+                "vmin": 0.5,
+                "vmax": 0.9
+              }
+            ]
+          }
+        },
+        "texture": {
+          "state": "auto",
+          "voice": "sparkle",
+          "level": 0.3,
+          "randomness": 0.25,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.1,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.55
+          }
+        },
+        "percussion": {
+          "state": "on",
+          "voice": "tick",
+          "level": 0.45,
+          "randomness": 0.2,
+          "vary": {
+            "voice": 0,
+            "volume": 0.2,
+            "pitch": null,
+            "timing": 0.15,
+            "pan": 0.3
+          },
+          "sequencer": {
+            "mode": "manual",
+            "weights": [
+              1
+            ],
+            "steps": {
+              "low": [
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.55,
+                  "vmax": 0.66
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.44,
+                  "vmax": 0.56
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.55,
+                  "vmax": 0.66
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.44,
+                  "vmax": 0.56
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ],
+              "mid": [
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.42,
+                  "vmax": 0.52
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.42,
+                  "vmax": 0.52
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ],
+              "high": [
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": true,
+                  "prob": 0.35,
+                  "vmin": 0.1,
+                  "vmax": 0.17
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": true,
+                  "prob": 0.35,
+                  "vmin": 0.1,
+                  "vmax": 0.17
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": true,
+                  "prob": 0.35,
+                  "vmin": 0.1,
+                  "vmax": 0.17
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": true,
+                  "prob": 0.35,
+                  "vmin": 0.1,
+                  "vmax": 0.17
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": true,
+                  "prob": 0.35,
+                  "vmin": 0.1,
+                  "vmax": 0.17
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": true,
+                  "prob": 0.35,
+                  "vmin": 0.1,
+                  "vmax": 0.17
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": true,
+                  "prob": 0.35,
+                  "vmin": 0.1,
+                  "vmax": 0.17
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.2,
+                  "vmax": 0.3
+                },
+                {
+                  "on": true,
+                  "prob": 0.35,
+                  "vmin": 0.1,
+                  "vmax": 0.17
+                }
+              ]
+            }
+          }
+        }
+      },
+      "patches": {
+        "bass": {
+          "round": {
+            "source": {
+              "mix": 0.35,
+              "detune": 0
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 900,
+              "q": 2.2,
+              "envAmount": 1
+            },
+            "adsr": {
+              "attack": 0.008,
+              "decay": 0.16,
+              "sustain": 0.25,
+              "release": 0.16
+            },
+            "sends": {
+              "reverb": 0.08,
+              "delay": 0.04
+            }
+          }
+        },
+        "percussion": {
+          "tick": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 9000,
+              "q": 0.7
+            },
+            "adsr": {
+              "attack": 0.0015,
+              "decay": 0.028,
+              "sustain": 0,
+              "release": 0.05
+            },
+            "sends": {
+              "reverb": 0.18,
+              "delay": 0.12
+            },
+            "perKind": {
+              "low": {
+                "filter": {
+                  "cutoff": 300
+                },
+                "adsr": {
+                  "decay": 0.22
+                }
+              },
+              "mid": {
+                "adsr": {
+                  "decay": 0.09
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "sketchbook",
+    "name": "Sketchbook",
+    "oneLiner": "Five beats to the bar, lydian, and a line that keeps changing its mind.",
+    "rationale": "The opposite of the focus presets, on purpose: creative work benefits from a little unpredictability, so this one evolves rather than repeating, the flute line is allowed to lean outside the chord, and the five-beat bar never quite lets you settle. The tempo stays moderate at 88 — stimulating without hurrying you, which is where loose, associative thinking tends to live.",
+    "params": {
+      "bpm": 88,
+      "root": "F",
+      "mode": "lydian",
+      "timeSignature": "5/4",
+      "swing": 0.12,
+      "complexity": 0.68,
+      "repetition": 0.35,
+      "structure": "journey",
+      "volume": 0.78,
+      "tracks": {
+        "pad": {
+          "state": "auto",
+          "voice": "choir",
+          "level": 0.5,
+          "randomness": 0.4,
+          "dissonance": 0.1,
+          "vary": {
+            "voice": 0.25,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.45
+          }
+        },
+        "arp": {
+          "state": "auto",
+          "voice": "softPluck",
+          "level": 0.45,
+          "randomness": 0.55,
+          "dissonance": 0.08,
+          "vary": {
+            "voice": 0.2,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.6
+          }
+        },
+        "melody": {
+          "state": "on",
+          "voice": "flute",
+          "level": 0.5,
+          "randomness": 0.6,
+          "dissonance": {
+            "min": 0.1,
+            "max": 0.32
+          },
+          "glide": 0.35,
+          "vary": {
+            "voice": 0.1,
+            "volume": null,
+            "pitch": 0.55,
+            "timing": 0.4,
+            "pan": 0.4
+          }
+        },
+        "bass": {
+          "state": "auto",
+          "voice": "sub",
+          "level": 0.5,
+          "randomness": 0.3,
+          "dissonance": 0,
+          "glide": 0.2,
+          "vary": {
+            "voice": 0,
+            "volume": 0.25,
+            "pitch": null,
+            "timing": null,
+            "pan": 0
+          }
+        },
+        "texture": {
+          "state": "auto",
+          "voice": "chimes",
+          "level": {
+            "min": 0.24,
+            "max": 0.44
+          },
+          "randomness": 0.5,
+          "dissonance": 0.15,
+          "vary": {
+            "voice": 0.2,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.7
+          }
+        },
+        "percussion": {
+          "state": "auto",
+          "voice": "soft",
+          "level": 0.35,
+          "randomness": 0.45,
+          "vary": {
+            "voice": 0.1,
+            "volume": null,
+            "pitch": null,
+            "timing": 0.4,
+            "pan": 0.4
+          }
+        }
+      },
+      "patches": {
+        "melody": {
+          "flute": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 4200,
+              "q": 0.8
+            },
+            "adsr": {
+              "attack": 0.12,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 0.5
+            },
+            "sends": {
+              "reverb": 0.55,
+              "delay": 0.38
+            }
+          }
+        },
+        "pad": {
+          "choir": {
+            "source": {
+              "mix": 0.55,
+              "detune": 12
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 2000,
+              "q": 0.5,
+              "envAmount": 1
+            },
+            "adsr": {
+              "attack": 1.9,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 4
+            },
+            "sends": {
+              "reverb": 0.7,
+              "delay": 0.3
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "night-shift",
+    "name": "Night Shift",
+    "oneLiner": "Warm, low and awake — for working while everyone else sleeps.",
+    "rationale": "Late work needs to stay alert without turning harsh, so this holds 64 beats — just above rest, enough to keep you upright — and takes the brightness out of everything: a warm pad low in its register, a sub bass under it, and a tick you feel more than hear. Aeolian supplies the minor-key weight the hour asks for without tipping into anything mournful enough to notice.",
+    "params": {
+      "bpm": 64,
+      "root": "A",
+      "mode": "aeolian",
+      "timeSignature": "4/4",
+      "swing": 0,
+      "complexity": 0.34,
+      "repetition": 0.8,
+      "structure": "waves",
+      "volume": 0.72,
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "warm",
+          "level": 0.75,
+          "randomness": 0.18,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.1,
+            "volume": 0.2,
+            "pitch": 0,
+            "timing": 0.1,
+            "pan": 0.3
+          }
+        },
+        "arp": {
+          "state": "off",
+          "voice": "softPluck",
+          "level": 0.45,
+          "randomness": 0.25,
+          "dissonance": 0
+        },
+        "melody": {
+          "state": "off",
+          "voice": "keys",
+          "level": 0.5,
+          "randomness": 0.3,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "on",
+          "voice": "sub",
+          "level": 0.55,
+          "randomness": 0.15,
+          "dissonance": 0,
+          "glide": 0.15,
+          "vary": {
+            "voice": 0,
+            "volume": 0.15,
+            "pitch": 0,
+            "timing": 0.1,
+            "pan": 0
+          }
+        },
+        "texture": {
+          "state": "auto",
+          "voice": "wash",
+          "level": {
+            "min": 0.3,
+            "max": 0.48
+          },
+          "randomness": 0.25,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.1,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.6
+          }
+        },
+        "percussion": {
+          "state": "on",
+          "voice": "tick",
+          "level": 0.3,
+          "randomness": 0.25,
+          "vary": {
+            "voice": 0,
+            "volume": 0.2,
+            "pitch": null,
+            "timing": 0.2,
+            "pan": 0.35
+          },
+          "sequencer": {
+            "mode": "manual",
+            "weights": [
+              1
+            ],
+            "steps": {
+              "low": [
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ],
+              "mid": [
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ],
+              "high": [
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.14,
+                  "vmax": 0.2
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.4,
+                  "vmin": 0.09,
+                  "vmax": 0.13
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 1,
+                  "vmin": 0.14,
+                  "vmax": 0.2
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": true,
+                  "prob": 0.4,
+                  "vmin": 0.09,
+                  "vmax": 0.13
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                },
+                {
+                  "on": false,
+                  "prob": 1,
+                  "vmin": 0.5,
+                  "vmax": 0.9
+                }
+              ]
+            }
+          }
+        }
+      },
+      "patches": {
+        "pad": {
+          "warm": {
+            "source": {
+              "mix": 0.5,
+              "detune": 10
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 380,
+              "q": 0.7,
+              "envAmount": 0.5
+            },
+            "adsr": {
+              "attack": 3,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 6
+            },
+            "sends": {
+              "reverb": 0.55,
+              "delay": 0.2
+            }
+          }
+        },
+        "bass": {
+          "sub": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 170,
+              "q": 0.6
+            },
+            "adsr": {
+              "attack": 0.14,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 1.2
+            },
+            "sends": {
+              "reverb": 0.1,
+              "delay": 0
+            }
+          }
+        },
+        "texture": {
+          "wash": {
+            "filter": {
+              "type": "bandpass",
+              "cutoff": 480,
+              "q": 1.1,
+              "envAmount": 1
+            },
+            "adsr": {
+              "attack": 3.2,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 5
+            },
+            "sends": {
+              "reverb": 0.85,
+              "delay": 0.3
+            }
+          }
+        },
+        "percussion": {
+          "tick": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 6000,
+              "q": 0.7
+            },
+            "adsr": {
+              "attack": 0.0015,
+              "decay": 0.03,
+              "sustain": 0,
+              "release": 0.05
+            },
+            "sends": {
+              "reverb": 0.35,
+              "delay": 0.22
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "wind-down",
+    "name": "Wind Down",
+    "oneLiner": "Under a resting pulse, rocking in six-eight, everything falling away.",
+    "rationale": "Music slower than a resting heartbeat tends to pull arousal down with it, which is why this one sits at 52 in a rocking six-eight. There is no percussion to march to and no melody to track — a choir pad and a wash that swell and recede, and little else — so it works as a full stop at the end of the day rather than as something to keep working to.",
+    "params": {
+      "bpm": 52,
+      "root": "D",
+      "mode": "minorPentatonic",
+      "timeSignature": "6/8",
+      "swing": 0,
+      "complexity": 0.25,
+      "repetition": 0.8,
+      "structure": "waves",
+      "volume": 0.72,
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "choir",
+          "level": 0.78,
+          "randomness": 0.15,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.12,
+            "volume": 0.25,
+            "pitch": 0,
+            "timing": 0.1,
+            "pan": 0.35
+          }
+        },
+        "arp": {
+          "state": "off",
+          "voice": "softPluck",
+          "level": 0.4,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "melody": {
+          "state": "off",
+          "voice": "bell",
+          "level": 0.45,
+          "randomness": 0.3,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "auto",
+          "voice": "round",
+          "level": 0.5,
+          "randomness": 0.15,
+          "dissonance": 0,
+          "glide": 0.25,
+          "vary": {
+            "voice": 0,
+            "volume": 0.15,
+            "pitch": 0,
+            "timing": 0.15,
+            "pan": 0
+          }
+        },
+        "texture": {
+          "state": "on",
+          "voice": "wash",
+          "level": {
+            "min": 0.4,
+            "max": 0.6
+          },
+          "randomness": 0.25,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.1,
+            "volume": 0.3,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.6
+          }
+        },
+        "percussion": {
+          "state": "off",
+          "voice": "soft",
+          "level": 0.3,
+          "randomness": 0.2
+        }
+      },
+      "patches": {
+        "pad": {
+          "choir": {
+            "source": {
+              "mix": 0.5,
+              "detune": 9
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 1250,
+              "q": 0.5,
+              "envAmount": 0.8
+            },
+            "adsr": {
+              "attack": 3.4,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 7
+            },
+            "sends": {
+              "reverb": 0.78,
+              "delay": 0.3
+            }
+          }
+        },
+        "texture": {
+          "wash": {
+            "filter": {
+              "type": "bandpass",
+              "cutoff": 620,
+              "q": 1.1,
+              "envAmount": 1
+            },
+            "adsr": {
+              "attack": 3.5,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 6
+            },
+            "sends": {
+              "reverb": 0.9,
+              "delay": 0.35
+            }
+          }
+        },
+        "bass": {
+          "round": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 420,
+              "q": 1.2,
+              "envAmount": 0.6
+            },
+            "adsr": {
+              "attack": 0.12,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 1.4
+            },
+            "sends": {
+              "reverb": 0.2,
+              "delay": 0.08
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "breathe",
+    "name": "Breathe",
+    "oneLiner": "One chord, swelling and releasing at about six breaths a minute.",
+    "rationale": "Slow paced breathing is the quickest reliable way to bring arousal down, and this gives you something to follow: at 40 beats in six-eight each bar lasts around four and a half seconds, so a breath in and a breath out fills two bars, and the pad rises and falls on exactly that shape. Apart from an occasional grain of texture there is no pulse and no melodic line, because anything that arrives is one more thing to notice.",
+    "params": {
+      "bpm": 40,
+      "root": "C",
+      "mode": "majorPentatonic",
+      "timeSignature": "6/8",
+      "swing": 0,
+      "complexity": 0.3,
+      "repetition": 0.95,
+      "structure": "drone",
+      "volume": 0.7,
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "warm",
+          "level": 0.8,
+          "randomness": 0.08,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0,
+            "volume": 0.25,
+            "pitch": 0,
+            "timing": 0.05,
+            "pan": 0.25
+          }
+        },
+        "arp": {
+          "state": "off",
+          "voice": "softPluck",
+          "level": 0.4,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "melody": {
+          "state": "off",
+          "voice": "flute",
+          "level": 0.45,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "off",
+          "voice": "sub",
+          "level": 0.5,
+          "randomness": 0.15,
+          "dissonance": 0
+        },
+        "texture": {
+          "state": "on",
+          "voice": "grains",
+          "level": {
+            "min": 0.22,
+            "max": 0.36
+          },
+          "randomness": 0.2,
+          "dissonance": 0,
+          "vary": {
+            "voice": 0.08,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.45
+          }
+        },
+        "percussion": {
+          "state": "off",
+          "voice": "soft",
+          "level": 0.3,
+          "randomness": 0.2
+        }
+      },
+      "patches": {
+        "pad": {
+          "warm": {
+            "source": {
+              "mix": 0.5,
+              "detune": 7
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 700,
+              "q": 0.6,
+              "envAmount": 1
+            },
+            "adsr": {
+              "attack": 4.2,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 6.5
+            },
+            "sends": {
+              "reverb": 0.72,
+              "delay": 0.18
+            }
+          }
+        },
+        "texture": {
+          "grains": {
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 3200,
+              "q": 0.7
+            },
+            "adsr": {
+              "attack": 0.02,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 0.4
+            },
+            "sends": {
+              "reverb": 0.8,
+              "delay": 0.35
+            }
+          }
+        }
+      }
+    }
+  }
+]

@@ -15,6 +15,11 @@ Green = the page boots against today's modules. Red = do not deploy; the failure
 line quotes whatever init threw. Run it after ANY change to `src/pages/index.astro`
 or to a module the page imports.
 
+It also asserts the v16 placement rule — the factory-preset gallery renders on the
+Simple tab BELOW the dials, with at least one preset card built from the build-time
+list. An empty gallery means the preset payload never reached the page, which
+`astro build` cannot see either.
+
 Tester: Martin, Mac (Chrome or Safari) + iPhone Safari. URL: https://ambi4.work (deploys from main ~2 min after push — check the commit you expect is live before starting). Start with device volume MODEST — new voices are untested at loud levels.
 
 Worst-first within each section: if a step fails, note it and keep going.
@@ -234,6 +239,54 @@ Dials
       it, and no repeated caption on the knob itself.
 - [ ] Narrow the window to ~360 px: the transport wraps gracefully — the
       Processor dial may drop to a second line, but nothing overlaps or clips.
+
+## v16 delta — presets below the dials, preset URLs, block editor (2026-07-25)
+
+Presets gallery (Simple tab)
+- [ ] The factory presets sit on SIMPLE now, directly BELOW the four dials —
+      not on Advanced. Hovering (or Tab-focusing) a card shows a tooltip
+      explaining WHY that preset is shaped the way it is.
+- [ ] Advanced, where the gallery used to be: a line above "Your presets"
+      reading "Factory presets moved to the Simple tab — show them". Click it:
+      it switches to Simple and puts the focus on the first preset card.
+- [ ] Load a card — everything changes and stays fully editable, exactly as
+      before. Your own presets are unchanged.
+
+Preset URLs
+- [ ] Every factory preset has its own address: open `https://ambi4.work/deep-focus`
+      (any card's name, lower case, hyphenated). It flashes a "Loading the …
+      preset" line and lands on the generator WITH that preset applied — dials,
+      tracks and voice editors all match — plus a note reading "Loaded the … preset
+      — Save to keep it".
+- [ ] The address bar reads `/` afterwards, not `/deep-focus`, and Back leaves
+      the site rather than bouncing through the redirect.
+- [ ] Reload: your own stored settings are back. A preset link is a visit, not a
+      takeover, until you Save it (same rule as a `#p=` share link).
+- [ ] A junk slug (e.g. `/not-a-preset`) → the normal 404 page.
+
+Min-max dials
+- [ ] "Randomise" dials in a track's Edit panel (Voice / Pitch / Timing / …) can
+      now be clicked to switch to a drifting min–max range, like Level and
+      Randomness. The left detent (Auto — "follows Randomness") is a single
+      value only: collapse a range onto it and the dial reads Auto again.
+- [ ] Clicking Tempo, Complexity, Repetition, Volume, Swing, Processor, Octave,
+      Filter type or the Shape dials does NOTHING — those params take a single
+      value engine-side, so they deliberately have no range affordance.
+
+Block editor (sequencer panels)
+- [ ] Melody / Bass / Arp / Percussion Edit panels: two small buttons to the
+      right of Auto/Manual — a blocks icon and `>_`. `>_` is greyed with a "JS
+      editor coming" tooltip.
+- [ ] Click the blocks icon: the step grid is replaced by the block canvas
+      (palette on the left, one row per lane). Percussion shows High at the TOP,
+      as everywhere else.
+- [ ] Place a Rest on beat 1, then click the icon again to go back to the grid:
+      step 1 is now off. The two editors are two views of one pattern — whichever
+      you use, the sound follows.
+- [ ] Keyboard: Tab into the palette, arrows to choose a block, Tab into the
+      canvas, arrows to move, Enter/Space to place, Delete to clear.
+- [ ] If this build ships without blocks.js the icon is absent rather than dead
+      — expected, not a bug.
 
 ## v12 delta — UI round (2026-07-25)
 - [ ] Double-click ANY knob resets it to its declared default — a voice-editor knob resets to that VOICE's own factory value (not just whatever value it happened to load with, e.g. from a saved preset); a track's Level/Randomness knob resets to 80%/50%.

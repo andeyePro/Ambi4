@@ -1,0 +1,82 @@
+---
+/**
+ * v16 factory-preset routes: ambi4.work/[slug], one static page per preset in
+ * src/data/factory-presets.json (or the fallback module until that lands).
+ *
+ * MECHANISM. The generator is a single heavy page whose settings are resolved
+ * once, before the first dial is built; the cheapest robust way to open it on a
+ * given preset is therefore to hand the main page a slug and let it take its
+ * own existing "apply a preset before first render" path — the one `#p=` share
+ * links already use. So this route is a SHELL, not a copy of the generator:
+ *
+ *   1. write the slug to sessionStorage['ambi4:route-preset']
+ *   2. location.replace('/') — replace, not assign, so Back leaves the site
+ *      the way the visitor arrived rather than bouncing through this shell
+ *   3. index.astro reads (and CONSUMES) that key inside init(), looks the slug
+ *      up in the same build-time list these routes were generated from, and
+ *      merges its params over DEFAULTS before any UI exists
+ *
+ * Only the slug travels, so a route can never carry a stale copy of a preset's
+ * params. Nothing is persisted: as with a share link, the visitor is told to
+ * Save if they want to keep it.
+ *
+ * Canonical points at `/` — every one of these routes is the same application,
+ * and the preset is a starting state rather than distinct content.
+ *
+ * No-JS (and no-sessionStorage) fallback: the <noscript> meta refresh and the
+ * visible link both go to `/`, so the visitor lands on the generator at its
+ * default settings rather than on a dead page. A meta refresh in the ordinary
+ * <head> would race the script, so it is deliberately noscript-only.
+ */
+import '../styles/global.css';
+import { resolveFactoryPresets } from '../data/factory-presets-fallback.js';
+
+export function getStaticPaths() {
+  return resolveFactoryPresets().map((preset) => ({
+    params: { preset: preset.slug },
+    props: { name: preset.name, oneLiner: preset.oneLiner ?? '' },
+  }));
+}
+
+const { preset } = Astro.params;
+const { name, oneLiner } = Astro.props;
+const description = oneLiner
+  ? `${oneLiner} Opens the Ambi4 generator on the ${name} preset.`
+  : `Opens the Ambi4 generator on the ${name} preset.`;
+---
+<html lang="en-gb">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <link rel="canonical" href="https://ambi4.work/" />
+    <title>{name} — Ambi4: Ambience for Work</title>
+    <noscript><meta http-equiv="refresh" content="0; url=/" /></noscript>
+  </head>
+  <body>
+    <main>
+      <p class="preset-redirect">
+        Loading the <strong>{name}</strong> preset&hellip;
+        <a href="/">Open the generator</a> if nothing happens.
+      </p>
+    </main>
+    <script is:inline define:vars={{ slug: preset }}>
+      try {
+        sessionStorage.setItem('ambi4:route-preset', slug);
+      } catch {
+        // Private mode with storage refused: the generator still opens, just
+        // at its own settings. Better than a dead end on the shell.
+      }
+      location.replace('/');
+    </script>
+  </body>
+</html>
+
+<style>
+  .preset-redirect {
+    margin: 48px auto;
+    max-width: 34rem;
+    padding: 0 16px;
+    text-align: center;
+  }
+</style>

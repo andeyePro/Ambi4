@@ -302,6 +302,28 @@ try {
   }
   const initErrors = consoleErrors.filter((line) => line.includes('Ambi4 init failed'));
   if (initErrors.length) failures.push(`init reported: ${initErrors.join(' | ')}`);
+
+  // v16 placement gate: the factory-preset gallery moved BELOW the Simple
+  // dials, and it is built by the page script from the build-time preset list
+  // — so an empty row means the JSON payload never reached the page, which
+  // `astro build` cannot see either.
+  const doc = window.document;
+  const simplePanel = doc.getElementById('panel-simple');
+  const dials = simplePanel && simplePanel.querySelector('.sliders-module');
+  const gallery = doc.getElementById('factory-presets');
+  if (!dials) {
+    failures.push("the Simple tab's dials container (.sliders-module) is missing");
+  }
+  if (!gallery) {
+    failures.push('the factory-preset gallery (#factory-presets) is missing');
+  } else if (!simplePanel || !simplePanel.contains(gallery)) {
+    failures.push('the factory-preset gallery is not on the Simple tab');
+  } else if (dials) {
+    const following = dials.compareDocumentPosition(gallery) & window.Node.DOCUMENT_POSITION_FOLLOWING;
+    if (!following) failures.push('the factory-preset gallery renders ABOVE the Simple dials');
+  }
+  const cards = doc.querySelectorAll('#factory-preset-row .factory-preset');
+  if (!cards.length) failures.push('no factory preset button was rendered into #factory-preset-row');
 } catch (err) {
   failures.push(`importing the built page script threw: ${err && err.stack ? err.stack : err}`);
 }
@@ -314,6 +336,9 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log(`page-boot ok — #generator-app unhid in ${bootMs} ms (${scriptMatch[1]})`);
+const cardCount = window.document.querySelectorAll('#factory-preset-row .factory-preset').length;
+console.log(
+  `page-boot ok — #generator-app unhid in ${bootMs} ms, ${cardCount} factory presets below the Simple dials (${scriptMatch[1]})`
+);
 window.close();
 process.exit(0);
