@@ -574,8 +574,8 @@
   {
     "slug": "open-plan",
     "name": "Open Plan",
-    "oneLiner": "A wide, even wash sitting exactly where voices live.",
-    "rationale": "Built to cover office chatter rather than compete with it: the texture holds a steady band of sound across the frequencies speech occupies, so a conversation two desks away stops resolving into words you can follow. Everything that could make you look up — drums, plucked notes, sudden entries — is switched off, and the slow drift in level stops your ears filing the whole thing away as machinery.",
+    "oneLiner": "A wide, even hiss sitting exactly where speech lives.",
+    "rationale": "Rebuilt on the noise-sculpting voice rather than a filtered wash: 'colour' lets the band that does the masking be dialled directly instead of hoping a bandpass wash lands in the right place. tilt sits close to neutral and bandCentre is parked in the consonant-clarity zone (roughly 1-2kHz) that carries intelligibility, with a wide bandWidth so coverage stays even rather than resonant. burst is zeroed outright — droplets or crackle would be an event, and an event is the one thing a masking bed cannot afford — and gust/sweep are both kept slow and shallow, present only so the ear reads it as air rather than a fixed tone. A slowed driftRate and a shorter reverbTail keep the whole bed close and undramatic: no lingering tail to smear the band definition, no long-period swings to notice. Everything that could make you look up stays switched off, same as before.",
     "params": {
       "bpm": 63,
       "root": "F",
@@ -624,19 +624,20 @@
         },
         "texture": {
           "state": "on",
-          "voice": "wash",
+          "voice": "colour",
           "level": {
-            "min": 0.55,
-            "max": 0.75
+            "min": 0.56,
+            "max": 0.7
           },
-          "randomness": 0.3,
+          "randomness": 0.15,
           "dissonance": 0,
+          "driftRate": 0.45,
           "vary": {
-            "voice": 0.1,
-            "volume": 0.35,
-            "pitch": 0.15,
+            "voice": 0,
+            "volume": 0.15,
+            "pitch": null,
             "timing": null,
-            "pan": 0.7
+            "pan": 0.55
           }
         },
         "percussion": {
@@ -670,26 +671,37 @@
           }
         },
         "texture": {
-          "wash": {
+          "colour": {
+            "source": {
+              "tilt": -0.08,
+              "bandCentre": 1400,
+              "bandWidth": 2.9,
+              "sweepRate": 0.03,
+              "sweepDepth": 0.12,
+              "gust": 0.12,
+              "gustRate": 0.04,
+              "burst": 0,
+              "swell": 0
+            },
             "filter": {
-              "type": "bandpass",
-              "cutoff": 1100,
-              "q": 0.9,
-              "envAmount": 0.35
+              "type": "lowpass",
+              "cutoff": 6500,
+              "q": 0.6
             },
             "adsr": {
-              "attack": 4.5,
+              "attack": 3.2,
               "decay": 0.01,
               "sustain": 1,
-              "release": 6
+              "release": 4.5
             },
             "sends": {
-              "reverb": 0.9,
-              "delay": 0.2
+              "reverb": 0.55,
+              "delay": 0.1
             }
           }
         }
-      }
+      },
+      "reverbTail": 2.2
     }
   },
   {
@@ -1070,13 +1082,13 @@
     "slug": "first-light",
     "name": "First Light",
     "oneLiner": "Marimba, hand drums and a light shuffle. The first hour of the day.",
-    "rationale": "A morning ramp. 84 beats with a swing is well above resting but nowhere near exercise tempo, which is the band that lifts mood without dragging your heart rate up to meet it. The arrangement builds rather than starting at full pelt, so the first couple of minutes are sparse and the room fills as you settle — much easier to begin work to than something already busy.",
+    "rationale": "A morning ramp. 84 beats with a swing is well above resting but nowhere near exercise tempo, which is the band that lifts mood without dragging your heart rate up to meet it. The shuffle lives where a shuffle is felt — percussion and the pulsed tracks riding the sixteenth grid — while the pad stays flatly on the beat: a sustained chord has no grid to swing in the first place, so 'straight pad against a swung kit' is the engine's default physics here, not a setting. The arrangement builds rather than starting at full pelt, so the first couple of minutes are sparse and the room fills as you settle — much easier to begin work to than something already busy.",
     "params": {
       "bpm": 84,
       "root": "E",
       "mode": "majorPentatonic",
       "timeSignature": "4/4",
-      "swing": 0.32,
+      "swing": 0.36,
       "complexity": 0.55,
       "repetition": 0.6,
       "structure": "build",
@@ -1528,7 +1540,7 @@
     "slug": "push",
     "name": "Push",
     "oneLiner": "Ticking sixteenths and a bass locked to the kick. Head down, timer running.",
-    "rationale": "The energising band — 112 beats, about the pace of a brisk walk — with almost everything repeated rather than varied, because propulsion helps a deadline and novelty does not. Dorian keeps it purposeful instead of cheerful, and the bass is pinned to the same slots as the kick so the rhythm section reads as one moving object you can ride instead of several things happening.",
+    "rationale": "The energising band — 112 beats, about the pace of a brisk walk — with almost everything repeated rather than varied, because propulsion helps a deadline and novelty does not. Dorian keeps it purposeful instead of cheerful, and the bass is pinned to the same slots as the kick so the rhythm section reads as one moving object you can ride instead of several things happening. A light wavefold on the bass source adds a driving edge under the low end without changing its pitch discipline, and a short reverbTail keeps the whole thing close and immediate rather than roomy — push wants to feel like it's next to you, not down a hallway.",
     "params": {
       "bpm": 112,
       "root": "A",
@@ -2051,7 +2063,8 @@
           "round": {
             "source": {
               "mix": 0.35,
-              "detune": 0
+              "detune": 0,
+              "fold": 0.18
             },
             "filter": {
               "type": "lowpass",
@@ -2105,7 +2118,8 @@
             }
           }
         }
-      }
+      },
+      "reverbTail": 1.4
     }
   },
   {
@@ -2267,7 +2281,7 @@
     "slug": "night-shift",
     "name": "Night Shift",
     "oneLiner": "Warm, low and awake — for working while everyone else sleeps.",
-    "rationale": "Late work needs to stay alert without turning harsh, so this holds 64 beats — just above rest, enough to keep you upright — and takes the brightness out of everything: a warm pad low in its register, a sub bass under it, and a tick you feel more than hear. Aeolian supplies the minor-key weight the hour asks for without tipping into anything mournful enough to notice.",
+    "rationale": "Late work needs to stay alert without turning harsh, so this holds 64 beats — just above rest, enough to keep you upright — and takes the brightness out of everything: a warm pad low in its register, a sub bass under it, and a tick you feel more than hear. Aeolian supplies the minor-key weight the hour asks for without tipping into anything mournful enough to notice. Pad and texture both get their driftRate slowed, so the slow level/voice wander that keeps a long session from going static takes noticeably longer to complete a lap — appropriate for an hour where nothing should visibly change.",
     "params": {
       "bpm": 64,
       "root": "A",
@@ -2291,7 +2305,8 @@
             "pitch": 0,
             "timing": 0.1,
             "pan": 0.3
-          }
+          },
+          "driftRate": 0.5
         },
         "arp": {
           "state": "off",
@@ -2337,7 +2352,8 @@
             "pitch": null,
             "timing": null,
             "pan": 0.6
-          }
+          },
+          "driftRate": 0.55
         },
         "percussion": {
           "state": "on",
@@ -2745,7 +2761,7 @@
     "slug": "wind-down",
     "name": "Wind Down",
     "oneLiner": "Under a resting pulse, rocking in six-eight, everything falling away.",
-    "rationale": "Music slower than a resting heartbeat tends to pull arousal down with it, which is why this one sits at 52 in a rocking six-eight. There is no percussion to march to and no melody to track — a choir pad and a wash that swell and recede, and little else — so it works as a full stop at the end of the day rather than as something to keep working to.",
+    "rationale": "Music slower than a resting heartbeat tends to pull arousal down with it, which is why this one sits at 52 in a rocking six-eight. There is no percussion to march to and no melody to track — a choir pad and a wash that swell and recede, and little else — so it works as a full stop at the end of the day rather than as something to keep working to. Both the pad and the texture have their driftRate pulled well back, so the swell/recede motion keeps its shape but the slower background wander (voice, level) settles rather than continuing to roam once you've stopped paying attention to it.",
     "params": {
       "bpm": 52,
       "root": "D",
@@ -2769,7 +2785,8 @@
             "pitch": 0,
             "timing": 0.1,
             "pan": 0.35
-          }
+          },
+          "driftRate": 0.4
         },
         "arp": {
           "state": "off",
@@ -2815,7 +2832,8 @@
             "pitch": null,
             "timing": null,
             "pan": 0.6
-          }
+          },
+          "driftRate": 0.4
         },
         "percussion": {
           "state": "off",
@@ -2896,7 +2914,7 @@
     "slug": "breathe",
     "name": "Breathe",
     "oneLiner": "One chord, swelling and releasing at about six breaths a minute.",
-    "rationale": "Slow paced breathing is the quickest reliable way to bring arousal down, and this gives you something to follow: at 40 beats in six-eight each bar lasts around four and a half seconds, so a breath in and a breath out fills two bars, and the pad rises and falls on exactly that shape. Apart from an occasional grain of texture there is no pulse and no melodic line, because anything that arrives is one more thing to notice.",
+    "rationale": "Slow paced breathing is the quickest reliable way to bring arousal down, and this gives you something to follow: at 40 beats in six-eight each bar lasts around four and a half seconds, so a breath in and a breath out fills two bars, and the pad rises and falls on exactly that shape. Apart from an occasional grain of texture there is no pulse and no melodic line, because anything that arrives is one more thing to notice. The texture's driftRate is slowed to match — its own background wander now takes minutes rather than moments to shift, which is the only setting consistent with a piece built around a four-and-a-half-second breath.",
     "params": {
       "bpm": 40,
       "root": "C",
@@ -2958,7 +2976,8 @@
             "pitch": null,
             "timing": null,
             "pan": 0.45
-          }
+          },
+          "driftRate": 0.35
         },
         "percussion": {
           "state": "off",
@@ -3008,6 +3027,283 @@
             "sends": {
               "reverb": 0.8,
               "delay": 0.35
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "far-rain",
+    "name": "Far Rain",
+    "oneLiner": "Rain heard from indoors, weather rolling past rather than falling on you.",
+    "rationale": "Built on the noise-sculpting voice rather than a sample, so the weather can be dialled rather than looped: tilt leans just to the brown side of neutral — real rain close-up is a bright hiss, but distance takes the top off it, the way air itself absorbs high frequencies over a room's width and more. burst supplies the discrete patter of drops, deliberately blurred (burstSharp low) rather than crisp, so it reads as a wash of many small events rather than individual clicks; gust and the sweep together give it the slow ebb of a shower easing and returning, and swell lets the whole bed rise and fall like weather arriving and passing rather than sitting at one level. Broadband, gently varying noise is well evidenced as a calming, sleep-friendly stimulus — it's the same family as rain and surf recordings people already choose for that reason — but a synthesised bed can be shaped to a room instead of a recording's own space. A long reverbTail is the one deliberate luxury here: it's what turns 'noise in the room' into 'the sound is happening outside it', which is the entire idea of the preset. A single quiet pad drone underneath gives it something to sit on without ever asking to be listened to on its own.",
+    "params": {
+      "bpm": 58,
+      "root": "D",
+      "mode": "minorPentatonic",
+      "timeSignature": "4/4",
+      "swing": 0,
+      "complexity": 0.3,
+      "repetition": 0.85,
+      "structure": "drone",
+      "volume": 0.75,
+      "reverbTail": 5.5,
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "warm",
+          "level": 0.28,
+          "randomness": 0.1,
+          "dissonance": 0,
+          "driftRate": 0.5,
+          "vary": {
+            "voice": 0,
+            "volume": 0.15,
+            "pitch": 0,
+            "timing": 0.08,
+            "pan": 0.2
+          }
+        },
+        "arp": {
+          "state": "off",
+          "voice": "softPluck",
+          "level": 0.4,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "melody": {
+          "state": "off",
+          "voice": "flute",
+          "level": 0.4,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "off",
+          "voice": "sub",
+          "level": 0.5,
+          "randomness": 0.15,
+          "dissonance": 0
+        },
+        "texture": {
+          "state": "on",
+          "voice": "colour",
+          "level": {
+            "min": 0.42,
+            "max": 0.64
+          },
+          "randomness": 0.3,
+          "dissonance": 0,
+          "driftRate": 0.85,
+          "vary": {
+            "voice": 0,
+            "volume": null,
+            "pitch": null,
+            "timing": null,
+            "pan": 0.6
+          }
+        },
+        "percussion": {
+          "state": "off",
+          "voice": "soft",
+          "level": 0.3,
+          "randomness": 0.2
+        }
+      },
+      "patches": {
+        "pad": {
+          "warm": {
+            "source": {
+              "mix": 0.4,
+              "detune": 6
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 320,
+              "q": 0.6
+            },
+            "adsr": {
+              "attack": 5,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 7
+            },
+            "sends": {
+              "reverb": 0.7,
+              "delay": 0.1
+            }
+          }
+        },
+        "texture": {
+          "colour": {
+            "source": {
+              "tilt": -0.15,
+              "bandCentre": 2600,
+              "bandWidth": 3,
+              "sweepRate": 0.06,
+              "sweepDepth": 0.35,
+              "gust": {
+                "min": 0.35,
+                "max": 0.7
+              },
+              "gustRate": 0.12,
+              "burst": {
+                "min": 0.15,
+                "max": 0.4
+              },
+              "burstSharp": 0.35,
+              "swell": 0.4
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 5200,
+              "q": 0.6
+            },
+            "adsr": {
+              "attack": 2,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 4
+            },
+            "sends": {
+              "reverb": 0.85,
+              "delay": 0.15
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "slug": "dawn-song",
+    "name": "Dawn Song",
+    "oneLiner": "A single high, sparse call, wide awake before the rest of the room is.",
+    "rationale": "Sparse, irregular calls are how the auditory system already tells 'benign environment' from 'alarm' — it's the same reasoning behind using dawn birdsong rather than a tone as a gentler wake cue: the signal is real and above the noise floor, but its cadence has no urgent, metronomic regularity for the brain to flag. cadence is set near the sparse end of its range and irregular is raised so calls land unevenly rather than on a predictable clock; the glide runs upward and the formants sit high and bright, closer to a small bird's whistle than to speech or machinery, which keeps it perceptually distinct from anything that means 'pay attention now'. wholeTone underneath is deliberately ambiguous rather than settled into a firm major or minor key — the hazy, ungrounded quality suits the threshold between asleep and awake better than a confident tonic would. A single soft pad gives the calls a sky to sit in; nothing else plays, so the calls stay the only event in the room.",
+    "params": {
+      "bpm": 62,
+      "root": "B",
+      "mode": "wholeTone",
+      "timeSignature": "4/4",
+      "swing": 0,
+      "complexity": 0.35,
+      "repetition": 0.55,
+      "structure": "waves",
+      "volume": 0.72,
+      "reverbTail": 4.6,
+      "tracks": {
+        "pad": {
+          "state": "on",
+          "voice": "choir",
+          "level": 0.32,
+          "randomness": 0.15,
+          "dissonance": 0,
+          "driftRate": 0.6,
+          "vary": {
+            "voice": 0,
+            "volume": 0.15,
+            "pitch": 0,
+            "timing": 0.1,
+            "pan": 0.3
+          }
+        },
+        "arp": {
+          "state": "off",
+          "voice": "crystal",
+          "level": 0.4,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "melody": {
+          "state": "off",
+          "voice": "flute",
+          "level": 0.4,
+          "randomness": 0.2,
+          "dissonance": 0
+        },
+        "bass": {
+          "state": "off",
+          "voice": "sub",
+          "level": 0.5,
+          "randomness": 0.15,
+          "dissonance": 0
+        },
+        "texture": {
+          "state": "on",
+          "voice": "call",
+          "level": {
+            "min": 0.22,
+            "max": 0.36
+          },
+          "randomness": 0.4,
+          "dissonance": 0,
+          "driftRate": 0.9,
+          "vary": {
+            "voice": 0,
+            "volume": null,
+            "pitch": 0.1,
+            "timing": null,
+            "pan": 0.6
+          }
+        },
+        "percussion": {
+          "state": "off",
+          "voice": "soft",
+          "level": 0.25,
+          "randomness": 0.2
+        }
+      },
+      "patches": {
+        "pad": {
+          "choir": {
+            "source": {
+              "mix": 0.4,
+              "detune": 8
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 1400,
+              "q": 0.5
+            },
+            "adsr": {
+              "attack": 3.6,
+              "decay": 0.01,
+              "sustain": 1,
+              "release": 5
+            },
+            "sends": {
+              "reverb": 0.7,
+              "delay": 0.2
+            }
+          }
+        },
+        "texture": {
+          "call": {
+            "source": {
+              "glide": {
+                "min": 5,
+                "max": 9
+              },
+              "glideCurve": 0.6,
+              "formant1": 2200,
+              "formant2": 4200,
+              "cadence": 0.7,
+              "irregular": 0.5
+            },
+            "filter": {
+              "type": "lowpass",
+              "cutoff": 9000,
+              "q": 0.6
+            },
+            "adsr": {
+              "attack": 0.006,
+              "decay": 0.04,
+              "sustain": 1,
+              "release": 0.5
+            },
+            "sends": {
+              "reverb": 0.6,
+              "delay": 0.3
             }
           }
         }

@@ -556,17 +556,114 @@ const VOICES: Record<string, [string, string][]> = {
     const SEQ_MAX = 8; // sequencers per track (Markov chain size ceiling)
     const SEQ_SINGLE_TRACKS = ['melody', 'bass', 'arp'];
     const SEQ_TRACKS = ['melody', 'bass', 'arp', 'percussion'];
+    // v21 per-step gate: the fraction of its step a note is held for. 1 fills
+    // the step exactly; above that it runs into the next one (legato).
+    const SEQ_GATE_MIN = 0.1;
+    const SEQ_GATE_MAX = 2;
+    const SEQ_GATE_DEFAULT = 0.9;
+    const SEQ_GATE_NUDGE = 0.05;
+    // v21 per-track density: 1 is the complexity-derived rate, 2 twice it.
+    const TRACK_DENSITY_MAX = 2;
     // Probability-group dot colours (v13/v14): group id → hue. Deliberately
     // distinct from the six track accents so a group never reads as a track.
     const GROUP_COLOURS = ['#d98324', '#3f8f6d', '#8a5cd6', '#c2456b', '#3f7fbf', '#9a8f2e'];
-    // v14: lanes render HIGH at the top, LOW at the bottom — the way a drum
-    // grid is read everywhere else. The param object is keyed, not ordered,
-    // so this is purely a render order.
-    const PERC_LANES = [
+    // v14/v21: lanes render HIGH at the top, LOW at the bottom — the way a
+    // drum grid is read everywhere else. The step object is KEYED by lane id,
+    // so this list is what gives the lanes their order, their display names
+    // and (v21) their voice-kind mapping. The three built-ins keep the ids the
+    // engine has always used, so every stored pattern and every `perKind`
+    // override still lands on the lane it was written for.
+    const PERC_LANE_KINDS = [
       ['high', 'High'],
       ['mid', 'Mid'],
       ['low', 'Low'],
     ];
+    const PERC_BUILTIN_LANES = ['high', 'mid', 'low'];
+    const PERC_MAX_LANES = 8; // v21 cap
+    const PERC_NEW_LANE_KIND = 'mid';
+
+    function defaultPercLanes() {
+      return PERC_LANE_KINDS.map(([id, label]) => ({ id, label, kind: id }));
+    }
+
+    /** Top-down rank: high lanes sort above mid, mid above low. */
+    function laneKindRank(kind) {
+      const index = PERC_LANE_KINDS.findIndex(([id]) => id === kind);
+      return index === -1 ? PERC_LANE_KINDS.length : index;
+    }
+
+    /**
+     * Where a lane of `kind` belongs in a top-down list: at the foot of its own
+     * kind's group, which is what keeps HIGH kinds at the top however many
+     * lanes a kit grows. The user may reorder freely afterwards — this only
+     * decides where a NEW lane lands.
+     */
+    function laneInsertIndex(lanes, kind) {
+      const rank = laneKindRank(kind);
+      let index = 0;
+      for (let i = 0; i < lanes.length; i++) {
+        if (laneKindRank(lanes[i].kind) <= rank) index = i + 1;
+      }
+      return index;
+    }
+
+    function nextLaneId(lanes) {
+      const taken = new Set(lanes.map((lane) => lane.id));
+      for (let n = lanes.length + 1; ; n++) {
+        const id = `lane${n}`;
+        if (!taken.has(id)) return id;
+      }
+    }
+
+    /**
+     * Repair a stored lane list: known kinds, unique non-empty ids, a label
+     * each, the cap enforced — and the three built-ins always present (they
+     * are undeletable, so a save that lost one gets it back in its kind slot).
+     * A built-in's kind is its id by definition (the lane called 'low' IS the
+     * low voice), matching the engine's own sanitiser; only its NAME and its
+     * place in the list are the user's.
+     *
+     * The engine numbers lanes with an `order` field and sorts by it; this
+     * page uses array order (top-down, as rendered) and lets the engine derive
+     * `order` from it. A list that arrived FROM the engine — a preset, a share
+     * link — carries the field, so it is sorted by before being dropped.
+     */
+    function normalisePercLanes(raw) {
+      const source = Array.isArray(raw) ? raw.filter(isPlainObject) : [];
+      if (source.length && source.every((entry) => Number.isFinite(entry.order))) {
+        source.sort((a, b) => a.order - b.order);
+      }
+      const lanes = [];
+      const seen = new Set();
+      for (const entry of source) {
+        if (lanes.length >= PERC_MAX_LANES) break;
+        const id = typeof entry.id === 'string' ? entry.id.trim().slice(0, 32) : '';
+        if (!id || seen.has(id)) continue;
+        const kind = PERC_BUILTIN_LANES.includes(id)
+          ? id
+          : PERC_LANE_KINDS.some(([k]) => k === entry.kind)
+            ? entry.kind
+            : PERC_NEW_LANE_KIND;
+        const label =
+          typeof entry.label === 'string' && entry.label.trim()
+            ? entry.label.trim().slice(0, 32)
+            : id;
+        seen.add(id);
+        lanes.push({ id, label, kind });
+      }
+      for (const [id, label] of PERC_LANE_KINDS) {
+        if (seen.has(id)) continue;
+        lanes.splice(laneInsertIndex(lanes, id), 0, { id, label, kind: id });
+      }
+      return lanes.slice(0, PERC_MAX_LANES);
+    }
+
+    /** A track's lane list, top-down; melodic tracks have exactly one. */
+    function laneListFor(track, t) {
+      if (track !== 'percussion') return [{ key: null, label: null, kind: null }];
+      const lanes = Array.isArray(t && t.lanes) ? t.lanes : defaultPercLanes();
+      return lanes.map((lane) => ({ key: lane.id, label: lane.label, kind: lane.kind }));
+    }
     const VARY_KEYS = [
       ['voice', 'Voice'],
       ['volume', 'Volume'],
@@ -601,6 +698,20 @@ const VOICES: Record<string, [string, string][]> = {
       return { voice: null, volume: null, pitch: null, timing: null, pan: null };
     }
 
+    /**
+     * v21 per-track feel. `swing` (pulsed tracks) overrides the global groove
+     * for this track alone; `density` (tuned tracks) scales its event rate on
+     * top of complexity. null is the Auto detent on both — "follow the global
+     * swing" / "let complexity decide" — which is why they default to null
+     * rather than to a number that would freeze the engine's own choice.
+     */
+    function defaultFeel(track) {
+      return {
+        ...(SEQ_TRACKS.includes(track) ? { swing: null } : {}),
+        ...(TUNED_TRACKS.includes(track) ? { density: null } : {}),
+      };
+    }
+
     // v14 Sequencer 2.0: a track owns a LIST of sequencers and picks between
     // them at each loop end (Markov transition weights). `sequencer` stays as
     // an alias of sequencers[0] so a pre-v14 engine still sees the one it
@@ -608,7 +719,7 @@ const VOICES: Record<string, [string, string][]> = {
     function defaultSequencer(track) {
       const steps =
         track === 'percussion'
-          ? { low: defaultLane('low'), mid: defaultLane('mid'), high: defaultLane('high') }
+          ? Object.fromEntries(defaultPercLanes().map((lane) => [lane.id, defaultLane(lane.kind)]))
           : defaultLane(track);
       return { mode: 'auto', weights: [1], steps };
     }
@@ -697,6 +808,7 @@ const VOICES: Record<string, [string, string][]> = {
           randomness: 0.5,
           dissonance: 0,
           vary: defaultVary(),
+          ...defaultFeel('pad'),
           ...MONO_DEFAULTS.pad,
         },
         arp: {
@@ -707,6 +819,7 @@ const VOICES: Record<string, [string, string][]> = {
           randomness: 0.5,
           dissonance: 0,
           vary: defaultVary(),
+          ...defaultFeel('arp'),
           ...MONO_DEFAULTS.arp,
           ...withSequencers('arp'),
         },
@@ -720,6 +833,7 @@ const VOICES: Record<string, [string, string][]> = {
           randomness: 0.5,
           dissonance: 0,
           vary: defaultVary(),
+          ...defaultFeel('melody'),
           ...MONO_DEFAULTS.melody,
           ...withSequencers('melody'),
         },
@@ -731,6 +845,7 @@ const VOICES: Record<string, [string, string][]> = {
           randomness: 0.5,
           dissonance: 0,
           vary: defaultVary(),
+          ...defaultFeel('bass'),
           ...MONO_DEFAULTS.bass,
           ...withSequencers('bass'),
         },
@@ -742,6 +857,7 @@ const VOICES: Record<string, [string, string][]> = {
           randomness: 0.5,
           dissonance: 0,
           vary: defaultVary(),
+          ...defaultFeel('texture'),
           ...MONO_DEFAULTS.texture,
         },
         percussion: {
@@ -751,6 +867,8 @@ const VOICES: Record<string, [string, string][]> = {
           hold: false,
           randomness: 0.5,
           vary: defaultVary(),
+          ...defaultFeel('percussion'),
+          lanes: defaultPercLanes(),
           ...MONO_DEFAULTS.percussion,
           ...withSequencers('percussion'),
         },
@@ -839,6 +957,12 @@ const VOICES: Record<string, [string, string][]> = {
      * number) when `v` is neither a finite number nor a {min,max} object. */
     function normaliseRangeValue(v, fallback) {
       return sanitiseRangeValueIn(v, 0, 1, fallback);
+    }
+
+    /** A v21 feel param: a number in [lo,hi], or null for the Auto detent
+     * ("follow the global swing" / "let complexity decide the density"). */
+    function nullableNumberIn(v, lo, hi) {
+      return typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : null;
     }
 
     /** A representative plain number for a RangeValue field — used by
@@ -954,24 +1078,29 @@ const VOICES: Record<string, [string, string][]> = {
         // through getParams() doesn't grow the payload.
         if (s.tie === true) step.tie = true;
         if (Number.isFinite(s.group) && s.group >= 0) step.group = Math.floor(s.group);
+        // v21 gate is optional in the same way: absent means "however long the
+        // engine plays this step by default", so an untouched step never grows
+        // the key.
+        if (Number.isFinite(s.gate)) step.gate = clamp(s.gate, SEQ_GATE_MIN, SEQ_GATE_MAX);
         out[i] = step;
       }
       return out;
     }
 
     /** One sequencer of a track's list: mode + Markov transition weights +
-     * lane(s). `weights` is padded/truncated to the list length by the caller. */
-    function normaliseSequencer(seq, track) {
+     * lane(s). `weights` is padded/truncated to the list length by the caller.
+     * `lanes` (percussion only) is the track's lane list — the step map is
+     * keyed by lane id, so a lane the user added carries its own pattern and a
+     * lane they removed takes its pattern with it. */
+    function normaliseSequencer(seq, track, lanes) {
       const src = isPlainObject(seq) ? seq : {};
       const steps =
         track === 'percussion'
           ? (() => {
               const raw = isPlainObject(src.steps) ? src.steps : {};
-              return {
-                low: normaliseLane(raw.low, 'low'),
-                mid: normaliseLane(raw.mid, 'mid'),
-                high: normaliseLane(raw.high, 'high'),
-              };
+              const out = {};
+              for (const lane of lanes) out[lane.id] = normaliseLane(raw[lane.id], lane.kind);
+              return out;
             })()
           : normaliseLane(src.steps, track);
       const weights = Array.isArray(src.weights)
@@ -990,7 +1119,8 @@ const VOICES: Record<string, [string, string][]> = {
       const list = Array.isArray(t.sequencers) && t.sequencers.length
         ? t.sequencers
         : [isPlainObject(t.sequencer) ? t.sequencer : {}];
-      t.sequencers = list.slice(0, SEQ_MAX).map((seq) => normaliseSequencer(seq, track));
+      const lanes = track === 'percussion' ? t.lanes : null;
+      t.sequencers = list.slice(0, SEQ_MAX).map((seq) => normaliseSequencer(seq, track, lanes));
       const n = t.sequencers.length;
       for (const seq of t.sequencers) {
         seq.weights = Array.from({ length: n }, (unused, i) =>
@@ -1027,6 +1157,12 @@ const VOICES: Record<string, [string, string][]> = {
         t.randomness = normaliseRangeValue(t.randomness, 0.5);
         if (TUNED_TRACKS.includes(id)) t.dissonance = normaliseRangeValue(t.dissonance, 0);
         else delete t.dissonance;
+        // v21 feel params: null is a value here (the Auto detent), so an
+        // absent/invalid entry becomes null rather than a number.
+        if (SEQ_TRACKS.includes(id)) t.swing = nullableNumberIn(t.swing, 0, 1);
+        else delete t.swing;
+        if (TUNED_TRACKS.includes(id)) t.density = nullableNumberIn(t.density, 0, TRACK_DENSITY_MAX);
+        else delete t.density;
         const vary = isPlainObject(t.vary) ? t.vary : {};
         t.vary = defaultVary();
         for (const [key] of VARY_KEYS) {
@@ -1036,6 +1172,9 @@ const VOICES: Record<string, [string, string][]> = {
           t.vary[key] = sanitiseRangeValueIn(vary[key], 0, 1, null);
         }
       }
+      // Lanes first: the percussion step map is keyed by lane id, so the list
+      // has to be repaired before the sequencers that follow it are.
+      s.tracks.percussion.lanes = normalisePercLanes(s.tracks.percussion.lanes);
       for (const id of SEQ_TRACKS) normaliseSequencerList(s.tracks[id], id);
       // Legacy boolean mask follows the arp's FIRST sequencer (kept for older
       // engines and for the combined-complexity estimate).
@@ -1192,6 +1331,19 @@ const VOICES: Record<string, [string, string][]> = {
       source[`osc${n}`] = SHAPE_NAMES[Math.round(v)];
     }
 
+    // ---- v12/v18 detune dial --------------------------------------------
+    // Bipolar where the engine takes it (probed at boot): the same 50 cents
+    // flat as sharp, with a centre detent so "in tune" is findable by feel.
+    const DETUNE_MAX = 50;
+    const DETUNE_DETENT = 1; // cents swallowed either side of zero
+
+    function detuneFormat(v, bipolar) {
+      const n = Math.round(v);
+      if (!bipolar) return `${n} ct`;
+      if (n === 0) return 'In tune';
+      return `${n > 0 ? '+' : ''}${n} ct`;
+    }
+
     // ---- v11 share links, tier 1 (fragment, no server) -------------------
     // A share link carries PARAMS ONLY — never user code (v10 hard rule). The
     // payload is JSON → UTF-8 → base64url in the URL fragment: fragments are
@@ -1333,6 +1485,12 @@ const VOICES: Record<string, [string, string][]> = {
         // caps it through. Either one alone is enough to drive the dial.
         reverbTail: false,
         setReverbSeconds: typeof engine.setReverbSeconds === 'function',
+        // v21: user-addable percussion lanes, per-step note length, and the
+        // bipolar detune the v12 round had to leave unipolar. All three are
+        // sanitiser probes (below), not version guesses.
+        percussionLanes: false,
+        stepGate: false,
+        patchDetuneBipolar: false,
         randomness: {},
         dissonance: {},
         vary: {},
@@ -1342,6 +1500,8 @@ const VOICES: Record<string, [string, string][]> = {
         mono: {},
         glide: {},
         driftRate: {},
+        trackSwing: {},
+        trackDensity: {},
       };
       // The engine's own starting reverb tail — the dial's default and its
       // opening value, so the page never invents a length the engine disagrees
@@ -1407,6 +1567,71 @@ const VOICES: Record<string, [string, string][]> = {
         engineCaps.patchCall = typeof v19.cadence === 'number';
         engineCaps.patchFold = isNumberOrRange(v19.fold);
         engineCaps.patchV19Range = isPlainObject(v19Ranged.tilt);
+        // v12 left detune unipolar because the sanitiser clamped to [0,50];
+        // it has taken -50..50 since v18, so the dial goes bipolar the moment
+        // the probe says a negative value survives — and stays unipolar (no
+        // silently-clamped half) where it doesn't.
+        const bipolar = probePatchSource({ detune: -25 }) || {};
+        engineCaps.patchDetuneBipolar = bipolar.detune === -25;
+      }
+
+      // v21 track-param probes. Same reasoning as the patch probe above: these
+      // ship as UI in the same wave as the engine work, so nothing here may
+      // trust a version — each control asks the sanitiser whether the value it
+      // would write actually survives.
+      function probeTracks(partial) {
+        if (typeof sanitiseParams !== 'function') return null;
+        try {
+          const probed = sanitiseParams({ tracks: partial });
+          return probed && isPlainObject(probed.tracks) ? probed.tracks : null;
+        } catch {
+          return null;
+        }
+      }
+      {
+        // Dynamic percussion lanes: the question is not "is there a lanes key"
+        // but "does a lane I invented come back", since a lane the engine
+        // discards is a lane whose steps never sound.
+        const PROBE_LANE = '__probe';
+        const lanesProbe = probeTracks({
+          percussion: {
+            lanes: [
+              ...defaultPercLanes(),
+              { id: PROBE_LANE, label: 'Lane 4', kind: PERC_NEW_LANE_KIND },
+            ],
+          },
+        });
+        const lanes = lanesProbe && isPlainObject(lanesProbe.percussion)
+          ? lanesProbe.percussion.lanes
+          : null;
+        engineCaps.percussionLanes =
+          Array.isArray(lanes) && lanes.some((lane) => isPlainObject(lane) && lane.id === PROBE_LANE);
+
+        // Per-step note length, probed on a melodic lane (the only place the
+        // page offers the third axis).
+        const gateProbe = probeTracks({ melody: { sequencer: { steps: [{ on: true, gate: 1.5 }] } } });
+        const probedStep =
+          gateProbe && isPlainObject(gateProbe.melody) && isPlainObject(gateProbe.melody.sequencer)
+            ? (gateProbe.melody.sequencer.steps || [])[0]
+            : null;
+        engineCaps.stepGate = isPlainObject(probedStep) && probedStep.gate === 1.5;
+
+        // Per-track swing/density. Both carry an Auto detent that writes null,
+        // so a build that takes the number but not the null would give the
+        // detent nothing to mean — hence both halves are probed, and the
+        // control ships only when the pair survives.
+        const numbers = probeTracks(
+          Object.fromEntries(TRACK_IDS.map((id) => [id, { swing: 0.5, density: 1.5 }]))
+        );
+        const nulls = probeTracks(
+          Object.fromEntries(TRACK_IDS.map((id) => [id, { swing: null, density: null }]))
+        );
+        for (const id of TRACK_IDS) {
+          const num = numbers && isPlainObject(numbers[id]) ? numbers[id] : {};
+          const nul = nulls && isPlainObject(nulls[id]) ? nulls[id] : {};
+          engineCaps.trackSwing[id] = num.swing === 0.5 && nul.swing === null;
+          engineCaps.trackDensity[id] = num.density === 1.5 && nul.density === null;
+        }
       }
 
       const { prefs, consentPrompt } = await loadPrefsModule();
@@ -2904,6 +3129,120 @@ const VOICES: Record<string, [string, string][]> = {
         describe(input, DRIFT_HINT);
       }
 
+      // ---- v21: per-track Swing (pulsed tracks) + Density (tuned) ---------
+      // Both carry an AUTO DETENT at the bottom of the sweep that writes null
+      // — "follow the global Swing" / "let complexity set the rate" — so the
+      // dial has to distinguish "explicitly zero" from "not set". Same 22-
+      // position trick the Randomise mini-knobs use: raw 0 is the detent, raw
+      // 1–21 map onto the param's own range. Neither is rangeable: the engine
+      // reads both as plain scalars (or null), so a {min,max} would be dropped.
+      const TRACK_SWING_HINT =
+        'This track’s own swing. At the left detent it follows the global Swing dial; anywhere else overrides it for this track alone.';
+      const TRACK_DENSITY_HINT =
+        'How busy this track is, on top of Complexity. At the left detent Complexity decides; 1 is that same rate, 2 is twice it.';
+      const FEEL_STEPS = 21;
+
+      const feelRawFromValue = (v, max) =>
+        v === null || v === undefined ? 0 : 1 + Math.round((clamp(v, 0, max) / max) * (FEEL_STEPS - 1));
+      const feelValueFromRaw = (raw, max) => {
+        const n = Math.round(rangeMid(raw));
+        return n <= 0 ? null : clamp(((n - 1) / (FEEL_STEPS - 1)) * max, 0, max);
+      };
+
+      function buildFeelControl(parent, track, knobs, spec) {
+        const { key, label, max, hint, format, className } = spec;
+        const commitFeel = (raw) => {
+          const value = feelValueFromRaw(raw, max);
+          settings.tracks[track][key] = value;
+          engine.setParams({ tracks: { [track]: { [key]: value } } });
+          persistSettings();
+        };
+        const stored = settings.tracks[track][key];
+        const raw = feelRawFromValue(typeof stored === 'number' ? stored : null, max);
+        const rawFormat = (v) => (Math.round(v) <= 0 ? 'Auto' : format(feelValueFromRaw(v, max)));
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = `knob-cell ${className}`;
+          parent.append(cell);
+          try {
+            const handle = knobApi.createKnob(cell, {
+              label,
+              min: 0,
+              max: FEEL_STEPS,
+              step: 1,
+              value: raw,
+              marks: [0],
+              format: rawFormat,
+              defaultValue: 0,
+              onInput: commitFeel,
+            });
+            describe(handle.el, hint);
+            if (knobs) knobs.push(handle);
+            return;
+          } catch {
+            cell.remove();
+          }
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'control ve-control';
+        const id = `${key}-${track}`;
+        const labelRow = document.createElement('div');
+        labelRow.className = 'control-label-row';
+        const name = document.createElement('label');
+        name.htmlFor = id;
+        name.textContent = label;
+        const readout = document.createElement('span');
+        readout.className = 'value-readout';
+        readout.textContent = rawFormat(raw);
+        labelRow.append(name, readout);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.id = id;
+        input.min = '0';
+        input.max = String(FEEL_STEPS);
+        input.step = '1';
+        input.value = String(raw);
+        input.setAttribute('aria-valuetext', rawFormat(raw));
+        input.addEventListener('input', () => {
+          const v = parseInt(input.value, 10) || 0;
+          readout.textContent = rawFormat(v);
+          input.setAttribute('aria-valuetext', rawFormat(v));
+          commitFeel(v);
+        });
+        wrap.append(labelRow, input);
+        parent.append(wrap);
+        describe(input, hint);
+      }
+
+      function buildFeelRow(container, track, knobs) {
+        const wantsSwing = SEQ_TRACKS.includes(track) && engineCaps.trackSwing[track];
+        const wantsDensity = TUNED_TRACKS.includes(track) && engineCaps.trackDensity[track];
+        if (!wantsSwing && !wantsDensity) return;
+        const row = document.createElement('div');
+        row.className = 'dissonance-row feel-row';
+        container.append(row);
+        if (wantsSwing) {
+          buildFeelControl(row, track, knobs, {
+            key: 'swing',
+            label: 'Swing',
+            max: 1,
+            hint: TRACK_SWING_HINT,
+            format: (v) => (v <= 0.005 ? 'Straight' : pctFormat(v)),
+            className: 'track-swing-knob',
+          });
+        }
+        if (wantsDensity) {
+          buildFeelControl(row, track, knobs, {
+            key: 'density',
+            label: 'Density',
+            max: TRACK_DENSITY_MAX,
+            hint: TRACK_DENSITY_HINT,
+            format: (v) => `${plainFormat(v)}×`,
+            className: 'track-density-knob',
+          });
+        }
+      }
+
       // ---- v14: per-track Dissonance (tuned tracks only) -----------------
       // How far this instrument may stray from the chord the group is
       // playing: 0 is strict, low values allow passing/neighbour tones,
@@ -3050,6 +3389,9 @@ const VOICES: Record<string, [string, string][]> = {
             [track]: {
               sequencers: structuredClone(t.sequencers),
               sequencer: structuredClone(t.sequencers[0]),
+              // v21: the lane list travels WITH the patterns it keys, so a
+              // lane and its steps can never reach the engine apart.
+              ...(track === 'percussion' ? { lanes: structuredClone(t.lanes) } : {}),
             },
           },
         };
@@ -3089,6 +3431,33 @@ const VOICES: Record<string, [string, string][]> = {
       })();
 
       let blocksApi;
+      // v21: blocks.js grew a lane SPEC — `lanes: [{id, label}]`, rendered in
+      // exactly the order given, which is what lets a renamed/reordered kit
+      // read the same in both editors. An older build takes bare id strings
+      // and reverses them for display, and would turn an object into the
+      // string "[object Object]" — so the shape is probed, not assumed, using
+      // the module's own pure fromParams().
+      let blocksLaneSpec = false;
+
+      function probeBlocksLaneSpec(api) {
+        if (typeof api.fromParams !== 'function') return false;
+        try {
+          const layout = api.fromParams(
+            { mode: 'manual', weights: [1], steps: {} },
+            {
+              track: 'percussion',
+              lanes: [
+                { id: 'high', label: 'High' },
+                { id: 'low', label: 'Low' },
+              ],
+            }
+          );
+          const ids = layout && Array.isArray(layout.lanes) ? layout.lanes.map((lane) => lane.id) : [];
+          return ids[0] === 'high' && ids[1] === 'low';
+        } catch {
+          return false;
+        }
+      }
 
       async function loadBlocksModule() {
         if (blocksApi !== undefined) return blocksApi;
@@ -3099,6 +3468,7 @@ const VOICES: Record<string, [string, string][]> = {
         try {
           const mod = await BLOCKS_MODULE();
           blocksApi = mod && typeof mod.createBlockEditor === 'function' ? mod : null;
+          blocksLaneSpec = blocksApi ? probeBlocksLaneSpec(blocksApi) : false;
         } catch {
           blocksApi = null;
         }
@@ -3121,7 +3491,7 @@ const VOICES: Record<string, [string, string][]> = {
         return top + 1;
       }
 
-      const SEQ_LEGEND =
+      const SEQ_LEGEND_BASE =
         'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
         'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability, Shift+[ / Shift+] ' +
         '(or Shift+, / Shift+.) narrows/widens a drifting probability range · T ties a ' +
@@ -3132,24 +3502,49 @@ const VOICES: Record<string, [string, string][]> = {
         'above the grid colour-code probability groups: inside a group a step only gets ' +
         'its chance if the previous step in that group actually sounded.';
 
+      // v21: the third per-step axis only exists where the engine takes it, so
+      // its keys are only documented there too.
+      const SEQ_LEGEND_GATE =
+        ' Note length: − and = (or + ) shorten and lengthen the note under the ' +
+        'cursor, and dragging in the LOWER HALF of a cell does the same with the ' +
+        'pointer (the upper half still shapes the velocity band). The bar fills ' +
+        'the width of its step at length 1; past that the note runs into the next ' +
+        'step and an arrow marks the overhang.';
+
+      const SEQ_LEGEND_LANES =
+        ' Lanes: “Add lane” copies the pattern of the lane it lands beside, its ' +
+        'name is click-to-type, and Low/Mid/High says which of the kit’s sounds ' +
+        'it plays. ▲/▼ move a lane (Alt+↑/↓ from its name does the same, and the ' +
+        'grip can be dragged); the three built-in lanes cannot be removed.';
+
       /**
-       * Shared metre-aware step grid: one lane for melody/bass/arp, three
-       * (High/Mid/Low, high at the top) for percussion. Per step: on/off,
+       * Shared metre-aware step grid: one lane for melody/bass/arp, and one per
+       * kit lane (HIGH kinds at the top) for percussion. Per step: on/off,
        * velocity band (vertical drag, fat top handle), probability (mini-bar
-       * under the cell), tie (sideways drag) and probability group (dot row).
+       * under the cell), tie (sideways drag), probability group (dot row) and —
+       * where the engine takes it — note length (lower-half drag).
        * A track may own SEVERAL sequencers (v14 Markov chain): the tab strip
        * picks which one this grid edits, "+" copies the current one, and each
        * carries a weight — how likely the others are to hand over to it at
        * loop end. Cells form a roving-tabindex ARIA grid; every value is
        * keyboard-adjustable and announced via aria-label.
+       *
+       * v21 lanes: percussion's lane list is user-editable (add/rename/re-kind/
+       * remove/reorder, built-ins protected, cap 8). The lane id keys the step
+       * map AND the kit editor's perKind overrides, so `onLanes` lets the voice
+       * editor above rebuild its instrument tabs when the list changes.
        */
-      function buildSequencer(container, track) {
+      function buildSequencer(container, track, { onLanes = null } = {}) {
         const label = TRACK_LABELS[track];
-        const lanes =
-          track === 'percussion'
-            ? PERC_LANES.map(([key, laneLabel]) => ({ key, label: laneLabel }))
-            : [{ key: null, label: null }];
+        const trackSettings = () => settings.tracks[track];
+        const laneList = () => trackSettings().lanes;
+        let lanes = laneListFor(track, trackSettings());
         const list = () => settings.tracks[track].sequencers;
+        // The third axis is melodic-only: a kit hit has no length to shape.
+        const gateAxis = engineCaps.stepGate && track !== 'percussion';
+        const laneAxis = track === 'percussion' && engineCaps.percussionLanes;
+        const SEQ_LEGEND =
+          SEQ_LEGEND_BASE + (gateAxis ? SEQ_LEGEND_GATE : '') + (laneAxis ? SEQ_LEGEND_LANES : '');
         let active = 0;
         const current = () => list()[Math.min(active, list().length - 1)];
         const laneSteps = (lane) => (lane.key ? current().steps[lane.key] : current().steps);
@@ -3248,6 +3643,20 @@ const VOICES: Record<string, [string, string][]> = {
         );
         describe(addButton, 'Add a sequencer — a copy of the one showing now.');
 
+        // -- v21 kit lane management ---------------------------------------
+        const laneBar = document.createElement('div');
+        laneBar.className = 'seq-lane-bar';
+        laneBar.hidden = !laneAxis;
+        const addLaneButton = document.createElement('button');
+        addLaneButton.type = 'button';
+        addLaneButton.className = 'secondary-button seq-lane-add';
+        addLaneButton.textContent = 'Add lane';
+        laneBar.append(addLaneButton);
+        describe(
+          addLaneButton,
+          'Add a kit lane — it copies the pattern of the lane it lands beside, and you can rename it and pick which of the kit’s sounds it plays.'
+        );
+
         const scroll = document.createElement('div');
         scroll.className = 'seq-scroll';
         const beatsEl = document.createElement('div');
@@ -3263,7 +3672,7 @@ const VOICES: Record<string, [string, string][]> = {
         blocksHost.className = 'seq-blocks';
         blocksHost.hidden = true;
 
-        root.append(head, tabsRow, scroll, blocksHost);
+        root.append(head, tabsRow, laneBar, scroll, blocksHost);
 
         let cellRefs = []; // [lane][step] -> { cell, band, bandTop, probFill, dot }
         let focusPos = { lane: 0, step: 0 };
@@ -3276,13 +3685,27 @@ const VOICES: Record<string, [string, string][]> = {
             : `probability ${Math.round(s.prob * 100)}%`;
           const tiePart = s.tie === true ? ', tied to the next step' : '';
           const groupPart = Number.isFinite(s.group) ? `, group ${s.group + 1}` : '';
+          const gatePart =
+            gateAxis && Number.isFinite(s.gate) ? `, length ${s.gate.toFixed(2)} of a step` : '';
           return (
             `${lanePart}step ${i + 1}: ${s.on ? 'on' : 'off'}, ` +
             `velocity ${Math.round(s.vmin * 100)} to ${Math.round(s.vmax * 100)}%, ` +
             probPart +
+            gatePart +
             tiePart +
             groupPart
           );
+        }
+
+        /** The step's note length, defaulted to whatever the engine plays an
+         * unmarked step at — so the dial and the sound agree before the user
+         * has ever touched the axis. */
+        function stepGate(s) {
+          return Number.isFinite(s.gate) ? s.gate : SEQ_GATE_DEFAULT;
+        }
+
+        function setStepGate(s, value) {
+          s.gate = clamp(Math.round(value / SEQ_GATE_NUDGE) * SEQ_GATE_NUDGE, SEQ_GATE_MIN, SEQ_GATE_MAX);
         }
 
         function updateCell(li, i) {
@@ -3301,6 +3724,16 @@ const VOICES: Record<string, [string, string][]> = {
           ref.cell.setAttribute('aria-label', text);
           ref.band.style.bottom = `${s.vmin * 100}%`;
           ref.band.style.height = `${Math.max(0, s.vmax - s.vmin) * 100}%`;
+          // v21 third axis: the band stops where the note stops, so a short
+          // gate reads as a short bar inside its step. Past 1 the note runs on
+          // into the next step, which the legato arrow marks instead (the bar
+          // itself cannot show width it hasn't got).
+          if (gateAxis) {
+            const gate = stepGate(s);
+            ref.band.style.right = 'auto';
+            ref.band.style.width = `calc((100% - 4px) * ${Math.min(gate, 1)})`;
+            ref.cell.classList.toggle('seq-cell-legato', s.on && gate > 1);
+          }
           // The fat grab handle rides the band's loud edge; ≥10 px tall (CSS)
           // so the velocity top is reachable without pixel-hunting.
           ref.bandTop.style.bottom = `${s.vmax * 100}%`;
@@ -3406,8 +3839,14 @@ const VOICES: Record<string, [string, string][]> = {
             const v0 = vAt(e.clientY);
             const slots = stepsPerBarFor(track);
             const columnWidth = rect.width + 3; // grid gap
-            let gesture = null; // 'band' | 'tie'
+            let gesture = null; // 'band' | 'tie' | 'gate'
             let tieEnd = i;
+            // v21: which axis a vertical drag means is decided by where it
+            // STARTED — lower half is the note's length, upper half the
+            // velocity band it has always been. The fat top handle (its own
+            // element) is unaffected either way.
+            const gateZone = gateAxis && v0 <= 0.5;
+            let gate0 = SEQ_GATE_DEFAULT;
 
             /** Sideways drag merges the crossed steps into one tied note. */
             const applyTie = (end) => {
@@ -3433,10 +3872,19 @@ const VOICES: Record<string, [string, string][]> = {
               const dy = ev.clientY - e.clientY;
               if (!gesture) {
                 if (Math.abs(dx) < 6 && Math.abs(dy) < 4) return;
-                gesture = Math.abs(dx) > Math.abs(dy) ? 'tie' : 'band';
+                gesture = Math.abs(dx) > Math.abs(dy) ? 'tie' : gateZone ? 'gate' : 'band';
+                if (gesture === 'gate') gate0 = stepGate(getStep());
               }
               if (gesture === 'tie') {
                 applyTie(i + Math.round(dx / Math.max(1, columnWidth)));
+                return;
+              }
+              if (gesture === 'gate') {
+                const s = getStep();
+                s.on = true; // shaping a length implies the step should sound
+                // A full cell height of travel covers the whole 0.1–2 span.
+                setStepGate(s, gate0 + (vAt(ev.clientY) - v0) * (SEQ_GATE_MAX - SEQ_GATE_MIN));
+                updateCell(li, i);
                 return;
               }
               const v1 = vAt(ev.clientY);
@@ -3513,6 +3961,16 @@ const VOICES: Record<string, [string, string][]> = {
             } else if (e.key === 'g' || e.key === 'G') {
               e.preventDefault();
               toggleGroup(li, i);
+            } else if (gateAxis && (e.key === '-' || e.key === '_')) {
+              // Keyboard pair for the note-length axis. '+' arrives as
+              // Shift+'=' on most layouts, so both characters are accepted.
+              e.preventDefault();
+              setStepGate(s, stepGate(s) - SEQ_GATE_NUDGE);
+              commit();
+            } else if (gateAxis && (e.key === '=' || e.key === '+')) {
+              e.preventDefault();
+              setStepGate(s, stepGate(s) + SEQ_GATE_NUDGE);
+              commit();
             } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
               const d = e.key === 'ArrowUp' ? nudge : -nudge;
               if (e.shiftKey) {
@@ -3577,6 +4035,279 @@ const VOICES: Record<string, [string, string][]> = {
           });
         }
 
+        // -- v21 lane operations (percussion) -------------------------------
+        // Every one of these ends in commitLanes(), which repairs the list,
+        // re-keys the step map to it, re-renders and pushes lanes+patterns to
+        // the engine in one setParams — so a lane and its steps are never
+        // briefly out of step with each other.
+
+        function commitLanes(focusLaneId) {
+          const t = trackSettings();
+          t.lanes = normalisePercLanes(t.lanes);
+          normaliseSequencerList(t, track);
+          lanes = laneListFor(track, t);
+          focusPos = { lane: Math.min(focusPos.lane, lanes.length - 1), step: focusPos.step };
+          render();
+          commitSequencer(track);
+          if (onLanes) onLanes();
+          if (focusLaneId) {
+            const index = lanes.findIndex((lane) => lane.key === focusLaneId);
+            const name = laneNameButtons[index];
+            if (name) name.focus();
+          }
+        }
+
+        function addLane() {
+          const t = trackSettings();
+          if (t.lanes.length >= PERC_MAX_LANES) return;
+          const at = laneInsertIndex(t.lanes, PERC_NEW_LANE_KIND);
+          const id = nextLaneId(t.lanes);
+          // "Nearest" is the lane it lands beside — the one above it, or the
+          // one below when it lands at the top. Copying that pattern is what
+          // makes a new tom/cymbal lane immediately playable rather than an
+          // empty row to fill in from scratch.
+          const nearest = t.lanes[at - 1] || t.lanes[at] || null;
+          t.lanes.splice(at, 0, {
+            id,
+            label: `Lane ${t.lanes.length + 1}`,
+            kind: PERC_NEW_LANE_KIND,
+          });
+          for (const seq of list()) {
+            const source = nearest && isPlainObject(seq.steps) ? seq.steps[nearest.id] : null;
+            seq.steps[id] = source ? structuredClone(source) : defaultLane(PERC_NEW_LANE_KIND);
+          }
+          commitLanes(id);
+        }
+
+        function removeLane(index) {
+          const t = trackSettings();
+          const lane = t.lanes[index];
+          if (!lane || PERC_BUILTIN_LANES.includes(lane.id)) return;
+          t.lanes.splice(index, 1);
+          for (const seq of list()) {
+            if (isPlainObject(seq.steps)) delete seq.steps[lane.id];
+          }
+          // A removed lane takes its kit-editor overrides with it too — ids are
+          // reused (lane4 removed, lane4 added), and inheriting the old lane's
+          // sound would be a ghost the user never asked for.
+          const bank = isPlainObject(settings.patches[track]) ? settings.patches[track] : null;
+          for (const voiceId of Object.keys(bank || {})) {
+            const patch = bank[voiceId];
+            if (!isPlainObject(patch) || !isPlainObject(patch.perKind)) continue;
+            if (!(lane.id in patch.perKind)) continue;
+            delete patch.perKind[lane.id];
+            if (!Object.keys(patch.perKind).length) delete patch.perKind;
+            sendPatch(track, voiceId, patch);
+          }
+          commitLanes();
+        }
+
+        function renameLane(index, text) {
+          const t = trackSettings();
+          const lane = t.lanes[index];
+          const name = String(text || '').trim().slice(0, 32);
+          if (!lane || !name || name === lane.label) return;
+          lane.label = name;
+          commitLanes(lane.id);
+        }
+
+        function setLaneKind(index, kind) {
+          const t = trackSettings();
+          const lane = t.lanes[index];
+          if (!lane || PERC_BUILTIN_LANES.includes(lane.id)) return;
+          if (!PERC_LANE_KINDS.some(([k]) => k === kind)) return;
+          lane.kind = kind;
+          commitLanes(lane.id);
+        }
+
+        function moveLane(from, to) {
+          const t = trackSettings();
+          const target = clamp(to, 0, t.lanes.length - 1);
+          if (from === target || !t.lanes[from]) return;
+          const [lane] = t.lanes.splice(from, 1);
+          t.lanes.splice(target, 0, lane);
+          commitLanes(lane.id);
+        }
+
+        addLaneButton.addEventListener('click', addLane);
+
+        let laneNameButtons = [];
+
+        /**
+         * One lane's header: a grip, the click-to-type name, the kind picker
+         * (which of the kit's sounds it plays), the two move buttons and —
+         * for a user lane — remove. Rendered as a row of its own so the grid
+         * keeps to rows-of-cells; the built-in lanes get everything except
+         * remove, which is what "built-ins protected" means here.
+         */
+        function buildLaneHead(lane, index) {
+          const headRow = document.createElement('div');
+          headRow.className = 'seq-lane seq-lane-head-row';
+          headRow.setAttribute('role', 'row');
+          const head = document.createElement('div');
+          head.className = 'seq-lane-head';
+          head.setAttribute('role', 'rowheader');
+          headRow.append(head);
+          if (!laneAxis) {
+            const text = document.createElement('span');
+            text.className = 'seq-lane-label';
+            text.textContent = lane.label;
+            head.append(text);
+            return headRow;
+          }
+
+          const grip = document.createElement('button');
+          grip.type = 'button';
+          grip.className = 'seq-lane-grip';
+          grip.textContent = '⠿';
+          grip.setAttribute('aria-label', `Drag to move the ${lane.label} lane`);
+          head.append(grip);
+
+          const name = document.createElement('button');
+          name.type = 'button';
+          name.className = 'seq-lane-label seq-lane-name typable';
+          name.textContent = lane.label;
+          name.setAttribute('aria-label', `${lane.label} lane — click to rename`);
+          name.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'typable-input seq-lane-input';
+            input.value = lane.label;
+            input.setAttribute('aria-label', `${lane.label} lane name`);
+            head.replaceChild(input, name);
+            input.focus();
+            input.select();
+            let done = false;
+            const finish = (save) => {
+              if (done) return;
+              done = true;
+              const value = input.value;
+              if (input.parentNode === head) head.replaceChild(name, input);
+              if (save) renameLane(index, value);
+              else name.focus();
+            };
+            input.addEventListener('keydown', (event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                finish(true);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                finish(false);
+              }
+            });
+            input.addEventListener('blur', () => finish(true));
+          });
+          // Alt+↑/↓ from the name is the keyboard reorder — plain arrows stay
+          // free for moving around the grid itself.
+          name.addEventListener('keydown', (event) => {
+            if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+            event.preventDefault();
+            moveLane(index, index + (event.key === 'ArrowDown' ? 1 : -1));
+          });
+          head.append(name);
+
+          const builtin = PERC_BUILTIN_LANES.includes(lane.key);
+          const kind = document.createElement('select');
+          kind.className = 'seq-lane-kind';
+          kind.setAttribute('aria-label', `${lane.label} lane sound`);
+          for (const [value, kindLabel] of PERC_LANE_KINDS) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = kindLabel;
+            kind.append(option);
+          }
+          kind.value = lane.kind;
+          // A built-in lane IS its kind — the engine fixes that pairing, so
+          // the picker shows the mapping without offering to break it.
+          kind.disabled = builtin;
+          kind.addEventListener('change', () => setLaneKind(index, kind.value));
+          describe(
+            kind,
+            builtin
+              ? 'A built-in lane always plays its own sound; rename it or move it instead.'
+              : 'Which of the kit’s sounds this lane plays.'
+          );
+          head.append(kind);
+
+          const move = (delta, glyph, what) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'round-button seq-lane-move';
+            button.textContent = glyph;
+            button.setAttribute('aria-label', `Move the ${lane.label} lane ${what}`);
+            button.disabled = delta < 0 ? index === 0 : index === lanes.length - 1;
+            button.addEventListener('click', () => moveLane(index, index + delta));
+            head.append(button);
+          };
+          move(-1, '▲', 'up');
+          move(1, '▼', 'down');
+
+          if (!builtin) {
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'round-button seq-lane-remove';
+            remove.textContent = '×';
+            remove.setAttribute('aria-label', `Remove the ${lane.label} lane`);
+            remove.addEventListener('click', () => removeLane(index));
+            describe(remove, 'Remove this lane and its pattern.');
+            head.append(remove);
+          }
+
+          // Pointer reorder: the grip drags, and the lane lands on whichever
+          // header its release is nearest. Nothing re-renders mid-drag, so the
+          // element under the captured pointer stays put until the drop.
+          grip.addEventListener('pointerdown', (event) => {
+            if (event.pointerType === 'mouse' && event.button !== 0) return;
+            event.preventDefault();
+            const heads = Array.from(gridEl.querySelectorAll('.seq-lane-head'));
+            const centres = heads.map((el) => {
+              const rect = el.getBoundingClientRect();
+              return rect.top + rect.height / 2;
+            });
+            const nearestTo = (clientY) => {
+              let best = index;
+              let bestDistance = Infinity;
+              centres.forEach((centre, k) => {
+                const distance = Math.abs(clientY - centre);
+                if (distance < bestDistance) {
+                  bestDistance = distance;
+                  best = k;
+                }
+              });
+              return best;
+            };
+            head.classList.add('seq-lane-dragging');
+            const onMove = (ev) => {
+              const target = nearestTo(ev.clientY);
+              heads.forEach((el, k) => el.classList.toggle('seq-lane-drop', k === target && k !== index));
+            };
+            const onUp = (ev) => {
+              grip.removeEventListener('pointermove', onMove);
+              grip.removeEventListener('pointerup', onUp);
+              grip.removeEventListener('pointercancel', onCancel);
+              heads.forEach((el) => el.classList.remove('seq-lane-drop'));
+              head.classList.remove('seq-lane-dragging');
+              moveLane(index, nearestTo(ev.clientY));
+            };
+            const onCancel = () => {
+              grip.removeEventListener('pointermove', onMove);
+              grip.removeEventListener('pointerup', onUp);
+              grip.removeEventListener('pointercancel', onCancel);
+              heads.forEach((el) => el.classList.remove('seq-lane-drop'));
+              head.classList.remove('seq-lane-dragging');
+            };
+            try {
+              grip.setPointerCapture(event.pointerId);
+            } catch {}
+            grip.addEventListener('pointermove', onMove);
+            grip.addEventListener('pointerup', onUp);
+            grip.addEventListener('pointercancel', onCancel);
+          });
+
+          laneNameButtons[index] = name;
+          return headRow;
+        }
+
         function renderTabs() {
           const seqs = list();
           tabs.innerHTML = '';
@@ -3634,6 +4365,8 @@ const VOICES: Record<string, [string, string][]> = {
           beatsEl.innerHTML = '';
           gridEl.innerHTML = '';
           cellRefs = lanes.map(() => []);
+          laneNameButtons = [];
+          addLaneButton.disabled = lanes.length >= PERC_MAX_LANES;
           for (const radio of modeRadios) radio.checked = radio.value === current().mode;
           renderTabs();
           for (let i = 0; i < n; i++) {
@@ -3656,12 +4389,18 @@ const VOICES: Record<string, [string, string][]> = {
             const row = document.createElement('div');
             row.className = 'seq-lane';
             row.setAttribute('role', 'row');
-            if (lane.label) {
-              const lh = document.createElement('span');
-              lh.className = 'seq-lane-label';
-              lh.setAttribute('role', 'rowheader');
-              lh.textContent = lane.label;
-              row.append(lh);
+            const headRow = lane.key ? buildLaneHead(lane, li) : null;
+            // Per-lane tint, derived from the track's own colour so a kit of
+            // eight lanes still reads as one instrument: the top lane wears
+            // the accent at full strength and each one below it is mixed
+            // further back towards the panel.
+            if (lane.key) {
+              const mix = lanes.length > 1 ? 100 - Math.round((li / (lanes.length - 1)) * 55) : 100;
+              const tint = `color-mix(in srgb, var(--track-accent, var(--link)) ${mix}%, var(--panel))`;
+              for (const el of [headRow, dotRow, row]) {
+                el.classList.add('seq-lane-tinted');
+                el.style.setProperty('--lane-tint', tint);
+              }
             }
             // The probability mini-bars sit on the grid line directly under
             // their cells (same columns, so each bar is tied to its step),
@@ -3701,6 +4440,7 @@ const VOICES: Record<string, [string, string][]> = {
               wireCell(li, i, cell, prob, bandTop, dot);
               row.append(cell);
             }
+            if (headRow) gridEl.append(headRow);
             gridEl.append(dotRow, row, probRow);
           });
           for (let li = 0; li < lanes.length; li++) {
@@ -3746,11 +4486,19 @@ const VOICES: Record<string, [string, string][]> = {
         // sequencer list, and which of them is being edited, stay this page's
         // business.
         // Lane order: this page lists lanes TOP-DOWN (High first, the v14
-        // rule), blocks.js renders its list bottom-up. Handing it the reverse
-        // — the engine's own low→mid→high order — is what puts High at the top
-        // of both editors.
-        const laneIds = lanes.map((lane) => lane.key).filter(Boolean).reverse();
+        // rule). A v21 blocks.js takes that order verbatim as `[{id, label}]`;
+        // an older one takes bare ids and renders them bottom-up, so it is
+        // handed the REVERSE — which puts High at the top of both editors
+        // either way. Read at OPEN time, not at build time: v21 lanes are
+        // user-editable, so the list a block editor is given has to be the one
+        // the grid is showing now.
+        const laneIdsNow = () => lanes.map((lane) => lane.key).filter(Boolean);
+        const laneSpecNow = () =>
+          blocksLaneSpec
+            ? lanes.filter((lane) => lane.key).map((lane) => ({ id: lane.key, label: lane.label }))
+            : laneIdsNow().reverse();
         let blockEditor = null;
+        let blockLaneKey = '';
 
         function blockParams() {
           return structuredClone(current());
@@ -3789,6 +4537,18 @@ const VOICES: Record<string, [string, string][]> = {
             blockButton.hidden = true;
             return;
           }
+          const laneSpec = laneSpecNow();
+          // A lane added/removed/reordered/renamed since the editor was built
+          // means a different canvas, which blocks.js takes at CONSTRUCTION —
+          // so the editor is rebuilt rather than fed a list it cannot adopt.
+          const laneKey = lanes.map((lane) => `${lane.key}:${lane.label}`).join('|');
+          if (blockEditor && laneKey !== blockLaneKey) {
+            try {
+              blockEditor.destroy?.();
+            } catch {}
+            blockEditor = null;
+            blocksHost.innerHTML = '';
+          }
           if (!blockEditor) {
             try {
               blockEditor = api.createBlockEditor(blocksHost, {
@@ -3796,10 +4556,11 @@ const VOICES: Record<string, [string, string][]> = {
                 timeSignature: settings.timeSignature,
                 // Percussion names its lanes; a single-lane track passes none
                 // and lets blocks.js infer its own lane id from the steps.
-                ...(laneIds.length ? { lanes: laneIds } : {}),
+                ...(laneSpec.length ? { lanes: laneSpec } : {}),
                 value: blockParams(),
                 onChange: applyBlockParams,
               });
+              blockLaneKey = laneKey;
             } catch {
               blocksHost.innerHTML = '';
               blockButton.hidden = true;
@@ -4503,14 +5264,17 @@ const VOICES: Record<string, [string, string][]> = {
           });
         }
         if (source && controlsFieldAllowed(sourceSpec, 'detune')) {
+          const bipolar = engineCaps.patchDetuneBipolar;
+          const detuneMin = bipolar ? -DETUNE_MAX : 0;
           veRange(source, 'Detune', {
-            min: 0,
-            max: 50,
+            min: detuneMin,
+            max: DETUNE_MAX,
             step: 1,
-            value: rangeMid(sanitiseRangeValueIn(patch.source.detune, 0, 50, 4)),
-            format: (v) => `${Math.round(v)} ct`,
+            value: rangeMid(sanitiseRangeValueIn(patch.source.detune, detuneMin, DETUNE_MAX, 4)),
+            format: (v) => detuneFormat(v, bipolar),
             onChange: (v) => {
-              patch.source.detune = Math.round(v);
+              const n = Math.round(v);
+              patch.source.detune = bipolar && Math.abs(n) <= DETUNE_DETENT ? 0 : n;
               commit();
             },
           });
@@ -4969,24 +5733,31 @@ const VOICES: Record<string, [string, string][]> = {
             },
           });
         }
-        // v12: the engine sanitiser (ambient-engine.js PATCH_SCHEMA) clamps
-        // detune to [0,50] — no negative cents accepted — so detune STAYS
-        // unipolar here rather than the ±50 the addendum sketches; shipping
-        // a bipolar dial would silently clamp away the negative half at the
-        // engine. Flagged for the engine agent as a possible follow-up.
+        // v12 shipped this unipolar because the sanitiser clamped detune to
+        // [0,50]; it has taken -50..50 since v18, and the boot probe says so
+        // rather than the version number. Bipolar gets a centre detent: the
+        // ±1 ct either side of zero is inaudible, so swallowing it buys a
+        // dial you can return to true by feel.
         if (source && allowed(sourceSpec, 'detune')) {
+          const bipolar = engineCaps.patchDetuneBipolar;
+          const detuneMin = bipolar ? -DETUNE_MAX : 0;
+          const detent = (x) => {
+            const n = Math.round(clamp(x, detuneMin, DETUNE_MAX));
+            return bipolar && Math.abs(n) <= DETUNE_DETENT ? 0 : n;
+          };
           addKnob(source, {
             label: 'Detune',
             field: 'source.detune',
-            min: 0,
-            max: 50,
+            min: detuneMin,
+            max: DETUNE_MAX,
             step: 1,
-            value: sanitiseRangeValueIn(patch.source.detune, 0, 50, 4),
-            format: (v) => `${Math.round(v)} ct`,
+            ...(bipolar ? { marks: [-DETUNE_MAX, 0, DETUNE_MAX] } : {}),
+            value: sanitiseRangeValueIn(patch.source.detune, detuneMin, DETUNE_MAX, 4),
+            format: (v) => detuneFormat(v, bipolar),
             allowRange: true,
             defaultValue: defaults.source.detune,
             onInput: (v) => {
-              patch.source.detune = mapRV(v, (x) => Math.round(clamp(x, 0, 50)));
+              patch.source.detune = mapRV(v, detent);
               commit();
             },
           });
@@ -5375,13 +6146,18 @@ const VOICES: Record<string, [string, string][]> = {
         // The engine may not honour perKind yet; the overrides persist and
         // are preset-captured regardless, and an engine that ignores the key
         // simply plays the common patch.
-        const KIT_KINDS = [
-          ['high', 'High'],
-          ['mid', 'Mid'],
-          ['low', 'Low'],
-        ];
+        //
+        // v21: the tabs are the LANE list, not a fixed low/mid/high triple —
+        // perKind keys follow lane ids, so a lane the user added gets its own
+        // tab and its own overrides. The three built-in lanes keep the ids the
+        // v14 kit editor wrote, so every stored override still lands.
         const kitCapable = track === 'percussion';
-        let kitKind = kitCapable && KIT_KINDS.some(([k]) => k === opts.kind) ? opts.kind : null;
+        const kitTabList = () =>
+          kitCapable
+            ? laneListFor(track, settings.tracks[track]).map((lane) => [lane.key, lane.label])
+            : [];
+        let kitKind =
+          kitCapable && kitTabList().some(([k]) => k === opts.kind) ? opts.kind : null;
         let editView = patch;
         let ghostRefreshers = [];
 
@@ -5461,6 +6237,7 @@ const VOICES: Record<string, [string, string][]> = {
         buildVaryRow(container, track, ed.knobs);
         buildDissonanceControl(container, track, ed.knobs);
         buildDriftRateControl(container, track, ed.knobs);
+        buildFeelRow(container, track, ed.knobs);
 
         // v6 step sequencer at the top of the pulsed tracks' panels. Arp
         // always shows it (on/off degrades to the legacy boolean mask);
@@ -5469,7 +6246,10 @@ const VOICES: Record<string, [string, string][]> = {
           track === 'arp' ||
           ((SEQ_SINGLE_TRACKS.includes(track) || track === 'percussion') &&
             engineCaps.sequencer[track]);
-        if (showSeq) ed.seq = buildSequencer(container, track);
+        // Editing the lane list re-keys perKind, so the kit tabs below have to
+        // follow it. Assigned once they exist; a no-op until then.
+        let syncKitTabs = () => {};
+        if (showSeq) ed.seq = buildSequencer(container, track, { onLanes: () => syncKitTabs() });
 
         // Arpeggiator controls live here now, above the voice sections.
         if (track === 'arp') buildArpSection(container);
@@ -5505,25 +6285,43 @@ const VOICES: Record<string, [string, string][]> = {
           kitTabs.className = 'segmented kit-tabs';
           kitTabs.setAttribute('role', 'radiogroup');
           kitTabs.setAttribute('aria-label', 'Kit editor target');
-          for (const [value, labelText] of [['common', 'Common'], ...KIT_KINDS]) {
-            const input = document.createElement('input');
-            input.type = 'radio';
-            input.name = `kit-kind-${track}`;
-            input.id = `kit-kind-${track}-${value}`;
-            input.value = value;
-            input.checked = (kitKind || 'common') === value;
-            const label = document.createElement('label');
-            label.htmlFor = input.id;
-            label.textContent = labelText;
-            input.addEventListener('change', () => {
-              if (!input.checked) return;
-              kitKind = value === 'common' ? null : value;
-              opts.kind = kitKind;
+          const renderKitTabs = () => {
+            kitTabs.innerHTML = '';
+            for (const [value, labelText] of [['common', 'Common'], ...kitTabList()]) {
+              const input = document.createElement('input');
+              input.type = 'radio';
+              input.name = `kit-kind-${track}`;
+              input.id = `kit-kind-${track}-${value}`;
+              input.value = value;
+              input.checked = (kitKind || 'common') === value;
+              const label = document.createElement('label');
+              label.htmlFor = input.id;
+              label.textContent = labelText;
+              input.addEventListener('change', () => {
+                if (!input.checked) return;
+                kitKind = value === 'common' ? null : value;
+                opts.kind = kitKind;
+                buildPatchControls();
+                scheduleScopeRender(track, true);
+              });
+              kitTabs.append(input, label);
+            }
+          };
+          renderKitTabs();
+          syncKitTabs = () => {
+            // A lane the tabs were pointing at may have gone (or been
+            // renamed): fall back to Common rather than editing an override
+            // nothing plays any more.
+            if (kitKind && !kitTabList().some(([k]) => k === kitKind)) {
+              kitKind = null;
+              opts.kind = null;
+              renderKitTabs();
               buildPatchControls();
               scheduleScopeRender(track, true);
-            });
-            kitTabs.append(input, label);
-          }
+              return;
+            }
+            renderKitTabs();
+          };
           container.append(kitTabs);
           describe(
             kitTabs,
@@ -5606,7 +6404,7 @@ const VOICES: Record<string, [string, string][]> = {
 
         function resetLabel() {
           if (!kitKind) return 'Reset to default';
-          const found = KIT_KINDS.find(([k]) => k === kitKind);
+          const found = kitTabList().find(([k]) => k === kitKind);
           return `Clear ${found ? found[1] : kitKind} overrides`;
         }
 
@@ -8942,6 +9740,93 @@ const VOICES: Record<string, [string, string][]> = {
       color: var(--secondary);
     }
 
+    /* -- v21 kit lanes: add / rename / re-kind / reorder / remove -------- */
+
+    .seq-lane-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .seq-lane-add {
+      padding: 4px 12px;
+      line-height: 1;
+    }
+
+    .seq-lane-head {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+    }
+
+    /* The lane's own tint, mixed from the track accent — one instrument, its
+       lanes told apart by shade rather than by six unrelated colours. */
+    .seq-lane-tinted .seq-lane-label {
+      color: var(--lane-tint, var(--secondary));
+    }
+
+    .seq-lane-tinted .seq-cell-on .seq-band {
+      background: var(--lane-tint, var(--accent-warm, var(--link)));
+    }
+
+    .seq-lane-name {
+      max-width: 12ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .seq-lane-input {
+      width: 12ch;
+    }
+
+    .seq-lane-grip {
+      padding: 0 2px;
+      font-size: 13px;
+      line-height: 1;
+      color: var(--secondary);
+      background: none;
+      border: 0;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    .seq-lane-dragging {
+      opacity: 0.6;
+    }
+
+    .seq-lane-drop {
+      box-shadow: inset 0 -2px 0 var(--link);
+    }
+
+    .seq-lane-kind {
+      padding: 2px 4px;
+      font-size: 11px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .seq-lane-move,
+    .seq-lane-remove {
+      width: 22px;
+      height: 22px;
+      min-width: 0;
+      padding: 0;
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .seq-lane-move:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
     /* v14 multi-sequencer strip: tab per sequencer, "+" copies the current
        one, and one weight number ("how likely the others hand over to me"). */
     .seq-tabs {
@@ -9097,6 +9982,20 @@ const VOICES: Record<string, [string, string][]> = {
       width: 5px;
       height: 3px;
       background: var(--accent-warm, var(--link));
+    }
+
+    /* v21 note length past the step it starts in: the band cannot show width
+       it hasn't got, so the overhang is marked with an arrow into the next
+       step (distinct from the tie bridge, which joins two struck steps). */
+    .seq-cell-legato::before {
+      content: '›';
+      position: absolute;
+      right: 2px;
+      top: 1px;
+      font-size: 12px;
+      line-height: 1;
+      color: var(--accent-warm, var(--link));
+      pointer-events: none;
     }
 
     /* v14 playhead: the sounding step lights up. The cream --knob-pointer

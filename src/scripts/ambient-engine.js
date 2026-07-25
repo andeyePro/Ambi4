@@ -189,7 +189,21 @@ export const SEQUENCER_STEP_COUNT = 20;
 /** Tracks with a pulse to sequence. pad and texture are sustained, so no grid. */
 export const SEQUENCED_TRACKS = Object.freeze(['melody', 'bass', 'arp', 'percussion']);
 
+/**
+ * The BUILT-IN percussion lanes. v21 made the kit dynamic — a lane is now an
+ * entry in `tracks.percussion.lanes` with its own id — but these three are
+ * undeletable, keep their ids forever, and are what every legacy `steps: {low,
+ * mid, high}` grid and every stored perKind patch is keyed by.
+ */
 export const PERCUSSION_LANES = Object.freeze(['low', 'mid', 'high']);
+
+/** The voice kinds a lane may sound through: what the drum voices synthesise. */
+export const PERCUSSION_KINDS = Object.freeze(['low', 'mid', 'high']);
+
+/** Lanes per kit, built-ins included. More than this is a UI accident. */
+export const MAX_PERCUSSION_LANES = 8;
+
+const PERCUSSION_LANE_LABELS = Object.freeze({ low: 'Low', mid: 'Mid', high: 'High' });
 
 /** Tracks that sound a pitch, so a chord discipline means anything to them. */
 export const TUNED_TRACKS = Object.freeze(TRACK_ORDER.filter((name) => name !== 'percussion'));
@@ -228,6 +242,16 @@ const DEFAULT_TRACK_DRIFT_RATE = 1;
 const DRIFT_RATE_RANGE = Object.freeze([0.02, 1]);
 
 /**
+ * v21 per-track swing and density. Both ship null, and null MEANS something:
+ * swing null follows the global dial (under the same warp law), density null
+ * takes whatever complexity asked for. An explicit number — 0 included —
+ * overrides for that track alone, so a straight bass under a swung kit, or a
+ * busy texture over a sparse everything-else, is one field each.
+ */
+const TRACK_SWING_RANGE = Object.freeze([0, 1]);
+const TRACK_DENSITY_RANGE = Object.freeze([0, 2]);
+
+/**
  * v14 dissonance: how far a tuned track may stray from the chord the group is
  * playing. 0 — the shipped value — is the strict chord discipline every
  * version so far has had; low values let passing and neighbour tones through;
@@ -253,6 +277,15 @@ const GLIDE_RANGE = Object.freeze([0.02, 0.12]);
 /** The step a legacy `arp.steps` boolean expands to, and every lane's default. */
 const DEFAULT_STEP = Object.freeze({ on: true, prob: 1, vmin: 0.5, vmax: 0.9 });
 
+/**
+ * v21 per-step gate: how long a sequenced note sounds, as a fraction of the
+ * grid step it starts on. It is OPTIONAL and absent by default — a step
+ * without one keeps the gap-derived length every version so far has had — and
+ * it may exceed 1, which overlaps the note into the step after it (legato on a
+ * mono track, a genuine overlap on a polyphonic one).
+ */
+const STEP_GATE_RANGE = Object.freeze([0.1, 2]);
+
 /** Oscillator shapes a patch may ask a subtractive voice for. */
 export const PATCH_OSC_TYPES = Object.freeze(['sine', 'triangle', 'sawtooth', 'square']);
 
@@ -273,6 +306,18 @@ export function sequencerStepsPerBar(timeSignature) {
   return Math.round(beatsPerBar(timeSignature) * 4);
 }
 
+/** One sequencer slot, in beats — the sixteenth the grid above is counted in. */
+export const SEQUENCER_STEP_BEATS = 0.25;
+
+/**
+ * How long a gated sequencer note sounds, in beats: the span it covers on the
+ * grid — a tie merges slots, and the tie wins — scaled by its gate. A gate
+ * above 1 therefore runs past the slots it was given, which is the legato case.
+ */
+function gatedSpan(note, gate, stepBeats) {
+  return (note.slots ?? 1) * stepBeats * gate;
+}
+
 function defaultStepLane() {
   return Array.from({ length: SEQUENCER_STEP_COUNT }, () => ({ ...DEFAULT_STEP }));
 }
@@ -286,6 +331,13 @@ function defaultSequencer(track) {
     };
   }
   return { mode: 'auto', weights: [1], steps: defaultStepLane() };
+}
+
+/** The kit a fresh params object ships: the three built-ins, in their own order. */
+function defaultPercussionLanes() {
+  return PERCUSSION_LANES.map((id, order) => ({
+    id, label: PERCUSSION_LANE_LABELS[id], kind: id, order,
+  }));
 }
 
 /**
@@ -321,12 +373,15 @@ function defaultTracks() {
       level: DEFAULT_TRACK_LEVEL,
       randomness: { ...DEFAULT_TRACK_RANDOMNESS },
       driftRate: DEFAULT_TRACK_DRIFT_RATE,
+      swing: null,
+      density: null,
       hold: false,
       mono: DEFAULT_TRACK_MONO[name] === true,
       glide: DEFAULT_TRACK_GLIDE[name] ?? 0,
       vary: defaultVary(name),
     };
     if (TUNED_TRACKS.includes(name)) track.dissonance = DEFAULT_TRACK_DISSONANCE;
+    if (name === 'percussion') track.lanes = defaultPercussionLanes();
     if (SEQUENCED_TRACKS.includes(name)) {
       // v14 Sequencer 2.0: a track owns a LIST of sequencers and picks between
       // them at each loop end; `sequencer` is the same object as `sequencers[0]`,
@@ -418,6 +473,20 @@ function oneOf(value, allowed, fallback) {
 }
 
 /**
+ * A param whose `null` is meaningful — "follow the global/derived value" —
+ * rather than a missing one. An explicit null is kept, a usable number is
+ * clamped, and anything else falls back to the stored value and then to null,
+ * so an unrelated edit can never turn a follower into a fixed number.
+ */
+function nullableNumber(partial, base, key, range) {
+  if (partial && key in partial && partial[key] === null) return null;
+  const sent = patchNumber(partial ? partial[key] : undefined, range[0], range[1]);
+  if (sent !== undefined) return sent;
+  const stored = patchNumber(base ? base[key] : undefined, range[0], range[1]);
+  return stored !== undefined ? stored : null;
+}
+
+/**
  * v7 RangeValue: a rangeable param accepts a plain number or `{ min, max }`.
  * Both bounds are clamped into [lo, hi] and swapped if they arrive reversed, so
  * `{ min: 0.9, max: 0.1 }` stores as `{ min: 0.1, max: 0.9 }`. An object needs
@@ -503,6 +572,13 @@ function sanitiseStep(value, base) {
   // grow one, so the shipped grid stays exactly the four fields v6 defined.
   const tie = at('tie') !== undefined ? Boolean(at('tie')) : from.tie === true ? true : undefined;
   if (tie) step.tie = true;
+  // v21 gate is optional the same way: a step that never carried one is still
+  // the four fields v6 defined, and sending `null` (or rubbish) clears one
+  // back to the gap-derived length rather than guessing at a number.
+  const gate = at('gate') !== undefined
+    ? patchNumber(at('gate'), STEP_GATE_RANGE[0], STEP_GATE_RANGE[1])
+    : patchNumber(from.gate, STEP_GATE_RANGE[0], STEP_GATE_RANGE[1]);
+  if (gate !== undefined) step.gate = gate;
   const group = at('group') !== undefined ? groupId(at('group')) : groupId(from.group);
   if (group !== null) step.group = group;
   return step;
@@ -529,7 +605,7 @@ function sanitiseStepLane(value, base) {
   return lane;
 }
 
-function sanitiseSequencer(track, value, base) {
+function sanitiseSequencer(track, value, base, laneIds = PERCUSSION_LANES) {
   const from = base && typeof base === 'object' ? base : null;
   const v = value && typeof value === 'object' ? value : null;
   const at = (key) => (v && key in v ? v[key] : undefined);
@@ -541,14 +617,82 @@ function sanitiseSequencer(track, value, base) {
   }
   const rawLanes = at('steps');
   const baseLanes = from && from.steps && typeof from.steps === 'object' ? from.steps : null;
+  // v21: the grid's keys ARE the kit's lane ids, so an added lane arrives with
+  // a full grid of its own and a removed one takes its grid with it. The
+  // built-in ids never move, which is what keeps every legacy {low,mid,high}
+  // grid readable forever.
   const steps = {};
-  for (const lane of PERCUSSION_LANES) {
+  for (const lane of laneIds) {
     steps[lane] = sanitiseStepLane(
       rawLanes && typeof rawLanes === 'object' ? rawLanes[lane] : undefined,
       baseLanes ? baseLanes[lane] : undefined,
     );
   }
   return { mode, weights, steps };
+}
+
+/** A lane id: a non-empty trimmed string, capped so a UI cannot mint an essay. */
+function laneId(value) {
+  if (typeof value !== 'string') return null;
+  return value.trim().slice(0, 32) || null;
+}
+
+/**
+ * v21 dynamic percussion lanes. The kit is a LIST — the three built-ins plus
+ * up to five user lanes — each naming the voice kind it sounds through, so a
+ * lane called 'clap' can be struck by the same high voice the built-in 'high'
+ * uses without any voice needing to know it exists.
+ *
+ * The built-ins are undeletable: a list that omits one gets it back with its
+ * stored label, because every legacy grid and every stored perKind patch is
+ * keyed to them. A built-in's label and position are editable; its kind is
+ * not — the lane called 'low' IS the low voice, by definition.
+ */
+function sanitisePercussionLanes(value, base) {
+  const stored = Array.isArray(base) && base.length ? base : defaultPercussionLanes();
+  const source = Array.isArray(value) ? value : stored;
+  const fallback = new Map(stored.map((lane) => [lane.id, lane]));
+  const seen = new Map();
+  for (const raw of source) {
+    if (!raw || typeof raw !== 'object') continue;
+    const id = laneId(raw.id);
+    if (!id || seen.has(id)) continue;
+    const from = fallback.get(id);
+    const builtin = PERCUSSION_LANES.includes(id);
+    const label = typeof raw.label === 'string' && raw.label.trim()
+      ? raw.label.trim().slice(0, 32)
+      : from ? from.label : PERCUSSION_LANE_LABELS[id] ?? id;
+    seen.set(id, {
+      id,
+      label,
+      kind: builtin ? id : oneOf(raw.kind, PERCUSSION_KINDS, from ? from.kind : 'mid'),
+      order: Math.round(numberIn(raw.order, [0, MAX_PERCUSSION_LANES - 1], seen.size)),
+    });
+  }
+  // A built-in the caller left out comes back BEHIND everything they did list,
+  // so a deliberate reorder of the lanes they care about survives intact.
+  let next = seen.size ? Math.max(...[...seen.values()].map((lane) => lane.order)) + 1 : 0;
+  for (const id of PERCUSSION_LANES) {
+    if (seen.has(id)) continue;
+    const from = fallback.get(id);
+    seen.set(id, {
+      ...(from ?? { id, label: PERCUSSION_LANE_LABELS[id], kind: id }),
+      order: next,
+    });
+    next += 1;
+  }
+  const lanes = [];
+  let user = 0;
+  for (const lane of [...seen.values()].sort((a, b) => a.order - b.order)) {
+    // The cap counts the built-ins, which never lose their place: only user
+    // lanes past the eighth are dropped.
+    if (!PERCUSSION_LANES.includes(lane.id)) {
+      if (PERCUSSION_LANES.length + user >= MAX_PERCUSSION_LANES) continue;
+      user += 1;
+    }
+    lanes.push(lane);
+  }
+  return lanes.map((lane, order) => ({ ...lane, order }));
 }
 
 /**
@@ -570,24 +714,24 @@ function sanitiseWeights(value, base) {
  * Every sequencer's weight vector is padded/truncated to the list length, which
  * is what keeps the Markov pick total over the sequencers that exist.
  */
-function sanitiseSequencerList(track, partial, base) {
+function sanitiseSequencerList(track, partial, base, laneIds = PERCUSSION_LANES) {
   const baseList = Array.isArray(base) ? base : [];
   const sent = partial && Array.isArray(partial.sequencers) ? partial.sequencers : null;
   const list = [];
   if (sent) {
     for (let i = 0; i < sent.length && i < MAX_SEQUENCERS; i++) {
-      list.push(sanitiseSequencer(track, sent[i], baseList[i]));
+      list.push(sanitiseSequencer(track, sent[i], baseList[i], laneIds));
     }
   } else {
     for (const stored of baseList.slice(0, MAX_SEQUENCERS)) {
-      list.push(sanitiseSequencer(track, undefined, stored));
+      list.push(sanitiseSequencer(track, undefined, stored, laneIds));
     }
   }
-  if (!list.length) list.push(sanitiseSequencer(track, undefined, baseList[0]));
+  if (!list.length) list.push(sanitiseSequencer(track, undefined, baseList[0], laneIds));
   // The singular field writes into slot 0 unless the caller sent the whole list.
   const single = partial && 'sequencer' in partial ? partial.sequencer : undefined;
   if (!sent && single !== undefined) {
-    list[0] = sanitiseSequencer(track, single, baseList[0]);
+    list[0] = sanitiseSequencer(track, single, baseList[0], laneIds);
   }
   for (const sequencer of list) {
     // A sequencer the caller added without weights is reachable: an unmentioned
@@ -650,6 +794,8 @@ function sanitiseTracks(value, base) {
         ?? { ...DEFAULT_TRACK_RANDOMNESS },
       driftRate: numberIn(partial && partial.driftRate, DRIFT_RATE_RANGE,
         numberIn(baseTrack.driftRate, DRIFT_RATE_RANGE, DEFAULT_TRACK_DRIFT_RATE)),
+      swing: nullableNumber(partial, baseTrack, 'swing', TRACK_SWING_RANGE),
+      density: nullableNumber(partial, baseTrack, 'density', TRACK_DENSITY_RANGE),
       hold: partial && 'hold' in partial ? Boolean(partial.hold) : Boolean(baseTrack.hold),
       mono: partial && 'mono' in partial ? Boolean(partial.mono)
         : 'mono' in baseTrack ? Boolean(baseTrack.mono) : DEFAULT_TRACK_MONO[name] === true,
@@ -662,10 +808,14 @@ function sanitiseTracks(value, base) {
         ?? sanitiseRangeValue(baseTrack.dissonance, 0, 1)
         ?? DEFAULT_TRACK_DISSONANCE;
     }
+    if (name === 'percussion') {
+      track.lanes = sanitisePercussionLanes(partial && partial.lanes, baseTrack.lanes);
+    }
     if (SEQUENCED_TRACKS.includes(name)) {
       const storedList = Array.isArray(baseTrack.sequencers) ? baseTrack.sequencers
         : baseTrack.sequencer ? [baseTrack.sequencer] : undefined;
-      track.sequencers = sanitiseSequencerList(name, partial, storedList);
+      track.sequencers = sanitiseSequencerList(name, partial, storedList,
+        track.lanes ? track.lanes.map((lane) => lane.id) : undefined);
       track.sequencer = track.sequencers[0];
     }
     tracks[name] = track;
@@ -711,6 +861,7 @@ function bridgeLegacyPercussion(partial, tracks) {
   if (sentTrack && (sentTrack.sequencer || Array.isArray(sentTrack.sequencers))) return;
   tracks.percussion.sequencers[0] = sanitiseSequencer(
     'percussion', legacy, tracks.percussion.sequencers[0],
+    tracks.percussion.lanes.map((lane) => lane.id),
   );
   tracks.percussion.sequencer = tracks.percussion.sequencers[0];
 }
@@ -875,16 +1026,17 @@ function sanitisePatchSections(value) {
 }
 
 /**
- * v14 kit editor: `perKind = { low, mid, high }`, each a sparse Patch that
- * overrides the common one for percussion notes of that kind. Sparse both
- * ways — an absent kind, and an absent field inside one, both mean "follow
- * the common patch" — and never nested, so a perKind inside a perKind is
- * dropped like any other unknown key.
+ * v14 kit editor, v21 lane keys: `perKind = { [laneId]: Patch }`, each a sparse
+ * Patch that overrides the common one for percussion notes struck by that lane.
+ * Sparse both ways — an absent lane, and an absent field inside one, both mean
+ * "follow the common patch" — and never nested, so a perKind inside a perKind
+ * is dropped like any other unknown key. Keys that name no lane of the current
+ * kit are dropped too, which is what stops a removed lane's patch lingering.
  */
-function sanitisePerKind(value) {
+function sanitisePerKind(value, laneIds = PERCUSSION_LANES) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const out = {};
-  for (const kind of PERCUSSION_LANES) {
+  for (const kind of laneIds) {
     const raw = value[kind];
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
     const patch = sanitisePatchSections(raw);
@@ -894,10 +1046,10 @@ function sanitisePerKind(value) {
 }
 
 /** One patch, clamped and stripped of unknown keys. null when nothing survives. */
-function sanitisePatch(value) {
+function sanitisePatch(value, laneIds = PERCUSSION_LANES) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const out = sanitisePatchSections(value);
-  const perKind = sanitisePerKind(value.perKind);
+  const perKind = sanitisePerKind(value.perKind, laneIds);
   if (perKind) out.perKind = perKind;
   return Object.keys(out).length ? out : null;
 }
@@ -913,10 +1065,10 @@ function mergeSections(from, patch) {
 }
 
 /** Field-level merge of `incoming` over `base`; an unusable patch keeps `base`. */
-function mergePatch(base, incoming) {
-  const from = sanitisePatch(base);
+function mergePatch(base, incoming, laneIds = PERCUSSION_LANES) {
+  const from = sanitisePatch(base, laneIds);
   if (incoming === undefined) return from;
-  const patch = sanitisePatch(incoming);
+  const patch = sanitisePatch(incoming, laneIds);
   if (!patch) return from;
   if (!from) return patch;
   const out = mergeSections(from, patch);
@@ -940,7 +1092,7 @@ function mergePatch(base, incoming) {
  * track names are dropped; unknown voice ids are kept, because the engine
  * cannot know which ids the (lazily loaded) voice library offers.
  */
-function sanitisePatches(value, base) {
+function sanitisePatches(value, base, laneIds = PERCUSSION_LANES) {
   const from = base && typeof base === 'object' && !Array.isArray(base) ? base : {};
   const v = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   const out = {};
@@ -961,6 +1113,7 @@ function sanitisePatches(value, base) {
       const merged = mergePatch(
         baseBank ? baseBank[id] : undefined,
         partialBank && id in partialBank ? partialBank[id] : undefined,
+        laneIds,
       );
       if (merged) bank[id] = merged;
     }
@@ -996,7 +1149,10 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS) {
   out.tracks = sanitiseTracks(at('tracks'), from.tracks);
   bridgeLegacyArpSteps(p, out.tracks, out.arp);
   bridgeLegacyPercussion(p, out.tracks);
-  out.patches = sanitisePatches(at('patches'), from.patches);
+  // Lanes are settled before the patches that key off them, so adding a lane
+  // and its kit override in ONE call keeps the override.
+  out.patches = sanitisePatches(at('patches'), from.patches,
+    out.tracks.percussion.lanes.map((lane) => lane.id));
   return out;
 }
 
@@ -1033,7 +1189,7 @@ function copySequencer(sequencer) {
   const steps = Array.isArray(sequencer.steps)
     ? copyStepLane(sequencer.steps)
     : Object.fromEntries(
-      PERCUSSION_LANES.map((lane) => [lane, copyStepLane(sequencer.steps[lane])]),
+      Object.keys(sequencer.steps).map((lane) => [lane, copyStepLane(sequencer.steps[lane])]),
     );
   return { mode: sequencer.mode, weights: sequencer.weights.slice(), steps };
 }
@@ -1048,6 +1204,7 @@ function copyTrack(track) {
     ),
   };
   if ('dissonance' in track) out.dissonance = copyRangeValue(track.dissonance);
+  if (track.lanes) out.lanes = track.lanes.map((lane) => ({ ...lane }));
   if (track.sequencers) {
     out.sequencers = track.sequencers.map(copySequencer);
     // The alias survives the copy: the caller edits one object, not two.
@@ -1638,9 +1795,14 @@ export const BASS_GROOVE_OPS = Object.freeze([
  */
 export function buildBassGroove({
   starts = [0, 1, 2, 3], beats = 4, intensity = 0.5, complexity = 0.5,
-  lowLane = null, rng = Math.random,
+  lowLane = null, densityScale = 1, rng = Math.random,
 } = {}) {
-  const density = clamp(0.2 + clamp(intensity, 0, 1) * 0.5 + clamp(complexity, 0, 1) * 0.3, 0, 1);
+  // v21 densityScale (0–2) is the track's own density param: it multiplies the
+  // rate the groove was going to have, and 1 leaves it exactly where it was.
+  const scale = Number.isFinite(Number(densityScale)) ? clamp(Number(densityScale), 0, 2) : 1;
+  const density = clamp(
+    (0.2 + clamp(intensity, 0, 1) * 0.5 + clamp(complexity, 0, 1) * 0.3) * scale, 0, 1,
+  );
   const feelName = pick(
     density < 0.45 ? ['held', 'mixed'] : density < 0.75 ? ['mixed', 'staccato', 'held'] : ['staccato', 'mixed'],
     rng,
@@ -2528,6 +2690,38 @@ export function createEngine(initialParams, options = {}) {
     return clamp(resolveRange(track, 'dissonance', config.dissonance) ?? 0, 0, 1);
   }
 
+  /**
+   * v21 per-track swing: the track's own amount, or the global dial when it is
+   * following (null). Read once per bar into the bar snapshot, exactly as the
+   * global one is, so a change of feel lands on a barline.
+   */
+  function trackSwing(track) {
+    const own = params.tracks[track].swing;
+    return clamp(own === null || own === undefined ? params.swing : own, 0, 1);
+  }
+
+  /**
+   * v21 per-track density: the multiplier on this track's own event rate, 1
+   * while it follows complexity (null). Every AUTO planner draws against it; a
+   * manual grid never does, because a sequenced bar is the user's own
+   * statement of when the track sounds.
+   */
+  function trackDensity(track) {
+    const value = params.tracks[track].density;
+    return value === null || value === undefined ? 1 : value;
+  }
+
+  /** The kit as it currently stands: the lane list the drum grid is keyed by. */
+  function percussionLanes() {
+    return params.tracks.percussion.lanes ?? [];
+  }
+
+  /** The lane an auto-generated hit of `kind` sounds through: the first mapped to it. */
+  function laneForKind(kind) {
+    const lane = percussionLanes().find((entry) => entry.kind === kind);
+    return lane ? lane.id : kind;
+  }
+
   /** Per-note velocity jitter: ±15 % of the note's own velocity at aspect 1. */
   function velocityJitter(track) {
     return 1 + varyAmount(track, 'volume') * between(-0.15, 0.15, rng);
@@ -2951,12 +3145,13 @@ export function createEngine(initialParams, options = {}) {
 
   /**
    * The patch the currently selected voice of `track` should be played with,
-   * for a note of `kind` (v14 kit editor). A percussion note whose kind names
-   * a per-instrument override is played with that override merged over the
-   * common patch; every other note — every note of a melodic track included,
-   * since only percussion carries a kind — is played with the common patch
-   * alone, with the overrides stripped so they can never reach a voice they
-   * were not written for.
+   * for a note struck by `lane` (v14 kit editor; v21 keys the overrides by lane
+   * id rather than voice kind, which for the three built-ins is the same
+   * string). A percussion note whose lane names a per-instrument override is
+   * played with that override merged over the common patch; every other note —
+   * every note of a melodic track included, since only percussion carries a
+   * lane — is played with the common patch alone, with the overrides stripped
+   * so they can never reach a voice they were not written for.
    *
    * What comes back is always NUMBERS (ruling 9c): a ranged field is resolved
    * through its walk here, so nothing downstream — play(), applySends,
@@ -2968,19 +3163,19 @@ export function createEngine(initialParams, options = {}) {
    * RESOLVED patch is cached under the same key but thrown away every bar,
    * which is what stops a ranged patch freezing on the first note that read it.
    */
-  function patchFor(track, kind = null) {
+  function patchFor(track, lane = null) {
     const bank = params.patches[track];
     if (!bank) return undefined;
     const voiceId = effectiveVoice(track);
     const common = bank[voiceId];
     if (!common) return undefined;
-    const key = `${track}:${voiceId}:${kind ?? ''}`;
+    const key = `${track}:${voiceId}:${lane ?? ''}`;
     const cached = resolvedPatches.get(key);
     if (cached) return cached;
     let merged = kindPatches.get(key);
     if (!merged) {
       merged = common.perKind
-        ? mergeSections(common, kind === null ? null : common.perKind[kind])
+        ? mergeSections(common, lane === null ? null : common.perKind[lane])
         : common;
       kindPatches.set(key, merged);
     }
@@ -3345,6 +3540,9 @@ export function createEngine(initialParams, options = {}) {
       when: Math.max(wanted, floor),
       pan: clamp(Number(note.pan) || 0, -1, 1),
       kind: note.kind ?? null,
+      // v21: which lane of the kit struck this. Null for every melodic track,
+      // and equal to `kind` for the three built-in drum lanes.
+      lane: note.lane ?? null,
     };
     const voice = voiceFor(track);
     if (voice) {
@@ -3365,7 +3563,8 @@ export function createEngine(initialParams, options = {}) {
         };
       }
       try {
-        const handle = voice.play(ctx, graph.tracks[track].input, full, patchFor(track, full.kind));
+        const handle = voice.play(ctx, graph.tracks[track].input, full,
+          patchFor(track, full.lane ?? full.kind));
         const cancellable = handle && typeof handle.cancel === 'function' ? handle : null;
         pruneLiveNotes();
         if (reachable && handle && handle.legato === true) {
@@ -3421,6 +3620,7 @@ export function createEngine(initialParams, options = {}) {
       track,
       midi: full.midi,
       kind: full.kind,
+      lane: full.lane,
       velocity: full.velocity,
       time: full.when,
       duration: full.duration,
@@ -3802,7 +4002,8 @@ export function createEngine(initialParams, options = {}) {
     }
     if (track === 'percussion') {
       playNote('percussion', {
-        midi: null, freq: null, kind: 'low', when: time, duration: 0.4, velocity: 0.45,
+        midi: null, freq: null, kind: 'low', lane: laneForKind('low'),
+        when: time, duration: 0.4, velocity: 0.45,
       });
       return;
     }
@@ -3850,8 +4051,14 @@ export function createEngine(initialParams, options = {}) {
     playCover(cover, time);
   }
 
-  /** A beat position as the swung bar reads it (v14). */
-  const swung = (beat) => swungBeat(beat, SWING_UNIT, bar.swing);
+  /**
+   * A beat position as the swung bar reads it (v14), in the feel of the track
+   * asking (v21). Without a track it is the global amount — what the bar as a
+   * whole is swung by.
+   */
+  const swung = (beat, track = null) => swungBeat(
+    beat, SWING_UNIT, track === null ? bar.swing : bar.swings[track] ?? bar.swing,
+  );
 
   /** Which pulse of the current bar a beat position falls in. */
   function pulseAtBeat(beat) {
@@ -3889,6 +4096,9 @@ export function createEngine(initialParams, options = {}) {
         index: i,
         beat,
         fifth: !isStrongBeat(beat) && rng() < 0.35,
+        // v21: undefined here means "ring until the next step", the length
+        // every manual bass grid before it had.
+        gate: step.gate,
         velocity: between(step.vmin, step.vmax, rng) * velocityJitter('bass'),
         nudge: timingNudge('bass'),
       });
@@ -3910,7 +4120,7 @@ export function createEngine(initialParams, options = {}) {
   function ensureBassGroove() {
     const key = [
       currentSection.label, round3(sectionIntensity()), params.timeSignature,
-      round3(params.complexity),
+      round3(params.complexity), round3(trackDensity('bass')),
     ].join(':');
     if (bassGroove && bassGrooveKey === key) return bassGroove;
     bassGrooveKey = key;
@@ -3921,6 +4131,7 @@ export function createEngine(initialParams, options = {}) {
       intensity: sectionIntensity(),
       complexity: params.complexity,
       lowLane: percussionLowBeats(),
+      densityScale: trackDensity('bass'),
       rng,
     });
     return bassGroove;
@@ -3989,13 +4200,17 @@ export function createEngine(initialParams, options = {}) {
     const fifth = root + 7;
     if (plan.manual) {
       plan.steps.forEach((step, i) => {
-        // A step rings until the next one, so a sparse grid still sustains.
+        // A step rings until the next one, so a sparse grid still sustains —
+        // unless the step names its own gate, which is the length outright.
         const next = i + 1 < plan.steps.length ? plan.steps[i + 1].beat : bar.beats;
-        const at = swung(step.beat);
+        const at = swung(step.beat, 'bass');
+        const gated = step.gate !== undefined
+          ? gatedSpan(step, step.gate, SEQUENCER_STEP_BEATS) * bar.secPerBeat
+          : (swung(next, 'bass') - at) * bar.secPerBeat * 0.9;
         playNote('bass', {
           midi: step.fifth ? fifth : root,
           when: time + at * bar.secPerBeat + step.nudge,
-          duration: Math.max(0.08, (swung(next) - at) * bar.secPerBeat * 0.9),
+          duration: Math.max(0.08, gated),
           velocity: step.velocity,
         });
       });
@@ -4028,8 +4243,8 @@ export function createEngine(initialParams, options = {}) {
     events.forEach((event, i) => {
       const next = i + 1 < events.length ? events[i + 1].beat : bar.beats;
       const gate = clamp(event.gate ?? 0.9, 0.1, 1);
-      const at = swung(event.beat);
-      const span = (swung(next) - at) * bar.secPerBeat;
+      const at = swung(event.beat, 'bass');
+      const span = (swung(next, 'bass') - at) * bar.secPerBeat;
       playNote('bass', {
         midi: event.midi,
         when: time + at * bar.secPerBeat + event.nudge,
@@ -4081,6 +4296,7 @@ export function createEngine(initialParams, options = {}) {
         degree: stray && !stray.chromatic ? degree + stray.dir : degree,
         bend: stray && stray.chromatic ? stray.dir : 0,
         duration: 1,
+        gate: step.gate,
         velocity: between(step.vmin, step.vmax, rng) * velocityJitter('melody'),
         pan: between(-0.25, 0.25, rng) + panSpread('melody'),
         octave: octaveWander('melody'),
@@ -4088,9 +4304,15 @@ export function createEngine(initialParams, options = {}) {
       });
     }
     notes = mergeTies(notes, lane, slots);
-    // A tied note is one note over both slots, so it lasts as long as it spans.
     for (const note of notes) {
-      if (note.slots > 1) note.duration = Math.max(note.duration, note.slots / 4);
+      // A gated step is exactly as long as it says: the tie has already merged
+      // the slots, and the gate scales the span they add up to. Without one, a
+      // tied note is one note over both slots and lasts as long as it spans.
+      if (note.gate !== undefined) {
+        note.duration = gatedSpan(note, note.gate, SEQUENCER_STEP_BEATS);
+      } else if (note.slots > 1) {
+        note.duration = Math.max(note.duration, note.slots * SEQUENCER_STEP_BEATS);
+      }
     }
     // The cadence rule applies whoever owns the rhythm: the last note of a
     // phrase, or of a section, lands on a chord tone.
@@ -4198,10 +4420,14 @@ export function createEngine(initialParams, options = {}) {
     const scaleLength = scale().length;
     const op = phraseOp();
     const spread = trackRandomness('melody');
+    // v21 density thins or thickens the line the only two ways a motif can
+    // stand: bars it sits out, and ornaments over the bars it plays.
+    const density = trackDensity('melody');
     // Phrase breathing: a bar the melody sits out. Only ever mid-phrase — the
     // statement and the cadence are the two bars the phrase is made of.
     const resting = phraseBar > 0 && phraseBar < PHRASE_BARS - 1
-      && rng() < (0.1 + spread * 0.18) * (1 - intensity * 0.6) && spread > 0;
+      && rng() < clamp((0.1 + spread * 0.18) * (1 - intensity * 0.6) / Math.max(density, 0.05), 0, 1)
+      && spread > 0;
     if (resting) return emptyMelodyPlan();
 
     const cell = developMotif(motif, op, { beatsPerBar: barBeats, scaleLength, rng });
@@ -4212,7 +4438,8 @@ export function createEngine(initialParams, options = {}) {
       : cell.beats.length - 1;
     const cadence = phraseBar === PHRASE_BARS - 1 || sectionEndsThisBar();
     // At randomness 0 the bar is a hold: the cell is stated undecorated.
-    const ornamentChance = spread > 0 ? params.complexity * 0.3 * (0.4 + spread) : 0;
+    const ornamentChance = spread > 0
+      ? clamp(params.complexity * 0.3 * (0.4 + spread) * density, 0, 1) : 0;
     // vary.pitch moves the WHOLE cell an octave, once per bar, never one note
     // of it: a register jump inside a motif is heard as a wrong note, because
     // the contour is most of what the ear is holding on to.
@@ -4260,7 +4487,9 @@ export function createEngine(initialParams, options = {}) {
 
   /** Texture is pure drift: scale degrees rather than chord tones, one draw per pulse. */
   function planTexture(intensity) {
-    const chance = clamp((0.05 + params.complexity * 0.3) * (0.5 + intensity), 0, 1);
+    const chance = clamp(
+      (0.05 + params.complexity * 0.3) * (0.5 + intensity) * trackDensity('texture'), 0, 1,
+    );
     const events = [];
     for (let index = 0; index < bar.pulses.length; index++) {
       if (rng() >= chance) continue;
@@ -4284,7 +4513,7 @@ export function createEngine(initialParams, options = {}) {
   function effectiveArp(intensity, needMask) {
     if (params.arp.mode === 'manual') return params.arp;
     const auto = autoArpSettings(params.complexity);
-    const density = clamp(auto.density * (0.45 + intensity * 0.8), 0, 1);
+    const density = clamp(auto.density * (0.45 + intensity * 0.8) * trackDensity('arp'), 0, 1);
     // The sequencer lane replaces the mask outright in manual mode, so there is
     // nothing to draw for and no rng to spend.
     if (!needMask) return { ...auto, gate: params.arp.gate, steps: null };
@@ -4330,11 +4559,13 @@ export function createEngine(initialParams, options = {}) {
       const index = steps;
       steps += 1;
       let velocity;
+      let gate;
       if (manual) {
         // Slots past the lane length belong to no arp step in this metre.
         if (index >= laneLength) continue;
         const step = lane[index];
         if (!step.on) continue;
+        gate = step.gate;
         const prob = groupedProb(sounded, step, effectiveProb('arp', `step.${index}`, step.prob));
         const fires = rng() < prob;
         if (step.group !== undefined) sounded.set(step.group, fires);
@@ -4354,7 +4585,8 @@ export function createEngine(initialParams, options = {}) {
         index,
         beat,
         seqIndex,
-        gateBeats: stepBeats * cfg.gate,
+        gate,
+        gateBeats: stepBeats * (gate ?? cfg.gate),
         velocity: clamp(velocity, 0.05, 1),
         pan: ((((index % 4)) - 1.5) / 1.5) * 0.3 + panSpread('arp'),
         octave: octaveWander('arp'),
@@ -4363,10 +4595,16 @@ export function createEngine(initialParams, options = {}) {
     }
     if (manual) {
       // A tied arp step holds through the slot it merges with instead of
-      // re-plucking it, so the gate grows by exactly the slots it swallowed.
+      // re-plucking it, so the gate grows by exactly the slots it swallowed —
+      // or, where the step names its own gate, that gate scales the whole
+      // merged span, tie first.
       plan.steps = mergeTies(plan.steps, lane, laneLength);
       for (const step of plan.steps) {
-        if (step.slots > 1) step.gateBeats = stepBeats * (step.slots - 1 + cfg.gate);
+        if (step.gate !== undefined) {
+          step.gateBeats = gatedSpan(step, step.gate, stepBeats);
+        } else if (step.slots > 1) {
+          step.gateBeats = stepBeats * (step.slots - 1 + cfg.gate);
+        }
       }
     }
     arpCursor = (arpCursor + steps) % sequence.length;
@@ -4417,7 +4655,9 @@ export function createEngine(initialParams, options = {}) {
   }
 
   function choosePercussion(intensity) {
-    const density = clamp(0.15 + intensity * params.complexity * 1.2, 0, 1);
+    const density = clamp(
+      (0.15 + intensity * params.complexity * 1.2) * trackDensity('percussion'), 0, 1,
+    );
     // At randomness 0 the bank never grows past the pattern in it, so reusing
     // it is a literal loop of the bar that is already playing.
     const reuse = rng() < params.repetition || isFrozenTrack('percussion');
@@ -4437,21 +4677,25 @@ export function createEngine(initialParams, options = {}) {
   }
 
   /**
-   * Manual percussion: three lanes on the sixteenth grid, each slot firing
-   * against its own probability and velocity band, kind = lane.
+   * Manual percussion: the kit's lanes on the sixteenth grid, each slot firing
+   * against its own probability and velocity band. v21: a hit carries the lane
+   * that struck it AND the voice kind that lane maps onto, so a user lane
+   * sounds through a real drum voice while still being identifiable downstream.
    */
   function planPercussionManual() {
     const lanes = sequencerFor('percussion').steps;
     const slots = sequencerStepsPerBar(params.timeSignature);
     const hits = [];
-    for (const lane of PERCUSSION_LANES) {
+    for (const lane of percussionLanes()) {
+      const steps = lanes[lane.id];
+      if (!steps) continue;
       const sounded = new Map();
       let laneHits = [];
       for (let i = 0; i < slots; i++) {
-        const step = lanes[lane][i];
+        const step = steps[i];
         if (!step.on) continue;
         const prob = groupedProb(sounded, step,
-          effectiveProb('percussion', `step.${lane}.${i}`, step.prob));
+          effectiveProb('percussion', `step.${lane.id}.${i}`, step.prob));
         const fires = rng() < prob;
         if (step.group !== undefined) sounded.set(step.group, fires);
         if (!fires) continue;
@@ -4461,14 +4705,15 @@ export function createEngine(initialParams, options = {}) {
           index: i,
           pulse,
           offset: beat - bar.starts[pulse],
-          kind: lane,
+          lane: lane.id,
+          kind: lane.kind,
           velocity: between(step.vmin, step.vmax, rng) * velocityJitter('percussion'),
-          pan: percussionPan(lane),
+          pan: percussionPan(lane.kind),
           nudge: timingNudge('percussion'),
         });
       }
       // A tie on a drum lane swallows the hit it merges with: one longer stroke.
-      laneHits = mergeTies(laneHits, lanes[lane], slots);
+      laneHits = mergeTies(laneHits, steps, slots);
       for (const hit of laneHits) hits.push(hit);
     }
     hits.sort((a, b) => a.pulse - b.pulse || a.offset - b.offset);
@@ -4480,6 +4725,9 @@ export function createEngine(initialParams, options = {}) {
     if (isManual('percussion')) return planPercussionManual();
     return choosePercussion(intensity).map((hit) => ({
       ...hit,
+      // The generator thinks in voice kinds; the kit answers with the lane
+      // that plays that kind, so an auto bar is labelled like a manual one.
+      lane: laneForKind(hit.kind),
       velocity: hit.velocity * velocityJitter('percussion'),
       pan: percussionPan(hit.kind),
       nudge: timingNudge('percussion'),
@@ -4541,8 +4789,10 @@ export function createEngine(initialParams, options = {}) {
       scale: SCALES[params.mode],
       rootPc: pitchClass(params.root),
       // Swing is read here and nowhere else, so a change of feel lands on a
-      // barline like every other timing decision.
+      // barline like every other timing decision. v21 snapshots the per-track
+      // amounts alongside it: same warp law, one resolved value per track.
       swing: clamp(params.swing, 0, 1),
+      swings: Object.fromEntries(TRACK_ORDER.map((name) => [name, trackSwing(name)])),
     };
 
     retuneDelay(time, secPerBeat);
@@ -4742,14 +4992,17 @@ export function createEngine(initialParams, options = {}) {
       const overlap = mono ? 1.02 : 1.6;
       for (const note of melodyPlan.notes) {
         if (note.beat < from || note.beat >= to) continue;
-        const gap = mono
+        // A gated step asked for its length outright, overlap included, so it
+        // is exempt: that is how a gate above 1 reaches the mono track's
+        // legato instead of being trimmed back to the gap in front of it.
+        const gap = mono && note.gate === undefined
           ? melodyPlan.notes.reduce(
             (room, other) => (other.beat > note.beat + 1e-9
               ? Math.min(room, other.beat - note.beat) : room),
             bar.beats - note.beat,
           )
           : Infinity;
-        const at = time + (swung(note.beat) - from) * bar.secPerBeat + (note.nudge ?? 0);
+        const at = time + (swung(note.beat, 'melody') - from) * bar.secPerBeat + (note.nudge ?? 0);
         let midi = scaleDegreeToMidi(
           chordDegree + note.degree, bar.scale, bar.rootPc, 4,
         ) + 12 * (melodyShift + (melodyPlan.octave ?? 0) + (note.octave ?? 0))
@@ -4794,7 +5047,7 @@ export function createEngine(initialParams, options = {}) {
         const midi = sequence[step.seqIndex % sequence.length] + 12 * (step.octave ?? 0);
         playNote('arp', {
           midi: clamp(midi, 36, 96),
-          when: time + (swung(step.beat) - from) * bar.secPerBeat + (step.nudge ?? 0),
+          when: time + (swung(step.beat, 'arp') - from) * bar.secPerBeat + (step.nudge ?? 0),
           duration: Math.max(0.05, step.gateBeats * bar.secPerBeat),
           velocity: step.velocity,
           pan: step.pan,
@@ -4807,11 +5060,12 @@ export function createEngine(initialParams, options = {}) {
       const offset = Math.min(hit.offset, length * 0.9);
       // Swing is felt across the bar, so the hit is swung at its ABSOLUTE
       // position and then read back as an offset inside its own pulse.
-      const swingOffset = swung(from + offset) - from;
+      const swingOffset = swung(from + offset, 'percussion') - from;
       playNote('percussion', {
         midi: null,
         freq: null,
         kind: hit.kind,
+        lane: hit.lane ?? hit.kind,
         when: time + swingOffset * bar.secPerBeat + (hit.nudge ?? 0),
         duration: hit.kind === 'low' ? 0.4 : hit.kind === 'mid' ? 0.22 : 0.14,
         velocity: hit.velocity,

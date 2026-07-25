@@ -30,6 +30,14 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   about; nothing else notices, the dials simply never appear.
 - v12 — the texture editor's header carries the Mono toggle and the Glide dial
   (both probed against `getParams()` before they render).
+- v21 — the percussion lane list (High first, Low last), "Add lane" copying the
+  neighbouring lane's pattern, click-to-type renaming, remove-proof built-ins,
+  the per-track Swing/Density dials and the per-step note length. Each of these
+  is asserted ONLY where the engine's own sanitiser accepts the param behind it
+  — the gate runs the same probe the page does, so it starts demanding the
+  control the moment the engine lands the param, and accepts its absence before
+  then. A dial that renders against an engine which drops the param is also a
+  failure: a control that does nothing is worse than no control.
 - Fresh install — this harness boots with empty storage and no consent, which is
   every first-time visitor: nothing is persisted before consent is granted, every
   track row builds a randomness control, and no dial read-out comes up NaN
@@ -462,3 +470,59 @@ Guided tour
       oscilloscope legend (click to toggle a trace, double-click to solo), for
       the preset gallery under the Simple dials, and a last step explaining that
       nothing here is AI or a recording — every note is worked out in the tab.
+
+## v21 delta — kit lanes, per-track feel, note length (2026-07-25)
+
+Everything in this section is engine-gated: if this build ships against an
+engine that does not take the param, the control is simply absent. Absent is
+correct; present-but-does-nothing is the bug.
+
+Kit lanes (Advanced → Percussion → Edit)
+- [ ] The lanes still read High at the TOP, Low at the bottom, and each lane
+      now has a header: a grip, its name, a Low/Mid/High picker, ▲/▼ and (user
+      lanes only) ×.
+- [ ] "Add lane" above the grid: a new lane appears under Mid called "Lane 4",
+      already carrying a COPY of Mid's pattern rather than an empty row.
+- [ ] Click its name: it becomes a text box. Type "Rim", press Enter — the lane,
+      the kit editor tab below and the block editor all read Rim. Escape
+      cancels instead.
+- [ ] Its Low/Mid/High picker sets which of the kit's sounds it strikes. On the
+      three built-in lanes that picker is fixed (a built-in lane IS its sound) —
+      rename or move them instead.
+- [ ] ▲/▼ move a lane; so does Alt+↑/↓ with the name focused, and so does
+      dragging the grip and releasing over another lane. The three built-ins
+      have no × — they cannot be removed. Removing a user lane takes its pattern
+      with it.
+- [ ] Each lane's velocity bars are a different shade of the percussion colour,
+      strongest at the top — one instrument, its lanes told apart by shade.
+- [ ] Kit editor tabs (below the grid) follow the lanes: Common | High | Mid |
+      Rim | Low, and an override you set on Rim survives a reload and travels in
+      a preset. Remove Rim and the editor drops back to Common.
+- [ ] Eight lanes is the ceiling — "Add lane" greys out at eight.
+
+Per-track feel (Advanced → any track → Edit)
+- [ ] Melody / Bass / Arp / Percussion have a Swing dial in their edit panel;
+      Pad / Arp / Melody / Bass / Texture have a Density dial. Percussion has no
+      Density (it is a tuned-track control) and Pad/Texture no Swing.
+- [ ] Both open at the left detent reading "Auto": Swing follows the global
+      Swing dial, Density lets Complexity decide. Turn one and only THAT track
+      changes — set the global Swing high and one track's Swing low, and that
+      track alone stays straight.
+- [ ] Double-click either: back to Auto.
+
+Per-step note length (Melody / Bass / Arp → Edit → step grid)
+- [ ] Drag vertically in the LOWER half of a step: the bar narrows and widens
+      across the step — that is the note's length. The upper half still shapes
+      the velocity band, and the fat handle at the band top is unchanged.
+- [ ] Keyboard: − and = (or +) on a focused step shorten and lengthen it; the
+      screen reader announcement includes "length".
+- [ ] Past a full step the note runs into the next one and a small › appears at
+      the step's right edge. Playing: a long note audibly slurs into its
+      neighbour on Melody (which ships Mono), a short one sounds clipped.
+- [ ] Percussion has no length axis — a kit hit has no length to shape.
+
+Detune (any voice editor → Source)
+- [ ] Detune is now ±50 cents with a centre detent: turning left detunes flat,
+      right sharp, and the middle reads "In tune" and is findable by feel. (The
+      v12 delta's "stays 0–50, unipolar" line is superseded — the engine has
+      accepted negative cents since v18.)

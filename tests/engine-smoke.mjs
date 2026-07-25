@@ -202,6 +202,7 @@ const {
   SEQUENCED_TRACKS,
   SEQUENCER_STEP_COUNT,
   PERCUSSION_LANES,
+  MAX_PERCUSSION_LANES,
   VARY_ASPECTS,
   TUNED_TRACKS,
   swungBeat,
@@ -5331,6 +5332,347 @@ test('v21: a low driftRate measurably slows the level walk', () => hiddenTab(asy
     `driftRate 0.1 moved ${slow} per bar against ${full} at full rate — not measurably slower`);
   assert.ok(slow > 0, 'driftRate 0.1 stopped the walk dead; that is what randomness 0 is for');
 }));
+
+// --------------------------------------------------------------------------
+// v21 — per-track swing, per-step gate, dynamic percussion lanes, density
+// --------------------------------------------------------------------------
+
+test('v21: tracks[t].swing is 0–1 or null, and null means "follow the global dial"', () => {
+  const swingOf = (swing) => sanitiseParams({ tracks: { bass: { swing } } }).tracks.bass.swing;
+  assert.equal(sanitiseParams({}).tracks.bass.swing, null, 'a track ships following the global dial');
+  assert.equal(swingOf(0.5), 0.5);
+  assert.equal(swingOf(0), 0, 'an explicit 0 is a straight track, not "follow"');
+  assert.equal(swingOf(-1), 0, 'swing did not clamp below');
+  assert.equal(swingOf(4), 1, 'swing did not clamp above');
+  assert.equal(swingOf(null), null);
+  assert.equal(swingOf('nope'), null, 'junk falls back to following the global dial');
+
+  const stored = sanitiseParams({ tracks: { bass: { swing: 0.8 } } });
+  assert.equal(sanitiseParams({ bpm: 90 }, stored).tracks.bass.swing, 0.8,
+    'an unrelated edit dropped a per-track swing');
+  assert.equal(sanitiseParams({ tracks: { bass: { swing: null } } }, stored).tracks.bass.swing, null,
+    'an explicit null must hand the track back to the global dial');
+  const engine = createEngine({ tracks: { bass: { swing: 0.4 } } });
+  assert.equal(engine.getParams().tracks.bass.swing, 0.4, 'getParams did not round-trip swing');
+});
+
+test("v21: a track's own swing overrides the global dial for that track alone", () => hiddenTab(async () => {
+  // Both tracks fire on the downbeat and on the offbeat sixteenth-pair split.
+  // The global dial is hard over; percussion opts out with an explicit 0 and
+  // melody follows (null), so one bar contains both feels at once.
+  const steps = { low: seqLane({ on: false }), mid: seqLane({ on: false }), high: seqLane({ on: false }) };
+  steps.low[0] = { on: true, prob: 1, vmin: 0.5, vmax: 0.5 };
+  steps.low[2] = { on: true, prob: 1, vmin: 0.5, vmax: 0.5 };
+  const melody = seqLane({ on: false });
+  melody[0] = { on: true, prob: 1, vmin: 0.5, vmax: 0.5 };
+  melody[2] = { on: true, prob: 1, vmin: 0.5, vmax: 0.5 };
+
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 0.5, repetition: 0.5, structure: 'custom', swing: 1,
+    customStructure: [{ label: 'A', bars: 32, intensity: 1 }],
+    tracks: {
+      ...tracksAll('off'),
+      melody: { state: 'on', randomness: 0, swing: null, sequencer: { mode: 'manual', steps: melody } },
+      percussion: { state: 'on', randomness: 0, swing: 0, sequencer: { mode: 'manual', steps } },
+    },
+  }, { rng: seededRng(2101) });
+  const log = record(engine);
+  await engine.start();
+  await advance(20, FAST);
+  engine.stop();
+
+  const secPerBeat = 60 / (120 * 2);
+  const offsetsIn = (track, bar) => log.byBar(track).get(bar)
+    .map((note) => note.offset).sort((a, b) => a - b);
+  const bar = [...log.byBar('percussion').keys()]
+    .find((b) => b >= TRACK_ORDER.indexOf('percussion') + 1 && log.byBar('melody').has(b));
+  assert.ok(bar !== undefined, 'no bar had both tracks sounding');
+
+  const drums = offsetsIn('percussion', bar);
+  const tune = offsetsIn('melody', bar);
+  assert.equal(drums[0].toFixed(4), (0).toFixed(4), 'the downbeat never moves, whatever the swing');
+  assert.equal(tune[0].toFixed(4), (0).toFixed(4), 'the downbeat never moves, whatever the swing');
+  assert.ok(Math.abs(drums[1] - 0.5 * secPerBeat) < 1e-6,
+    `swing 0 on percussion should leave the offbeat at 0.5 beats, got ${drums[1] / secPerBeat}`);
+  assert.ok(Math.abs(tune[1] - 0.75 * secPerBeat) < 1e-6,
+    `melody follows swing 1, so its offbeat belongs at 0.75 beats, got ${tune[1] / secPerBeat}`);
+}));
+
+test('v21: a per-step gate is optional, clamps to 0.1–2, and clears back to nothing', () => {
+  const lane = (steps, base) => sanitiseParams({ tracks: { melody: { sequencer: { steps } } } }, base)
+    .tracks.melody.sequencer.steps;
+
+  assert.ok(!('gate' in lane([{ on: true }])[0]),
+    'a step that was never given a gate must not grow one');
+  assert.equal(lane([{ on: true, gate: 1.5 }])[0].gate, 1.5);
+  assert.equal(lane([{ on: true, gate: 9 }])[0].gate, 2, 'gate did not clamp above');
+  assert.equal(lane([{ on: true, gate: 0 }])[0].gate, 0.1, 'gate did not clamp below');
+
+  const stored = sanitiseParams({ tracks: { melody: { sequencer: { steps: [{ on: true, gate: 1.5 }] } } } });
+  assert.equal(lane([{ on: true }], stored)[0].gate, 1.5, 'an unrelated edit dropped a stored gate');
+  assert.ok(!('gate' in lane([{ on: true, gate: null }], stored)[0]),
+    'an explicit null must clear the gate back to the gap-derived length');
+
+  const engine = createEngine({ tracks: { arp: { sequencer: { steps: [{ on: true, gate: 0.4 }] } } } });
+  assert.equal(engine.getParams().tracks.arp.sequencer.steps[0].gate, 0.4,
+    'getParams did not round-trip a step gate');
+});
+
+test('v21: a step gate scales the note length, ties compose, and gate > 1 overlaps', () => hiddenTab(async () => {
+  // One beat is one second here, so a sixteenth slot is 0.25 s and every
+  // duration below reads straight off the grid (× the mono track's 1.02
+  // legato allowance).
+  const barOfMelody = async (lane, seed = 7701) => {
+    const engine = createEngine({
+      bpm: 60, speed: 1, complexity: 0.5, repetition: 0.5, structure: 'custom',
+      customStructure: [{ label: 'A', bars: 32, intensity: 0.8 }],
+      tracks: {
+        ...tracksAll('off'),
+        melody: { state: 'on', randomness: 0, sequencer: { mode: 'manual', steps: lane } },
+      },
+    }, { rng: seededRng(seed) });
+    const log = record(engine);
+    await engine.start();
+    await advance(40, FAST);
+    engine.stop();
+    const byBar = log.byBar('melody');
+    const bar = [...byBar.keys()].find((b) => b >= TRACK_ORDER.indexOf('melody') + 2);
+    assert.ok(bar !== undefined, 'the melody never sounded past its stage bar');
+    return byBar.get(bar);
+  };
+
+  const twoSteps = (step, first = {}) => {
+    const lane = seqLane({ on: false });
+    lane[0] = { on: true, prob: 1, vmin: 0.6, vmax: 0.6, ...step, ...first };
+    lane[1] = { on: true, prob: 1, vmin: 0.6, vmax: 0.6, ...step };
+    return lane;
+  };
+  const slot = 0.25;      // one sixteenth, in seconds, at this tempo
+  const legato = 1.02;    // the mono melody's overlap allowance
+
+  const plain = await barOfMelody(twoSteps({}));
+  assert.equal(plain.length, 2);
+  assert.ok(Math.abs(plain[0].duration - slot * legato) < 1e-6,
+    `an ungated step still rings to the next onset: got ${plain[0].duration}`);
+
+  const short = await barOfMelody(twoSteps({ gate: 0.5 }));
+  assert.equal(short.length, 2);
+  for (const note of short) {
+    assert.ok(Math.abs(note.duration - slot * 0.5 * legato) < 1e-6,
+      `gate 0.5 should halve the slot: got ${note.duration}`);
+  }
+
+  const long = await barOfMelody(twoSteps({ gate: 2 }));
+  assert.equal(long.length, 2);
+  for (const note of long) {
+    assert.ok(Math.abs(note.duration - slot * 2 * legato) < 1e-6,
+      `gate 2 should double the slot: got ${note.duration}`);
+  }
+  // The point of a gate above 1 on a mono track: the first note is still
+  // sounding when the second starts, which is what the legato path needs.
+  assert.ok(long[0].time + long[0].duration > long[1].time + 1e-6,
+    'gate 2 was trimmed back to the gap instead of overlapping into the next note');
+
+  // Tie first — one note over both slots — then the gate scales what it spans.
+  const tied = await barOfMelody(twoSteps({ gate: 1.5 }, { tie: true }));
+  assert.equal(tied.length, 1, 'the tie should have merged the pair into one note');
+  assert.ok(Math.abs(tied[0].duration - slot * 2 * 1.5 * legato) < 1e-6,
+    `a tied pair at gate 1.5 spans two slots × 1.5: got ${tied[0].duration}`);
+}));
+
+test('v21: percussion lanes are dynamic, the built-ins are undeletable, and the kit caps at 8', () => {
+  const lanesOf = (lanes, base) => sanitiseParams({ tracks: { percussion: { lanes } } }, base)
+    .tracks.percussion.lanes;
+
+  const shipped = sanitiseParams({}).tracks.percussion.lanes;
+  assert.deepEqual(shipped.map((lane) => lane.id), [...PERCUSSION_LANES],
+    'a fresh kit is the three built-ins');
+  assert.deepEqual(shipped.map((lane) => lane.kind), [...PERCUSSION_LANES],
+    'a built-in lane sounds through the voice kind it is named for');
+  assert.deepEqual(shipped.map((lane) => lane.order), [0, 1, 2]);
+  assert.ok(shipped.every((lane) => typeof lane.label === 'string' && lane.label));
+
+  const added = lanesOf([...shipped, { id: 'clap', label: 'Clap', kind: 'high' }]);
+  assert.deepEqual(added.map((lane) => lane.id), ['low', 'mid', 'high', 'clap']);
+  assert.equal(added[3].kind, 'high', 'a user lane keeps the voice kind it maps onto');
+  assert.equal(added[3].label, 'Clap');
+
+  // Adding a lane adds its grid; every built-in grid is where it was.
+  const withClap = sanitiseParams({
+    tracks: { percussion: { lanes: added, sequencer: { steps: { clap: [{ on: false }] } } } },
+  });
+  const grid = withClap.tracks.percussion.sequencer.steps;
+  assert.deepEqual(Object.keys(grid), ['low', 'mid', 'high', 'clap']);
+  assert.equal(grid.clap.length, SEQUENCER_STEP_COUNT, 'a new lane gets a full grid');
+  assert.equal(grid.clap[0].on, false);
+
+  // Built-ins are undeletable: a list that omits them gets them back.
+  const stripped = lanesOf([{ id: 'clap', kind: 'high' }]);
+  assert.deepEqual(stripped.map((lane) => lane.id).sort(), ['clap', 'high', 'low', 'mid'],
+    'a built-in lane was deleted');
+  assert.deepEqual(stripped.map((lane) => lane.order), [0, 1, 2, 3], 'order must stay canonical');
+
+  // A built-in's label is editable; its kind is not.
+  const relabelled = lanesOf([{ id: 'low', label: 'Kick', kind: 'high' }]);
+  assert.equal(relabelled[0].label, 'Kick');
+  assert.equal(relabelled[0].kind, 'low', "a built-in's kind is its id, and is not negotiable");
+
+  // The cap counts the built-ins, and only user lanes past the eighth go.
+  const capped = lanesOf(Array.from({ length: 20 }, (unused, i) => ({ id: `u${i}`, kind: 'mid' })));
+  assert.equal(capped.length, MAX_PERCUSSION_LANES);
+  for (const id of PERCUSSION_LANES) {
+    assert.ok(capped.some((lane) => lane.id === id), `the cap dropped built-in ${id}`);
+  }
+
+  // Junk entries are dropped rather than guessed at; duplicates collapse.
+  const messy = lanesOf([...shipped, 'nope', { label: 'no id' }, { id: '  ' }, { id: 'low' }]);
+  assert.deepEqual(messy.map((lane) => lane.id), [...PERCUSSION_LANES]);
+
+  // Removing a lane takes its grid AND its kit patch with it.
+  const removed = sanitiseParams({
+    tracks: { percussion: { lanes: shipped } },
+    patches: { percussion: { soft: { perKind: { clap: { filter: { cutoff: 900 } } } } } },
+  }, withClap);
+  assert.deepEqual(Object.keys(removed.tracks.percussion.sequencer.steps), [...PERCUSSION_LANES]);
+  assert.equal(removed.patches.percussion, undefined,
+    "a removed lane's kit override must not survive it");
+
+  // ...and a lane added in the SAME call as its override keeps the override.
+  const together = sanitiseParams({
+    tracks: { percussion: { lanes: added } },
+    patches: { percussion: { soft: { perKind: { clap: { filter: { cutoff: 900 } } } } } },
+  });
+  assert.equal(together.patches.percussion.soft.perKind.clap.filter.cutoff, 900);
+});
+
+test('v21: a user lane plays through its mapped kind, names itself on every note, and takes its grid with it',
+  () => hiddenTab(async () => {
+    const off = () => seqLane({ on: false });
+    const steps = { low: off(), mid: off(), high: off(), clap: off() };
+    steps.clap[0] = { on: true, prob: 1, vmin: 0.7, vmax: 0.7 };
+    const run = async (lanes, seed = 2155) => {
+      const engine = createEngine({
+        bpm: 120, speed: 2, complexity: 0.5, repetition: 0.5, structure: 'custom',
+        customStructure: [{ label: 'A', bars: 32, intensity: 1 }],
+        tracks: {
+          ...tracksAll('off'),
+          percussion: { state: 'on', randomness: 0, lanes, sequencer: { mode: 'manual', steps } },
+        },
+      }, { rng: seededRng(seed) });
+      const log = record(engine);
+      await engine.start();
+      await advance(24, FAST);
+      engine.stop();
+      return log.notes.filter((note) => note.track === 'percussion');
+    };
+
+    const kit = [{ id: 'low' }, { id: 'mid' }, { id: 'high' }, { id: 'clap', label: 'Clap', kind: 'high' }];
+    const played = await run(kit);
+    assert.ok(played.length > 2, `the user lane never sounded (${played.length} hits)`);
+    for (const note of played) {
+      assert.equal(note.lane, 'clap', 'a hit must name the lane that struck it');
+      assert.equal(note.kind, 'high', 'a user lane sounds through the voice kind it maps onto');
+    }
+
+    // Remove it: the grid keyed to it goes with it, and nothing else sounds.
+    const silent = await run([{ id: 'low' }, { id: 'mid' }, { id: 'high' }]);
+    assert.equal(silent.length, 0,
+      "a removed lane's grid must not keep playing");
+  }));
+
+test('v21: an auto percussion bar still names the lane each kind sounds through', () => hiddenTab(async () => {
+  const log = await soloRun('percussion', {}, { seconds: 20, seed: 2177, complexity: 0.8 });
+  const hits = log.notes.filter((note) => note.track === 'percussion');
+  assert.ok(hits.length > 4, `the auto kit barely played (${hits.length} hits)`);
+  for (const hit of hits) {
+    assert.ok(PERCUSSION_LANES.includes(hit.lane), `auto hit carried lane ${hit.lane}`);
+    assert.equal(hit.lane, hit.kind, 'with the shipped kit a lane id IS its voice kind');
+  }
+}));
+
+test('v21: tracks[t].density is 0–2 or null, and null means "whatever complexity asked for"', () => {
+  const densityOf = (density) => sanitiseParams({ tracks: { texture: { density } } }).tracks.texture.density;
+  assert.equal(sanitiseParams({}).tracks.texture.density, null, 'a track ships following complexity');
+  assert.equal(densityOf(0.5), 0.5);
+  assert.equal(densityOf(2), 2);
+  assert.equal(densityOf(0), 0, 'an explicit 0 is a silenced rate, not "follow"');
+  assert.equal(densityOf(-1), 0, 'density did not clamp below');
+  assert.equal(densityOf(5), 2, 'density did not clamp above');
+  assert.equal(densityOf(null), null);
+  assert.equal(densityOf('nope'), null, 'junk falls back to following complexity');
+
+  const stored = sanitiseParams({ tracks: { texture: { density: 1.4 } } });
+  assert.equal(sanitiseParams({ bpm: 90 }, stored).tracks.texture.density, 1.4,
+    'an unrelated edit dropped a per-track density');
+  assert.equal(sanitiseParams({ tracks: { texture: { density: null } } }, stored).tracks.texture.density,
+    null, 'an explicit null must hand the track back to complexity');
+  const engine = createEngine({ tracks: { texture: { density: 0.25 } } });
+  assert.equal(engine.getParams().tracks.texture.density, 0.25, 'getParams did not round-trip density');
+});
+
+test('v21: density scales an auto track\'s event rate, and null is exactly the old behaviour',
+  () => hiddenTab(async () => {
+    // A fixed window of bars, well inside every run below: the TAIL of a run is
+    // wall-clock jittery (the scheduler is a real timer racing the mock clock),
+    // and one extra bar scheduled is one extra bar of notes counted.
+    const COUNT_BARS = 24;
+    const countFor = async (track, density, seed = 2199) => {
+      const engine = createEngine({
+        bpm: 120, speed: 2, complexity: 0.5, repetition: 0.5, structure: 'custom',
+        customStructure: [{ label: 'A', bars: 32, intensity: 1 }],
+        tracks: {
+          ...tracksAll('off'),
+          // `undefined` sends no density field at all — the ground truth that
+          // an explicit null has to match.
+          [track]: density === undefined ? { state: 'on' } : { state: 'on', density },
+        },
+      }, { rng: seededRng(seed) });
+      const log = record(engine);
+      await engine.start();
+      await advance(40, FAST);
+      engine.stop();
+      let total = 0;
+      for (const [bar, notes] of log.byBar(track)) if (bar < COUNT_BARS) total += notes.length;
+      return total;
+    };
+
+    for (const track of ['texture', 'percussion']) {
+      const sparse = await countFor(track, 0.5);
+      const following = await countFor(track, null);
+      const busy = await countFor(track, 2);
+      const untouched = await countFor(track, undefined);
+      assert.equal(following, untouched,
+        `${track}: an explicit null density must play exactly what no density field plays`);
+      assert.ok(sparse < following && following < busy,
+        `${track}: density did not order the event counts (${sparse} / ${following} / ${busy})`);
+      assert.ok(busy > sparse * 1.8,
+        `${track}: density 2 (${busy}) is not measurably busier than 0.5 (${sparse})`);
+    }
+
+    // A manual grid states when the track sounds; density has no say over it.
+    const manual = async (density) => {
+      const lane = seqLane({ on: false });
+      for (const i of [0, 4, 8, 12]) lane[i] = { on: true, prob: 1, vmin: 0.6, vmax: 0.6 };
+      const engine = createEngine({
+        bpm: 120, speed: 2, complexity: 0.5, repetition: 0.5, structure: 'custom',
+        customStructure: [{ label: 'A', bars: 32, intensity: 1 }],
+        tracks: {
+          ...tracksAll('off'),
+          melody: { state: 'on', randomness: 0, density, sequencer: { mode: 'manual', steps: lane } },
+        },
+      }, { rng: seededRng(2200) });
+      const log = record(engine);
+      await engine.start();
+      await advance(30, FAST);
+      engine.stop();
+      let total = 0;
+      for (const [bar, notes] of log.byBar('melody')) if (bar < COUNT_BARS) total += notes.length;
+      return total;
+    };
+    const quiet = await manual(0.5);
+    assert.ok(quiet > 0, 'the manual grid never played');
+    assert.equal(await manual(2), quiet, 'density moved a manual sequencer, which it must never do');
+  }));
 
 // --------------------------------------------------------------------------
 // Runner
