@@ -550,6 +550,9 @@ const VOICES: Record<string, [string, string][]> = {
       <fieldset class="presets-group">
         <legend>Your presets</legend>
         <div class="preset-row">
+          <button type="button" id="blank-slate" class="secondary-button">Blank slate</button>
+        </div>
+        <div class="preset-row">
           <label for="preset-name" class="visually-hidden">Preset name</label>
           <input id="preset-name" type="text" placeholder="Preset name" />
           <button type="button" id="preset-save" class="secondary-button">Save</button>
@@ -9223,6 +9226,45 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         loadParamsSnapshot(preset.params);
         presetName.value = preset.name;
       });
+
+      // ---- blank slate (owner request, fromMartin 25) ---------------------
+      // Everything silent and empty: every track off, every sequencer lane
+      // cleared and pinned to Manual (so nothing auto-composes back in), no
+      // arp steps, no genre, zero swing/complexity/repetition. What plays
+      // after this is only what the user builds. Groundwork for the AI-free
+      // pledge on listed presets/albums.
+      function buildBlankParams() {
+        const blank = structuredClone(DEFAULTS);
+        blank.swing = 0;
+        blank.complexity = 0;
+        blank.repetition = 0;
+        blank.arp.steps = new Array(16).fill(false);
+        for (const track of Object.keys(blank.tracks)) {
+          const t = blank.tracks[track];
+          t.state = 'off';
+          t.randomness = 0;
+          if (t.sequencer) {
+            t.sequencer.mode = 'manual';
+            const clearLane = (lane) => lane.forEach((step) => { step.on = false; });
+            if (Array.isArray(t.sequencer.steps)) clearLane(t.sequencer.steps);
+            else Object.values(t.sequencer.steps).forEach(clearLane);
+          }
+        }
+        return blank;
+      }
+      const blankSlate = document.getElementById('blank-slate');
+      if (blankSlate) {
+        describe(
+          blankSlate,
+          'Silence everything: all tracks off, all sequencers cleared and set to Manual, no genre. ' +
+            'Whatever plays after this is entirely yours.'
+        );
+        blankSlate.addEventListener('click', () => {
+          loadParamsSnapshot(buildBlankParams());
+          clearGenreTag();
+          presetName.value = '';
+        });
+      }
 
       // ---- factory preset gallery ----------------------------------------
       // A loaded factory preset is ordinary settings from that moment on:
