@@ -6577,6 +6577,523 @@ test('identity: createEngine reads its tracks through the layer, never a module 
 });
 
 // --------------------------------------------------------------------------
+// params.userTracks (v23) — a hand-written blob creates a track
+//
+// Identity lives in its OWN ordered array, and that array is AUTHORITATIVE on
+// setParams: supplying an entry creates the track and omitting one removes it.
+// No UI and no addTrack() exist yet, so a params blob is the whole interface —
+// which is exactly what makes the runtime testable head-lessly here.
+// --------------------------------------------------------------------------
+
+/** A well-formed user-track spec, overridable field by field. */
+const userTrack = (id, extra = {}) => ({
+  id, label: id.toUpperCase(), family: 'melodic', voiceSet: 'pad', ...extra,
+});
+
+/** N valid user tracks, `u1`…`uN`. */
+const userTracks = (count) => Array.from({ length: count }, (unused, i) => userTrack(`u${i + 1}`));
+
+/** A user track sequenced on every slot — the loudest possible "does it sound". */
+const soundingTrack = (extra = {}) => ({
+  state: 'on', level: 1, randomness: 0,
+  sequencer: { mode: 'manual', steps: seqLane() },
+  ...extra,
+});
+
+test('v23 userTracks: the id grammar accepts and rejects exactly what it says', () => {
+  const idsOf = (list) => sanitiseParams({ userTracks: list }).userTracks.map((t) => t.id);
+
+  for (const id of ['ab', 'drone', 'my-track', 'a1', 'x9-y8-z7', `a${'b'.repeat(23)}`]) {
+    assert.deepEqual(idsOf([userTrack(id)]), [id], `${id} should be a legal id`);
+  }
+  for (const id of [
+    'a',                        // one character is not a name
+    `a${'b'.repeat(24)}`,       // 25 characters is past the cap
+    'Drone',                    // the id is a CSS-var suffix and a params key
+    '1drone',                   // must start with a letter
+    '-drone',
+    'my track',
+    'my.track',
+    'my_track',
+    // A frozen plan key is `${track}#${lane}`, so a '#' in an id would collide
+    // with the lane grid of the track it named.
+    'my#track',
+    '',
+  ]) {
+    assert.deepEqual(idsOf([userTrack(id)]), [], `${JSON.stringify(id)} must be refused`);
+  }
+  for (const id of [...TRACK_ORDER, 'off', 'auto', 'on', 'master', 'global', 'all', 'none']) {
+    assert.deepEqual(idsOf([userTrack(id)]), [], `${id} is reserved`);
+  }
+  // Case is not folded — the grammar forbids uppercase, so there is nothing to
+  // fold — and a duplicate is the second entry's problem, not the first's.
+  assert.deepEqual(idsOf([userTrack('drone'), userTrack('drone', { label: 'Other' })]), ['drone']);
+  assert.equal(sanitiseParams({ userTracks: [userTrack('drone'), userTrack('drone')] })
+    .userTracks[0].label, 'DRONE', 'the FIRST entry of a duplicate pair must survive');
+});
+
+test('v23 userTracks: label, family, voiceSet and colour are validated whole', () => {
+  const first = (spec) => sanitiseParams({ userTracks: [spec] }).userTracks[0] ?? null;
+
+  assert.equal(first(userTrack('a1', { label: '  Deep drone  ' })).label, 'Deep drone');
+  assert.equal(first(userTrack('a1', { label: 'x'.repeat(40) })).label, 'x'.repeat(24));
+  for (const label of ['', '   ', 42, null, undefined]) {
+    assert.equal(first(userTrack('a1', { label })), null, `label ${JSON.stringify(label)} must drop the entry`);
+  }
+  for (const family of ['tuned', 'drums', '', null, undefined]) {
+    assert.equal(first(userTrack('a1', { family })), null, `family ${JSON.stringify(family)} must drop the entry`);
+  }
+  // A kit needs the drum voices, and a pitched line has nothing to say through
+  // them: the percussive family and the percussion bank imply each other.
+  assert.equal(first(userTrack('a1', { family: 'percussive', voiceSet: 'percussion' })).voiceSet, 'percussion');
+  assert.equal(first(userTrack('a1', { family: 'percussive', voiceSet: 'pad' })), null);
+  assert.equal(first(userTrack('a1', { family: 'melodic', voiceSet: 'percussion' })), null);
+  assert.equal(first(userTrack('a1', { voiceSet: 'nonesuch' })), null);
+  for (const voiceSet of ['pad', 'bass', 'melody', 'texture', 'arp']) {
+    assert.equal(first(userTrack('a1', { voiceSet })).voiceSet, voiceSet);
+  }
+
+  assert.equal(first(userTrack('a1', { colourToken: '--my-colour' })).colourToken, '--my-colour');
+  // Anything unusable takes the assigned token rather than dropping the track:
+  // a colour is presentation, and the theme always has a var to define.
+  for (const token of ['track-user-1', '--Bad', '--', 'red', 7]) {
+    assert.equal(first(userTrack('a1', { colourToken: token })).colourToken, '--track-user-1');
+  }
+  assert.deepEqual(
+    sanitiseParams({ userTracks: userTracks(3) }).userTracks.map((t) => t.colourToken),
+    ['--track-user-1', '--track-user-2', '--track-user-3'],
+    'assigned colour tokens follow creation order',
+  );
+  assert.deepEqual(Object.keys(first(userTrack('a1'))),
+    ['id', 'label', 'family', 'voiceSet', 'colourToken'],
+    'a userTracks entry publishes these five fields and nothing else');
+});
+
+test('v23 userTracks: the cap drops the tail, and a bad entry drops alone', () => {
+  // Six user tracks on top of the six built-ins is the twelve-track cap.
+  const capped = sanitiseParams({ userTracks: userTracks(9) });
+  assert.deepEqual(capped.userTracks.map((t) => t.id), ['u1', 'u2', 'u3', 'u4', 'u5', 'u6']);
+  assert.equal(Object.keys(capped.tracks).length, 12, 'twelve tracks is the cap');
+
+  // An entry that fails validation is dropped WHOLE, and the rest are kept:
+  // never coerced, never renamed, and never a reason to lose the preset.
+  const mixed = sanitiseParams({
+    userTracks: [userTrack('good-one'), { id: 'BAD' }, null, 'nope',
+      userTrack('good-two', { family: 'percussive', voiceSet: 'percussion' })],
+  });
+  assert.deepEqual(mixed.userTracks.map((t) => t.id), ['good-one', 'good-two']);
+  // The cap counts only what survived, so six good entries behind a bad one
+  // still all arrive.
+  const rescued = sanitiseParams({ userTracks: [{ id: 'BAD' }, ...userTracks(6)] });
+  assert.deepEqual(rescued.userTracks.map((t) => t.id), ['u1', 'u2', 'u3', 'u4', 'u5', 'u6']);
+});
+
+test('v23 userTracks: the track entry is built by the same code paths as a built-in', () => {
+  const params = sanitiseParams({
+    userTracks: [userTrack('drone'), userTrack('kit', { family: 'percussive', voiceSet: 'percussion' })],
+  });
+  assert.deepEqual(Object.keys(params.tracks),
+    [...TRACK_ORDER, 'drone', 'kit'], 'user tracks append after every built-in');
+
+  const drone = params.tracks.drone;
+  assert.equal(drone.state, 'on', 'the user just made it — it should sound');
+  assert.equal(drone.voice, DEFAULT_PARAMS.tracks.pad.voice, 'the voiceSet decides the default voice');
+  assert.equal(drone.level, 0.8);
+  assert.deepEqual(drone.randomness, { min: 0.35, max: 0.65 });
+  assert.equal(drone.driftRate, 1);
+  assert.equal(drone.swing, null);
+  assert.equal(drone.density, null);
+  assert.equal(drone.hold, false);
+  assert.equal(drone.mono, false);
+  assert.equal(drone.glide, 0);
+  // The pad/texture voice wander is a built-in-specific ruling, not a default
+  // a new track inherits.
+  assert.deepEqual(drone.vary, Object.fromEntries(VARY_ASPECTS.map((a) => [a, null])));
+  assert.equal(drone.dissonance, 0, 'melodic ⇒ tuned ⇒ it has a dissonance dial');
+  assert.equal('lanes' in drone, false, 'a melodic track has one grid, not a kit');
+  // EVERY user track is sequenced: its step grid is its whole material.
+  assert.ok(Array.isArray(drone.sequencer.steps));
+  assert.equal(drone.sequencer.steps.length, SEQUENCER_STEP_COUNT);
+  assert.equal(drone.sequencer, drone.sequencers[0], 'the v6 singular alias must survive');
+
+  const kit = params.tracks.kit;
+  assert.equal('dissonance' in kit, false, 'a kit has no chord discipline to keep');
+  assert.deepEqual(kit.lanes.map((lane) => lane.id), [...PERCUSSION_LANES],
+    'a user kit gets its OWN copy of the three built-in lanes');
+  assert.deepEqual(Object.keys(kit.sequencer.steps), [...PERCUSSION_LANES],
+    'a percussive track gets a lane-map grid, not a melodic single lane');
+  assert.notEqual(kit.lanes, params.tracks.percussion.lanes, 'nothing is shared with the built-in kit');
+});
+
+test('v23 userTracks: absent means zero, and a pre-v23 blob is unchanged', () => {
+  assert.deepEqual(DEFAULT_PARAMS.userTracks, [], 'a params object ships with no user tracks');
+  assert.deepEqual(sanitiseParams({}).userTracks, []);
+  assert.deepEqual(Object.keys(sanitiseParams({}).tracks), [...TRACK_ORDER]);
+
+  // A stored blob written before this window loads unchanged — the sanitiser's
+  // own round-trip proof, run over a params object that never mentions the key.
+  const legacy = sanitiseParams({ bpm: 92, mode: 'aeolian', tracks: { melody: { level: 0.4 } } });
+  delete legacy.userTracks;
+  const loaded = sanitiseParams(legacy);
+  assert.deepEqual(loaded.userTracks, []);
+  assert.deepEqual({ ...loaded, userTracks: undefined }, { ...legacy, userTracks: undefined });
+
+  // An unrelated edit never drops the list, and an explicit empty array does.
+  const stored = sanitiseParams({ userTracks: userTracks(2) });
+  assert.deepEqual(sanitiseParams({ bpm: 100 }, stored).userTracks.map((t) => t.id), ['u1', 'u2']);
+  assert.deepEqual(sanitiseParams({ userTracks: [] }, stored).userTracks, []);
+  assert.deepEqual(Object.keys(sanitiseParams({ userTracks: [] }, stored).tracks), [...TRACK_ORDER]);
+});
+
+test('v23 userTracks: an orphan tracks or patches key is dropped, a matched one is kept', () => {
+  // Neither a built-in nor a surviving userTracks id: dropped silently, exactly
+  // as every unknown track key always has been.
+  const orphaned = sanitiseParams({
+    tracks: { ghost: { level: 0.2 } },
+    patches: { ghost: { warm: { filter: { cutoff: 800 } } } },
+  });
+  assert.equal('ghost' in orphaned.tracks, false);
+  assert.equal('ghost' in orphaned.patches, false);
+
+  // The same keys, WITH the identity entry that names them: both are kept.
+  const matched = sanitiseParams({
+    userTracks: [userTrack('drone')],
+    tracks: { drone: { level: 0.2, state: 'off' } },
+    patches: { drone: { warm: { filter: { cutoff: 800 } } } },
+  });
+  assert.equal(matched.tracks.drone.level, 0.2);
+  assert.equal(matched.tracks.drone.state, 'off');
+  assert.equal(matched.patches.drone.warm.filter.cutoff, 800);
+
+  // Removing the identity entry orphans its track and patch entries, which drop
+  // with it — a track added and later removed leaves nothing behind.
+  const removed = sanitiseParams({ userTracks: [] }, matched);
+  assert.equal('drone' in removed.tracks, false);
+  assert.equal('drone' in removed.patches, false);
+});
+
+test('v23 userTracks: setParams/getParams round-trip, deep-copied', () => {
+  const engine = createEngine({ userTracks: [userTrack('drone')] });
+  assert.deepEqual(engine.getParams().userTracks,
+    [{ id: 'drone', label: 'DRONE', family: 'melodic', voiceSet: 'pad', colourToken: '--track-user-1' }]);
+
+  // getParams() hands out a copy: editing it must not reach the engine.
+  const handed = engine.getParams();
+  handed.userTracks[0].label = 'wrecked';
+  handed.userTracks.push(userTrack('sneaky'));
+  handed.tracks.drone.level = 0.01;
+  assert.equal(engine.getParams().userTracks.length, 1);
+  assert.equal(engine.getParams().userTracks[0].label, 'DRONE');
+  assert.equal(engine.getParams().tracks.drone.level, 0.8);
+
+  // A second track arrives, and the first keeps its place: order is creation
+  // order, and the accessors rebuild around it.
+  engine.setParams({ userTracks: [userTrack('drone'), userTrack('kit', { family: 'percussive', voiceSet: 'percussion' })] });
+  assert.deepEqual(engine.getTracks().map((t) => t.id),
+    ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion', 'drone', 'kit']);
+  assert.deepEqual(engine.getTracks().map((t) => t.builtin),
+    [true, true, true, true, true, true, false, false]);
+  for (const view of engine.getTracks()) {
+    assert.deepEqual(Object.keys(view), ['id', 'label', 'builtin', 'colourToken', 'family'],
+      `${view.id}: the public view keeps EXACTLY its five keys`);
+    assert.ok(Object.isFrozen(view), `${view.id}: the public view must stay frozen`);
+  }
+  assert.ok(Object.isFrozen(engine.getTracks()), 'the instance list must be frozen too');
+
+  // And the module export never learns about them: it is what index.astro reads
+  // at BUILD time, and a server render cannot know a user's tracks.
+  assert.equal(getTracks().length, 6, 'the module export must stay built-ins-only forever');
+  assert.equal(getTracks().map((t) => t.id).includes('drone'), false);
+});
+
+test('v23 userTracks: staging, the ladder and the mix defaults extend the floor', () => {
+  const layer = createTrackLayer();
+  layer.setUserTracks(sanitiseParams({ userTracks: userTracks(6) }).userTracks);
+
+  assert.deepEqual(layer.trackOrder(), [...TRACK_ORDER, 'u1', 'u2', 'u3', 'u4', 'u5', 'u6']);
+  // Where a new sequenced track is INSERTED decides whether every existing seed
+  // still produces the same music: appending is the only safe position.
+  assert.deepEqual(layer.sequencedTracks(), [...SEQUENCED_TRACKS, 'u1', 'u2', 'u3', 'u4', 'u5', 'u6']);
+  assert.deepEqual(layer.tunedTracks(), [...TUNED_TRACKS, 'u1', 'u2', 'u3', 'u4', 'u5', 'u6']);
+
+  // Staged entry appends after the built-ins and the entry lengthens with it.
+  assert.deepEqual(['u1', 'u2', 'u3', 'u4', 'u5', 'u6'].map((id) => layer.stageIndexOf(id)),
+    [6, 7, 8, 9, 10, 11]);
+  assert.equal(layer.stageBars(), 11);
+
+  // Ladder: 0.6 + 0.05 × (ordinal + 1), rising and all above percussion's 0.6.
+  assert.deepEqual(['u1', 'u2', 'u3', 'u4', 'u5', 'u6'].map((id) => layer.autoThresholdFor(id)),
+    [0.65, 0.7, 0.75, 0.8, 0.85, 0.9]);
+  for (let energy = 0; energy <= 1.0001; energy += 0.05) {
+    const active = autoActiveTracks(energy, energy, layer.trackOrder(), layer.autoThresholdFor);
+    assert.deepEqual(active, layer.trackOrder().slice(0, active.length),
+      `energy ${energy} activated a non-prefix set: ${active.join(',')}`);
+  }
+
+  // The decorative tier by family, not the pad/bass tier.
+  const kitLayer = createTrackLayer();
+  kitLayer.setUserTracks(sanitiseParams({
+    userTracks: [userTrack('drone'), userTrack('kit', { family: 'percussive', voiceSet: 'percussion' })],
+  }).userTracks);
+  assert.deepEqual(kitLayer.mixFor('drone'), { level: 0.2, dry: 0.7, reverb: 0.45, delay: 0.25, tone: 6500 });
+  assert.deepEqual(kitLayer.mixFor('kit'), { level: 0.24, dry: 0.85, reverb: 0.3, delay: 0.12, tone: 9000 });
+  // No built-in's mix moves to make room for them.
+  for (const name of TRACK_ORDER) {
+    assert.equal(kitLayer.mixFor(name), createTrackLayer().mixFor(name), `${name}: mix moved`);
+  }
+
+  // Emptying the list puts every accessor back on the module's own object.
+  layer.setUserTracks([]);
+  assert.equal(layer.trackOrder(), TRACK_ORDER);
+  assert.equal(layer.trackViews(), getTracks());
+  assert.equal(layer.stageBars(), 5);
+});
+
+test('v23 userTracks: a params blob alone makes a seventh track SOUND', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+    customStructure: [{ label: 'D', bars: 16, intensity: 1 }],
+    userTracks: [userTrack('drone')],
+    tracks: { ...tracksAll('on'), drone: soundingTrack() },
+  }, { rng: seededRng(2301) });
+  const log = record(engine);
+  await engine.start();
+  const played = () => log.notes.filter((note) => note.track === 'drone');
+  assert.ok(await advanceUntil(() => played().length > 20, 48, FAST),
+    'the user track never sounded');
+
+  const heard = played();
+  assert.ok(heard.every((note) => Number.isFinite(note.midi)),
+    'a melodic user track must sound pitches, not kit hits');
+  // Staged entry: it enters AFTER every built-in, on bar 6.
+  const first = Math.min(...heard.map((note) => log.barOf(note).bar));
+  assert.equal(first, 6, 'the user track entered before its stage bar');
+
+  // Five surfaces, one track, order asserted.
+  assert.deepEqual(Object.keys(engine.getStats().perTrack), [...TRACK_ORDER, 'drone']);
+  assert.ok(engine.getStats().perTrack.drone.notesPerMin > 0, 'the stats poll never saw it play');
+  assert.deepEqual(Object.keys(engine.getResolved().tracks), [...TRACK_ORDER, 'drone']);
+  assert.equal(engine.getResolved().tracks.drone.active, true);
+  assert.deepEqual(Object.keys(engine.getAnalysers()), [...TRACK_ORDER, 'drone', 'total']);
+  assert.ok(engine.getAnalysers().drone, 'the user track has no analyser node');
+  assert.deepEqual(Object.keys(engine.getParams().tracks), [...TRACK_ORDER, 'drone']);
+
+  // Its chain is a real chain: level 1 at randomness 0 settles on the mix
+  // ceiling its family publishes.
+  const ctx = liveContexts[liveContexts.length - 1];
+  const bus = reverbBus(ctx);
+  const sends = ctx.nodes.filter((n) => n.kind === 'gain' && n.connections.includes(bus));
+  assert.equal(sends.length, TRACK_ORDER.length + 1, 'expected one reverb send per track');
+  const tone = ctx.nodes.find((n) => n.kind === 'biquad' && n.connections.includes(sends[6]));
+  const input = ctx.nodes.find((n) => n.kind === 'gain' && n.connections.includes(tone));
+  assert.ok(Math.abs(input.gain.value - 0.2) < 1e-9,
+    `the user track settled at ${input.gain.value}, not its 0.2 mix ceiling`);
+  engine.stop();
+}));
+
+test('v23 userTracks: a percussive user track strikes its own lanes', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+    customStructure: [{ label: 'D', bars: 16, intensity: 1 }],
+    userTracks: [userTrack('kit', { family: 'percussive', voiceSet: 'percussion' })],
+    tracks: {
+      kit: soundingTrack({
+        sequencer: {
+          mode: 'manual',
+          steps: { low: seqLane(), mid: seqLane({ on: false }), high: seqLane({ on: false }) },
+        },
+      }),
+    },
+  }, { rng: seededRng(2302) });
+  const log = record(engine);
+  await engine.start();
+  const played = () => log.notes.filter((note) => note.track === 'kit');
+  assert.ok(await advanceUntil(() => played().length > 20, 48, FAST), 'the user kit never sounded');
+  engine.stop();
+
+  const hits = played();
+  assert.ok(hits.every((hit) => hit.midi === null), 'a kit sounds pitchless strokes');
+  assert.deepEqual([...new Set(hits.map((hit) => hit.lane))], ['low'],
+    'only the lane the grid names may fire');
+  assert.deepEqual([...new Set(hits.map((hit) => hit.kind))], ['low'],
+    'a lane sounds through the voice kind it maps onto');
+}));
+
+test('v23 userTracks: a track added mid-run gains its chain and sounds from a later bar',
+  () => hiddenTab(async () => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+      customStructure: [{ label: 'D', bars: 24, intensity: 1 }],
+    }, { rng: seededRng(2303) });
+    const log = record(engine);
+    await engine.start();
+    await advance(8, FAST);
+
+    const ctx = liveContexts[liveContexts.length - 1];
+    const bus = reverbBus(ctx);
+    const sendCount = () => ctx.nodes.filter((n) => n.kind === 'gain'
+      && n.connections.includes(bus)).length;
+    assert.equal(sendCount(), TRACK_ORDER.length);
+
+    const madeAt = ctx.currentTime;
+    engine.setParams({
+      userTracks: [userTrack('drone')],
+      tracks: { drone: soundingTrack() },
+    });
+    // The chain is built at once — a note reaching a track with no graph node
+    // is a TypeError inside the scheduler's lookahead, which stops the piece
+    // rather than the track.
+    assert.equal(sendCount(), TRACK_ORDER.length + 1, 'the added track got no chain');
+    assert.ok(engine.getAnalysers().drone, 'the added track got no analyser');
+
+    const played = () => log.notes.filter((note) => note.track === 'drone');
+    assert.ok(await advanceUntil(() => played().length > 10, 48, FAST),
+      'the added track never sounded');
+    engine.stop();
+    assert.ok(played().every((note) => note.time >= madeAt),
+      'the added track sounded before it existed');
+  }));
+
+test('v23 userTracks: a track removed mid-run rings out, then its chain is dropped',
+  () => hiddenTab(async () => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+      customStructure: [{ label: 'D', bars: 24, intensity: 1 }],
+      userTracks: [userTrack('drone')],
+      // The user track alone, so any note still sounding after the removal can
+      // only be one of its own.
+      tracks: { ...tracksAll('off'), drone: soundingTrack() },
+    }, { rng: seededRng(2304) });
+    const log = record(engine);
+    await engine.start();
+    const heard = () => log.notes.filter((note) => note.track === 'drone');
+    assert.ok(await advanceUntil(() => heard().length > 10, 40, FAST),
+      'the user track never sounded, so there is no removal to judge');
+
+    const ctx = liveContexts[liveContexts.length - 1];
+    const bus = reverbBus(ctx);
+    const sends = () => ctx.nodes.filter((n) => n.kind === 'gain' && n.connections.includes(bus));
+    const chain = sends()[TRACK_ORDER.length];
+    assert.ok(chain, 'the user track has no reverb send to retire');
+
+    // Small clock steps with room to breathe, so the scheduler's lookahead is
+    // genuinely AHEAD of the mock clock again: the removal has to land while
+    // the track still has notes to come, or there is no ring-out to judge.
+    const SETTLED = { step: 0.05, sleep: 20 };
+    await advance(0.6, SETTLED);
+    const sounded = heard().length;
+    engine.setParams({ userTracks: [] });
+
+    // Params drop on the same tick; the SOUND does not. Cutting a ringing note
+    // is the click the 50 ms-fade rule exists to prevent, so the chain stays
+    // wired while anything on it is still sounding.
+    assert.deepEqual(engine.getParams().userTracks, []);
+    assert.equal('drone' in engine.getParams().tracks, false);
+    assert.equal(engine.getTracks().map((t) => t.id).includes('drone'), false);
+    assert.equal(engine.getAnalysers().drone, undefined, 'getAnalysers must drop the key at once');
+    assert.equal(sends().length, TRACK_ORDER.length + 1,
+      'the chain was cut while its notes were still ringing');
+
+    // On into the span of a note the removed track had already scheduled. The
+    // stats poll is on the page's timer and feeds the power governor, so a note
+    // outliving its track must not be a deref there — which is what polling it
+    // across the ring-out proves.
+    assert.ok(await advanceUntil(() => engine.getStats().totalActiveNotes > 0, 4, SETTLED),
+      'nothing of the removed track ever rang, so the ring-out is untested');
+    assert.equal(engine.getStats().perTrack.drone, undefined, 'a removed track keeps no stats row');
+    assert.equal(sends().length, TRACK_ORDER.length + 1, 'the chain was cut mid-note');
+
+    // Nothing new is scheduled for it from the moment of the call.
+    await advance(20, FAST);
+    assert.equal(heard().length, sounded, 'a removed track kept being scheduled');
+    assert.ok(Number.isFinite(engine.getStats().totalActiveNotes));
+    assert.equal(sends().length, TRACK_ORDER.length, 'the retired chain was never dropped');
+    assert.ok(chain.disconnects.length, 'the retired send was never disconnected');
+    engine.stop();
+  }));
+
+test('v23 userTracks: level, sequencer and patches round-trip and apply', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+    customStructure: [{ label: 'D', bars: 16, intensity: 1 }],
+    userTracks: [userTrack('drone')],
+    tracks: { drone: soundingTrack() },
+  }, { rng: seededRng(2305) });
+
+  // Every per-track sanitiser reaches a user track, because every one of them
+  // iterates the engine's own list rather than the module's six.
+  engine.setParams({
+    tracks: {
+      drone: {
+        level: { min: 0.2, max: 0.4 }, randomness: 0.5, driftRate: 0.5,
+        swing: 0.3, density: 1.5, hold: true, mono: true, glide: 0.5, dissonance: 0.25,
+        vary: { volume: 0.2 },
+        sequencer: { mode: 'manual', steps: seqLane({ prob: 0.5 }) },
+      },
+    },
+    patches: { drone: { warm: { filter: { cutoff: 900 }, adsr: { release: 1.5 } } } },
+  });
+  const stored = engine.getParams().tracks.drone;
+  assert.deepEqual(stored.level, { min: 0.2, max: 0.4 });
+  assert.equal(stored.randomness, 0.5);
+  assert.equal(stored.driftRate, 0.5);
+  assert.equal(stored.swing, 0.3);
+  assert.equal(stored.density, 1.5);
+  assert.equal(stored.hold, true);
+  assert.equal(stored.mono, true);
+  assert.equal(stored.glide, 0.5);
+  assert.equal(stored.dissonance, 0.25);
+  assert.equal(stored.vary.volume, 0.2);
+  assert.equal(stored.sequencer.steps[0].prob, 0.5);
+  assert.equal(engine.getParams().patches.drone.warm.filter.cutoff, 900);
+  assert.equal(engine.getParams().patches.drone.warm.adsr.release, 1.5);
+
+  await engine.start();
+  await advance(20, FAST);
+  // The live readouts resolve for a user track exactly as for a built-in.
+  const resolved = engine.getResolved();
+  assert.ok(resolved.tracks.drone.level >= 0.2 && resolved.tracks.drone.level <= 0.4);
+  assert.equal(resolved.tracks.drone.swing, 0.3);
+  assert.equal(resolved.tracks.drone.density, 1.5);
+  assert.equal(resolved.tracks.drone.held, true);
+  assert.equal(resolved.patches.drone.filter.cutoff, 900);
+  engine.stop();
+}));
+
+test('v23 byte-identity: with no user tracks the seeded note stream is unchanged',
+  () => hiddenTab(async () => {
+    const play = async (before) => {
+      const engine = createEngine({
+        bpm: 120, speed: 2, complexity: 0.7, repetition: 0.4, structure: 'journey',
+        tracks: tracksAll('on'),
+      }, { rng: seededRng(2306) });
+      if (before) before(engine);
+      const log = record(engine);
+      await engine.start();
+      await advance(20, FAST);
+      engine.stop();
+      return log.notes.map((note) => [note.track, note.midi, note.kind, note.lane,
+        tick(note.time), tick(note.duration), note.velocity].join('|'));
+    };
+
+    const plain = await play(null);
+    // The same piece on an engine that has had a user track added AND removed:
+    // the layer must be back on the module's own frozen lists, and nothing the
+    // add did may have drawn a single rng().
+    const churned = await play((engine) => {
+      engine.setParams({ userTracks: [userTrack('drone')] });
+      engine.setParams({ userTracks: [] });
+    });
+
+    // How much music a fixed wall of mock seconds buys depends on how busy the
+    // box is, so the two runs are compared over the bars they both reached.
+    const shared = Math.min(plain.length, churned.length);
+    assert.ok(shared > 200, `only ${shared} shared notes — too few to judge`);
+    assert.deepEqual(churned.slice(0, shared), plain.slice(0, shared),
+      'an added-and-removed user track changed the six built-ins\' note stream');
+  }));
+
+// --------------------------------------------------------------------------
 // v26 — the hook seed, the master analyser tap, pause
 // --------------------------------------------------------------------------
 
