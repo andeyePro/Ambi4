@@ -1021,6 +1021,214 @@ test('percussion lanes are unaffected by de-overlap: same-kind overlapping hits 
 });
 
 // --------------------------------------------------------------------------
+// v18: setFps/getFps (governor visualFps integration, see power.js header)
+// --------------------------------------------------------------------------
+
+function withMatchMedia(reducedMotionMatches, fn) {
+  const prevWindow = globalThis.window;
+  globalThis.window = {
+    matchMedia(query) {
+      return {
+        matches: query.includes('reduced-motion') ? reducedMotionMatches : false,
+        addEventListener() {},
+        removeEventListener() {},
+      };
+    },
+  };
+  try {
+    return fn();
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+}
+
+test('setFps/getFps: default cap is 30fps', () => {
+  const inst = initVisualiser(makeCanvas({}), makeEngine());
+  assert.equal(inst.getFps(), 30);
+  inst.destroy();
+});
+
+test('setFps: clamps to 1..60; non-finite/absent input restores the 30fps default', () => {
+  const inst = initVisualiser(makeCanvas({}), makeEngine());
+
+  inst.setFps(15);
+  assert.equal(inst.getFps(), 15);
+
+  inst.setFps(NaN);
+  assert.equal(inst.getFps(), 30, 'NaN restores the default');
+
+  inst.setFps(15);
+  inst.setFps(undefined);
+  assert.equal(inst.getFps(), 30, 'absent/undefined input restores the default');
+
+  inst.setFps(15);
+  inst.setFps('30');
+  assert.equal(inst.getFps(), 30, 'non-number input restores the default');
+
+  inst.setFps(100);
+  assert.equal(inst.getFps(), 60, 'clamps above range to 60');
+
+  inst.setFps(0);
+  assert.equal(inst.getFps(), 1, 'clamps at/below range to 1');
+
+  inst.setFps(-5);
+  assert.equal(inst.getFps(), 1, 'clamps negative input to 1');
+
+  inst.destroy();
+});
+
+test('setFps(15) halves the draw count over a fixed simulated timestamp sequence', () => {
+  const tsSequence = [0, 20, 40, 60, 80, 100, 120, 140];
+
+  const drawCountFor = (configure) =>
+    withMockRaf(({ stepFrame }) => {
+      const calls = {};
+      const canvas = makeCanvas(calls);
+      const engine = makeEngine();
+      engine.running = true;
+      const inst = initVisualiser(canvas, engine);
+      engine.emit('state', { running: true });
+      if (configure) configure(inst);
+      calls.clearRect = 0;
+      for (const ts of tsSequence) stepFrame(ts);
+      inst.destroy();
+      return calls.clearRect;
+    });
+
+  const drawsDefault = drawCountFor();
+  const drawsHalved = drawCountFor((inst) => inst.setFps(15));
+
+  assert.equal(drawsDefault, 4, `expected 4 draws at the 30fps default over this sequence, got ${drawsDefault}`);
+  assert.equal(drawsHalved, 2, `expected setFps(15) to halve the draw count to 2, got ${drawsHalved}`);
+});
+
+test('setFps: a mid-run change re-caps the loop without an extra or duplicate draw on the changing tick', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const engine = makeEngine();
+    engine.running = true;
+    const inst = initVisualiser(canvas, engine);
+    engine.emit('state', { running: true });
+
+    calls.clearRect = 0;
+    stepFrame(0); // first scheduled tick always draws
+    assert.equal(calls.clearRect, 1);
+
+    inst.setFps(15); // re-cap mid-run, no loop restart, no immediate extra draw
+    assert.equal(calls.clearRect, 1, 'setFps() itself must not draw or schedule a frame');
+
+    stepFrame(20); // inside the new 66.67ms/15fps budget
+    assert.equal(calls.clearRect, 1, 'must respect the newly-set cap, not the old 30fps one');
+    stepFrame(70); // past the new budget (measured from the last drawn frame at ts=0)
+    assert.equal(calls.clearRect, 2, 'exactly one draw, not a stutter/skip or a double-draw');
+
+    inst.destroy();
+  });
+});
+
+test('setFps interacts correctly with the document.hidden pause: no draws while hidden, resumes honouring the cap', () => {
+  withMockRaf(({ stepFrame, rafCbs }) => {
+    const prevDocument = globalThis.document;
+    const listeners = new Map();
+    globalThis.document = {
+      hidden: false,
+      addEventListener(type, fn) { listeners.set(type, fn); },
+      removeEventListener(type) { listeners.delete(type); },
+    };
+    try {
+      const calls = {};
+      const canvas = makeCanvas(calls);
+      const engine = makeEngine();
+      engine.running = true;
+      const inst = initVisualiser(canvas, engine);
+      engine.emit('state', { running: true });
+      inst.setFps(15);
+
+      assert.equal(rafCbs.size, 1, 'loop scheduled while visible');
+
+      globalThis.document.hidden = true;
+      listeners.get('visibilitychange')();
+      assert.equal(rafCbs.size, 0, 'loop must stop entirely while hidden, regardless of the fps cap');
+
+      globalThis.document.hidden = false;
+      listeners.get('visibilitychange')();
+      assert.equal(rafCbs.size, 1, 'loop resumes once visible again');
+
+      calls.clearRect = 0;
+      stepFrame(0);
+      assert.equal(calls.clearRect, 1, 'first resumed tick always draws');
+      stepFrame(40); // inside the 66.67ms/15fps budget
+      assert.equal(calls.clearRect, 1, 'must respect setFps(15) after resuming from hidden');
+      stepFrame(80); // past the 15fps budget
+      assert.equal(calls.clearRect, 2);
+
+      inst.destroy();
+    } finally {
+      if (prevDocument === undefined) delete globalThis.document;
+      else globalThis.document = prevDocument;
+    }
+  });
+});
+
+test('reduced-motion "lowest wins": an explicit setFps() cap below the reduced-motion floor is respected, not raised', () => {
+  withMatchMedia(true, () => {
+    withMockRaf(({ stepFrame }) => {
+      const calls = {};
+      const canvas = makeCanvas(calls);
+      const engine = makeEngine();
+      engine.running = true;
+      const inst = initVisualiser(canvas, engine);
+      engine.emit('state', { running: true });
+      inst.setFps(1); // below the reduced-motion 2fps floor
+
+      calls.clearRect = 0;
+      stepFrame(0); // first tick always draws
+      assert.equal(calls.clearRect, 1);
+      stepFrame(500); // reduced-motion's own 2fps/500ms budget has passed...
+      assert.equal(calls.clearRect, 1, 'the lower setFps(1)/1000ms cap must still gate this frame');
+      stepFrame(1000); // ...but the 1fps/1000ms budget has now passed
+      assert.equal(calls.clearRect, 2);
+
+      inst.destroy();
+    });
+  });
+});
+
+test('reduced-motion "lowest wins": reduced motion still throttles below a higher/default setFps() cap', () => {
+  withMatchMedia(true, () => {
+    withMockRaf(({ stepFrame }) => {
+      const calls = {};
+      const canvas = makeCanvas(calls);
+      const engine = makeEngine();
+      engine.running = true;
+      const inst = initVisualiser(canvas, engine);
+      engine.emit('state', { running: true });
+      // No setFps() call — default 30fps cap, higher than the reduced-motion floor.
+
+      calls.clearRect = 0;
+      stepFrame(0);
+      assert.equal(calls.clearRect, 1);
+      stepFrame(40); // past the 30fps/33.3ms budget, but well inside the 2fps/500ms floor
+      assert.equal(calls.clearRect, 1, 'reduced motion must still throttle below the default fps cap');
+      stepFrame(500); // the 2fps/500ms floor has now passed
+      assert.equal(calls.clearRect, 2);
+
+      inst.destroy();
+    });
+  });
+});
+
+test('destroy() stays idempotent after a setFps() call', () => {
+  const inst = initVisualiser(makeCanvas({}), makeEngine());
+  inst.setFps(15);
+  inst.destroy();
+  inst.destroy(); // must still be a no-op, not throw
+  assert.equal(inst.getFps(), 15, 'the handle keeps reporting its last fps cap after destroy');
+});
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 

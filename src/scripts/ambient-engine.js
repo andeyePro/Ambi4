@@ -743,6 +743,30 @@ const PATCH_SCHEMA = Object.freeze({
     // on a track that plays notes.
     pitch: (v) => sanitiseRangeValue(v, -24, 24),
     noise: (v) => sanitiseRangeValue(v, 0, 1),
+    // v19 noise sculpting: the dials that turn the two texture noise voices
+    // into one modular instrument. Every one is continuous and therefore
+    // rangeable, and every one is resolved to a number before it reaches a
+    // voice, exactly like the fields above. The table stays track-agnostic —
+    // which voices HONOUR them is the voice library's `controls` to declare,
+    // not the sanitiser's to police.
+    tilt: (v) => sanitiseRangeValue(v, -1, 1),
+    bandCentre: (v) => sanitiseRangeValue(v, 60, 8000),
+    bandWidth: (v) => sanitiseRangeValue(v, 0.1, 4),
+    sweepRate: (v) => sanitiseRangeValue(v, 0, 0.5),
+    sweepDepth: (v) => sanitiseRangeValue(v, 0, 1),
+    gust: (v) => sanitiseRangeValue(v, 0, 1),
+    gustRate: (v) => sanitiseRangeValue(v, 0.02, 0.5),
+    burst: (v) => sanitiseRangeValue(v, 0, 1),
+    burstSharp: (v) => sanitiseRangeValue(v, 0, 1),
+    swell: (v) => sanitiseRangeValue(v, 0, 1),
+    // v19 call synthesis: the same deal for the pitched chirp primitive that
+    // melody and texture both offer.
+    glide: (v) => sanitiseRangeValue(v, -24, 24),
+    glideCurve: (v) => sanitiseRangeValue(v, 0, 1),
+    formant1: (v) => sanitiseRangeValue(v, 60, 8000),
+    formant2: (v) => sanitiseRangeValue(v, 60, 8000),
+    cadence: (v) => sanitiseRangeValue(v, 0.5, 8),
+    irregular: (v) => sanitiseRangeValue(v, 0, 1),
   }),
   filter: Object.freeze({
     type: (v) => oneOf(v, PATCH_FILTER_TYPES, undefined),

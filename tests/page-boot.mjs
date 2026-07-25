@@ -47,10 +47,17 @@ assert.ok(existsSync(bundlePath), `built page script missing: ${bundlePath}`);
 // the audio graph do the right thing" (that is engine-smoke.mjs's job).
 // --------------------------------------------------------------------------
 
-/** A 2d context whose every method is a no-op — jsdom ships none at all. */
+/**
+ * A 2d context whose every method is a no-op — jsdom ships none at all.
+ * lineTo/moveTo additionally record a per-strokeStyle point count (`ctx.
+ * pointsByColor`) so the offline-waveform-rule tests can tell "drew a real
+ * trace" from "drew only the fixed graticule" without a live browser —
+ * scope.js's grid lines and traces are told apart purely by which colour
+ * was active when moveTo/lineTo ran.
+ */
 function stubCanvasContext() {
   const noop = () => {};
-  return {
+  const ctx = {
     canvas: null,
     fillStyle: '',
     strokeStyle: '',
@@ -63,6 +70,7 @@ function stubCanvasContext() {
     shadowColor: '',
     lineJoin: 'miter',
     lineCap: 'butt',
+    pointsByColor: {},
     save: noop,
     restore: noop,
     scale: noop,
@@ -74,8 +82,12 @@ function stubCanvasContext() {
     strokeRect: noop,
     beginPath: noop,
     closePath: noop,
-    moveTo: noop,
-    lineTo: noop,
+    moveTo(x, y) {
+      (ctx.pointsByColor[ctx.strokeStyle] ||= []).push(y);
+    },
+    lineTo(x, y) {
+      (ctx.pointsByColor[ctx.strokeStyle] ||= []).push(y);
+    },
     arc: noop,
     rect: noop,
     quadraticCurveTo: noop,
@@ -94,6 +106,7 @@ function stubCanvasContext() {
     getImageData: () => ({ data: new Uint8ClampedArray(4) }),
     putImageData: noop,
   };
+  return ctx;
 }
 
 function stubAudioParam(value = 0) {
@@ -246,9 +259,18 @@ const dom = new JSDOM(html, {
 
 const { window } = dom;
 
+// One stub ctx per canvas (not a fresh object per call): scope.js calls
+// canvas.getContext('2d') anew on every render, and the offline-waveform
+// tests below need to inspect what got drawn AFTER the fact — a fresh
+// object per call would lose that history.
+const canvasContexts = new WeakMap();
 window.HTMLCanvasElement.prototype.getContext = function getContext() {
-  const ctx = stubCanvasContext();
-  ctx.canvas = this;
+  let ctx = canvasContexts.get(this);
+  if (!ctx) {
+    ctx = stubCanvasContext();
+    ctx.canvas = this;
+    canvasContexts.set(this, ctx);
+  }
   return ctx;
 };
 window.HTMLCanvasElement.prototype.toDataURL = () => 'data:,';
@@ -367,6 +389,75 @@ try {
     if (!scopeModule.hidden) {
       const legendKeys = doc.querySelectorAll('#front-scope-legend .scope-legend-track');
       if (!legendKeys.length) failures.push('the oscilloscope legend rendered no track keys');
+    }
+  }
+
+  // v19 roadmap "Offline waveform rule": with the engine stopped (this
+  // harness never plays — no Play click, no OfflineAudioContext), the
+  // per-voice editor scope must show the STATIC patch render rather than a
+  // blank canvas, and the front oscilloscope a composite of every non-off
+  // track. Grid-only draws stay well under this threshold (14 grid lines ×
+  // 2 points = 28); a drawn trace is 512 math-model-fallback samples × 1–2
+  // strokeTraceLine passes — hundreds to low-thousands of points.
+  async function waitUntil(check, timeoutMs = 2000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      if (check()) return true;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return check();
+  }
+  const NON_TRIVIAL_TRACE_POINTS = 50;
+  function traceColorCount(ctx) {
+    return Object.values(ctx.pointsByColor || {}).filter(
+      (points) => points.length >= NON_TRIVIAL_TRACE_POINTS
+    ).length;
+  }
+
+  const padToggle = doc.getElementById('voice-edit-toggle-pad');
+  if (!padToggle) {
+    failures.push('no Edit toggle for the pad track (#voice-edit-toggle-pad)');
+  } else {
+    padToggle.click();
+    const padScopeCanvas = () => doc.querySelector('#voice-editor-pad .patch-scope');
+    const gotCanvas = await waitUntil(() => !!padScopeCanvas());
+    if (!gotCanvas) {
+      failures.push('opening the pad voice editor never rendered its scope canvas (.patch-scope)');
+    } else {
+      const canvas = padScopeCanvas();
+      const drew = await waitUntil(() => traceColorCount(canvas.getContext('2d')) >= 1);
+      const indicator = doc.querySelector('#voice-editor-pad .scope-mode');
+      if (!indicator || indicator.textContent !== 'OFFLINE') {
+        failures.push(
+          'the stopped-engine pad editor scope should read OFFLINE, got: ' +
+            (indicator ? indicator.textContent : '(missing)')
+        );
+      }
+      if (!drew) {
+        failures.push(
+          'the stopped-engine pad editor scope drew no static trace beyond the fixed grid ' +
+            '(offline waveform rule regression)'
+        );
+      }
+    }
+  }
+
+  if (scopeModule && !scopeModule.hidden) {
+    const activeTracks = doc.querySelectorAll('.track-row:not([data-track-state="off"])').length;
+    const frontCanvas = doc.getElementById('front-scope');
+    if (!frontCanvas) {
+      failures.push('#front-scope canvas is missing');
+    } else if (!activeTracks) {
+      // every track off — no composite preview possible, nothing to assert
+    } else {
+      const drewN = await waitUntil(() => traceColorCount(frontCanvas.getContext('2d')) === activeTracks);
+      if (!drewN) {
+        const got = traceColorCount(frontCanvas.getContext('2d'));
+        failures.push(
+          `the stopped-engine front oscilloscope should draw ${activeTracks} static traces ` +
+            `(one per non-off track), drew ${got}`
+        );
+      }
     }
   }
 } catch (err) {

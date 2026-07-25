@@ -3,12 +3,17 @@
  *   node tests/knobscope-smoke.mjs
  *
  * Drives createKnob() against a mock DOM (document/createElementNS/events)
- * and renderPatchWave()/attachLiveScope()/attachMultiScope() against a mock
- * 2d canvas context, mock OfflineAudioContext, mock engine, and mock rAF —
- * proving the aria contract, silent set(), key/drag/dblclick interaction,
- * destroy idempotence, the offline audio-graph build (morphed PeriodicWave
- * coefficients + filter config), the math-model fallback, per-canvas render
- * coalescing, live-scope subscribe/unsubscribe, multi-scope per-track
+ * and renderPatchWave()/renderPatchWaveComposite()/attachLiveScope()/
+ * attachMultiScope() against a mock 2d canvas context, mock
+ * OfflineAudioContext, mock engine, and mock rAF — proving the aria
+ * contract, silent set(), key/drag/dblclick interaction, destroy
+ * idempotence, the offline audio-graph build (morphed PeriodicWave
+ * coefficients + filter config), the math-model fallback (including the
+ * v19 roadmap "Offline waveform rule": range-mode dial midpoints,
+ * source.pitch overriding octave, and the deterministic noise-burst
+ * fallback for percussion/noise voices), per-canvas render coalescing (both
+ * renderPatchWave's queue and renderPatchWaveComposite's token-based
+ * supersede), live-scope subscribe/unsubscribe, multi-scope per-track
  * traces/colours/gain/legend/perf discipline, and the multi-scope DOM legend
  * (opts.legendContainer/onSelectionChange: click-toggle, dblclick-solo +
  * restore, mock setTimeout/clearTimeout for the click/dblclick
@@ -974,6 +979,150 @@ test('scope: concurrent renders per canvas coalesce — latest wins', async () =
   } finally {
     delete globalThis.OfflineAudioContext;
   }
+});
+
+// --------------------------------------------------------------------------
+// Scope tests — v19 roadmap "Offline waveform rule" (fallback math model)
+// --------------------------------------------------------------------------
+
+test('scope: fallback — a range-mode {min,max} dial previews at its MIDPOINT, not the schema default', async () => {
+  assert.equal(typeof globalThis.OfflineAudioContext, 'undefined');
+  const plain = {};
+  await scope.renderPatchWave(makeCanvas(plain), basePatch({ filter: { cutoff: 100 } }));
+  const rangeSameMid = {};
+  await scope.renderPatchWave(makeCanvas(rangeSameMid), basePatch({ filter: { cutoff: { min: 50, max: 150 } } }));
+  assert.deepEqual(
+    rangeSameMid.tracePoints,
+    plain.tracePoints,
+    'a {min,max} range must draw identically to a plain value at the same midpoint'
+  );
+
+  const rangeFar = {};
+  await scope.renderPatchWave(makeCanvas(rangeFar), basePatch({ filter: { cutoff: { min: 11000, max: 12000 } } }));
+  assert.notDeepEqual(
+    rangeFar.tracePoints,
+    plain.tracePoints,
+    'a range value must actually move the trace, not silently fall back to the field default (12000)'
+  );
+});
+
+test('scope: fallback — source.pitch (percussion) overrides octave for the base frequency', async () => {
+  const octaveOnly = {};
+  await scope.renderPatchWave(makeCanvas(octaveOnly), basePatch({ source: { octave: 1 } }), { freq: 220 });
+  const pitchZero = {};
+  await scope.renderPatchWave(
+    makeCanvas(pitchZero),
+    basePatch({ source: { octave: 1, pitch: 0 } }),
+    { freq: 220 }
+  );
+  assert.notDeepEqual(
+    pitchZero.tracePoints,
+    octaveOnly.tracePoints,
+    'a present source.pitch must win over source.octave, not just add to it'
+  );
+
+  const pitchUp = {};
+  await scope.renderPatchWave(
+    makeCanvas(pitchUp),
+    basePatch({ source: { octave: 1, pitch: 12 } }),
+    { freq: 220 }
+  );
+  assert.notDeepEqual(pitchUp.tracePoints, pitchZero.tracePoints, 'pitch itself must move the trace');
+});
+
+test('scope: fallback — source.noise draws a deterministic filtered noise-burst layer', async () => {
+  const noiseOff = {};
+  await scope.renderPatchWave(makeCanvas(noiseOff), basePatch({ source: { noise: 0 } }), { freq: 220 });
+  const noiseOn = {};
+  await scope.renderPatchWave(makeCanvas(noiseOn), basePatch({ source: { noise: 1 } }), { freq: 220 });
+  assert.notDeepEqual(
+    noiseOn.tracePoints,
+    noiseOff.tracePoints,
+    'source.noise must visibly change the trace even with the oscillator unchanged'
+  );
+
+  // Deterministic: the same patch renders the SAME noise trace every time —
+  // a fixed comb of partials, not fresh Math.random() per call.
+  const noiseOnAgain = {};
+  await scope.renderPatchWave(makeCanvas(noiseOnAgain), basePatch({ source: { noise: 1 } }), { freq: 220 });
+  assert.deepEqual(noiseOnAgain.tracePoints, noiseOn.tracePoints, 'the noise burst must be repeatable, not random');
+
+  // The noise layer runs through the SAME patch filter as the oscillator —
+  // moving cutoff must move the noise-only trace too.
+  const noiseOnlyLow = {};
+  await scope.renderPatchWave(
+    makeCanvas(noiseOnlyLow),
+    basePatch({ source: { noise: 1 }, filter: { cutoff: 80 } }),
+    { freq: 220 }
+  );
+  assert.notDeepEqual(
+    noiseOnlyLow.tracePoints,
+    noiseOn.tracePoints,
+    'the noise-burst layer must respond to the filter cutoff dial'
+  );
+});
+
+test('scope: renderPatchWaveComposite draws the graticule once + one thin trace per entry, each its own colour', async () => {
+  const editorCalls = {};
+  await scope.renderPatchWave(makeCanvas(editorCalls), basePatch(), { freq: 220 });
+  const editorTracePoints = editorCalls.tracePoints.length; // glow + main pass
+
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  await scope.renderPatchWaveComposite(canvas, [
+    { id: 'pad', patch: basePatch(), freq: 220 },
+    { id: 'bass', patch: basePatch({ filter: { cutoff: 300 } }), freq: 55 },
+    { id: 'texture', patch: basePatch({ source: { shape1: 2 } }), freq: 440 },
+  ]);
+  assert.ok(calls.fillRect >= 1, 'graticule background drawn');
+  const traceEntries = Object.values(calls.pointsByColor || {}).filter((pts) => pts.length >= 50);
+  assert.equal(traceEntries.length, 3, 'one non-trivial trace per entry, in distinct colours');
+  for (const points of traceEntries) {
+    assert.equal(
+      points.length,
+      editorTracePoints / 2,
+      'a composite trace is thin — one stroke pass, no glow underlay'
+    );
+  }
+});
+
+test('scope: renderPatchWaveComposite — concurrent calls per canvas coalesce, only the latest ever draws', async () => {
+  const ctors = [];
+  const pending = [];
+  globalThis.OfflineAudioContext = makeOfflineClass({ manual: true, ctors, pending });
+  try {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const p1 = scope.renderPatchWaveComposite(canvas, [
+      { id: 'pad', patch: basePatch({ filter: { cutoff: 100 } }) },
+    ]);
+    const p2 = scope.renderPatchWaveComposite(canvas, [
+      { id: 'pad', patch: basePatch({ filter: { cutoff: 999 } }) },
+    ]);
+    assert.equal(ctors.length, 2, 'each call starts its own offline render (token-based, not queued)');
+
+    pending[1](); // p2 (the later call) finishes first
+    await p2;
+    const strokesAfterP2 = calls.stroke || 0;
+    assert.ok(strokesAfterP2 >= 1, 'the latest call draws');
+
+    pending[0](); // p1 finishes AFTER p2 already drew
+    await p1;
+    assert.equal(calls.stroke, strokesAfterP2, 'a superseded call must never draw once a newer one has landed');
+  } finally {
+    delete globalThis.OfflineAudioContext;
+  }
+});
+
+test('scope: renderPatchWaveComposite degrades safely — bad canvas, no entries, malformed entries', async () => {
+  await scope.renderPatchWaveComposite(null, []);
+  await scope.renderPatchWaveComposite({}, [{ id: 'pad', patch: basePatch() }]);
+  await scope.renderPatchWaveComposite({ getContext: () => null }, [{ id: 'pad', patch: basePatch() }]);
+
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  await scope.renderPatchWaveComposite(canvas, [null, {}, { id: 'pad' }, { id: 'pad', patch: basePatch() }]);
+  assert.ok(calls.fillRect >= 1, 'still drew the graticule despite malformed entries mixed in');
 });
 
 // --------------------------------------------------------------------------

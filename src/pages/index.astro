@@ -1772,8 +1772,11 @@ const VOICES: Record<string, [string, string][]> = {
         updateComplexityDisplay();
         syncTrackOffIndicator(id);
         stateControls.get(id)?.set(state);
-        // With no explicit chip selection the scope traces "everything that
-        // isn't off", so a state change moves the default set.
+        // Off/on both move whether THIS track's own open editor may show the
+        // live trace (updateScopeMode) — with no explicit chip selection the
+        // scope also traces "everything that isn't off", so a state change
+        // moves the front scope's default set too (updateFrontScope).
+        updateScopeMode(id);
         updateFrontScope();
         persistSettings();
       }
@@ -1858,6 +1861,27 @@ const VOICES: Record<string, [string, string][]> = {
 
       function sendPatch(track, voiceId, patch) {
         engine.setParams({ patches: { [track]: { [voiceId]: structuredClone(patch) } } });
+      }
+
+      /**
+       * A track's current effective patch (voice defaults + any stored user
+       * override), the same resolution renderVoiceEditor uses to open on the
+       * sound you can hear. Used outside an open editor too — the front
+       * oscilloscope's stopped-state composite preview reads it per selected
+       * track. Degrades to FALLBACK_PATCH + override alone if the voices
+       * module hasn't landed yet (voicesTable still null).
+       */
+      function resolveTrackPatch(track, voiceId) {
+        const voiceEntry =
+          voicesTable && voicesTable[track] && voicesTable[track][voiceId]
+            ? voicesTable[track][voiceId]
+            : null;
+        const defaults = voiceEntry && voiceEntry.defaults ? voiceEntry.defaults : null;
+        const base = deepMerge(FALLBACK_PATCH, defaults || {});
+        const patch = deepMerge(base, (settings.patches[track] || {})[voiceId] || {});
+        writeShape(patch.source, 1, readShape(patch.source, 1) ?? 0);
+        writeShape(patch.source, 2, readShape(patch.source, 2));
+        return patch;
       }
 
       // Optional v5 modules. Either can be absent or broken — the editor
@@ -3686,9 +3710,14 @@ const VOICES: Record<string, [string, string][]> = {
         const s = ed.scope;
         let analyser = null;
         // A power tier that withholds the live scope (eco) falls back to the
-        // cheap static trace — no rAF loop attaches at all.
+        // cheap static trace — no rAF loop attaches at all. Same for a track
+        // switched off: its analyser node keeps existing (silent) as long as
+        // the engine graph runs, so "off" has to be checked explicitly here
+        // rather than inferred from analyser presence — see docs/engine-v2-
+        // contract.md v19 roadmap "Offline waveform rule".
         const scopeAllowed = powerBudget ? powerBudget.scopeEnabled !== false : true;
-        if (scopeAllowed && engine.running && typeof engine.getAnalysers === 'function') {
+        const trackOff = settings.tracks[track] && settings.tracks[track].state === 'off';
+        if (scopeAllowed && !trackOff && engine.running && typeof engine.getAnalysers === 'function') {
           try {
             analyser = (engine.getAnalysers() || {})[track] || null;
           } catch {
@@ -4636,12 +4665,10 @@ const VOICES: Record<string, [string, string][]> = {
         // (the pre-v8 behaviour).
         const defaults = voiceEntry && voiceEntry.defaults ? voiceEntry.defaults : null;
         const controls = voiceEntry && voiceEntry.controls ? voiceEntry.controls : null;
-        const base = deepMerge(FALLBACK_PATCH, defaults || {});
-        const patch = deepMerge(base, (settings.patches[track] || {})[voiceId] || {});
-        // Normalise once so the dials and the scope always see numeric
-        // shapes, whatever vintage the stored patch or voice defaults were.
-        writeShape(patch.source, 1, readShape(patch.source, 1) ?? 0);
-        writeShape(patch.source, 2, readShape(patch.source, 2));
+        // resolveTrackPatch reads voicesTable (set by the getVoicesTable()
+        // await just above) + normalises shapes the same way this used to
+        // inline — also feeds the front oscilloscope's stopped-state preview.
+        const patch = resolveTrackPatch(track, voiceId);
 
         // ---- v14 kit editor: Common | High | Mid | Low -------------------
         // The percussion patch may carry sparse per-instrument overrides at
@@ -5354,15 +5381,35 @@ const VOICES: Record<string, [string, string][]> = {
             const ids = selectedTracks();
 
             const allowed = powerBudget ? powerBudget.scopeEnabled !== false : true;
-            if (!allowed || !open || !ids.length || !engine.running) {
+            if (!allowed || !open || !ids.length) {
               detach();
               scopeNote.textContent = !allowed
                 ? 'paused — Processor tier'
                 : !ids.length
                   ? 'no tracks selected'
-                  : engine.running
-                    ? ''
-                    : 'press Play';
+                  : '';
+              ensureLegend(ids);
+              return;
+            }
+            if (!engine.running) {
+              // v19 roadmap "Offline waveform rule": stopped shows a
+              // composite static preview of every selected track's current
+              // patch, overlaid on the shared graticule, rather than the
+              // blank/detached canvas this used to leave behind.
+              detach();
+              if (typeof scopeApi.renderPatchWaveComposite === 'function') {
+                scopeNote.textContent = '';
+                scopeApi.renderPatchWaveComposite(
+                  scopeCanvas,
+                  ids.map((id) => ({
+                    id,
+                    patch: resolveTrackPatch(id, settings.tracks[id].voice),
+                    freq: SCOPE_FREQ[id] || 220,
+                  }))
+                );
+              } else {
+                scopeNote.textContent = 'press Play';
+              }
               ensureLegend(ids);
               return;
             }
