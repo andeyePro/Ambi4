@@ -951,3 +951,15 @@ user tracks (cap 12 total); ALL fixed six-key structures (TRACK_MIX, staging
 order, auto-activation ladder, stats, params.tracks) become registry-driven;
 events carry track ids as now; UI/visualiser/blocks build lanes from
 getTracks(). Built-ins undeletable; user tracks persist in params.
+
+---
+
+# v22 — track registry (shipped half) vs pending half
+
+SHIPPED (v0.0.24): internal TRACK_REGISTRY as single source of truth; all six
+fixed tables derived with pinned identity proofs; getTracks() public view in
+DISPLAY order (pad, arp, melody, bass, texture, percussion — user rule) with
+displayOrder distinct from engine/staging order (byte-identity preserved);
+page/visualiser/scope consume getTracks() with hardcoded fallbacks.
+PENDING (window 3): addTrack/removeTrack for user tracks (cap 12), user
+instrument manifests (JSON dial spec), persistence of user tracks in params.

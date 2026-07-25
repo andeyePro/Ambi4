@@ -236,6 +236,24 @@ function makeLoopEngine() {
   return { engine, calls };
 }
 
+// Wraps makeEngine() with a getTracks() (v18 track-registry addendum),
+// defaulting to a 7-track list (the historical six plus one user track) so
+// registry-driven tests can prove lane count/order follow the engine rather
+// than the hardcoded fallback.
+function makeRegistryEngine(tracks) {
+  const engine = makeEngine();
+  engine.getTracks = () => tracks || [
+    { id: 'pad', label: 'Pad', builtin: true, colourToken: '--track-pad', family: 'melodic' },
+    { id: 'bass', label: 'Bass', builtin: true, colourToken: '--track-bass', family: 'melodic' },
+    { id: 'melody', label: 'Melody', builtin: true, colourToken: '--track-melody', family: 'melodic' },
+    { id: 'texture', label: 'Texture', builtin: true, colourToken: '--track-texture', family: 'melodic' },
+    { id: 'arp', label: 'Arp', builtin: true, colourToken: '--track-arp', family: 'melodic' },
+    { id: 'percussion', label: 'Percussion', builtin: true, colourToken: '--track-percussion', family: 'percussive' },
+    { id: 'drone', label: 'Drone', builtin: false, colourToken: '--track-drone', family: 'melodic' },
+  ];
+  return engine;
+}
+
 // --------------------------------------------------------------------------
 // Tests
 // --------------------------------------------------------------------------
@@ -1016,6 +1034,144 @@ test('percussion lanes are unaffected by de-overlap: same-kind overlapping hits 
   assert.equal(calls.roundRects.length, 3, 'expected one blip per percussion hit');
   const ys = calls.roundRects.map((p) => p.y);
   assert.equal(new Set(ys).size, 1, `percussion hits of the same kind must share one y (no de-overlap), got: ${ys.join(', ')}`);
+
+  inst.destroy();
+});
+
+// --------------------------------------------------------------------------
+// track registry (engine.getTracks(), feature-detected)
+// --------------------------------------------------------------------------
+
+test('registry-driven lane list: a 7-track engine.getTracks() produces 7 lanes in its order', () => {
+  const calls = {};
+  calls.texts = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeRegistryEngine();
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: false }); // forces a synchronous static render
+
+  const order = ['Pad', 'Bass', 'Melody', 'Texture', 'Arp', 'Percussion', 'Drone'];
+  const positions = order.map((label) => calls.texts.indexOf(label));
+  assert.ok(positions.every((p) => p !== -1), `expected all seven lane labels, got: ${calls.texts.join(', ')}`);
+  for (let i = 1; i < positions.length; i++) {
+    assert.ok(positions[i] > positions[i - 1], 'lane labels must be drawn top-to-bottom in the registry order');
+  }
+
+  inst.destroy();
+});
+
+test('registry-driven lane list: the lamp overlay builds one button per registry track, in order', () => {
+  const prevDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => makeFakeElement(tag) };
+  try {
+    const calls = {};
+    const root = makeFakeElement('div');
+    const canvas = makeDomCanvas(calls);
+    root.appendChild(canvas);
+    const engine = makeRegistryEngine();
+    const inst = initVisualiser(canvas, engine);
+
+    const lampHost = canvas.parentNode;
+    assert.equal(lampHost.parentNode, root, 'lamp host must be inserted where the canvas used to live');
+    const buttons = lampHost.children.filter((c) => c.tagName === 'button' && c.dataset.track);
+    assert.equal(buttons.length, 7, 'expected one lamp button per registry track');
+    assert.deepEqual(
+      buttons.map((b) => b.dataset.track),
+      ['pad', 'bass', 'melody', 'texture', 'arp', 'percussion', 'drone'],
+      'lamp buttons must be built in registry order',
+    );
+
+    inst.destroy();
+  } finally {
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+  }
+});
+
+test('registry-driven lane list: per-lane colour prefers entry.colourToken over the --track-<id> convention', () => {
+  const prevGetComputedStyle = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = () => ({
+    getPropertyValue(name) {
+      // Deliberately NOT keyed as --track-<id> — proves the visualiser reads
+      // the registry's own colourToken field rather than re-deriving one.
+      return name === '--custom-drone-colour' ? '#00ff00' : '';
+    },
+  });
+  try {
+    const calls = {};
+    calls.fillStyles = [];
+    const canvas = makeCanvas(calls);
+    const engine = makeRegistryEngine([
+      { id: 'drone', label: 'Drone', builtin: false, colourToken: '--custom-drone-colour', family: 'melodic' },
+    ]);
+    engine.running = true;
+    const inst = initVisualiser(canvas, engine);
+    engine.emit('state', { running: true });
+    engine.emit('note', { track: 'drone', midi: 60, velocity: 0.8, time: 0, duration: 0.3 });
+    engine.emit('state', { running: false });
+
+    assert.ok(
+      calls.fillStyles.some((v) => typeof v === 'string' && v.startsWith('rgba(0, 255, 0,')),
+      'drone lane should render using its registry colourToken, not a derived --track-drone lookup',
+    );
+
+    inst.destroy();
+  } finally {
+    if (prevGetComputedStyle === undefined) delete globalThis.getComputedStyle;
+    else globalThis.getComputedStyle = prevGetComputedStyle;
+  }
+});
+
+test('registry-driven lane list: falls back to the hardcoded six when the engine has no getTracks()', () => {
+  const calls = {};
+  calls.texts = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine(); // no getTracks()
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: false });
+
+  for (const label of ['Pad', 'Arp', 'Melody', 'Bass', 'Texture', 'Percussion']) {
+    assert.ok(calls.texts.includes(label), `expected fallback lane label ${label}`);
+  }
+  assert.equal(calls.texts.filter((t) => !['Pad', 'Arp', 'Melody', 'Bass', 'Texture', 'Percussion'].includes(t)).length, 0,
+    'no extra lanes should appear without a registry');
+
+  inst.destroy();
+});
+
+test('registry-driven lane list: a malformed getTracks() (bad entry) falls back rather than half-applying', () => {
+  const calls = {};
+  calls.texts = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.getTracks = () => [{ id: 'pad', label: 'Pad' }, { label: 'Missing id' }];
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: false });
+
+  assert.ok(calls.texts.includes('Percussion'), 'a malformed registry must fall back to the full hardcoded six, not a partial list');
+
+  inst.destroy();
+});
+
+test('family-based percussion: a registry track with family "percussive" but a non-"percussion" id is positioned/de-overlapped like percussion', () => {
+  const calls = {};
+  calls.roundRects = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeRegistryEngine([
+    { id: 'kit2', label: 'Kit 2', builtin: false, colourToken: '--track-kit2', family: 'percussive' },
+  ]);
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+
+  for (let i = 0; i < 3; i++) {
+    engine.emit('note', { track: 'kit2', kind: 'mid', velocity: 0.7, time: 0, duration: 0.4 });
+  }
+  engine.emit('state', { running: false });
+
+  assert.equal(calls.roundRects.length, 3, 'expected one blip per hit');
+  const ys = calls.roundRects.map((p) => p.y);
+  assert.equal(new Set(ys).size, 1, `same-kind hits on a family:'percussive' lane must share one y (no de-overlap), got: ${ys.join(', ')}`);
 
   inst.destroy();
 });

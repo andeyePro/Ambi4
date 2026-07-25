@@ -300,6 +300,19 @@ console.error = (...args) => {
 };
 
 // --------------------------------------------------------------------------
+// The engine's own track registry (v21)
+// --------------------------------------------------------------------------
+// Read from SOURCE, not from dist: this is the contract the built page is
+// measured against. The page must build its rows, editors and lanes from
+// getTracks() — count, order and labels — rather than from six ids of its own.
+
+const engineModule = await import(
+  pathToFileURL(join(repoRoot, 'src/scripts/ambient-engine.js')).href
+);
+const REGISTRY_TRACKS = typeof engineModule.getTracks === 'function' ? engineModule.getTracks() : [];
+const REGISTRY_IDS = REGISTRY_TRACKS.map((track) => track.id);
+
+// --------------------------------------------------------------------------
 // Boot
 // --------------------------------------------------------------------------
 
@@ -354,10 +367,91 @@ try {
     if (broken.length) {
       failures.push(`dial readouts unreadable on a fresh install: ${broken.slice(0, 5).join(' | ')}`);
     }
-    for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+    for (const track of REGISTRY_IDS) {
       const row = window.document.querySelector(`.track-row[data-track="${track}"]`);
       if (row && !row.querySelector('.rand-knob, .rand-slider')) {
         failures.push(`the ${track} row rendered no randomness control on a fresh install`);
+      }
+    }
+  }
+
+  // v21 track-registry gate: the page holds no track list of its own. Every
+  // row it renders — count, order and label — comes from the engine's
+  // getTracks(), so a registry the page has drifted from shows up here as a
+  // row that is missing, extra, out of order or wrongly named.
+  {
+    const rows = Array.from(window.document.querySelectorAll('.track-row[data-track]'));
+    const rowIds = rows.map((row) => row.getAttribute('data-track'));
+    if (rowIds.join() !== REGISTRY_IDS.join()) {
+      failures.push(
+        `the track rows do not match the engine registry: rows [${rowIds.join(', ')}] ` +
+          `vs getTracks() [${REGISTRY_IDS.join(', ')}]`
+      );
+    }
+    for (const track of REGISTRY_TRACKS) {
+      const row = window.document.querySelector(`.track-row[data-track="${track.id}"]`);
+      const name = row && row.querySelector('.lamp-text');
+      const shown = name ? name.textContent.trim() : null;
+      if (row && shown !== track.label) {
+        failures.push(
+          `the ${track.id} row is labelled "${shown}" where the registry says "${track.label}"`
+        );
+      }
+    }
+  }
+
+  // Fallback proof: an engine bundle without getTracks() boots the page on its
+  // one remaining hardcoded table, FALLBACK_TRACKS. A fallback that has
+  // drifted from the registry is a fallback that boots the WRONG tracks, and
+  // nothing else in this harness would ever exercise it — so the table is read
+  // out of the page source and matched against the live registry 1:1: ids,
+  // order, labels, families, and both of the sets derived from it.
+  {
+    const pageSource = readFileSync(join(repoRoot, 'src/pages/index.astro'), 'utf8');
+    const table = /const FALLBACK_TRACKS = (\[[\s\S]*?\n {4}\]);/.exec(pageSource);
+    if (!table) {
+      failures.push(
+        'src/pages/index.astro has no FALLBACK_TRACKS table — an engine without getTracks() ' +
+          'has nothing left to boot on'
+      );
+    } else {
+      const fallback = new Function(`return ${table[1]};`)();
+      const fallbackIds = fallback.map((track) => track.id);
+      if (fallbackIds.join() !== REGISTRY_IDS.join()) {
+        failures.push(
+          `FALLBACK_TRACKS is not the registry: [${fallbackIds.join(', ')}] ` +
+            `vs getTracks() [${REGISTRY_IDS.join(', ')}]`
+        );
+      }
+      for (const track of REGISTRY_TRACKS) {
+        const entry = fallback.find((item) => item.id === track.id);
+        if (!entry) continue;
+        if (entry.label !== track.label) {
+          failures.push(`FALLBACK_TRACKS labels ${track.id} "${entry.label}", registry says "${track.label}"`);
+        }
+        if (entry.family !== track.family) {
+          failures.push(`FALLBACK_TRACKS puts ${track.id} in family "${entry.family}", registry says "${track.family}"`);
+        }
+      }
+      const fallbackSequenced = fallback
+        .filter((track) => track.sequenced !== null)
+        .sort((a, b) => a.sequenced - b.sequenced)
+        .map((track) => track.id);
+      if (fallbackSequenced.join() !== (engineModule.SEQUENCED_TRACKS || []).join()) {
+        failures.push(
+          `FALLBACK_TRACKS derives sequenced [${fallbackSequenced.join(', ')}] where the engine ` +
+            `exports [${(engineModule.SEQUENCED_TRACKS || []).join(', ')}]`
+        );
+      }
+      const fallbackTuned = fallback
+        .filter((track) => track.family === 'melodic')
+        .map((track) => track.id);
+      // Set comparison: page lists run in DISPLAY order, engine lists in engine order.
+      if ([...fallbackTuned].sort().join() !== [...(engineModule.TUNED_TRACKS || [])].sort().join()) {
+        failures.push(
+          `FALLBACK_TRACKS derives tuned [${fallbackTuned.join(', ')}] where the engine ` +
+            `exports [${(engineModule.TUNED_TRACKS || []).join(', ')}]`
+        );
       }
     }
   }
@@ -491,7 +585,7 @@ try {
   // editor still opens, just built from the wrong path (this is exactly how a
   // missing `base` binding hid for a whole iteration). Every track's editor
   // must therefore be proved to have built knob cells, not sliders.
-  for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+  for (const track of REGISTRY_IDS) {
     doc.getElementById(`voice-edit-toggle-${track}`).click();
     const cells = () => doc.querySelectorAll(`#voice-editor-${track} .patch-controls .knob-cell`).length;
     const built = await waitUntil(() => cells() > 0);
@@ -525,9 +619,6 @@ try {
   // param behind them, so the gate has to ask the SAME question rather than
   // assert unconditionally: with the engine landed the control must be there;
   // against an engine that predates it, its absence is correct.
-  const engineModule = await import(
-    pathToFileURL(join(repoRoot, 'src/scripts/ambient-engine.js')).href
-  );
   const sanitise = engineModule.sanitiseParams;
   function probeTracks(partial) {
     if (typeof sanitise !== 'function') return null;
