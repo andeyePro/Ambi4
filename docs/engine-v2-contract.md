@@ -840,3 +840,30 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
 - Wordlist: src/data/wordlist.json — multi-agent vetted (profanity, innuendo,
   brand/artist collisions incl. dictionary-word acts, cross-language offence,
   homophones), adjudicated in-doubt-leave-out; versioned with review notes.
+
+---
+
+# v18 addendum (design polish round, 2026-07-25 morning)
+
+- Layout contract: TRANSPORT and PROCESSOR panel titles vertically aligned (one
+  baseline); ALL dial faces in any row share a baseline — text (labels, ends,
+  readouts) gets reserved space BELOW the face, never pushing faces up; audit
+  every dial row against this.
+- Track colour on dials: every knob inside a track's editor (and its row knobs)
+  takes that track's --track-* accent (ring/pointer tint), so location is
+  glanceable.
+- Oscilloscope placement: NO title; sits BETWEEN the transport strip and the
+  piano roll, full width (same width as the piano roll); collapsible twisty top
+  right — collapsed state shows the word "oscilloscope"; legend right-aligned,
+  DOM-functional: single click toggles that instrument's trace, double click
+  solos it (all off bar the clicked one); the old chip buttons are removed.
+  Scope + piano roll live ABOVE the Simple|Advanced tabs (persistent); only
+  control surfaces switch with the tabs.
+- Percussion patch: source.pitch replaces octave for percussion voices —
+  continuous ±24 semitones (±2 octaves); new source.noise 0-1 (noise-component
+  level). Engine PATCH_SCHEMA + voices honour both; kit perKind inherits.
+- Voice selector honesty: when voice wander lands on a preset voice, the
+  selector display follows the SOUNDING voice name; when the sounding patch has
+  user edits (≠ voice defaults), display "custom [engine]" where engine is the
+  voice's synthesis class — voices export engineType per voice
+  ('subtractive'|'fm'|'noise'|'physical'|'hybrid') beside label/defaults/controls.
