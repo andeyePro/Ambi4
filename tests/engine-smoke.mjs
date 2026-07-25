@@ -224,6 +224,8 @@ const {
   BASS_GHOST_CEILING,
   HARMONY_RHYTHMS,
   setGenreTable,
+  captureSlot,
+  quantiseCapture,
 } = engineModule;
 
 /**
@@ -8275,6 +8277,417 @@ globalThis.AudioContext = class extends RealCtx {
     liveContexts.push(this);
   }
 };
+
+// --------------------------------------------------------------------------
+// v28 live play-along — the listener's own hands
+//
+// Two halves that stand alone: noteOn/noteOff sound a key through the target
+// track's existing chain, and the record button quantises what was played into
+// that track's step lane. The rule underneath both is that a live note is not
+// part of the piece's DECISIONS — it draws no randomness, it is never captured
+// into a loop record, and the seeded note stream must be bit-identical whether
+// or not someone played over the top of it.
+// --------------------------------------------------------------------------
+
+/** A voice that answers for any note and remembers exactly how it was played. */
+function keySpy(label = 'Key spy') {
+  const plays = [];
+  return {
+    plays,
+    voice: {
+      label,
+      play(ctx, destination, note, patch) {
+        const handle = {
+          cancelled: false,
+          cancelAt: null,
+          cancel(at) {
+            this.cancelled = true;
+            this.cancelAt = at;
+          },
+        };
+        plays.push({ destination, note, patch, handle });
+        return handle;
+      },
+    },
+  };
+}
+
+/**
+ * arm() loads the voice library in the background (start() awaits it), so a
+ * test that plays a key straight after arming would play through the engine's
+ * own fallback voices instead of the bank it just installed a spy in.
+ */
+const voicesLoaded = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+/** Every live note event an engine emits, in order. */
+function recordLive(engine) {
+  const live = [];
+  engine.on('note', (note) => {
+    if (note.live === true) live.push(note);
+  });
+  return live;
+}
+
+test('v28 captureSlot: an onset rounds to its nearest slot, and the bar wraps both ways', () => {
+  const grid = { origin: 10, stepSeconds: 0.25, stepCount: 16 };
+  assert.equal(captureSlot(10, grid), 0);
+  assert.equal(captureSlot(10.11, grid), 0, 'a shade behind the slot is still that slot');
+  assert.equal(captureSlot(10.13, grid), 1, 'a shade ahead of halfway is the next slot');
+  assert.equal(captureSlot(10.24, grid), 1, 'a hair early must round to the slot it was aimed at');
+  // The grid is a cycle: a second lap folds onto the first, and a note played
+  // before the origin is as playable as one after it.
+  assert.equal(captureSlot(14, grid), 0, 'a whole bar later is the same slot');
+  assert.equal(captureSlot(9.75, grid), 15, 'an onset before the origin must wrap, not clamp');
+  assert.equal(captureSlot(6, grid), 0, 'a whole bar early is the same slot too');
+  assert.equal(captureSlot(10.4, { ...grid, stepCount: 12 }), 2, 'the metre decides the wrap');
+  // Nothing usable is ever written to slot 0 by accident.
+  for (const bad of [{}, { stepSeconds: 0, stepCount: 16 }, { stepSeconds: 0.25, stepCount: 0 },
+    { stepSeconds: NaN, stepCount: 16 }, { stepSeconds: 0.25, stepCount: NaN }]) {
+    assert.equal(captureSlot(10, bad), null, `${JSON.stringify(bad)} must answer null`);
+  }
+  assert.equal(captureSlot(undefined, grid), null, 'an onset with no time is not a note');
+});
+
+test('v28 quantiseCapture: a take becomes a whole lane — played slots on, the rest off', () => {
+  const grid = { origin: 0, stepSeconds: 0.25, stepCount: 16 };
+  const { steps, written } = quantiseCapture([
+    { start: 0, end: 0.2, velocity: 0.9 },
+    { start: 0.5, end: 0.9, velocity: 0.4 },
+    { start: 2.02, end: null, velocity: 0.6 },   // a key never let go of
+  ], grid);
+  assert.equal(written, 3);
+  assert.equal(steps.length, SEQUENCER_STEP_COUNT, 'a capture must write a FULL lane');
+  assert.equal(laneMask(steps), '10100000100000000000');
+  assert.equal(steps[0].vmin, 0.9);
+  assert.equal(steps[0].vmax, 0.9, 'the slot must be struck at the velocity it was played at');
+  assert.equal(steps[0].prob, 1, 'a played note is not a maybe');
+  assert.ok(Math.abs(steps[0].gate - 0.8) < 1e-9, 'a 0.2 s press on a 0.25 s slot is a 0.8 gate');
+  assert.ok(Math.abs(steps[2].gate - 1.6) < 1e-9, 'a press over two slots must gate past its own');
+  assert.equal('gate' in steps[8], false, 'a key never released keeps the lane\'s own length');
+  assert.equal(steps[1].on, false, 'an unplayed slot must be OFF, not left at the default on');
+  // Two presses inside one slot: the second is a correction, not a chord.
+  const { steps: fixed } = quantiseCapture([
+    { start: 0, end: 0.1, velocity: 0.9 },
+    { start: 0.02, end: 0.1, velocity: 0.3 },
+  ], grid);
+  assert.equal(fixed[0].vmax, 0.3, 'the last press on a slot must win');
+  assert.equal(quantiseCapture([], grid).written, 0, 'an empty take writes nothing');
+  assert.equal(quantiseCapture([{ start: 0 }], { stepSeconds: 0 }).written, 0,
+    'a take with no readable grid writes nothing');
+  assert.equal(quantiseCapture('not a take', grid).written, 0);
+});
+
+test('v28 quantiseCapture: a kit take lands lane by lane, and a lane the kit lost falls to the first', () => {
+  const grid = { origin: 0, stepSeconds: 0.25, stepCount: 16, lanes: ['low', 'mid', 'high'] };
+  const { steps, written } = quantiseCapture([
+    { start: 0, end: 0.1, velocity: 0.8, lane: 'low' },
+    { start: 0.75, end: 0.8, velocity: 0.5, lane: 'low' },
+    { start: 0.25, end: 0.3, velocity: 0.5, lane: 'high' },
+    { start: 0.5, end: 0.55, velocity: 0.5, lane: 'clap' },  // a lane edited away mid-take
+  ], grid);
+  assert.equal(written, 4);
+  assert.deepEqual(Object.keys(steps), ['low', 'mid', 'high'], 'the kit\'s own lanes, and only those');
+  assert.equal(laneMask(steps.low), '10110000000000000000',
+    'an unknown lane must land on the first lane rather than vanish');
+  assert.equal(laneMask(steps.mid), '00000000000000000000');
+  assert.equal(laneMask(steps.high), '01000000000000000000');
+});
+
+test('v28 noteOn: a key sounds through the target track\'s own voice, patch and chain', async () => {
+  const spy = keySpy();
+  const bank = bankFor('melody');
+  bank.keySpy = spy.voice;
+  try {
+    const engine = createEngine({
+      tracks: Object.fromEntries(TRACK_ORDER.map((name) => [name, {
+        state: 'on',
+        voice: name === 'melody' ? 'keySpy' : undefined,
+        vary: { voice: 0 },
+      }])),
+      patches: { melody: { keySpy: { sends: { reverb: 0.33 } } } },
+    });
+    const expected = engine.getParams().patches.melody.keySpy;
+    assert.equal(engine.noteOn('melody', 60), false,
+      'a keyboard before arm() has no graph to play through — and must say so quietly');
+    assert.equal(spy.plays.length, 0);
+
+    assert.equal(engine.arm(), true);
+    await voicesLoaded();
+    const live = recordLive(engine);
+    const ctx = liveContexts.at(-1);
+    assert.equal(engine.noteOn('melody', 64, 0.55), true);
+    assert.equal(engine.running, false, 'a key press must never start the transport');
+    assert.equal(spy.plays.length, 1, 'the key never reached the melody voice bank');
+
+    const played = spy.plays[0];
+    const gains = trackGains(ctx);
+    assert.equal(played.destination, gains.melody,
+      'a live note must be played into the track\'s own chain, not straight at the master');
+    assert.equal(played.note.midi, 64);
+    assert.ok(Math.abs(played.note.freq - midiToFreq(64)) < 1e-9);
+    assert.equal(played.note.velocity, 0.55);
+    assert.deepEqual(played.patch, expected, 'a live note must carry the track\'s own patch');
+    assert.ok(gains.melody.gain.value > 0.01,
+      'the target track\'s chain must open for the note — a stopped piece leaves it shut');
+    assert.ok(gains.pad.gain.value <= 0.001, 'a key press opened a chain it never played through');
+
+    assert.equal(live.length, 1, 'a live note must announce itself on the note stream');
+    assert.deepEqual(
+      { track: live[0].track, midi: live[0].midi, velocity: live[0].velocity, live: live[0].live },
+      { track: 'melody', midi: 64, velocity: 0.55, live: true },
+    );
+    // Velocity is the caller's, or a sensible default — never zero or silly.
+    engine.noteOn('melody', 65);
+    assert.equal(spy.plays.at(-1).note.velocity, 0.8, 'a note with no velocity must still sound');
+    engine.noteOn('melody', 66, 12);
+    assert.equal(spy.plays.at(-1).note.velocity, 1, 'velocity must be clamped, not passed through');
+    engine.stop();
+  } finally {
+    delete bank.keySpy;
+  }
+});
+
+test('v28 noteOn: unknown ids and impossible pitches are quiet no-ops, and a re-press re-strikes', async () => {
+  const spy = keySpy();
+  const bank = bankFor('melody');
+  bank.keySpy = spy.voice;
+  try {
+    const engine = createEngine({
+      tracks: { melody: { state: 'on', voice: 'keySpy', vary: { voice: 0 } } },
+    });
+    engine.arm();
+    await voicesLoaded();
+    for (const [track, midi] of [['nosuchtrack', 60], [null, 60], [7, 60], ['melody', -1],
+      ['melody', 128], ['melody', 'C4'], ['melody', undefined], ['melody', NaN]]) {
+      assert.equal(engine.noteOn(track, midi), false, `noteOn(${track}, ${midi}) must be a no-op`);
+    }
+    assert.equal(spy.plays.length, 0, 'a refused key press played something anyway');
+    assert.equal(engine.noteOff('nosuchtrack', 60), false);
+    assert.equal(engine.noteOff('melody', 60), false, 'a key that was never down cannot come up');
+
+    // A key pressed twice without a release is a re-strike, never a stack.
+    assert.equal(engine.noteOn('melody', 60, 0.5), true);
+    assert.equal(engine.noteOn('melody', 60, 0.9), true);
+    assert.equal(spy.plays.length, 2);
+    assert.equal(spy.plays[0].handle.cancelled, true,
+      'the first press must be released before the second sounds — a held key must not stack');
+    assert.equal(spy.plays[1].handle.cancelled, false);
+
+    assert.equal(engine.noteOff('melody', 60), true);
+    assert.equal(spy.plays[1].handle.cancelled, true, 'noteOff must let the note go');
+    assert.equal(engine.noteOff('melody', 60), false, 'the same key cannot come up twice');
+
+    // Every key up at once.
+    engine.noteOn('melody', 62);
+    engine.noteOn('melody', 65);
+    engine.noteOn('melody', 69);
+    assert.equal(engine.getCapture().held, 3, 'three keys are down');
+    assert.equal(engine.allNotesOff(), 3);
+    assert.equal(engine.getCapture().held, 0);
+    assert.ok(spy.plays.slice(-3).every((play) => play.handle.cancelled),
+      'allNotesOff must release every held key');
+    assert.equal(engine.allNotesOff(), 0, 'nothing left to release');
+    engine.stop();
+  } finally {
+    delete bank.keySpy;
+  }
+});
+
+test('v28 noteOn: a kit spreads its lanes across the pitch classes, whatever octave is played', async () => {
+  const spy = keySpy();
+  const bank = bankFor('percussion');
+  bank.keySpy = spy.voice;
+  try {
+    const engine = createEngine({
+      tracks: { percussion: { state: 'on', voice: 'keySpy', vary: { voice: 0 } } },
+    });
+    engine.arm();
+    await voicesLoaded();
+    const live = recordLive(engine);
+    // C, E and A of one octave: the three built-in lanes, in kit order.
+    for (const midi of [60, 64, 69]) engine.noteOn('percussion', midi, 0.7);
+    assert.deepEqual(live.map((note) => note.lane), ['low', 'mid', 'high']);
+    assert.deepEqual(live.map((note) => note.kind), ['low', 'mid', 'high']);
+    assert.ok(live.every((note) => note.midi === null),
+      'a kit hit has no pitch — the lane is what was struck');
+    assert.ok(spy.plays.every((play) => play.note.freq === null));
+    // A kit has no register: the same key an octave away is the same drum.
+    live.length = 0;
+    for (const midi of [48, 52, 81]) engine.noteOn('percussion', midi, 0.7);
+    assert.deepEqual(live.map((note) => note.lane), ['low', 'mid', 'high'],
+      'shifting octaves must not move the drum under a key');
+    // The patch a lane is struck with is that lane's own.
+    assert.ok(spy.plays.length >= 6, 'the kit never played');
+    engine.stop();
+  } finally {
+    delete bank.keySpy;
+  }
+});
+
+test('v28: live notes are polyphony the meters count, but never the piece\'s own note rate', async () => {
+  const spy = keySpy();
+  const bank = bankFor('melody');
+  bank.keySpy = spy.voice;
+  try {
+    const engine = createEngine({
+      tracks: { melody: { state: 'on', voice: 'keySpy', vary: { voice: 0 } } },
+    });
+    engine.arm();
+    await voicesLoaded();
+    const before = engine.getStats();
+    assert.equal(before.totalActiveNotes, 0);
+    engine.noteOn('melody', 60);
+    engine.noteOn('melody', 64);
+    const during = engine.getStats();
+    assert.equal(during.totalActiveNotes, 2, 'a held key is polyphony the CPU is paying for');
+    assert.equal(during.perTrack.melody.activeNotes, 2);
+    assert.equal(during.perTrack.melody.notesPerMin, 0,
+      'notesPerMin measures the piece the ENGINE is generating — the hands are not that');
+    engine.allNotesOff();
+    assert.equal(engine.getStats().totalActiveNotes, 0, 'a released key is off the ledger');
+    engine.stop();
+  } finally {
+    delete bank.keySpy;
+  }
+});
+
+test('v28 byte-identity: playing over a seeded piece leaves the piece bit-identical',
+  () => hiddenTab(async () => {
+    const play = async (hands) => {
+      const engine = createEngine({
+        bpm: 120, speed: 2, complexity: 0.7, repetition: 0.4, structure: 'journey',
+        tracks: tracksAll('on'),
+      }, { rng: seededRng(2306) });
+      const log = record(engine);
+      await engine.start();
+      for (let i = 0; i < 10; i++) {
+        await advance(2, FAST);
+        if (!hands) continue;
+        // Two hands over the top: a melodic line held across the bar, and a
+        // kit hit under it — on tracks the piece is generating for at the
+        // same time, which is the case a shared code path would break.
+        engine.noteOff('melody', 59 + i);
+        engine.noteOn('melody', 60 + i, 0.7);
+        engine.noteOn('percussion', 40 + i, 0.9);
+        engine.noteOff('percussion', 40 + i);
+      }
+      if (hands) engine.allNotesOff();
+      engine.stop();
+      const generated = log.notes.filter((note) => note.live !== true);
+      if (hands) {
+        assert.ok(log.notes.length > generated.length, 'the hands played nothing at all');
+      }
+      return generated.map((note) => [note.track, note.midi, note.kind, note.lane,
+        tick(note.time), tick(note.duration), note.velocity].join('|'));
+    };
+
+    const alone = await play(false);
+    const over = await play(true);
+    const shared = Math.min(alone.length, over.length);
+    assert.ok(shared > 200, `only ${shared} shared notes — too few to judge`);
+    assert.deepEqual(over.slice(0, shared), alone.slice(0, shared),
+      'playing along changed the piece — a live note reached the scheduler\'s decisions');
+  }));
+
+test('v28 armCapture: only a track with a step grid can be armed', async () => {
+  const engine = createEngine();
+  engine.arm();
+  for (const track of SEQUENCED_TRACKS) {
+    assert.equal(engine.armCapture(track), true, `${track} is sequenced and must arm`);
+  }
+  for (const track of ['pad', 'texture']) {
+    assert.equal(engine.armCapture(track), false,
+      `${track} has no step grid — arming it would record into nothing`);
+  }
+  assert.equal(engine.armCapture('nosuchtrack'), false);
+  assert.equal(engine.armCapture(), false);
+  // The last successful arm is the one that stands: arming is a re-point, not a stack.
+  assert.equal(engine.armCapture('melody'), true);
+  assert.deepEqual(engine.getCapture(),
+    { armed: true, track: 'melody', notes: 0, held: 0, undoable: false });
+  engine.noteOn('melody', 60, 0.6);
+  assert.equal(engine.getCapture().notes, 1, 'an armed capture must be taking the notes down');
+  engine.noteOn('bass', 40, 0.6);
+  assert.equal(engine.getCapture().notes, 1, 'only the armed track is being recorded');
+  engine.allNotesOff();
+  engine.stop();
+});
+
+test('v28 record-arm: a take is quantised into the armed track\'s active lane, and undo puts it back', async () => {
+  // 120 bpm at speed 1: a beat is 0.5 s, so a sixteenth — one grid slot — is
+  // 0.125 s. The mock clock is driven by hand, which makes the take exact.
+  const engine = createEngine({ bpm: 120, speed: 1, timeSignature: '4/4' });
+  engine.arm();
+  const ctx = liveContexts.at(-1);
+  const before = structuredClone(engine.getParams().tracks.melody.sequencers);
+  assert.equal(before[0].mode, 'auto', 'the melody lane starts in auto — the take is what changes it');
+
+  assert.equal(engine.armCapture('melody'), true);
+  const SLOT = 0.125;
+  for (const slot of [0, 2, 4, 7]) {
+    ctx.currentTime = slot * SLOT;
+    engine.noteOn('melody', 60 + slot, 0.6);
+    ctx.currentTime += 0.06;
+    engine.noteOff('melody', 60 + slot);
+  }
+  ctx.currentTime = 16 * SLOT;
+  const take = engine.stopCapture();
+  assert.deepEqual({ track: take.track, captured: take.captured, written: take.written },
+    { track: 'melody', captured: 4, written: 4 });
+  assert.equal(engine.getCapture().armed, false, 'stopCapture must disarm');
+
+  const written = engine.getParams().tracks.melody.sequencers[take.sequencer];
+  assert.equal(written.mode, 'manual', 'a take must be played back verbatim, not as a suggestion');
+  assert.equal(laneMask(written.steps), '10101001000000000000');
+  assert.equal(written.steps[0].vmin, 0.6);
+  assert.equal(written.steps[0].vmax, 0.6);
+  assert.ok(Math.abs(written.steps[0].gate - 0.48) < 1e-9,
+    'a 0.06 s press on a 0.125 s slot is a 0.48 gate');
+  assert.equal(written.steps[1].on, false);
+
+  assert.equal(engine.getCapture().undoable, true);
+  assert.equal(engine.undoCapture(), true);
+  assert.deepEqual(engine.getParams().tracks.melody.sequencers, before,
+    'undo must put the lane back exactly as it was');
+  assert.equal(engine.undoCapture(), false, 'undo is one click, once');
+  assert.equal(engine.getCapture().undoable, false);
+  engine.stop();
+});
+
+test('v28 record-arm: an empty take writes nothing, and a kit take lands on its own lanes', async () => {
+  const engine = createEngine({ bpm: 120, speed: 1 });
+  engine.arm();
+  const ctx = liveContexts.at(-1);
+  assert.equal(engine.stopCapture(), null, 'there is no take without an arm');
+
+  const before = structuredClone(engine.getParams().tracks.melody.sequencers);
+  assert.equal(engine.armCapture('melody'), true);
+  const empty = engine.stopCapture();
+  assert.deepEqual({ captured: empty.captured, written: empty.written }, { captured: 0, written: 0 });
+  assert.deepEqual(engine.getParams().tracks.melody.sequencers, before,
+    'a take with nothing in it must not rewrite the lane');
+  assert.equal(engine.undoCapture(), false, 'an empty take is not something to undo');
+
+  // The kit: a hit's LANE is what the grid is keyed by, and the key that is
+  // still down when the button is pressed ends at the button. Arming at a
+  // whole bar's remove from the origin also proves the wrap: a take does not
+  // have to start on bar one to land on the right slots.
+  ctx.currentTime = 4;
+  assert.equal(engine.armCapture('percussion'), true);
+  engine.noteOn('percussion', 60, 0.7);   // low, on the downbeat
+  ctx.currentTime = 4.25;
+  engine.noteOn('percussion', 69, 0.5);   // high, two slots later
+  ctx.currentTime = 4.3;
+  const take = engine.stopCapture();
+  assert.equal(take.written, 2);
+  const grid = engine.getParams().tracks.percussion.sequencers[take.sequencer].steps;
+  assert.equal(laneMask(grid.low), '10000000000000000000');
+  assert.equal(laneMask(grid.high), '00100000000000000000');
+  assert.equal(laneMask(grid.mid), '00000000000000000000');
+  assert.ok(grid.low[0].gate > 0, 'a key still down at the button must still get its length');
+  engine.allNotesOff();
+  engine.stop();
+});
 
 let failures = 0;
 for (const [name, fn] of tests) {

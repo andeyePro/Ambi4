@@ -277,6 +277,68 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
+      <!-- v28 play along: the row under the genre picker. The toggle arms the
+           computer keyboard (and any MIDI instrument the browser hands over),
+           the picker chooses which track the keys sound through, and Capture
+           writes what was played into that track's step grid — with Undo
+           beside it, one click, for the lane it replaced.
+
+           Every control is present at all times and changes nothing but its
+           pressed/disabled state: no control on this panel may move because of
+           something the listener did. The note line under it reserves its own
+           height for the same reason. -->
+      <div class="play-along" id="play-along" data-transport="playalong" hidden>
+        <div class="play-along-row" id="play-along-row">
+          <button
+            type="button"
+            id="play-along-toggle"
+            class="transport-button play-along-button"
+            aria-pressed="false"
+            aria-describedby="play-along-note"
+          >
+            <span class="transport-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
+                <rect x="3" y="6" width="18" height="12" rx="1" />
+                <path d="M8 6v7M12 6v7M16 6v7" />
+              </svg>
+            </span>
+            <span>Play along</span>
+          </button>
+          <label class="visually-hidden" for="play-along-track">Track the keys play</label>
+          <select id="play-along-track" class="genre-select play-along-select"></select>
+          <span id="play-along-readout" class="value-readout play-along-readout" role="status"></span>
+          <button
+            type="button"
+            id="play-along-capture"
+            class="transport-button play-along-capture"
+            aria-pressed="false"
+            aria-describedby="play-along-note"
+            disabled
+          >
+            <span class="transport-glyph record-dot" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
+            </span>
+            <span>Capture</span>
+          </button>
+          <button
+            type="button"
+            id="play-along-undo"
+            class="transport-button"
+            aria-describedby="play-along-note"
+            disabled
+          >
+            <span>Undo</span>
+          </button>
+        </div>
+        <p id="play-along-note" class="hint play-along-note">
+          Keys z x c v b n m play one octave and q w e r t y u the next, with the
+          black keys above them; <kbd>-</kbd> and <kbd>=</kbd> change octave, and a
+          MIDI instrument plays the same track. Capture records the rhythm, velocity
+          and note length you play into that track's step grid — the pitch comes from
+          the piece's own harmony — and Undo puts the old grid back.
+        </p>
+      </div>
+
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
         <span id="record-status" class="record-status" role="status"></span>
@@ -2037,6 +2099,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // BOTH questions — may I, and do it. A control that is present but does
         // nothing is the bug the probe exists to prevent.
         addTrack: typeof engine.canAddTrack === 'function' && typeof engine.addTrack === 'function',
+        // v28: the listener's own hands. Two probes, because the two halves
+        // ship independently — an engine can sound live notes without being
+        // able to record them into a lane.
+        playAlong: typeof engine.noteOn === 'function' && typeof engine.noteOff === 'function',
+        capture: typeof engine.armCapture === 'function'
+          && typeof engine.stopCapture === 'function'
+          && typeof engine.undoCapture === 'function'
+          && typeof engine.getCapture === 'function',
         removeTrack: typeof engine.removeTrack === 'function',
         trackManifest: typeof engine.getTrackManifest === 'function',
         swing: false,
@@ -9543,6 +9613,300 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+      // ---- v28 play along (computer keyboard + MIDI) + Capture -------------
+      // The keys sound through the CHOSEN TRACK's own voice, patch and level —
+      // the engine routes a live note down the same chain the piece uses — and
+      // they are armed ONLY while the toggle is on. Nothing here listens to the
+      // keyboard otherwise: a page that quietly ate keystrokes would break
+      // every name box and every dial on it.
+      //
+      // Capture records what is played into that track's step grid. A step
+      // grid holds rhythm, velocity and note length — never pitch — so a
+      // captured take plays in the piece's own harmony. The note line under
+      // the row says exactly that, and never changes, so nothing on the panel
+      // moves when the state does.
+
+      const playAlongToggle = document.getElementById('play-along-toggle');
+      const playAlongTrack = document.getElementById('play-along-track');
+      const playAlongReadout = document.getElementById('play-along-readout');
+      const captureButton = document.getElementById('play-along-capture');
+      const captureUndoButton = document.getElementById('play-along-undo');
+
+      if (!engineCaps.playAlong) UNAVAILABLE_TRANSPORT.add('playalong');
+
+      /**
+       * The two-row keyboard every DAW ships: the bottom row is one octave
+       * from C (z x c v b n m, with the black keys on s d / g h j), and the
+       * upper row the octave above it (q w e r t y u, black keys 2 3 / 5 6 7).
+       * Values are semitones above the bottom row's C.
+       */
+      const PLAY_ALONG_KEYS = {
+        z: 0, s: 1, x: 2, d: 3, c: 4, v: 5, g: 6, b: 7, h: 8, n: 9, j: 10, m: 11,
+        ',': 12, l: 13, '.': 14, ';': 15, '/': 16,
+        q: 12, 2: 13, w: 14, 3: 15, e: 16, r: 17, 5: 18, t: 19, 6: 20, y: 21, 7: 22,
+        u: 23, i: 24, 9: 25, o: 26, 0: 27, p: 28,
+      };
+      // Octave shift. Not z/x (a DAW's usual pair) — both are notes on the
+      // bottom row here, and a key cannot be two things.
+      const OCTAVE_DOWN = new Set(['-', '_']);
+      const OCTAVE_UP = new Set(['=', '+']);
+      const OCTAVE_MIN = 1;
+      const OCTAVE_MAX = 7;
+      const NOTE_LETTERS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+      const noteName = (midi) => `${NOTE_LETTERS[midi % 12]}${Math.floor(midi / 12) - 1}`;
+
+      let playAlongOn = false;
+      let playAlongOctave = 4;
+      const playAlongDown = new Map();   // keyboard key → { track, midi }
+
+      const playAlongTarget = () =>
+        (TRACK_IDS.includes(playAlongTrack.value) ? playAlongTrack.value : TRACK_IDS[0]);
+
+      /** The track picker, rebuilt from the live registry, keeping its choice. */
+      function renderPlayAlongTracks() {
+        const wanted = TRACK_IDS.includes(playAlongTrack.value)
+          ? playAlongTrack.value
+          : TRACK_IDS.includes('melody')
+            ? 'melody'
+            : TRACK_IDS[0];
+        playAlongTrack.innerHTML = '';
+        for (const id of TRACK_IDS) {
+          const option = document.createElement('option');
+          option.value = id;
+          option.textContent = TRACK_LABELS[id] || id;
+          playAlongTrack.appendChild(option);
+        }
+        playAlongTrack.value = wanted;
+      }
+
+      /** Whether a take can be recorded into this track at all. */
+      const canCapture = (track) => engineCaps.capture && SEQ_TRACKS.includes(track);
+
+      function captureState() {
+        if (!engineCaps.capture) return { armed: false, undoable: false };
+        try {
+          return engine.getCapture() || { armed: false, undoable: false };
+        } catch {
+          return { armed: false, undoable: false };
+        }
+      }
+
+      /**
+       * Buttons change their pressed and disabled states and NOTHING else —
+       * no label swaps, no controls appearing or disappearing. The readout is
+       * a fixed-width box, so even the note name cannot move its neighbours.
+       */
+      function setPlayAlongUI() {
+        const capture = captureState();
+        playAlongToggle.setAttribute('aria-pressed', String(playAlongOn));
+        captureButton.setAttribute('aria-pressed', String(capture.armed));
+        captureButton.disabled = !playAlongOn || !canCapture(playAlongTarget());
+        captureUndoButton.disabled = !capture.undoable;
+      }
+
+      const showPlayed = (text) => {
+        playAlongReadout.textContent = text;
+      };
+
+      /** Stop a running take and say what it wrote. */
+      function endCapture() {
+        if (!engineCaps.capture || !captureState().armed) return;
+        let take = null;
+        try {
+          take = engine.stopCapture();
+        } catch {}
+        showPlayed(take && take.written ? `♪ ${take.written}` : '');
+        setPlayAlongUI();
+      }
+
+      function setPlayAlong(on) {
+        if (on === playAlongOn) return;
+        playAlongOn = on;
+        if (on) {
+          // The click IS the gesture a browser needs before it will make
+          // sound, and arm() is the engine's "build the audio graph, play
+          // nothing" door — so the keys work with the transport stopped.
+          try {
+            if (typeof engine.arm === 'function') engine.arm();
+          } catch {}
+          attachMidi();
+        } else {
+          endCapture();
+          releaseAll();
+        }
+        showPlayed('');
+        setPlayAlongUI();
+      }
+
+      function releaseAll() {
+        for (const [key, held] of playAlongDown) {
+          try {
+            engine.noteOff(held.track, held.midi);
+          } catch {}
+          playAlongDown.delete(key);
+        }
+        try {
+          if (typeof engine.allNotesOff === 'function') engine.allNotesOff();
+        } catch {}
+      }
+
+      /**
+       * Whether the keys belong to something else. A text box, a select, a
+       * contenteditable or an open dialog is someone TYPING — the instrument
+       * must never eat a character meant for a preset name.
+       */
+      function typingTarget(target) {
+        const el = target && target.nodeType === 1 ? target : null;
+        if (!el) return false;
+        if (el.isContentEditable) return true;
+        const tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'option') return true;
+        return typeof el.closest === 'function' &&
+          !!el.closest('[role="dialog"], dialog, [contenteditable="true"]');
+      }
+
+      const midiForKey = (key) => {
+        const semitone = PLAY_ALONG_KEYS[key];
+        if (semitone === undefined) return null;
+        return clamp(12 * (playAlongOctave + 1) + semitone, 0, 127);
+      };
+
+      function playAlongKeyDown(event) {
+        if (!playAlongOn || event.repeat) return;
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (typingTarget(event.target)) return;
+        const key = typeof event.key === 'string' && event.key.length === 1
+          ? event.key.toLowerCase()
+          : event.key;
+        if (OCTAVE_DOWN.has(key) || OCTAVE_UP.has(key)) {
+          playAlongOctave = clamp(
+            playAlongOctave + (OCTAVE_UP.has(key) ? 1 : -1),
+            OCTAVE_MIN,
+            OCTAVE_MAX
+          );
+          showPlayed(`Oct ${playAlongOctave}`);
+          event.preventDefault();
+          return;
+        }
+        const midi = midiForKey(key);
+        if (midi === null || playAlongDown.has(key)) return;
+        event.preventDefault();
+        const track = playAlongTarget();
+        let sounded = false;
+        try {
+          sounded = engine.noteOn(track, midi, 0.8) === true;
+        } catch {}
+        if (!sounded) return;
+        playAlongDown.set(key, { track, midi });
+        showPlayed(noteName(midi));
+        setPlayAlongUI();
+      }
+
+      function playAlongKeyUp(event) {
+        const key = typeof event.key === 'string' && event.key.length === 1
+          ? event.key.toLowerCase()
+          : event.key;
+        const held = playAlongDown.get(key);
+        if (!held) return;
+        playAlongDown.delete(key);
+        try {
+          engine.noteOff(held.track, held.midi);
+        } catch {}
+        setPlayAlongUI();
+      }
+
+      // ---- Web MIDI (feature-detected; silent where the browser has none) --
+      let midiRequested = false;
+
+      function attachMidi() {
+        if (midiRequested || typeof navigator.requestMIDIAccess !== 'function') return;
+        midiRequested = true;
+        let request = null;
+        try {
+          request = navigator.requestMIDIAccess({ sysex: false });
+        } catch {
+          return;
+        }
+        if (!request || typeof request.then !== 'function') return;
+        request
+          .then((access) => {
+            const listen = () => {
+              try {
+                access.inputs.forEach((input) => {
+                  input.onmidimessage = onMidiMessage;
+                });
+              } catch {}
+            };
+            listen();
+            // An instrument plugged in later is the same instrument.
+            try {
+              access.onstatechange = listen;
+            } catch {}
+          })
+          // Refused permission, or no instrument: the keyboard still works and
+          // nothing is said about it.
+          .catch(() => {});
+      }
+
+      function onMidiMessage(event) {
+        if (!playAlongOn) return;
+        const data = event && event.data;
+        if (!data || data.length < 3) return;
+        const command = data[0] & 0xf0;
+        const midi = data[1];
+        const velocity = data[2];
+        const track = playAlongTarget();
+        try {
+          if (command === 0x90 && velocity > 0) {
+            if (engine.noteOn(track, midi, velocity / 127) === true) showPlayed(noteName(midi));
+          } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
+            engine.noteOff(track, midi);
+          }
+        } catch {}
+        setPlayAlongUI();
+      }
+
+      if (engineCaps.playAlong) {
+        renderPlayAlongTracks();
+        setPlayAlongUI();
+        playAlongToggle.addEventListener('click', () => setPlayAlong(!playAlongOn));
+        playAlongTrack.addEventListener('change', () => {
+          // A take belongs to the track it was played on: switching tracks
+          // ends it where it stands rather than dragging it across.
+          endCapture();
+          releaseAll();
+          setPlayAlongUI();
+        });
+        captureButton.addEventListener('click', () => {
+          if (captureState().armed) {
+            endCapture();
+            return;
+          }
+          try {
+            engine.armCapture(playAlongTarget());
+          } catch {}
+          showPlayed('');
+          setPlayAlongUI();
+        });
+        captureUndoButton.addEventListener('click', () => {
+          try {
+            engine.undoCapture();
+          } catch {}
+          showPlayed('');
+          setPlayAlongUI();
+        });
+        document.addEventListener('keydown', playAlongKeyDown);
+        document.addEventListener('keyup', playAlongKeyUp);
+        // A key held when the tab or the window goes away never sends its
+        // keyup, and a note nobody can stop is the worst bug this row could
+        // ship. Let go of everything instead.
+        window.addEventListener('blur', releaseAll);
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) releaseAll();
+        });
+        if (typeof engine.on === 'function') engine.on('tracks', renderPlayAlongTracks);
+      }
+
       if (typeof engine.on === 'function') {
         engine.on('state', ({ running, paused: enginePaused }) => {
           if (!running) {
@@ -10585,6 +10949,55 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .genre-select:focus-visible {
       outline: 3px solid var(--link);
       outline-offset: 2px;
+    }
+
+    /* -- v28 play along: the row under the genre picker -- */
+
+    /* Same shape as the genre row: the track picker takes the slack and every
+       button keeps its own width. Nothing here resizes when the toggle goes
+       on — the buttons change colour and disabled state, never their text. */
+    .play-along-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .play-along-select {
+      flex: 1 1 120px;
+      min-width: 0;
+    }
+
+    /* A reserved box for the note name: present and empty until a key is
+       pressed, and FIXED at its widest reading ("Oct 7"), so neither the first
+       note played nor a longer one after it can move the buttons beside it. */
+    .play-along-readout {
+      flex: 0 0 auto;
+      width: 6ch;
+      overflow: hidden;
+      white-space: nowrap;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .play-along-button[aria-pressed='true'],
+    .play-along-capture[aria-pressed='true'] {
+      border-color: var(--accent-warm, var(--link));
+      box-shadow: inset 0 0 0 1px var(--accent-warm, var(--link));
+    }
+
+    .play-along-capture[aria-pressed='true'] {
+      border-color: #c8302f;
+      box-shadow: inset 0 0 0 1px #c8302f;
+    }
+
+    /* Two lines of height, held whether or not there is anything to say: the
+       note under this row changes as the state does, and a line that grows
+       would push the whole panel below it down. */
+    .play-along-note {
+      min-height: 2.8em;
+      margin: 0 0 12px;
     }
 
     /* The favourites editor hangs off the row itself, not off a button of its

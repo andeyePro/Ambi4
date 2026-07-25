@@ -276,6 +276,39 @@ window.HTMLCanvasElement.prototype.getContext = function getContext() {
 window.HTMLCanvasElement.prototype.toDataURL = () => 'data:,';
 window.AudioContext = StubAudioContext;
 window.OfflineAudioContext = undefined;
+
+// v28 Web MIDI: jsdom has none, and the page feature-detects it — so its
+// absence is a supported state that every OTHER run of this harness proves.
+// This mock is here for the present-and-working path, which nothing else could
+// reach: an instrument that plays into the same noteOn/noteOff seam the
+// computer keyboard uses.
+const midiMock = {
+  requested: 0,
+  options: null,
+  input: { name: 'Stub keyboard', onmidimessage: null },
+  access: null,
+};
+midiMock.access = {
+  inputs: new Map([['stub-1', midiMock.input]]),
+  outputs: new Map(),
+  onstatechange: null,
+};
+try {
+  window.navigator.requestMIDIAccess = (options) => {
+    midiMock.requested += 1;
+    midiMock.options = options || null;
+    return Promise.resolve(midiMock.access);
+  };
+} catch {
+  Object.defineProperty(window.navigator, 'requestMIDIAccess', {
+    configurable: true,
+    value: (options) => {
+      midiMock.requested += 1;
+      midiMock.options = options || null;
+      return Promise.resolve(midiMock.access);
+    },
+  });
+}
 window.devicePixelRatio = 1;
 
 // Copy the DOM globals the bundle expects onto this realm. The bundle is a
@@ -1447,6 +1480,203 @@ try {
           failures.push(
             `removing the user track disturbed the built-in rows: [${rowIdsOf().join()}] vs [${beforeOrder}]`
           );
+        }
+      }
+    }
+  }
+
+  // ---- v28 play along + Capture — probe-gated -------------------------------
+  // The row renders only where the engine can sound a live note, for the same
+  // reason the Add Track surface does: a control that cannot do anything is
+  // worse than no control. What this gate proves beyond presence is the part
+  // no unit test can reach — that the KEYS are wired to the engine, that they
+  // are armed only while the toggle is on, and that they never fire while
+  // someone is typing.
+  let engineTakesLiveNotes = false;
+  try {
+    const probe = engineModule.createEngine();
+    engineTakesLiveNotes =
+      typeof probe.noteOn === 'function' && typeof probe.noteOff === 'function';
+  } catch {}
+  {
+    const row = doc.getElementById('play-along');
+    const FOLLOWS = window.Node.DOCUMENT_POSITION_FOLLOWING;
+    if (!engineTakesLiveNotes) {
+      if (row && !row.hidden) {
+        failures.push(
+          'the play-along row renders against an engine with no noteOn/noteOff — ' +
+            'a keyboard with nothing behind it'
+        );
+      }
+    } else if (!row) {
+      failures.push('the engine sounds live notes but the transport has no play-along row (#play-along)');
+    } else if (row.hidden) {
+      failures.push('the play-along row is hidden against an engine that ships noteOn/noteOff');
+    } else {
+      const transport = doc.querySelector('.transport-module');
+      const genreRow = doc.querySelector('.genre-row');
+      if (transport && !transport.contains(row)) {
+        failures.push('the play-along row is not in the transport panel');
+      }
+      if (genreRow && !(genreRow.compareDocumentPosition(row) & FOLLOWS)) {
+        failures.push('the play-along row renders ABOVE the genre picker');
+      }
+      const toggle = doc.getElementById('play-along-toggle');
+      const picker = doc.getElementById('play-along-track');
+      const capture = doc.getElementById('play-along-capture');
+      const undo = doc.getElementById('play-along-undo');
+      const readout = doc.getElementById('play-along-readout');
+      const note = doc.getElementById('play-along-note');
+      const missing = [];
+      if (!toggle) missing.push('toggle (#play-along-toggle)');
+      if (!picker) missing.push('track picker (#play-along-track)');
+      if (!capture) missing.push('Capture button (#play-along-capture)');
+      if (!undo) missing.push('Undo button (#play-along-undo)');
+      if (!readout) missing.push('note readout (#play-along-readout)');
+      if (!note) missing.push('always-present note line (#play-along-note)');
+      if (missing.length) failures.push(`the play-along row is missing: ${missing.join(', ')}`);
+
+      if (picker && picker.options.length < REGISTRY_IDS.length) {
+        failures.push(
+          `the play-along picker offers ${picker.options.length} tracks where the registry has ` +
+            `${REGISTRY_IDS.length} — the keys must be able to reach any of them`
+        );
+      }
+      // A step grid holds no pitch, so a page that lets someone record into
+      // one owes them that sentence before they play.
+      if (note && !/pitch/i.test(note.textContent || '')) {
+        failures.push(
+          'the play-along note never mentions pitch — a captured take is a rhythm, and ' +
+            'the page has to say so'
+        );
+      }
+
+      if (toggle && capture && undo && readout) {
+        const key = (type, k, target) =>
+          (target || doc.body).dispatchEvent(
+            new window.KeyboardEvent(type, { key: k, bubbles: true, cancelable: true })
+          );
+        const press = (k, target) => key('keydown', k, target);
+        const release = (k, target) => key('keyup', k, target);
+
+        if (toggle.getAttribute('aria-pressed') !== 'false') {
+          failures.push('the play-along toggle boots pressed — the keys must be off until asked for');
+        }
+        if (!capture.disabled) failures.push('Capture is live before the keyboard is armed');
+        if (!undo.disabled) failures.push('Undo is live with nothing to undo');
+
+        // Disarmed: the page must not touch a key.
+        press('z');
+        release('z');
+        if (readout.textContent !== '') {
+          failures.push(
+            `a key press sounded a note with Play along switched OFF (readout "${readout.textContent}")`
+          );
+        }
+
+        toggle.click();
+        if (toggle.getAttribute('aria-pressed') !== 'true') {
+          failures.push('clicking Play along did not arm it');
+        }
+        press('z');
+        const sounded = readout.textContent;
+        if (!/^[A-G]/.test(sounded)) {
+          failures.push(`pressing z with Play along armed left the readout at "${sounded}"`);
+        }
+        release('z');
+
+        // Typing is not playing. A text box, a select and a dialog all keep
+        // their keystrokes — this is the gate that stops the instrument eating
+        // a preset name.
+        const nameBox = doc.getElementById('preset-name');
+        const genreSelect = doc.getElementById('genre-select');
+        const sleepDialog = doc.getElementById('sleep-popover');
+        for (const [label, target] of [
+          ['a text input', nameBox],
+          ['a select', genreSelect],
+          ['an open dialog', sleepDialog],
+        ]) {
+          if (!target) continue;
+          readout.textContent = 'guard';
+          press('x', target);
+          release('x', target);
+          if (readout.textContent !== 'guard') {
+            failures.push(`a key pressed inside ${label} played a note (readout "${readout.textContent}")`);
+          }
+        }
+        readout.textContent = '';
+
+        // Octave shift, and a note from the octave it moved to.
+        press('=');
+        const shifted = readout.textContent;
+        if (!/^Oct /.test(shifted)) {
+          failures.push(`the octave-up key left the readout at "${shifted}"`);
+        }
+        press('z');
+        const higher = readout.textContent;
+        release('z');
+        press('-');
+        press('z');
+        const lower = readout.textContent;
+        release('z');
+        if (!/^[A-G]/.test(higher) || !/^[A-G]/.test(lower) || higher === lower) {
+          failures.push(
+            `the same key sounded "${lower}" and "${higher}" either side of an octave shift`
+          );
+        }
+
+        // A MIDI instrument plays the same seam.
+        if (midiMock.requested === 0) {
+          failures.push('arming Play along never asked the browser for MIDI access');
+        }
+        await waitUntil(() => typeof midiMock.input.onmidimessage === 'function');
+        if (typeof midiMock.input.onmidimessage !== 'function') {
+          failures.push('MIDI access was granted but no input was ever listened to');
+        } else {
+          readout.textContent = '';
+          midiMock.input.onmidimessage({ data: new Uint8Array([0x90, 67, 100]) });
+          if (readout.textContent !== 'G4') {
+            failures.push(`a MIDI note-on left the readout at "${readout.textContent}", not G4`);
+          }
+          midiMock.input.onmidimessage({ data: new Uint8Array([0x80, 67, 0]) });
+        }
+
+        // Capture: arm, play, write — and Undo becomes the way back. The
+        // undoable flag comes from the ENGINE, so it going live is proof the
+        // take actually reached a step lane.
+        if (capture.disabled) {
+          failures.push('Capture is disabled with the keyboard armed on a sequenced track');
+        } else {
+          capture.click();
+          if (capture.getAttribute('aria-pressed') !== 'true') {
+            failures.push('clicking Capture did not arm the recording');
+          }
+          for (const k of ['z', 'c', 'b']) {
+            press(k);
+            release(k);
+          }
+          capture.click();
+          if (capture.getAttribute('aria-pressed') !== 'false') {
+            failures.push('clicking Capture again did not stop the recording');
+          }
+          if (undo.disabled) {
+            failures.push('a recorded take left Undo disabled — nothing was written to the lane');
+          } else {
+            undo.click();
+            if (!undo.disabled) failures.push('Undo stayed live after undoing — it is one click, once');
+          }
+        }
+
+        // Off again: the keys go quiet, and stay quiet.
+        toggle.click();
+        if (toggle.getAttribute('aria-pressed') !== 'false') {
+          failures.push('clicking Play along again did not switch it off');
+        }
+        readout.textContent = '';
+        press('z');
+        release('z');
+        if (readout.textContent !== '') {
+          failures.push('a key press still sounded after Play along was switched off');
         }
       }
     }
