@@ -49,7 +49,7 @@
         "pad": { "state": "auto", "voice": "glass", "level": 0.3, "randomness": 0.15 },
         "arp": { "state": "on", "voice": "crystal", "level": 0.38, "randomness": { "min": 0.15, "max": 0.35 } },
         "melody": { "state": "off", "voice": "pluck", "level": 0.4, "randomness": 0.2 },
-        "bass": { "state": "on", "voice": "sub", "level": 0.62, "randomness": 0.12 },
+        "bass": { "state": "on", "voice": "acid", "level": 0.66, "randomness": 0.1 },
         "texture": { "state": "auto", "voice": "colour", "level": { "min": 0.1, "max": 0.22 }, "randomness": 0.3 },
         "percussion": { "state": "on", "voice": "tick", "level": 0.55, "randomness": 0.18 }
       },
@@ -64,10 +64,10 @@
           }
         },
         "bass": {
-          "sub": {
-            "source": { "fold": 0.2 },
-            "filter": { "type": "lowpass", "cutoff": 300, "q": 1.1 },
-            "adsr": { "attack": 0.004, "decay": 0.12, "sustain": 0.3, "release": 0.12 },
+          "acid": {
+            "source": { "shape1": 2.4, "fold": 0.2 },
+            "filter": { "type": "lowpass", "cutoff": 520, "q": 11, "envAmount": 1 },
+            "adsr": { "attack": 0.004, "decay": 0.12, "sustain": 0.3, "release": 0.1 },
             "sends": { "reverb": 0.04, "delay": 0 }
           }
         },
@@ -134,7 +134,7 @@
   },
   "defiance": [
     { "param": "bpm", "label": "After-hours to peak-time", "range": [118, 150] },
-    { "param": "patches.bass.sub.source.fold", "label": "Clean to distorted", "range": [0, 0.7] },
+    { "param": "patches.bass.acid.source.fold", "label": "Clean to distorted", "range": [0, 0.7] },
     { "param": "tracks.arp.density", "label": "Sparse to rolling", "range": [0.5, 1.8] },
     { "param": "reverbTail", "label": "Dry booth to warehouse", "range": [0.5, 4] }
   ]

@@ -53,8 +53,8 @@
       "perTrack": {
         "pad": { "state": "auto", "voice": "warm", "level": 0.42, "randomness": { "min": 0.2, "max": 0.4 } },
         "arp": { "state": "auto", "voice": "softPluck", "level": 0.52, "randomness": { "min": 0.25, "max": 0.5 } },
-        "melody": { "state": "auto", "voice": "pluck", "level": 0.55, "randomness": { "min": 0.3, "max": 0.55 } },
-        "bass": { "state": "on", "voice": "round", "level": 0.7, "randomness": { "min": 0.15, "max": 0.35 } },
+        "melody": { "state": "auto", "voice": "nylon", "level": 0.55, "randomness": { "min": 0.3, "max": 0.55 } },
+        "bass": { "state": "on", "voice": "upright", "level": 0.6, "randomness": { "min": 0.1, "max": 0.22 } },
         "texture": { "state": "off", "voice": "sparkle", "level": 0.3, "randomness": 0.3 },
         "percussion": { "state": "on", "voice": "tick", "level": 0.5, "randomness": { "min": 0.2, "max": 0.4 } }
       },

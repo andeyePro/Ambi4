@@ -47,28 +47,28 @@
     },
     "instrumentation": {
       "perTrack": {
-        "pad": { "state": "on", "voice": "warm", "level": 0.55, "randomness": 0.15 },
+        "pad": { "state": "on", "voice": "polysaw", "level": 0.55, "randomness": 0.15 },
         "arp": { "state": "on", "voice": "crystal", "level": 0.4, "randomness": { "min": 0.15, "max": 0.35 } },
         "melody": { "state": "auto", "voice": "keys", "level": 0.35, "randomness": 0.25 },
-        "bass": { "state": "on", "voice": "round", "level": 0.6, "randomness": 0.1 },
+        "bass": { "state": "on", "voice": "sawbass", "level": 0.68, "randomness": 0.1 },
         "texture": { "state": "auto", "voice": "cloud", "level": { "min": 0.12, "max": 0.24 }, "randomness": 0.25 },
         "percussion": { "state": "on", "voice": "soft", "level": 0.5, "randomness": 0.15 }
       },
       "reverbTail": 2.8,
       "patches": {
         "pad": {
-          "warm": {
-            "source": { "shape1": 2, "shape2": 2, "mix": 0.5, "detune": 9 },
-            "filter": { "type": "lowpass", "cutoff": 1300, "q": 0.8, "envAmount": 0.4 },
-            "adsr": { "attack": 0.8, "decay": 0.4, "sustain": 0.85, "release": 2.2 },
+          "polysaw": {
+            "source": { "shape1": 2, "shape2": 2, "mix": 0.5, "detune": 14 },
+            "filter": { "type": "lowpass", "cutoff": 1900, "q": 0.9, "envAmount": 0.6 },
+            "adsr": { "attack": 0.7, "decay": 0.4, "sustain": 0.9, "release": 2.6 },
             "sends": { "reverb": 0.4, "delay": 0.2 }
           }
         },
         "bass": {
-          "round": {
-            "source": { "shape1": 2, "mix": 0.4, "fold": 0.08 },
-            "filter": { "type": "lowpass", "cutoff": 700, "q": 1.2, "envAmount": 0.7 },
-            "adsr": { "attack": 0.005, "decay": 0.14, "sustain": 0.5, "release": 0.15 },
+          "sawbass": {
+            "source": { "shape1": 2, "mix": 0.35, "detune": 9, "fold": 0.08 },
+            "filter": { "type": "lowpass", "cutoff": 620, "q": 1.9, "envAmount": 0.8 },
+            "adsr": { "attack": 0.008, "decay": 0.16, "sustain": 0.55, "release": 0.18 },
             "sends": { "reverb": 0.06, "delay": 0.05 }
           }
         },
@@ -145,7 +145,7 @@
   },
   "defiance": [
     { "param": "bpm", "label": "Night drive to chase", "range": [70, 118] },
-    { "param": "patches.pad.warm.source.fold", "label": "Soft to snarling", "range": [0, 0.6] },
+    { "param": "patches.pad.polysaw.source.fold", "label": "Soft to snarling", "range": [0, 0.6] },
     { "param": "tracks.percussion.density", "label": "Heartbeat to full kit", "range": [0.4, 1.6] },
     { "param": "swing", "label": "Straight to loose", "range": [0, 0.3] }
   ]

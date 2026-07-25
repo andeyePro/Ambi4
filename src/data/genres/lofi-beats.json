@@ -54,10 +54,10 @@
       "perTrack": {
         "pad": { "state": "auto", "voice": "warm", "level": 0.5, "randomness": { "min": 0.2, "max": 0.4 } },
         "arp": { "state": "off", "voice": "softPluck", "level": 0.4, "randomness": 0.3 },
-        "melody": { "state": "auto", "voice": "keys", "level": 0.55, "randomness": { "min": 0.2, "max": 0.45 } },
-        "bass": { "state": "on", "voice": "sub", "level": 0.72, "randomness": { "min": 0.15, "max": 0.4 } },
+        "melody": { "state": "auto", "voice": "tape", "level": 0.55, "randomness": { "min": 0.2, "max": 0.45 } },
+        "bass": { "state": "on", "voice": "sub", "level": 0.62, "randomness": { "min": 0.12, "max": 0.26 } },
         "texture": { "state": "on", "voice": "grains", "level": { "min": 0.28, "max": 0.45 }, "randomness": 0.3 },
-        "percussion": { "state": "on", "voice": "soft", "level": 0.55, "randomness": { "min": 0.2, "max": 0.45 } }
+        "percussion": { "state": "on", "voice": "dust", "level": 0.55, "randomness": { "min": 0.2, "max": 0.45 } }
       },
       "reverbTail": 1.2
     },

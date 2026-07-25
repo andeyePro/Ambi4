@@ -53,9 +53,9 @@
     "instrumentation": {
       "perTrack": {
         "pad": { "state": "auto", "voice": "warm", "level": 0.45, "randomness": { "min": 0.25, "max": 0.5 } },
-        "arp": { "state": "auto", "voice": "crystal", "level": 0.5, "randomness": { "min": 0.3, "max": 0.55 } },
-        "melody": { "state": "auto", "voice": "keys", "level": 0.55, "randomness": { "min": 0.35, "max": 0.6 } },
-        "bass": { "state": "on", "voice": "round", "level": 0.7, "randomness": { "min": 0.3, "max": 0.55 } },
+        "arp": { "state": "auto", "voice": "muted", "level": 0.5, "randomness": { "min": 0.3, "max": 0.55 } },
+        "melody": { "state": "auto", "voice": "tines", "level": 0.55, "randomness": { "min": 0.35, "max": 0.6 } },
+        "bass": { "state": "on", "voice": "fingered", "level": 0.66, "randomness": { "min": 0.12, "max": 0.28 } },
         "texture": { "state": "auto", "voice": "wash", "level": 0.3, "randomness": 0.3 },
         "percussion": { "state": "on", "voice": "soft", "level": 0.6, "randomness": { "min": 0.3, "max": 0.55 } }
       },

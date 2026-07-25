@@ -1315,6 +1315,18 @@ const DEFAULTS = {
       adsr: { attack: 2.1, decay: 0.01, sustain: 1, release: 4.25 },
       sends: { reverb: 0.7, delay: 0.25 },
     },
+    // v27 signature voice: the wide detuned saw stack an eighties record opens
+    // on. Faster than the other pads on purpose — a chord that takes three
+    // seconds to arrive cannot be the thing the listener names.
+    polysaw: {
+      source: {
+        osc1: 'sawtooth', osc2: 'sawtooth', shape1: 2, shape2: 2, mix: 0.44, detune: 9, octave: 0,
+        fold: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 1620, q: 0.9, envAmount: 1 },
+      adsr: { attack: 1.2, decay: 0.01, sustain: 1, release: 3.6 },
+      sends: { reverb: 0.5, delay: 0.3 },
+    },
   },
   bass: {
     sub: {
@@ -1342,6 +1354,46 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.18, decay: 0.01, sustain: 1, release: 0.9 },
       sends: { reverb: 0.18, delay: 0.05 },
+    },
+    // v27. Four bass voices with a NAME rather than a shade: a fingered funk
+    // line, a big detuned analogue one, a resonant squelch and a plucked
+    // acoustic. The short releases are the point — the existing three all hold
+    // through their whole note, which is why every genre's bass smears.
+    fingered: {
+      source: {
+        osc1: 'sawtooth', osc2: 'triangle', shape1: 2, shape2: 1, mix: 0.471, detune: 0, octave: 0,
+        fold: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 455, q: 2.2, envAmount: 1 },
+      adsr: { attack: 0.008, decay: 0.01, sustain: 1, release: 0.14 },
+      sends: { reverb: 0.08, delay: 0.04 },
+    },
+    sawbass: {
+      source: {
+        osc1: 'sawtooth', osc2: 'sawtooth', shape1: 2, shape2: 2, mix: 0.32, detune: 7, octave: 0,
+        fold: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 390, q: 1.8, envAmount: 1 },
+      adsr: { attack: 0.012, decay: 0.01, sustain: 1, release: 0.4 },
+      sends: { reverb: 0.1, delay: 0.08 },
+    },
+    acid: {
+      source: {
+        osc1: 'sawtooth', osc2: null, shape1: 2, shape2: null, mix: 0, detune: 0, octave: 0,
+        fold: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 455, q: 9, envAmount: 1 },
+      adsr: { attack: 0.006, decay: 0.01, sustain: 1, release: 0.12 },
+      sends: { reverb: 0.05, delay: 0.06 },
+    },
+    upright: {
+      source: {
+        osc1: 'sine', osc2: 'triangle', shape1: 0, shape2: 1, mix: 0.272, detune: 0, octave: 0,
+        fold: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 208, q: 0.8, envAmount: 1 },
+      adsr: { attack: 0.012, decay: 0.9, sustain: 0, release: 0.05 },
+      sends: { reverb: 0.12, delay: 0.03 },
     },
   },
   melody: {
@@ -1382,6 +1434,40 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.006, decay: 0.05, sustain: 1, release: 0.4 },
       sends: { reverb: 0.5, delay: 0.3 },
+    },
+    // v27. Four instruments an ear can name in one bar: a barking tine piano,
+    // a nylon-string guitar, a worn tape-transport keyboard and a drawbar
+    // chord stab. `keys` stays what it always was — the polite tine — and
+    // `tines` is the one with the bark on the attack.
+    tines: {
+      source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
+      filter: { type: 'lowpass', cutoff: 4060, q: 0.8, envAmount: 0 },
+      adsr: { attack: 0.005, decay: 1.55, sustain: 0, release: 0.05 },
+      sends: { reverb: 0.3, delay: 0.25 },
+    },
+    nylon: {
+      source: {
+        osc1: 'triangle', osc2: 'sawtooth', shape1: 1, shape2: 2, mix: 0.306, detune: 5, octave: 0,
+        fold: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 2200, q: 2.4, envAmount: 1 },
+      adsr: { attack: 0.005, decay: 1, sustain: 0, release: 0.05 },
+      sends: { reverb: 0.35, delay: 0.2 },
+    },
+    tape: {
+      source: {
+        osc1: 'triangle', osc2: 'sawtooth', shape1: 1, shape2: 2, mix: 0.375, detune: 6, octave: 0,
+        fold: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 1800, q: 0.8, envAmount: 0 },
+      adsr: { attack: 0.006, decay: 1.4, sustain: 0, release: 0.05 },
+      sends: { reverb: 0.35, delay: 0.3 },
+    },
+    stab: {
+      source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
+      filter: { type: 'lowpass', cutoff: 2640, q: 0.7, envAmount: 0 },
+      adsr: { attack: 0.006, decay: 0.01, sustain: 1, release: 0.09 },
+      sends: { reverb: 0.28, delay: 0.2 },
     },
   },
   texture: {
@@ -1469,6 +1555,17 @@ const DEFAULTS = {
       adsr: { attack: 0.003, decay: 0.53, sustain: 0, release: 0.05 },
       sends: { reverb: 0.3, delay: 0.35 },
     },
+    // v27: the damped comping pluck a funk guitarist or a keyboard player
+    // chops sixteenths on. Shorter and more resonant than any arp before it.
+    muted: {
+      source: {
+        osc1: 'sawtooth', osc2: 'square', shape1: 2, shape2: 3, mix: 0.286, detune: 0, octave: 0,
+        fold: 0,
+      },
+      filter: { type: 'lowpass', cutoff: 3080, q: 5, envAmount: 1 },
+      adsr: { attack: 0.004, decay: 0.225, sustain: 0, release: 0.05 },
+      sends: { reverb: 0.25, delay: 0.3 },
+    },
   },
   // v18: a kit is tuned in semitones, not by the octave switch, and its noise
   // component has a level of its own. `pitch: 0` is the kit as it was built;
@@ -1502,6 +1599,16 @@ const DEFAULTS = {
       adsr: { attack: 0.0015, decay: 0.035, sustain: 0, release: 0.05 },
       sends: { reverb: 0.3, delay: 0.2 },
     },
+    // v27: the worn kit — a thumpy short kick, a snare that is a puff of
+    // filtered noise rather than a crack, and hats kept dark and low.
+    dust: {
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, pitch: 0, noise: 1,
+      },
+      filter: { type: 'lowpass', cutoff: 4040, q: 0.7, envAmount: 0 },
+      adsr: { attack: 0.008, decay: 0.34, sustain: 0, release: 0.05 },
+      sends: { reverb: 0.18, delay: 0.08 },
+    },
   },
 };
 
@@ -1533,10 +1640,10 @@ Object.freeze(DEFAULTS);
  * percussion's membrane skin — without ever having a second oscillator to
  * blend against.
  *
- * `fold` (v20) is published, and therefore declared, by exactly the eight
- * voices whose oscillator layers sum at a point a folder can sit on and where
- * that sum IS the voice: the seven `source: true` stacks and bass.breath's
- * single tone. It is deliberately absent everywhere else, and the absences are
+ * `fold` (v20) is published, and therefore declared, by exactly the voices
+ * whose oscillator layers sum at a point a folder can sit on and where that
+ * sum IS the voice: every `source: true` stack, plus the two single-tone
+ * voices built the same way (bass.breath and v27's bass.acid). It is deliberately absent everywhere else, and the absences are
  * the honest ones — an FM pair (bell, crystal, flute, keys) has a carrier a
  * folder would fight with rather than shape, glass and chimes and marimba are
  * additive/modal partials with no summing bus of their own, the noise voices
@@ -1575,6 +1682,7 @@ const CONTROLS = {
     glass: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     strings: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     choir: { source: true, filter: true, adsr: true, sends: true },
+    polysaw: { source: true, filter: true, adsr: true, sends: true },
   },
   bass: {
     sub: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
@@ -1584,6 +1692,13 @@ const CONTROLS = {
     breath: {
       source: ['shape1', 'octave', 'fold'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true,
     },
+    fingered: { source: true, filter: true, adsr: true, sends: true },
+    sawbass: { source: true, filter: true, adsr: true, sends: true },
+    // One layer again, like breath: the squelch is the filter, not a blend.
+    acid: {
+      source: ['shape1', 'octave', 'fold'], filter: true, adsr: true, sends: true,
+    },
+    upright: { source: true, filter: true, adsr: true, sends: true },
   },
   melody: {
     pluck: { source: true, filter: true, adsr: true, sends: true },
@@ -1591,6 +1706,12 @@ const CONTROLS = {
     flute: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     keys: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     call: { source: CALL_CONTROLS, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    // An FM pair and an additive drawbar stack: octave is the only source
+    // control either of them can honestly offer.
+    tines: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    nylon: { source: true, filter: true, adsr: true, sends: true },
+    tape: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    stab: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   texture: {
     sparkle: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
@@ -1611,6 +1732,7 @@ const CONTROLS = {
     softPluck: { source: true, filter: true, adsr: true, sends: true },
     crystal: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     marimba: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    muted: { source: true, filter: true, adsr: true, sends: true },
   },
   percussion: {
     // membrane() reads shape1+pitch for the pitched skin; noiseBurst() (hat/
@@ -1625,6 +1747,9 @@ const CONTROLS = {
       source: ['shape1', 'pitch', 'noise'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true,
     },
     tick: {
+      source: ['shape1', 'pitch', 'noise'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true,
+    },
+    dust: {
       source: ['shape1', 'pitch', 'noise'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true,
     },
   },
@@ -1675,6 +1800,9 @@ const ENGINE_TYPES = {
     // Saw pair (plus breath into the same filters) through moving formants —
     // vowel filtering is subtractive synthesis by definition.
     choir: 'subtractive',
+    // Six detuned saws through one opening lowpass and a two-tap chorus; the
+    // chorus is an effect on the output, not a synthesis method.
+    polysaw: 'subtractive',
   },
   bass: {
     // Sine plus an octave partial through a lowpass; static, but a filter stack.
@@ -1685,6 +1813,16 @@ const ENGINE_TYPES = {
     // envelope for the whole note: two engines, and the voice is named for the
     // quieter one.
     breath: 'hybrid',
+    // Saw and triangle under a resonant cutoff that snaps shut in 90 ms; the
+    // finger noise is a 12 ms transient, which is garnish and not an engine.
+    fingered: 'subtractive',
+    // Two detuned saws over a sine sub-octave through a falling lowpass.
+    sawbass: 'subtractive',
+    // One saw through a lowpass at Q 9 whose envelope IS the sound.
+    acid: 'subtractive',
+    // Sine and triangle under a lowpass, struck rather than held; the thump is
+    // a 30 ms burst, the same garnish line pluck's string tick sits on.
+    upright: 'subtractive',
   },
   melody: {
     // Two saws under a resonant cutoff dropping a decade in a quarter second.
@@ -1699,6 +1837,18 @@ const ENGINE_TYPES = {
     // every chirp through the same pair of formants: two engines, each
     // carrying a real share, which is the line the class draws.
     call: 'hybrid',
+    // Sine carrier at ratio 1 with a high index that collapses in 120 ms —
+    // the same two-operator pair as keys, driven hard enough to bark.
+    tines: 'fm',
+    // Triangle and saw under a resonant cutoff falling onto a body resonance.
+    nylon: 'subtractive',
+    // Two detuned layers under a fixed muffling lowpass, both wowing on their
+    // own slow LFO: a filter shaping oscillators, wobble and all.
+    tape: 'subtractive',
+    // Six drawbar partials at the tonewheel ratios, struck by a key click —
+    // an additive model of a real machine, which is where the modal voices
+    // (chimes, marimba) already live.
+    stab: 'physical',
   },
   texture: {
     // Two or three sine carriers, each with a ratio-7.1 modulator.
@@ -1728,6 +1878,8 @@ const ENGINE_TYPES = {
     // A bar's own overtones (1 : 4 : 9.2) with per-partial decays, struck by a
     // mallet click — the same modal model as chimes.
     marimba: 'physical',
+    // Saw and square under a cutoff at Q 5 that shuts in 60 ms.
+    muted: 'subtractive',
   },
   percussion: {
     // Membranes whose skins bend as they relax, with beater and brush noise
@@ -1740,6 +1892,9 @@ const ENGINE_TYPES = {
     // no oscillator at all, and even low leads with a noise burst and only
     // adds a short pitched body under it.
     tick: 'noise',
+    // Kick and snare are both a bending skin — the snare's is buried under a
+    // puff of noise, but it is there and it is what gives the kit its weight.
+    dust: 'physical',
   },
 };
 
@@ -1973,6 +2128,73 @@ function padChoir(ctx, destination, note, patch) {
   return rig.finish(end + 0.05);
 }
 
+/**
+ * Poly saw: six detuned saws, an octave layer under them, one lowpass that
+ * opens as the chord lands and a two-tap chorus across the output. Where warm
+ * and strings take three seconds to assemble, this one is a chord — the attack
+ * is short enough to be played, which is what makes it name its own era.
+ */
+function padPolysaw(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(DEFAULTS.pad.polysaw, patch);
+  const t = timeOf(ctx, note);
+  const f = shifted(p, freqOf(note, 220));
+  const v = velOf(note);
+  const dur = durOf(note, 6);
+
+  const attack = p ? p.adsr.attack : clamp(dur * 0.12, 0.6, 1.4);
+  const release = p ? p.adsr.release : between(3.2, 4.4);
+  const hold = Math.max(0.3, dur - attack);
+
+  const nominal = clamp(f * 9 * brightness(v), 900, 6000);
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, {
+    type: 'lowpass', freq: nominal, q: 0.9,
+  });
+  amp.connect(lowpass);
+
+  const dry = rig.gain(0.62);
+  filtered.connect(dry);
+  dry.connect(rig.out);
+
+  // The ensemble width: two short modulated taps, the same trick padStrings
+  // uses, at a slower rate so the stack sounds detuned rather than seasick.
+  for (const [time, rate, mix] of [[0.0093, 0.33, 0.34], [0.0157, 0.21, 0.3]]) {
+    const delay = rig.delay(time);
+    const gain = rig.gain(mix);
+    filtered.connect(delay);
+    delay.connect(gain);
+    gain.connect(rig.out);
+    lfo(rig, delay.delayTime, { t, rate, depth: 0.0022 });
+  }
+
+  const at = cutoffAt(p, nominal);
+  lowpass.frequency.setValueAtTime(at(clamp(f * 4, 400, 3000)), t);
+  lowpass.frequency.exponentialRampToValueAtTime(at(nominal), t + attack * 0.9);
+  lfo(rig, lowpass.frequency, { t, rate: between(0.06, 0.13), depth: at(nominal) * 0.1 * envDepth(p) });
+
+  const layers = layersFor(p, [
+    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.2, cents: 0, spread: 0 },
+    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.18, cents: -9, spread: -1 },
+    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.18, cents: 9, spread: 1 },
+    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.14, cents: -19, spread: -2.111 },
+    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.14, cents: 19, spread: 2.111 },
+    { type: 'sawtooth', group: 'b', ratio: 0.5, weight: 0.16, cents: 2, spread: 0.222 },
+  ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
+  for (const layer of layers) {
+    const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
+    const gain = rig.gain(layer.gain);
+    osc.connect(gain);
+    gain.connect(stack);
+  }
+
+  const end = sustainEnv(amp.gain, t, {
+    attack, hold, release, peak: level(PEAK.pad * 0.95, v),
+  }, p);
+  return rig.finish(end + 0.05);
+}
+
 // ---------------------------------------------------------------------------
 // 4b. Bass — one clean fundamental, nothing detuned down there
 // ---------------------------------------------------------------------------
@@ -2115,6 +2337,196 @@ function bassBreath(ctx, destination, note, patch) {
   const peak = level(PEAK.bass * 0.95, v);
   const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
   return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
+}
+
+/**
+ * Fingered: the funk bass. A saw/triangle pair under a resonant cutoff that
+ * snaps almost shut in 90 ms, a finger click on the front, and a release short
+ * enough that a staccato sixteenth actually stops — which is the difference
+ * between a line that locks with the kick and one that smears over it.
+ */
+function bassFingered(ctx, destination, note, patch) {
+  const p = patchFor(DEFAULTS.bass.fingered, patch);
+  const f = shifted(p, freqOf(note, 65));
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 2);
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, { type: 'lowpass', freq: f * 7, q: 2.2 });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const at = cutoffAt(p, f * 7);
+  lowpass.frequency.setValueAtTime(at(clamp(f * (10 + 14 * v), 200, 3000)), t);
+  lowpass.frequency.exponentialRampToValueAtTime(at(Math.max(f * 2.6, 90)), t + 0.09);
+
+  const layers = layersFor(p, [
+    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.45, cents: 0, spread: 0 },
+    { type: 'triangle', group: 'b', ratio: 1, weight: 0.4, cents: 0, spread: 1 },
+  ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
+  for (const layer of layers) {
+    const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
+    const gain = rig.gain(layer.gain);
+    osc.connect(gain);
+    gain.connect(stack);
+  }
+
+  // Outside the amp envelope, like pluck's string tick: the click IS the
+  // finger, and an 8 ms attack would swallow it.
+  noiseBurst(rig, lowpass, {
+    t, freq: clamp(f * 6, 300, 2200), q: 1.2, decay: 0.012, peak: 0.06 * v, attack: 0.001,
+  });
+
+  const attack = p ? p.adsr.attack : 0.008;
+  const release = p ? p.adsr.release : 0.14;
+  const hold = Math.max(0.06, dur - attack);
+  const peak = level(PEAK.bass * 0.9, v);
+  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
+}
+
+/** Saw bass: two detuned saws over a sine sub, wide and slow to close. */
+function bassSawbass(ctx, destination, note, patch) {
+  const p = patchFor(DEFAULTS.bass.sawbass, patch);
+  const f = shifted(p, freqOf(note, 65));
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 2);
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, { type: 'lowpass', freq: f * 6, q: 1.8 });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const at = cutoffAt(p, f * 6);
+  lowpass.frequency.setValueAtTime(at(clamp(f * (5 + 9 * v), 160, 2600)), t);
+  lowpass.frequency.exponentialRampToValueAtTime(at(Math.max(f * 2.4, 85)), t + 0.35);
+
+  // The detune is on the two saws only: the sine below them stays dead centre,
+  // because two beating oscillators at 40 Hz is a wobble, not a bass note.
+  const layers = layersFor(p, [
+    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.4, cents: 0, spread: 0 },
+    { type: 'sine', group: 'a', ratio: 0.5, weight: 0.28, cents: 0, spread: 0 },
+    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.32, cents: 7, spread: 1 },
+  ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
+  for (const layer of layers) {
+    const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
+    const gain = rig.gain(layer.gain);
+    osc.connect(gain);
+    gain.connect(stack);
+  }
+
+  const attack = p ? p.adsr.attack : 0.012;
+  const release = p ? p.adsr.release : 0.4;
+  const hold = Math.max(0.08, dur - attack);
+  const peak = level(PEAK.bass * 0.85, v);
+  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
+}
+
+/**
+ * Acid: one saw through a lowpass at Q 9 whose envelope is the whole voice —
+ * open on the attack, shut by the end of the note, and the harder the note the
+ * further it opens. Mono legato slides it, which is the other half of the sound.
+ */
+function bassAcid(ctx, destination, note, patch) {
+  const p = patchFor(DEFAULTS.bass.acid, patch);
+  const f = shifted(p, freqOf(note, 65));
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 2);
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, { type: 'lowpass', freq: f * 7, q: 9 });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const at = cutoffAt(p, f * 7);
+  lowpass.frequency.setValueAtTime(at(clamp(f * (6 + 20 * v), 180, 4000)), t);
+  lowpass.frequency.exponentialRampToValueAtTime(at(Math.max(f * 1.8, 80)), t + 0.22);
+
+  const [tone] = layersFor(p, [
+    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.8, cents: 0, spread: 0 },
+  ]);
+  const osc = rig.osc(tone.type, f * tone.ratio, t, tone.cents);
+  const oscGain = rig.gain(tone.gain);
+  osc.connect(oscGain);
+  oscGain.connect(foldBus(rig, p, amp, stackPeak([tone])));
+
+  const attack = p ? p.adsr.attack : 0.006;
+  const release = p ? p.adsr.release : 0.12;
+  const hold = Math.max(0.05, dur - attack);
+  // A resonant peak is paid for in the envelope: Q 9 is several dB of lift
+  // this voice must not spend on being louder than its neighbours.
+  const peak = level(PEAK.bass * 0.6, v);
+  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
+}
+
+/**
+ * Upright: sine and triangle with a thumb thump on the front, struck rather
+ * than held — a walked quarter note decays away under the next one, which is
+ * what stops four to the bar turning into a drone.
+ */
+function bassUpright(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(DEFAULTS.bass.upright, patch);
+  const t = timeOf(ctx, note);
+  const f = shifted(p, freqOf(note, 65));
+  const v = velOf(note);
+  const dur = durOf(note, 2);
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, {
+    type: 'lowpass', freq: f * 3.2, q: 0.8,
+  });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const at = cutoffAt(p, f * 3.2);
+  lowpass.frequency.setValueAtTime(at(clamp(f * (4 + 3 * v), 120, 1200)), t);
+  lowpass.frequency.exponentialRampToValueAtTime(at(Math.max(f * 2.2, 75)), t + 0.12);
+
+  const layers = layersFor(p, [
+    { type: 'sine', group: 'a', ratio: 1, weight: 0.75, cents: 0, spread: 0 },
+    { type: 'triangle', group: 'b', ratio: 1, weight: 0.28, cents: 0, spread: 1 },
+  ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
+  for (const layer of layers) {
+    const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
+    const gain = rig.gain(layer.gain);
+    osc.connect(gain);
+    gain.connect(stack);
+  }
+
+  // The thumb, not the string: a low, dull knock ahead of the tone.
+  noiseBurst(rig, lowpass, {
+    t, colour: 'pink', type: 'lowpass', freq: 180, q: 0.7, decay: 0.03, peak: 0.05 * v,
+    attack: 0.002,
+  });
+
+  // A struck note peaks where a held one only aims: two thirds of the track
+  // reference lands its attack level with the three sustaining basses.
+  const decay = clamp(dur * 0.8 + 0.2, 0.3, 1.2);
+  const end = struckEnv(amp.gain, t, {
+    attack: 0.012, decay, hold: dur, peak: level(PEAK.bass * 0.68, v),
+  }, p);
+  return rig.finish(end + 0.05);
 }
 
 // ---------------------------------------------------------------------------
@@ -2308,6 +2720,204 @@ function melodyKeys(ctx, destination, note, patch) {
   const decay = clamp(dur * 1.3 + 0.4, 0.8, 3.2);
   const end = struckEnv(amp.gain, t, {
     attack: 0.004, decay, hold: dur, peak: level(PEAK.melody, v),
+  }, p);
+  return rig.finish(end + 0.05);
+}
+
+/**
+ * Tines: the same two-operator pair as keys, driven four times as hard and
+ * collapsing four times as fast — the bark on the attack that a tine piano is
+ * recognised by, with a slow tremolo over the body underneath it.
+ */
+function melodyTines(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(DEFAULTS.melody.tines, patch);
+  const t = timeOf(ctx, note);
+  const f = shifted(p, freqOf(note, 440));
+  const v = velOf(note);
+  const dur = durOf(note, 1);
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, {
+    type: 'lowpass', freq: clamp(f * 7 + 1200 * brightness(v), 1200, 9000), q: 0.8,
+  });
+  amp.connect(lowpass);
+
+  // The tremolo rides the output, not the envelope: it is the amplifier
+  // wobbling, and it must not be able to take the note to zero.
+  const trem = rig.gain(0.88);
+  filtered.connect(trem);
+  trem.connect(rig.out);
+  lfo(rig, trem.gain, { t, rate: between(4.2, 5.4), depth: 0.1 });
+
+  const carrier = rig.osc('sine', f, t);
+  const carrierGain = rig.gain(0.72);
+  carrier.connect(carrierGain);
+  carrierGain.connect(amp);
+  // Index four times keys', decay a third of it: harmonics that arrive with
+  // the hammer and are gone by the time the note is ringing.
+  fm(rig, carrier, { t, freq: f, ratio: 1, index: f * (1.2 + 3.6 * v * v), decay: 0.12 });
+
+  // The tine itself — higher and shorter than keys', and it is what barks.
+  const tine = rig.osc('sine', f * 7.94, t);
+  const tineGain = rig.gain(SILENCE);
+  tine.connect(tineGain);
+  tineGain.connect(amp);
+  struckEnv(tineGain.gain, t, {
+    attack: 0.0015, decay: 0.09, hold: dur, span: 0.06, peak: Math.max(0.13 * v * v, SILENCE * 2),
+  }, p);
+
+  const decay = clamp(dur * 1.2 + 0.35, 0.7, 2.6);
+  const end = struckEnv(amp.gain, t, {
+    attack: 0.005, decay, hold: dur, peak: level(PEAK.melody * 0.95, v),
+  }, p);
+  return rig.finish(end + 0.05);
+}
+
+/**
+ * Nylon: a warm triangle-led pluck with a fast cutoff fall and the box behind
+ * it — a narrow resonance around the low 190s that every nylon-strung guitar
+ * has, and the thing that separates this from a synth pluck.
+ */
+function melodyNylon(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(DEFAULTS.melody.nylon, patch);
+  const t = timeOf(ctx, note);
+  const f = shifted(p, freqOf(note, 440));
+  const v = velOf(note);
+  const dur = durOf(note, 1);
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, { type: 'lowpass', freq: f * 5, q: 2.4 });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const at = cutoffAt(p, f * 5);
+  lowpass.frequency.setValueAtTime(at(clamp(f * (4 + 7 * v), 300, 7000)), t);
+  lowpass.frequency.exponentialRampToValueAtTime(at(Math.max(f * 1.6, 140)), t + 0.18);
+
+  // The stack sums here so the body can be tapped off it in parallel; the
+  // folder, if the patch asks for one, still sits ahead of both.
+  const body = rig.gain(1);
+  body.connect(amp);
+  const resonance = rig.filter('bandpass', 192, 3.2);
+  const resonanceGain = rig.gain(0.18);
+  body.connect(resonance);
+  resonance.connect(resonanceGain);
+  resonanceGain.connect(amp);
+
+  const layers = layersFor(p, [
+    { type: 'triangle', group: 'a', ratio: 1, weight: 0.5, cents: 0, spread: 0 },
+    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.22, cents: -5, spread: -1 },
+  ]);
+  const stack = foldBus(rig, p, body, stackPeak(layers));
+  for (const layer of layers) {
+    const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
+    const gain = rig.gain(layer.gain);
+    osc.connect(gain);
+    gain.connect(stack);
+  }
+
+  // Nail on wound nylon: darker and softer than a plectrum, but still a click.
+  noiseBurst(rig, lowpass, {
+    t, colour: 'pink', freq: clamp(f * 2.5, 200, 4000), q: 1.4, decay: 0.01, peak: 0.05 * v,
+    attack: 0.001,
+  });
+
+  const decay = clamp(dur * 0.8 + 0.2, 0.3, 1.1);
+  const end = struckEnv(amp.gain, t, {
+    attack: 0.005, decay, hold: dur, peak: level(PEAK.melody * 0.92, v),
+  }, p);
+  return rig.finish(end + 0.05);
+}
+
+/**
+ * Tape: two detuned layers under a fixed muffle, each wowing on its own slow
+ * LFO. The pitch is never quite still and the top end is never quite there —
+ * a keyboard that has been round the block, which is a genre all by itself.
+ */
+function melodyTape(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(DEFAULTS.melody.tape, patch);
+  const t = timeOf(ctx, note);
+  const f = shifted(p, freqOf(note, 440));
+  const v = velOf(note);
+  const dur = durOf(note, 1);
+
+  const amp = rig.gain(SILENCE);
+  // The muffle does not move: a worn machine is dull all the way through the
+  // note, not a filter sweep pretending to be one.
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, {
+    type: 'lowpass', freq: clamp(f * 3.4 + 300, 700, 2600), q: 0.8,
+  });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const layers = layersFor(p, [
+    { type: 'triangle', group: 'a', ratio: 1, weight: 0.5, cents: -4, spread: -0.667 },
+    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.3, cents: 5, spread: 0.833 },
+  ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
+  for (const layer of layers) {
+    const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
+    const gain = rig.gain(layer.gain);
+    osc.connect(gain);
+    gain.connect(stack);
+    // Wow, not vibrato: slow enough to hear as a sagging transport, and the
+    // two layers wander independently so they beat against each other.
+    lfo(rig, osc.detune, { t, rate: between(0.45, 0.85), depth: between(9, 15) });
+  }
+
+  const decay = clamp(dur * 1.1 + 0.3, 0.6, 2.2);
+  const end = struckEnv(amp.gain, t, {
+    attack: 0.006, decay, hold: dur, peak: level(PEAK.melody * 0.95, v),
+  }, p);
+  return rig.finish(end + 0.05);
+}
+
+/**
+ * Stab: six drawbar partials at the tonewheel ratios with a key click on the
+ * front, held for exactly as long as the chord is and cut. Sustained, so the
+ * peak is trimmed the way flute's is — a held tone at a struck voice's peak
+ * reads several dB louder than its neighbours.
+ */
+function melodyStab(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(DEFAULTS.melody.stab, patch);
+  const t = timeOf(ctx, note);
+  const f = shifted(p, freqOf(note, 440));
+  const v = velOf(note);
+  const dur = durOf(note, 1);
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, {
+    type: 'lowpass', freq: clamp(f * 6, 1200, 6000), q: 0.7,
+  });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const attack = p ? p.adsr.attack : 0.006;
+  const release = p ? p.adsr.release : 0.09;
+  const hold = Math.max(0.05, dur - attack);
+
+  // The drawbars: fundamental, octave, twelfth, double octave, and the two
+  // upper mutations that make the registration read as an organ rather than
+  // as a filtered saw.
+  for (const [ratio, mix] of [[1, 0.5], [2, 0.28], [3, 0.18], [4, 0.12], [6, 0.07], [8, 0.05]]) {
+    const osc = rig.osc('sine', f * ratio, t);
+    const gain = rig.gain(mix);
+    osc.connect(gain);
+    gain.connect(amp);
+  }
+
+  // Key click: the contact bounce, outside the envelope so the attack cannot
+  // swallow it. It is most of what says "organ" on a short chord.
+  noiseBurst(rig, lowpass, {
+    t, freq: clamp(f * 5, 600, 6000), q: 1.1, decay: 0.007, peak: 0.07 * v, attack: 0.0008,
+  });
+
+  const end = sustainEnv(amp.gain, t, {
+    attack, hold, release, peak: level(PEAK.melody * 0.7, v),
   }, p);
   return rig.finish(end + 0.05);
 }
@@ -2826,6 +3436,52 @@ function arpMarimba(ctx, destination, note, patch) {
   return rig.finish(end + 0.03);
 }
 
+/**
+ * Muted: the comping chop. A saw and a square through a cutoff at Q 5 that
+ * shuts in 60 ms, with a pick click on the front — damped, percussive and gone
+ * before the next sixteenth, which is what makes a chord chart into a groove.
+ */
+function arpMuted(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(DEFAULTS.arp.muted, patch);
+  const t = timeOf(ctx, note);
+  const f = shifted(p, freqOf(note, 440));
+  const v = velOf(note);
+  const dur = durOf(note, 0.25);
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, { type: 'lowpass', freq: f * 7, q: 5 });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const at = cutoffAt(p, f * 7);
+  lowpass.frequency.setValueAtTime(at(clamp(f * (6 + 8 * v), 400, 8000)), t);
+  lowpass.frequency.exponentialRampToValueAtTime(at(Math.max(f * 2.2, 200)), t + 0.06);
+
+  const layers = layersFor(p, [
+    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.5, cents: 0, spread: 0 },
+    { type: 'square', group: 'b', ratio: 1, weight: 0.2, cents: 0, spread: 1 },
+  ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
+  for (const layer of layers) {
+    const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
+    const gain = rig.gain(layer.gain);
+    osc.connect(gain);
+    gain.connect(stack);
+  }
+
+  noiseBurst(rig, lowpass, {
+    t, freq: clamp(f * 4, 600, 5000), q: 1.5, decay: 0.006, peak: 0.06 * v, attack: 0.0008,
+  });
+
+  // A resonant filter at Q 5 lifts what it passes; the trim is paid here.
+  const decay = clamp(dur * 0.7 + 0.05, 0.07, 0.26);
+  const end = struckEnv(amp.gain, t, {
+    attack: 0.004, decay, hold: dur, peak: level(PEAK.arp * 0.8, v),
+  }, p);
+  return rig.finish(end + 0.03);
+}
+
 // ---------------------------------------------------------------------------
 // 4f. Percussion — note.kind selects the drum; midi and freq are null
 // ---------------------------------------------------------------------------
@@ -2981,6 +3637,67 @@ function percTick(ctx, destination, note, patch) {
   return rig.finish(end + 0.03);
 }
 
+/**
+ * Dust: the worn kit. A short thumpy kick, a snare that is mostly a puff of
+ * filtered noise over a small body, and hats kept dark and well down — the
+ * sound of a kit recorded onto something that had already been used twice.
+ */
+function percDust(ctx, destination, note, patch) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(DEFAULTS.percussion.dust, patch);
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 0.25);
+  const kind = kindOf(note);
+  // The whole kit sits a shade under the others: a lo-fi kit that punches
+  // through is not a lo-fi kit.
+  const peak = level(PEAK.percussion * KIND_TRIM[kind] * 0.9, v);
+
+  const amp = rig.gain(1);
+  amp.connect(rig.out);
+  let end = t;
+
+  if (kind === 'low') {
+    const { node: damp, out: damped } = mainFilter(rig, p, {
+      type: 'lowpass', freq: 150 + 90 * v, q: 0.7,
+    });
+    damped.connect(amp);
+    end = membrane(rig, damp, {
+      t, from: 95, to: 42, bend: 0.11, attack: 0.008, decay: 0.28, peak, p, hold: dur,
+    });
+    noiseBurst(rig, damp, {
+      t, colour: 'pink', type: 'lowpass', freq: 120, q: 0.7, decay: 0.04, peak: peak * 0.3,
+      p, hold: dur, span: 0.14,
+    });
+  } else if (kind === 'mid') {
+    const { node: damp, out: damped } = mainFilter(rig, p, {
+      type: 'lowpass', freq: 3200 + 1200 * v, q: 0.7,
+    });
+    damped.connect(amp);
+    // The snare, and it is a puff rather than a crack: a wide band of noise
+    // with a long-ish fall, over a body too small to ring.
+    end = noiseBurst(rig, damp, {
+      t, colour: 'pink', freq: 1500, q: 0.9, decay: 0.13, peak: peak * 0.9, attack: 0.004,
+      p, hold: dur,
+    });
+    const body = membrane(rig, damp, {
+      t, from: 200, to: 150, bend: 0.05, attack: 0.005, decay: 0.08, peak: peak * 0.35,
+      p, hold: dur, span: 0.62,
+    });
+    if (body > end) end = body;
+  } else {
+    const { node: damp, out: damped } = mainFilter(rig, p, {
+      type: 'lowpass', freq: 4200 + 1500 * v, q: 0.7,
+    });
+    damped.connect(amp);
+    end = noiseBurst(rig, damp, {
+      t, freq: 5200, q: 0.9, decay: 0.028, peak: peak * 0.55, attack: 0.002, p, hold: dur,
+    });
+  }
+
+  return rig.finish(end + 0.03);
+}
+
 // ---------------------------------------------------------------------------
 // 5. The library
 // ---------------------------------------------------------------------------
@@ -3015,6 +3732,13 @@ export const VOICES = {
       defaults: DEFAULTS.pad.choir,
       controls: CONTROLS.pad.choir,
     },
+    polysaw: {
+      label: 'Poly saw',
+      play: padPolysaw,
+      engineType: ENGINE_TYPES.pad.polysaw,
+      defaults: DEFAULTS.pad.polysaw,
+      controls: CONTROLS.pad.polysaw,
+    },
   },
   bass: {
     sub: {
@@ -3037,6 +3761,34 @@ export const VOICES = {
       engineType: ENGINE_TYPES.bass.breath,
       defaults: DEFAULTS.bass.breath,
       controls: CONTROLS.bass.breath,
+    },
+    fingered: {
+      label: 'Fingered',
+      play: bassFingered,
+      engineType: ENGINE_TYPES.bass.fingered,
+      defaults: DEFAULTS.bass.fingered,
+      controls: CONTROLS.bass.fingered,
+    },
+    sawbass: {
+      label: 'Saw bass',
+      play: bassSawbass,
+      engineType: ENGINE_TYPES.bass.sawbass,
+      defaults: DEFAULTS.bass.sawbass,
+      controls: CONTROLS.bass.sawbass,
+    },
+    acid: {
+      label: 'Squelch',
+      play: bassAcid,
+      engineType: ENGINE_TYPES.bass.acid,
+      defaults: DEFAULTS.bass.acid,
+      controls: CONTROLS.bass.acid,
+    },
+    upright: {
+      label: 'Upright',
+      play: bassUpright,
+      engineType: ENGINE_TYPES.bass.upright,
+      defaults: DEFAULTS.bass.upright,
+      controls: CONTROLS.bass.upright,
     },
   },
   melody: {
@@ -3074,6 +3826,34 @@ export const VOICES = {
       engineType: ENGINE_TYPES.melody.call,
       defaults: DEFAULTS.melody.call,
       controls: CONTROLS.melody.call,
+    },
+    tines: {
+      label: 'Tines',
+      play: melodyTines,
+      engineType: ENGINE_TYPES.melody.tines,
+      defaults: DEFAULTS.melody.tines,
+      controls: CONTROLS.melody.tines,
+    },
+    nylon: {
+      label: 'Nylon guitar',
+      play: melodyNylon,
+      engineType: ENGINE_TYPES.melody.nylon,
+      defaults: DEFAULTS.melody.nylon,
+      controls: CONTROLS.melody.nylon,
+    },
+    tape: {
+      label: 'Worn keys',
+      play: melodyTape,
+      engineType: ENGINE_TYPES.melody.tape,
+      defaults: DEFAULTS.melody.tape,
+      controls: CONTROLS.melody.tape,
+    },
+    stab: {
+      label: 'Organ stab',
+      play: melodyStab,
+      engineType: ENGINE_TYPES.melody.stab,
+      defaults: DEFAULTS.melody.stab,
+      controls: CONTROLS.melody.stab,
     },
   },
   texture: {
@@ -3149,6 +3929,13 @@ export const VOICES = {
       defaults: DEFAULTS.arp.marimba,
       controls: CONTROLS.arp.marimba,
     },
+    muted: {
+      label: 'Muted comp',
+      play: arpMuted,
+      engineType: ENGINE_TYPES.arp.muted,
+      defaults: DEFAULTS.arp.muted,
+      controls: CONTROLS.arp.muted,
+    },
   },
   percussion: {
     soft: {
@@ -3171,6 +3958,13 @@ export const VOICES = {
       engineType: ENGINE_TYPES.percussion.tick,
       defaults: DEFAULTS.percussion.tick,
       controls: CONTROLS.percussion.tick,
+    },
+    dust: {
+      label: 'Worn kit',
+      play: percDust,
+      engineType: ENGINE_TYPES.percussion.dust,
+      defaults: DEFAULTS.percussion.dust,
+      controls: CONTROLS.percussion.dust,
     },
   },
 };

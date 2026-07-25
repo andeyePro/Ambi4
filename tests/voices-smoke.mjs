@@ -377,15 +377,27 @@ const test = (name, fn) => tests.push([name, fn]);
 // --------------------------------------------------------------------------
 
 const EXPECTED = {
-  pad: { warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir' },
-  bass: { sub: 'Sub', round: 'Round', breath: 'Breath' },
-  melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call' },
+  pad: {
+    warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir', polysaw: 'Poly saw',
+  },
+  bass: {
+    sub: 'Sub', round: 'Round', breath: 'Breath',
+    fingered: 'Fingered', sawbass: 'Saw bass', acid: 'Squelch', upright: 'Upright',
+  },
+  melody: {
+    pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call',
+    tines: 'Tines', nylon: 'Nylon guitar', tape: 'Worn keys', stab: 'Organ stab',
+  },
   texture: {
     sparkle: 'Sparkle', grains: 'Grains', chimes: 'Chimes', wash: 'Wash',
     colour: 'Coloured noise', cloud: 'Grain cloud', call: 'Call',
   },
-  arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba' },
-  percussion: { soft: 'Soft kit', hand: 'Hand drum', tick: 'Ticks' },
+  arp: {
+    softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba', muted: 'Muted comp',
+  },
+  percussion: {
+    soft: 'Soft kit', hand: 'Hand drum', tick: 'Ticks', dust: 'Worn kit',
+  },
 };
 
 test('VOICES matches the contract exactly', () => {
@@ -628,11 +640,13 @@ const FOLD_SOURCE = {
 /** Which voices carry which v19 family — the "only on the right voices" rule. */
 const SCULPT_VOICES = [['texture', 'colour'], ['texture', 'cloud']];
 const CALL_VOICES = [['melody', 'call'], ['texture', 'call']];
-/** …and which carry the v20 modifiers: the eight oscillator-stack voices. */
+/** …and which carry the v20 modifiers: the oscillator-stack voices. */
 const FOLD_VOICES = [
-  ['pad', 'warm'], ['pad', 'strings'], ['pad', 'choir'],
+  ['pad', 'warm'], ['pad', 'strings'], ['pad', 'choir'], ['pad', 'polysaw'],
   ['bass', 'sub'], ['bass', 'round'], ['bass', 'breath'],
-  ['melody', 'pluck'], ['arp', 'softPluck'],
+  ['bass', 'fingered'], ['bass', 'sawbass'], ['bass', 'acid'], ['bass', 'upright'],
+  ['melody', 'pluck'], ['melody', 'nylon'], ['melody', 'tape'],
+  ['arp', 'softPluck'], ['arp', 'muted'],
 ];
 const carries = (list, track, id) => list.some(([t, i]) => t === track && i === id);
 
@@ -827,16 +841,31 @@ const rampAt = (events, time) => attackRamps(events).some((at) => Math.abs(at - 
  * shows up here rather than in someone's ears.
  */
 const V2_ATTACK = {
-  pad: { warm: 3.2, glass: 2.8, strings: 2.6, choir: 3.5 },
-  bass: { sub: 0.12, round: 0.05, breath: 0.18 },
-  melody: { pluck: 0.006, bell: 0.005, flute: 0.09, keys: 0.004, call: 0.006 },
+  pad: {
+    warm: 3.2, glass: 2.8, strings: 2.6, choir: 3.5,
+    // v27: the one pad whose attack is a fraction of the note rather than
+    // seconds of it — clamped at 1.4 for the 12 s note attackNote() plays.
+    polysaw: 1.4,
+  },
+  bass: {
+    sub: 0.12, round: 0.05, breath: 0.18,
+    fingered: 0.008, sawbass: 0.012, acid: 0.006, upright: 0.012,
+  },
+  melody: {
+    pluck: 0.006, bell: 0.005, flute: 0.09, keys: 0.004, call: 0.006,
+    tines: 0.005, nylon: 0.005, tape: 0.006, stab: 0.006,
+  },
   // v19: the three new voices have no v2 past to keep, so their unpatched
   // envelope IS their published default — which is what these numbers say.
   texture: {
     sparkle: 0.02, grains: null, chimes: 0.008, wash: 3, colour: 2.6, cloud: 1.2, call: 0.008,
   },
-  arp: { softPluck: 0.006, crystal: 0.003, marimba: 0.003 },
-  percussion: { soft: 0.008, hand: 0.005, tick: 0.003 },
+  arp: {
+    softPluck: 0.006, crystal: 0.003, marimba: 0.003, muted: 0.004,
+  },
+  percussion: {
+    soft: 0.008, hand: 0.005, tick: 0.003, dust: 0.008,
+  },
 };
 
 /** Long enough that every pad and wash hits the top of its own attack clamp. */
@@ -974,6 +1003,8 @@ test('an inapplicable source field never silences a voice', () => {
     ['texture', 'colour'], ['texture', 'cloud'], ['texture', 'call'], ['melody', 'call'],
     ['arp', 'crystal'], ['arp', 'marimba'],
     ['percussion', 'soft'], ['percussion', 'hand'], ['percussion', 'tick'],
+    // v27: an FM pair and an additive drawbar stack, plus the new kit.
+    ['melody', 'tines'], ['melody', 'stab'], ['percussion', 'dust'],
   ];
   for (const [track, id] of ignoring) {
     const note = attackNote(track);
@@ -1655,7 +1686,10 @@ const PERCUSSION_GOLDEN = {
 };
 
 test('v18: an unpatched percussion note renders exactly the pre-v18 graph', () => {
-  for (const id of Object.keys(VOICES.percussion)) {
+  // The three kits that existed at v18. A kit added later (v27's dust) has no
+  // pre-v18 render to hold to, and inventing a golden for it here would only
+  // pin today's code to itself.
+  for (const id of ['soft', 'hand', 'tick']) {
     for (const kind of PERCUSSION_KINDS) {
       for (const velocity of [0.35, 0.8]) {
         const key = `${id}.${kind}.v${velocity}`;
@@ -2286,8 +2320,69 @@ test('v18: every voice declares an engineType from the contract\'s five classes'
       declared += 1;
     }
   }
-  // 21 at v18, plus v19's colour, cloud and the two readings of call.
-  assert.equal(declared, 25, `${declared} voices carry an engineType, not 25`);
+  // 21 at v18, plus v19's colour, cloud and the two readings of call, plus
+  // v27's eleven signature voices.
+  assert.equal(declared, 36, `${declared} voices carry an engineType, not 36`);
+});
+
+// --------------------------------------------------------------------------
+// v27 — the signature voices: a genre has to be nameable from one bar
+// --------------------------------------------------------------------------
+
+/** Every voice v27 added, by track. */
+const V27 = {
+  pad: ['polysaw'],
+  bass: ['fingered', 'sawbass', 'acid', 'upright'],
+  melody: ['tines', 'nylon', 'tape', 'stab'],
+  arp: ['muted'],
+  percussion: ['dust'],
+};
+
+test('v27: the new voices are no louder than the loudest already on their track', () => {
+  for (const [track, added] of Object.entries(V27)) {
+    const note = attackNote(track);
+    const level = (id) => withSeed(70, () => playAndCheck(`${track}.${id}`,
+      VOICES[track][id], note)).sum;
+    const existing = Object.keys(VOICES[track]).filter((id) => !added.includes(id));
+    const loudest = Math.max(...existing.map(level));
+    for (const id of added) {
+      assert.ok(level(id) <= loudest * 1.1,
+        `${track}.${id} reaches the bus at ${level(id).toFixed(3)} where the loudest voice `
+        + `already on the track reaches ${loudest.toFixed(3)} — that is a jump on switching voice`);
+    }
+  }
+});
+
+test('v27: every new voice renders a different graph from its track neighbours', () => {
+  // Two voices on a track that hash the same are the same voice under two
+  // names — which is the samey-genres complaint this wave exists to answer.
+  for (const [track, added] of Object.entries(V27)) {
+    const note = honestyNoteFor(track);
+    const hashes = new Map();
+    for (const id of Object.keys(VOICES[track])) {
+      const run = withSeed(4711, () => playAndCheck(`${track}.${id}`, VOICES[track][id], note));
+      hashes.set(id, renderHash(run));
+    }
+    for (const id of added) {
+      for (const [other, hash] of hashes) {
+        if (other === id) continue;
+        assert.notEqual(hashes.get(id), hash, `${track}.${id} renders exactly like ${track}.${other}`);
+      }
+    }
+  }
+});
+
+test('v27: the bass voices that should stop, stop — short tails, and one struck', () => {
+  // The owner's complaint was a bass that wanders on over the bar. A note
+  // asked for 0.25 s must be finished inside a beat at 120 bpm.
+  const note = { midi: 40, freq: null, kind: null, when: 0.5, duration: 0.25, velocity: 0.9, pan: 0 };
+  for (const id of ['fingered', 'acid']) {
+    const { tail } = playAndCheck(`bass.${id}`, VOICES.bass[id], note);
+    assert.ok(tail <= 0.5, `bass.${id}: ${tail.toFixed(2)}s tail on a 0.25s note`);
+  }
+  // Upright is struck, so it publishes sustain 0 and rings out on its own
+  // decay rather than holding — which is what a plucked string does.
+  assert.equal(VOICES.bass.upright.defaults.adsr.sustain, 0, 'bass.upright is not struck');
 });
 
 

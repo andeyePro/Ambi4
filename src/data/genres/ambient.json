@@ -53,7 +53,7 @@
         "pad": { "state": "on", "voice": "warm", "level": 0.8, "randomness": 0.25 },
         "arp": { "state": "off", "voice": "softPluck", "level": 0.4, "randomness": 0.2 },
         "melody": { "state": "auto", "voice": "bell", "level": 0.35, "randomness": 0.4 },
-        "bass": { "state": "off", "voice": "breath", "level": 0.5, "randomness": 0.15 },
+        "bass": { "state": "off", "voice": "breath", "level": 0.55, "randomness": 0.15 },
         "texture": { "state": "on", "voice": "wash", "level": { "min": 0.28, "max": 0.46 }, "randomness": 0.3 },
         "percussion": { "state": "off", "voice": "soft", "level": 0.3, "randomness": 0.2 }
       },

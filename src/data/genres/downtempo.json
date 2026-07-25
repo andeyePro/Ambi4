@@ -57,8 +57,8 @@
       "perTrack": {
         "pad": { "state": "on", "voice": "warm", "level": 0.6, "randomness": 0.3 },
         "arp": { "state": "off", "voice": "softPluck", "level": 0.4, "randomness": 0.25 },
-        "melody": { "state": "auto", "voice": "keys", "level": 0.45, "randomness": 0.4 },
-        "bass": { "state": "on", "voice": "round", "level": 0.7, "randomness": 0.25 },
+        "melody": { "state": "auto", "voice": "tines", "level": 0.45, "randomness": 0.4 },
+        "bass": { "state": "on", "voice": "round", "level": 0.6, "randomness": 0.2 },
         "texture": { "state": "auto", "voice": "grains", "level": { "min": 0.2, "max": 0.35 }, "randomness": 0.3 },
         "percussion": { "state": "on", "voice": "soft", "level": 0.55, "randomness": 0.3 }
       },
