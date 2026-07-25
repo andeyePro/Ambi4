@@ -906,3 +906,10 @@ space, so users sculpt real-world impressions themselves:
   voice-editor scope shows the STATIC patch render, re-rendered on every dial
   change; the front oscilloscope shows a composite static preview of active
   tracks' patches when stopped.
+
+## v19 roadmap additions (2)
+- Live play-along: the MIDI/QWERTY input path also triggers the selected
+  track's voice in real time (monitoring through the normal chain).
+- Audio-in track: getUserMedia capture into an AudioBuffer (never leaves the
+  device), first-class track playback (level/sends/sequencer trigger), sample
+  editing v1 = trim / normalise / loop points.

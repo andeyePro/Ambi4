@@ -44,6 +44,8 @@
 ### Product roadmap additions (v19)
 - [ ] Custom tracks + user instrument manifests (Premium-class; registry refactor)
 - [ ] Live MIDI/QWERTY recording into tracks
+- [ ] Live play-along mode (same input path triggering track voices in real time)
+- [ ] Audio-in track: mic capture to a buffer (on-device only), trim/normalise/loop editing, played through the normal track chain
 - [ ] Parametric noise-sculpting surface + call-synthesis primitives (build queued)
 
 ### Product roadmap (specs in docs/engine-v2-contract.md + brain2 Ambi4-strategy)
