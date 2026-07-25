@@ -664,6 +664,78 @@ function defaultStepLane() {
 }
 
 /**
+ * v28 record-arm, half one: which grid slot an onset belongs to. `origin` is
+ * any downbeat of the grid being written (a bar in the FUTURE is as good as one
+ * in the past — the grid is a cycle, so origins a whole number of bars apart
+ * give the same answer), `stepSeconds` one slot in seconds, `stepCount` the
+ * slots the metre uses.
+ *
+ * A performance longer than one lap of the grid folds back onto it, and a note
+ * played before the origin is as playable as one after it, which is what the
+ * positive modulo — rather than a clamp — is for. Anything unusable answers
+ * null: a caller with no clock must drop the note, not write it to slot 0.
+ */
+export function captureSlot(seconds, { origin = 0, stepSeconds, stepCount } = {}) {
+  const step = Number(stepSeconds);
+  const slots = Math.round(Number(stepCount));
+  const at = Number(seconds);
+  if (!Number.isFinite(step) || step <= 0) return null;
+  if (!Number.isFinite(slots) || slots < 1) return null;
+  if (!Number.isFinite(at)) return null;
+  const from = Number.isFinite(Number(origin)) ? Number(origin) : 0;
+  const slot = Math.round((at - from) / step);
+  return ((slot % slots) + slots) % slots;
+}
+
+/**
+ * v28 record-arm, half two: a played-note capture as a sequencer step lane —
+ * the pure half of the record button, so what it writes can be judged without
+ * an AudioContext anywhere near it.
+ *
+ * `notes` are `{ start, end, velocity, lane }` in context seconds. The grid it
+ * builds is a FULL lane (or, given `lanes`, one lane per kit id): every slot
+ * off except the ones played, each played slot carrying the velocity it was
+ * struck at and — where the key was released — the length it was held for as
+ * the v21 gate. Two presses on one slot leave the LAST: a re-strike inside a
+ * grid slot is a correction, not a chord.
+ *
+ * What it cannot carry is PITCH: a step lane has never held one. A recorded
+ * lane is therefore a rhythm, played in the harmony the piece is in — which is
+ * what the UI has to say out loud, because it is not what a keyboard implies.
+ */
+export function quantiseCapture(notes, options = {}) {
+  const { lanes = null, stepSeconds } = options;
+  const laneIds = Array.isArray(lanes) && lanes.length
+    ? lanes.filter((id) => typeof id === 'string')
+    : null;
+  const blank = () => Array.from({ length: SEQUENCER_STEP_COUNT },
+    () => ({ ...DEFAULT_STEP, on: false }));
+  const kit = laneIds && laneIds.length ? laneIds : null;
+  const steps = kit ? Object.fromEntries(kit.map((id) => [id, blank()])) : blank();
+  const span = Number(stepSeconds);
+  let written = 0;
+  for (const note of Array.isArray(notes) ? notes : []) {
+    if (!note || typeof note !== 'object') continue;
+    const slot = captureSlot(note.start, options);
+    if (slot === null) continue;
+    // An unknown lane id (a kit edited mid-take) lands on the first lane rather
+    // than being dropped: the hit happened, and silence would be a lie.
+    const lane = kit ? (kit.includes(note.lane) ? note.lane : kit[0]) : null;
+    const target = kit ? steps[lane] : steps;
+    if (!target) continue;
+    const velocity = round3(clamp(Number(note.velocity) || DEFAULT_STEP.vmax, 0.05, 1));
+    const step = { ...DEFAULT_STEP, on: true, prob: 1, vmin: velocity, vmax: velocity };
+    const held = Number(note.end) - Number(note.start);
+    if (Number.isFinite(held) && held > 0 && Number.isFinite(span) && span > 0) {
+      step.gate = round3(clamp(held / span, STEP_GATE_RANGE[0], STEP_GATE_RANGE[1]));
+    }
+    target[slot] = step;
+    written += 1;
+  }
+  return { steps, written };
+}
+
+/**
  * The per-track facts the defaults and the sanitiser need, asked about a
  * built-in or a user track alike: which voice bank it plays from, whether a
  * chord discipline means anything to it, whether it owns a kit of lanes, and
@@ -4832,6 +4904,9 @@ export function createEngine(initialParams, options = {}) {
     }
     liveNotes.clear();
     monoNotes.clear();
+    // v28: the hands' notes are on that same ledger, so the keys they were
+    // holding are down against handles that have just been cancelled.
+    heldKeys.clear();
   }
 
   /** Whether a track still has a note ringing (tail included) at `at`. */
@@ -5054,6 +5129,343 @@ export function createEngine(initialParams, options = {}) {
     // only place outside the engine it could honestly be observed.
     if (typeof note.motif === 'boolean') event.motif = note.motif;
     emit('note', event);
+  }
+
+  // -- v28 live play-along ----------------------------------------------------
+  //
+  // A second way notes reach a track: the listener's own hands, from a QWERTY
+  // keyboard or a MIDI instrument. Everything below plays through the SAME
+  // chain the scheduler uses — the track's voice, its patch, its sends, its
+  // level — and touches NONE of the scheduler's decision state.
+  //
+  // That second clause is the rule, not a detail. A live note draws no rng(),
+  // is never written to a loop record, never counts towards the stats the
+  // generated piece is measured by, never enters the mono/legato books and
+  // never moves a bar's plan. Play a chord over a seeded piece and the piece
+  // it plays is bit-for-bit the piece it would have played in silence.
+
+  /** How long an unreleased live note sounds before it lets go by itself. */
+  const LIVE_HOLD = 8;
+  /** The velocity a caller that sends none is playing at. */
+  const LIVE_VELOCITY = 0.8;
+  /** The ramp a live note opens its track's chain with — fast, but not a click. */
+  const LIVE_OPEN = 0.02;
+
+  // The notes the hands are holding down: `track|midi` → its handle, its ledger
+  // entry and (while armed) the capture row it will close.
+  const heldKeys = new Map();
+  let capture = null;      // { track, notes } while the record button is armed
+  let captureUndo = null;  // { track, sequencers } — the lane the last write replaced
+
+  /** A percussive track's kit, or null for anything that sounds a pitch. */
+  function liveKit(name) {
+    const lanes = params.tracks[name] ? params.tracks[name].lanes : null;
+    return Array.isArray(lanes) && lanes.length ? lanes : null;
+  }
+
+  /**
+   * Which lane of a kit a key strikes: the twelve pitch classes of ANY octave,
+   * spread evenly across the lanes the kit has. Octave-independent on purpose —
+   * a kit has no register, so shifting octaves on the keyboard must not move
+   * the drum under the same key.
+   */
+  const kitLaneFor = (kit, midi) => kit[clamp(Math.floor(((midi % 12) * kit.length) / 12),
+    0, kit.length - 1)];
+
+  /**
+   * A RangeValue as a number WITHOUT touching a drift walk: its midpoint.
+   *
+   * This is the whole of the bypass rule in one helper. A walk position is a
+   * decision of the piece — and reading one the piece has not opened yet OPENS
+   * it, because a fresh walk phase is seeded from rng(). A live note that
+   * resolved a ranged level or a ranged cutoff the ordinary way would therefore
+   * pull a number out of the piece's own stream and shift everything after it.
+   */
+  const liveValue = (value) => (value !== null && typeof value === 'object'
+    ? (value.min + value.max) / 2 : value);
+
+  /** The gain a live note opens its track's chain to — walk-free, see above. */
+  function liveGain(name) {
+    const level = liveValue(params.tracks[name].level);
+    return mixFor(name).level * clamp(Number(level) || 0, SILENCE, 1);
+  }
+
+  /**
+   * The patch a live note is played with: the same merge patchFor() does — the
+   * voice's own patch, with the struck lane's overrides folded in — but with
+   * ranged fields resolved to their midpoints and nothing written to the
+   * resolved-patch cache the scheduler reads.
+   */
+  function livePatch(track, lane) {
+    const bank = params.patches[track];
+    const voiceId = effectiveVoice(track);
+    const common = bank ? bank[voiceId] : undefined;
+    if (!common) return undefined;
+    const merged = common.perKind
+      ? mergeSections(common, lane === null || lane === undefined ? null : common.perKind[lane])
+      : common;
+    let out = null;
+    for (const section of Object.keys(PATCH_SCHEMA)) {
+      const fields = merged[section];
+      if (!fields) continue;
+      for (const [field, value] of Object.entries(fields)) {
+        if (!value || typeof value !== 'object') continue;
+        if (!out) out = { ...merged };
+        if (out[section] === fields) out[section] = { ...fields };
+        out[section][field] = liveValue(value);
+      }
+    }
+    return out ?? merged;
+  }
+
+  /**
+   * Open the path a live note needs: the target track's own chain, and — with
+   * the piece stopped — the master gain the transport otherwise keeps shut.
+   *
+   * A track the scheduler is not currently playing (staged out, or switched
+   * off) still sounds under the hands: the listener pressed the key, and the
+   * only honest answer to a key press is the note. applyTracks() closes the
+   * chain again on its own terms once nothing of that track's is ringing.
+   */
+  function openLiveChain(name, at) {
+    const chain = graph.tracks[name];
+    chain.input.gain.setTargetAtTime(Math.max(liveGain(name), SILENCE), at, LIVE_OPEN);
+    if (isRunning || outroStarted) return;
+    const target = Math.max(params.volume * MASTER_HEADROOM, SILENCE);
+    graph.master.gain.cancelScheduledValues(at);
+    graph.master.gain.setValueAtTime(Math.max(graph.master.gain.value, SILENCE), at);
+    graph.master.gain.exponentialRampToValueAtTime(target, at + LIVE_OPEN * 4);
+  }
+
+  /** Let go of one held key: fade its note, drop it from the polyphony ledger. */
+  function releaseKey(held, at) {
+    if (held.handle) {
+      try {
+        held.handle.cancel(at);
+      } catch {
+        // A note that will not cancel still rings out on its own envelope.
+      }
+    }
+    liveNotes.delete(held.entry);
+    // The capture row closes at the release, so the key's own length is what
+    // the quantiser reads a gate from.
+    if (held.row) held.row.end = Math.max(at, held.row.start + 0.02);
+  }
+
+  /**
+   * Sound a note now, on `track`, at the listener's hand. Returns false —
+   * quietly, always — for a track this engine does not have, a pitch outside
+   * MIDI, or an engine with no audio graph yet: arm() or start() builds one,
+   * and until then there is nothing to play through.
+   */
+  function noteOn(track, midi, velocity) {
+    const name = typeof track === 'string' && params.tracks[track] ? track : null;
+    if (!name || !ctx || !graph || !graph.tracks[name]) return false;
+    const pitch = Math.round(Number(midi));
+    if (!Number.isFinite(pitch) || pitch < 0 || pitch > 127) return false;
+    const sent = Number(velocity);
+    const vel = clamp(Number.isFinite(sent) && sent > 0 ? sent : LIVE_VELOCITY, 0.01, 1);
+    // A key pressed twice without a release is a re-strike, never a stack.
+    noteOff(name, pitch);
+    const when = ctx.currentTime;
+    const kit = liveKit(name);
+    const lane = kit ? kitLaneFor(kit, pitch) : null;
+    const note = {
+      midi: kit ? null : pitch,
+      freq: kit ? null : midiToFreq(pitch),
+      velocity: vel,
+      duration: LIVE_HOLD,
+      when,
+      pan: 0,
+      kind: lane ? lane.kind : null,
+      lane: lane ? lane.id : null,
+    };
+    openLiveChain(name, when);
+    const voice = voiceFor(name);
+    let handle = null;
+    if (voice) {
+      stealForBudget(when);
+      try {
+        const played = voice.play(ctx, graph.tracks[name].input, note,
+          livePatch(name, note.lane ?? note.kind));
+        handle = played && typeof played.cancel === 'function' ? played : null;
+      } catch {
+        // A broken voice loses its note, not the keyboard.
+      }
+    }
+    // Live notes ARE polyphony the CPU pays for, so they go on the same ledger
+    // the power governor and the cost meters read. They stay off `noteTimes`:
+    // notesPerMin measures the piece the engine is generating.
+    const entry = {
+      track: name,
+      handle,
+      velocity: vel,
+      when,
+      until: when + LIVE_HOLD,
+      end: when + LIVE_HOLD + CANCEL_TAIL,
+    };
+    liveNotes.add(entry);
+    const held = { track: name, midi: pitch, entry, handle, row: null };
+    if (capture && capture.track === name) {
+      held.row = { start: when, end: null, velocity: vel, lane: note.lane };
+      capture.notes.push(held.row);
+    }
+    heldKeys.set(`${name}|${pitch}`, held);
+    emit('note', {
+      track: name,
+      midi: note.midi,
+      kind: note.kind,
+      lane: note.lane,
+      velocity: vel,
+      time: when,
+      duration: LIVE_HOLD,
+      // The one field that tells a listener this note came from the hands and
+      // not from the piece.
+      live: true,
+    });
+    return true;
+  }
+
+  /** Let go of a key. False when that key was not down. */
+  function noteOff(track, midi) {
+    const key = `${track}|${Math.round(Number(midi))}`;
+    const held = heldKeys.get(key);
+    if (!held) return false;
+    heldKeys.delete(key);
+    releaseKey(held, ctx ? ctx.currentTime : 0);
+    return true;
+  }
+
+  /** Every key up at once — the panic button, and what a toggle-off runs. */
+  function allNotesOff() {
+    const at = ctx ? ctx.currentTime : 0;
+    let released = 0;
+    for (const held of [...heldKeys.values()]) {
+      releaseKey(held, at);
+      released += 1;
+    }
+    heldKeys.clear();
+    return released;
+  }
+
+  /**
+   * A step written EXPLICITLY: every optional field spelled out, including the
+   * ones this step does not have.
+   *
+   * v14 tie, v21 gate and v13 group are sticky by design — the sanitiser keeps
+   * whatever the stored step had when an edit does not mention them, so that a
+   * caller writing four fields cannot silently drop the fifth. A capture is not
+   * an edit of the lane, it REPLACES the lane, and an undo puts back a lane
+   * that may never have had a gate at all. Both therefore have to say `null`
+   * out loud where the step has nothing.
+   */
+  const explicitStep = (step) => ({
+    on: step.on === true,
+    prob: copyRangeValue(step.prob),
+    vmin: step.vmin,
+    vmax: step.vmax,
+    tie: step.tie === true,
+    gate: step.gate === undefined ? null : step.gate,
+    group: step.group === undefined ? null : step.group,
+  });
+
+  /** One sequencer, every step of it explicit — see explicitStep. */
+  const explicitSequencer = (sequencer) => ({
+    mode: sequencer.mode,
+    weights: sequencer.weights.slice(),
+    steps: Array.isArray(sequencer.steps)
+      ? sequencer.steps.map(explicitStep)
+      : Object.fromEntries(Object.keys(sequencer.steps)
+        .map((lane) => [lane, sequencer.steps[lane].map(explicitStep)])),
+  });
+
+  /**
+   * The grid a capture quantises onto: this metre's slots, at this tempo, keyed
+   * to a real downbeat while the piece plays and to the arming moment while it
+   * does not. currentBarTime is the bar being SCHEDULED — ahead of what is
+   * sounding — but bars are a cycle and the quantiser wraps, so a downbeat one
+   * or two bars in the future is the same origin as the one under the hands.
+   */
+  function captureGrid() {
+    const secPerBeat = 60 / clamp(params.bpm * params.speed, 10, 400);
+    return {
+      origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
+      stepSeconds: secPerBeat * SEQUENCER_STEP_BEATS,
+      stepCount: sequencerStepsPerBar(params.timeSignature),
+    };
+  }
+
+  /**
+   * Arm the record button on a track. Only a SEQUENCED track can be armed —
+   * a pad and a texture have no step grid for a take to be written into — and
+   * arming a second time on top of a live capture is not an error, it just
+   * re-points it and drops what was played.
+   */
+  function armCapture(track) {
+    const name = typeof track === 'string' && params.tracks[track] ? track : null;
+    if (!name || !sequencedTracks().includes(name)) return false;
+    capture = { track: name, notes: [], armedAt: ctx ? ctx.currentTime : 0 };
+    return true;
+  }
+
+  /**
+   * Stop recording and write the take into the track's ACTIVE sequencer, in
+   * manual mode — through setParams, exactly as a step the user clicked would
+   * go in. The lane it replaced is kept for undoCapture(); a take with nothing
+   * in it writes nothing and leaves any previous undo alone.
+   */
+  function stopCapture() {
+    if (!capture) return null;
+    const { track, notes } = capture;
+    const at = ctx ? ctx.currentTime : 0;
+    // A key still down when the button is pressed ends at the button.
+    for (const held of [...heldKeys.values()]) {
+      if (held.row && held.row.end === null) held.row.end = Math.max(at, held.row.start + 0.02);
+    }
+    capture = null;
+    const config = params.tracks[track];
+    // The track can have been removed while the take was running: there is
+    // nothing left to write into, and the take goes with it.
+    if (!config || !config.sequencers) {
+      return { track, captured: notes.length, written: 0, sequencer: 0 };
+    }
+    const list = Array.isArray(config.sequencers) ? config.sequencers : [config.sequencer];
+    const index = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
+    const grid = captureGrid();
+    const kit = liveKit(track);
+    const { steps, written } = quantiseCapture(notes, {
+      ...grid,
+      lanes: kit ? kit.map((lane) => lane.id) : null,
+    });
+    if (!written) return { track, captured: notes.length, written: 0, sequencer: index };
+    captureUndo = { track, sequencers: list.map(explicitSequencer) };
+    const next = list.map(explicitSequencer);
+    // Manual: a take is played back as it was played, not as a suggestion the
+    // generator may take or leave.
+    next[index] = explicitSequencer({ mode: 'manual', weights: list[index].weights, steps });
+    setParams({ tracks: { [track]: { sequencers: next } } });
+    return { track, captured: notes.length, written, sequencer: index };
+  }
+
+  /** Put back the lane the last written capture replaced. One click, once. */
+  function undoCapture() {
+    if (!captureUndo) return false;
+    const { track, sequencers } = captureUndo;
+    captureUndo = null;
+    if (!params.tracks[track]) return false;
+    setParams({ tracks: { [track]: { sequencers } } });
+    return true;
+  }
+
+  /** What the record button needs to draw itself. */
+  function getCapture() {
+    return {
+      armed: Boolean(capture),
+      track: capture ? capture.track : null,
+      notes: capture ? capture.notes.length : 0,
+      held: heldKeys.size,
+      undoable: Boolean(captureUndo),
+    };
   }
 
   // -- harmony: the hook -----------------------------------------------------
@@ -7027,6 +7439,7 @@ export function createEngine(initialParams, options = {}) {
    */
   function rebuildContext() {
     liveNotes.clear(); // handles into the dead context; close() ends their audio
+    heldKeys.clear();  // and the keys the hands were holding through them
     // Chains still ringing out belong to the context about to close, which ends
     // their audio outright; nothing is left to unwire.
     retiring.clear();
@@ -7531,6 +7944,14 @@ export function createEngine(initialParams, options = {}) {
     getStats,
     setPowerBudget,
     setReverbSeconds,
+    // v28 live play-along, and the record button over it.
+    noteOn,
+    noteOff,
+    allNotesOff,
+    armCapture,
+    stopCapture,
+    undoCapture,
+    getCapture,
     // Post-master mix as a MediaStream (what the listener hears), for
     // page-side MediaRecorder. Null on the direct-output route or pre-start.
     getOutputStream() {

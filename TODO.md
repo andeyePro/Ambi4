@@ -17,7 +17,7 @@
 ### Next build queue (engine gaps from v26)
 - [x] Master/total analyser (engine) so the scope's white Total trace can ship — `getAnalysers().total` / `getMasterAnalyser()`, tapped off the compressor so both output routes feed it
 - [x] Hook-seed param so genre chord DEGREES reach the audio — `harmony.seed`, emitted by compileGenre from its expanded progression
-- [ ] Genre UI: dropdown + surprise-me + favourites (mood groups, hide-non-favourites), Pause, Fast-forward, weighted initial-load genre pick — engine side of Pause is in (`engine.pause()` / `resume()`, `state` events carry `paused`)
+- [x] Genre UI: dropdown + surprise-me + favourites (mood groups, hide-non-favourites), Pause, Fast-forward, weighted initial-load genre pick — shipped v0.0.27
 
 ### Next build queue
 - [ ] Playlists rebuild: verified PD/CC0 artwork, broader instrumental artists, Ambi4-made playlist categories
@@ -26,8 +26,8 @@
 ### Product roadmap additions (v19+)
 - [ ] AI-free pledge labelling: a listed preset/album can carry "AI-free" if the user signs a pledge that no external AI compiled it (pairs with Blank slate; enforcement = pledge + moderation, not detection)
 - [ ] Custom-track share notice wording — shipped as "Brought N custom track(s), playing stock voices." (contract's suggested line was false for the shipped design); Martin may overrule
-- [ ] Live MIDI/QWERTY recording into tracks
-- [ ] Live play-along mode (same input path triggering track voices in real time)
+- [x] Live MIDI/QWERTY recording into tracks — shipped v0.0.32 (capture quantises rhythm/velocity/length into the sequencer; pitches follow the piece's harmony — step lanes hold no pitch)
+- [x] Live play-along mode — shipped v0.0.32 (QWERTY two-row + octave shift, Web MIDI where supported, any track incl. custom)
 - [ ] Audio-in track: mic capture to a buffer (on-device only), trim/normalise/loop editing, played through the normal track chain
 
 ### Product roadmap (specs in docs/engine-v2-contract.md + brain2 Ambi4-strategy)

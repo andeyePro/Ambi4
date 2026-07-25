@@ -1645,3 +1645,151 @@ The page hardcodes the voice `<select>` options and a label map from this
 contract's table rather than importing `engine-voices.js`. Both need the eleven
 ids/labels above, or a listener who picks one of the new genres sees a selector
 that cannot show the voice they are hearing.
+
+# v28 addendum — live play-along and the record button over it
+
+Two halves of one seam, each shipping on its own: the listener's hands can
+sound any track directly (`noteOn` / `noteOff`), and a record button can
+quantise what they played into that track's step grid. Free tier, no gate.
+
+## Engine API
+
+```js
+engine.noteOn(track, midi, velocity?)   // → boolean: did it sound
+engine.noteOff(track, midi)             // → boolean: was that key down
+engine.allNotesOff()                    // → number released (panic / toggle-off)
+
+engine.armCapture(track)                // → boolean: a sequenced track only
+engine.stopCapture()                    // → { track, captured, written, sequencer } | null
+engine.undoCapture()                    // → boolean: one click, once
+engine.getCapture()                     // → { armed, track, notes, held, undoable }
+```
+
+- `track` is any id in THIS engine's registry, user tracks included. An id it
+  does not have, a pitch outside 0–127, or anything unusable is a quiet
+  `false` — never a throw. A UI that lets a track be removed mid-performance
+  must be able to keep pressing keys through the change.
+- `velocity` is 0–1, clamped; absent (or ≤ 0) plays at 0.8.
+- **Stopped is fine, but a graph is not optional.** A live note is played
+  through the audio graph, so `arm()` (or `start()`) has to have built one:
+  before that, `noteOn` returns false and sounds nothing. `arm()` is the
+  intended door — it builds the graph, loads the voices and starts no
+  transport, so the keys work over silence. A live note never starts the
+  transport itself.
+- With the piece stopped, `noteOn` opens the master gain the transport keeps
+  shut and the target track's own chain; while it plays, the note simply uses
+  the chain that is already open. A track the scheduler is NOT currently
+  playing (staged out, `state: 'off'`) still sounds under the hands — the
+  key press is the instruction — and `applyTracks` closes the chain again on
+  its own terms once nothing of that track's is ringing.
+- Voice, patch (per-lane overrides included), sends and level are the target
+  track's own. Polyphony is unlimited by the keys themselves; a re-press of a
+  held key re-strikes it rather than stacking a second note. `mono`/glide do
+  NOT apply: the mono books belong to the generated line, and two hands are
+  not one line.
+- A held key releases itself after 8 seconds if no `noteOff` arrives.
+- A percussive track has no register: the twelve pitch classes of ANY octave
+  spread evenly across the kit's lanes, so shifting octave never moves the
+  drum under a key. Kit hits carry `midi: null` and the lane they struck.
+- Live notes emit on the ordinary `note` stream with `live: true`, so a
+  visualiser draws them without a second subscription. They are booked on the
+  polyphony ledger (`getStats().totalActiveNotes`, the power governor's
+  budget) because they are real voices — but never on `notesPerMin`, which
+  measures the piece the ENGINE is generating.
+- `stop()` and a context rebuild release every held key.
+
+## The bypass rule (the one that must not rot)
+
+A live note **must not touch a decision of the piece**. Concretely, `noteOn`:
+
+- draws no `rng()` — including indirectly. Reading a ranged level or a ranged
+  patch field the ordinary way would SEED a drift walk (`walk()` fills an
+  unseen phase from `rng()`), so the live path resolves every RangeValue to
+  its midpoint (`liveValue`) and resolves its patch through `livePatch`,
+  which also writes nothing to the resolved-patch cache the scheduler reads;
+- never runs inside `playNote` — the scheduler's note path, which sits inside
+  the loop-record capture and calls `recordNote`;
+- never enters `loopRecord`, `frozenPlans`, `monoNotes`, `lastNoteEnd` or the
+  bar planner.
+
+Therefore: **the same seed produces the same note stream whether or not
+anyone played over the top.** `tests/engine-smoke.mjs` holds this directly
+(v28 byte-identity: a seeded 20 s run with two hands over it, compared
+note-for-note against the same run in silence), and the scratchpad
+head-vs-work harness proves it against the previous commit over three seeds.
+
+The one thing live notes CAN change is what a *capped* power budget steals:
+they are polyphony, so under `setPowerBudget({ maxNotes })` a live note can
+be the reason a quiet scheduled note is cancelled. That is audio, not the
+note stream — the events are emitted either way.
+
+## Capture semantics (quantise)
+
+Pure, exported, unit-testable without an AudioContext:
+
+```js
+captureSlot(seconds, { origin, stepSeconds, stepCount })   // → slot | null
+quantiseCapture(notes, { origin, stepSeconds, stepCount, lanes? })
+  // notes: [{ start, end, velocity, lane? }] → { steps, written }
+```
+
+- The grid is the metre's: `stepCount = sequencerStepsPerBar(timeSignature)`,
+  `stepSeconds = (60 / (bpm × speed)) × SEQUENCER_STEP_BEATS`.
+- `origin` is any downbeat of that grid — while the piece plays, the engine
+  uses `currentBarTime`, which is the bar being SCHEDULED and therefore ahead
+  of what is sounding. That is deliberate and exact: origins a whole number
+  of bars apart are the same origin to a cycle. Stopped, the origin is the
+  moment Capture was armed.
+- Onsets round to the nearest slot and WRAP (positive modulo): a take longer
+  than a bar folds onto the grid, and a note played before the origin is as
+  playable as one after it. An unreadable grid answers `null` and the note is
+  dropped rather than written to slot 0.
+- Each played slot becomes `{ on: true, prob: 1, vmin: v, vmax: v }` at the
+  velocity it was struck, plus a v21 `gate` of (held seconds ÷ step seconds),
+  clamped to 0.1–2, when the key was released. A key never let go keeps the
+  lane's own gap-derived length. Every other slot is `on: false` — a capture
+  REPLACES the lane, it does not merge into it.
+- Two presses inside one slot: the last wins. A re-strike inside a
+  sixteenth is a correction, not a chord.
+- A kit take is keyed by lane id; a lane the kit lost mid-take falls to the
+  first lane rather than vanishing.
+- **A step grid holds no pitch — it never has.** A captured take is rhythm,
+  velocity and note length; the pitches come from the piece's harmony, as
+  they do for any other sequenced lane. The UI has to say so out loud (it
+  does, in the always-present note under the row).
+
+`stopCapture()` writes through the ordinary `setParams` path, into the
+track's ACTIVE sequencer, with `mode: 'manual'` — a take is played back as it
+was played, not as a suggestion. Both the write and `undoCapture()` spell out
+every optional step field (`tie`, `gate`, `group`) explicitly, including
+`null` where the step has none: those fields are sticky in the sanitiser by
+design, and a lane that is being replaced (or restored) must not inherit the
+one it replaced. An empty take writes nothing and leaves any previous undo
+alone.
+
+## Page contract (`src/pages/index.astro`)
+
+- One row under the genre picker in the transport panel, probe-gated on
+  `noteOn`/`noteOff` exactly as Add Track is gated on `addTrack`: a keyboard
+  with nothing behind it must not render. Capture is separately gated on
+  `armCapture`/`stopCapture`/`undoCapture`/`getCapture`.
+- Controls: the **Play along** toggle, a track picker (every registry track),
+  a fixed-width note readout, **Capture** and **Undo**. Nothing changes size
+  or position with state — only `aria-pressed` and `disabled` — and the note
+  line under the row is constant text with reserved height.
+- QWERTY map (the two-row layout every DAW ships), semitones above the bottom
+  row's C:
+  `z0 s1 x2 d3 c4 v5 g6 b7 h8 n9 j10 m11 ,12 l13 .14 ;15 /16` and
+  `q12 2·13 w14 3·15 e16 r17 5·18 t19 6·20 y21 7·22 u23 i24 9·25 o26 0·27 p28`.
+  `-`/`_` and `=`/`+` shift octave (1–7, opening at 4 — `z` is C4). Not z/x
+  for the octave: both are notes here.
+- The keys are live ONLY while the toggle is on, and NEVER while an `input`,
+  `textarea`, `select`, `contenteditable` or an open dialog has the event —
+  the instrument must not eat a preset name. Modifier chords (ctrl/meta/alt)
+  pass straight through.
+- Web MIDI is feature-detected (`navigator.requestMIDIAccess`) and requested
+  when the toggle goes on; note-on/note-off messages drive the same
+  `noteOn`/`noteOff` seam at velocity/127. Absence is silent — no message, no
+  disabled control, nothing to explain.
+- Blur and tab-hide release every held key: a keyup that never arrives must
+  not leave a note sounding.
