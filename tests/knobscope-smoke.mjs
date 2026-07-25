@@ -598,6 +598,201 @@ test('knob v12: a throwing glyph() degrades to text-only, never breaks the knob'
 });
 
 // --------------------------------------------------------------------------
+// Knob tests — v14 range-zone drag + click-to-type
+// --------------------------------------------------------------------------
+
+// A square 100×100 face, top-left at the origin — matches how pointerDeg /
+// pointerFaceZone read rect.width as the SVG's (square) pixel side. Centre
+// is (50,50); FACE_R=31 viewBox units → a 31px face radius at this scale.
+const SQUARE_RECT = { left: 0, top: 0, width: 100, height: 100 };
+
+test('knob v14: pointerdown INSIDE the face drags min, OUTSIDE the face drags max', () => {
+  const inside = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
+  inside.knob.el.getBoundingClientRect = () => SQUARE_RECT;
+  // 10px above centre = distance 10 < the 31px face radius → inside → min.
+  inside.knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 40 });
+  inside.knob.el.dispatch('pointermove', { clientY: 20 }); // 20px further up = +1 over a 0–10 range
+  inside.knob.el.dispatch('pointerup', { pointerId: 1 });
+  assert.deepEqual(inside.inputs[inside.inputs.length - 1], { min: 5, max: 6 }, 'inside-face drag must move min only');
+  inside.knob.destroy();
+
+  const outside = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
+  outside.knob.el.getBoundingClientRect = () => SQUARE_RECT;
+  // 45px above centre = distance 45 > the 31px face radius, and >12° from
+  // the current max-thumb angle, so this is a zone grab, not a near grab.
+  outside.knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 5 });
+  outside.knob.el.dispatch('pointermove', { clientY: -15 }); // 20px further up = +1
+  outside.knob.el.dispatch('pointerup', { pointerId: 1 });
+  assert.deepEqual(outside.inputs[outside.inputs.length - 1], { min: 4, max: 7 }, 'outside-face drag must move max only');
+  outside.knob.destroy();
+});
+
+test('knob v14: Shift remains a secondary max alias when face geometry is unavailable', () => {
+  // No getBoundingClientRect override on this knob's root — pointerFaceZone
+  // and pointerDeg both degrade to null, so Shift is the only way in.
+  const { knob, inputs } = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
+  const el = knob.el;
+  el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 100, shiftKey: true });
+  el.dispatch('pointermove', { clientY: 80 }); // 20px up = +1
+  el.dispatch('pointerup', { pointerId: 1 });
+  assert.deepEqual(inputs[inputs.length - 1], { min: 4, max: 7 }, 'Shift-held drag must still move max');
+  knob.destroy();
+});
+
+test('knob v14: the readout is a focusable button; click swaps it for a pre-filled input', () => {
+  const { knob } = makeTestKnob({ value: 5, min: 0, max: 10, step: 1 });
+  const valueEl = knob.el.children[2];
+  assert.equal(valueEl.tagName, 'button');
+  valueEl.dispatch('click');
+  assert.equal(valueEl.style.display, 'none', 'the readout button must hide while editing');
+  const input = knob.el.children[3];
+  assert.equal(input.tagName, 'input');
+  assert.equal(input.value, '5', 'single mode pre-fills the plain current value');
+  knob.destroy();
+});
+
+test('knob v14: Enter commits a typed value through the clamp path and fires onInput', () => {
+  const { knob, inputs } = makeTestKnob({ value: 5, min: 0, max: 10, step: 1 });
+  const valueEl = knob.el.children[2];
+  valueEl.dispatch('click');
+  const input = knob.el.children[3];
+  input.value = '99'; // out of range — must clamp through the normal commit path
+  input.dispatch('keydown', { key: 'Enter' });
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '10', 'must clamp at max like any other commit');
+  assert.deepEqual(inputs, [10]);
+  assert.equal(valueEl.style.display, '', 'the readout button must reappear after commit');
+  assert.equal(knob.el.children.length, 3, 'the input must be removed after commit');
+  knob.destroy();
+});
+
+test('knob v14: blur commits exactly like Enter', () => {
+  const { knob, inputs } = makeTestKnob({ value: 5, min: 0, max: 10, step: 1 });
+  const valueEl = knob.el.children[2];
+  valueEl.dispatch('click');
+  const input = knob.el.children[3];
+  input.value = '7';
+  input.dispatch('blur');
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '7');
+  assert.deepEqual(inputs, [7]);
+  knob.destroy();
+});
+
+test('knob v14: Esc cancels the edit without committing or emitting', () => {
+  const { knob, inputs } = makeTestKnob({ value: 5, min: 0, max: 10, step: 1 });
+  const valueEl = knob.el.children[2];
+  valueEl.dispatch('click');
+  const input = knob.el.children[3];
+  input.value = '9';
+  input.dispatch('keydown', { key: 'Escape' });
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '5', 'value must be unchanged');
+  assert.deepEqual(inputs, [], 'Esc must not fire onInput');
+  assert.equal(valueEl.style.display, '', 'the readout button must reappear after cancel');
+  assert.equal(knob.el.children.length, 3, 'the input must be removed after cancel');
+  knob.destroy();
+});
+
+test('knob v14: range text parse accepts "a-b" and "a to b", order-independent, both thumbs', () => {
+  const { knob, inputs } = makeTestKnob({
+    allowRange: true,
+    step: undefined,
+    min: 0,
+    max: 1,
+    value: { min: 0.1, max: 0.9 },
+  });
+  const valueEl = knob.el.children[2];
+  valueEl.dispatch('click');
+  let input = knob.el.children[3];
+  assert.equal(input.value, '0.1-0.9', 'range mode pre-fills "min-max"');
+  input.value = '0.2-0.7';
+  input.dispatch('keydown', { key: 'Enter' });
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 0.2, max 0.7, drifting');
+  assert.deepEqual(inputs[inputs.length - 1], { min: 0.2, max: 0.7 });
+
+  valueEl.dispatch('click');
+  input = knob.el.children[3];
+  input.value = '0.9 to 0.3'; // reversed order — must sort into min/max
+  input.dispatch('keydown', { key: 'Enter' });
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 0.3, max 0.9, drifting');
+  assert.deepEqual(inputs[inputs.length - 1], { min: 0.3, max: 0.9 });
+  knob.destroy();
+});
+
+test('knob v14: a lone number in range mode sets the ACTIVE thumb only', () => {
+  const { knob, inputs } = makeTestKnob({
+    allowRange: true,
+    step: undefined,
+    min: 0,
+    max: 10,
+    value: { min: 2, max: 8 },
+  });
+  const valueEl = knob.el.children[2];
+  // Default active thumb is min.
+  valueEl.dispatch('click');
+  let input = knob.el.children[3];
+  input.value = '3';
+  input.dispatch('keydown', { key: 'Enter' });
+  assert.deepEqual(inputs[inputs.length - 1], { min: 3, max: 8 }, 'a lone number must move min only, by default');
+
+  // Shift-arrow moves max, making max the active thumb (the exact nudge
+  // amount doesn't matter here — the typed edit below overwrites it).
+  knob.el.dispatch('keydown', { key: 'ArrowUp', shiftKey: true });
+  valueEl.dispatch('click');
+  input = knob.el.children[3];
+  input.value = '6';
+  input.dispatch('keydown', { key: 'Enter' });
+  assert.deepEqual(inputs[inputs.length - 1], { min: 3, max: 6 }, 'active thumb switched to max must be the one moved');
+  knob.destroy();
+});
+
+test('knob v14: unparsable typed text is discarded silently, value unchanged', () => {
+  const { knob, inputs } = makeTestKnob({ value: 5, min: 0, max: 10, step: 1 });
+  const valueEl = knob.el.children[2];
+  valueEl.dispatch('click');
+  const input = knob.el.children[3];
+  input.value = 'banana';
+  input.dispatch('keydown', { key: 'Enter' });
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '5');
+  assert.deepEqual(inputs, []);
+  knob.destroy();
+});
+
+test('knob v14: the readout is keyboard-reachable — Enter/Space open the editor with no pointer', () => {
+  const { knob } = makeTestKnob({ value: 5, min: 0, max: 10, step: 1 });
+  const valueEl = knob.el.children[2];
+  valueEl.dispatch('keydown', { key: 'Enter' });
+  assert.equal(knob.el.children.length, 4, 'Enter on the readout must open the editor');
+  assert.equal(knob.el.children[3].value, '5');
+  knob.el.children[3].dispatch('keydown', { key: 'Escape' });
+  assert.equal(knob.el.children.length, 3);
+
+  valueEl.dispatch('keydown', { key: ' ' });
+  assert.equal(knob.el.children.length, 4, 'Space on the readout must also open the editor');
+  knob.destroy();
+});
+
+test('knob v14: a readout click never collides with the face click-to-toggle-mode gesture', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true, value: 5 });
+  const valueEl = knob.el.children[2];
+  valueEl.dispatch('click');
+  assert.equal(knob.el.getAttribute('aria-valuetext'), '5', 'a readout click must open the editor, never toggle range mode');
+  assert.deepEqual(inputs, []);
+  knob.destroy();
+
+  // In a real DOM, pointerdown/pointerup on the readout button bubble up to
+  // the root — where the face's click-to-toggle-mode logic lives. Simulate
+  // that bubbling explicitly (the mock never bubbles on its own) by putting
+  // the readout as `target` on a root-dispatched click-shaped pointer pair,
+  // and assert onPointerDown's e.target guard suppresses the toggle.
+  const { knob: knob2, inputs: inputs2 } = makeTestKnob({ allowRange: true, value: 5 });
+  const valueEl2 = knob2.el.children[2];
+  knob2.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 10, target: valueEl2 });
+  knob2.el.dispatch('pointerup', { pointerId: 1, clientX: 10, clientY: 10, target: valueEl2 });
+  assert.equal(knob2.el.getAttribute('aria-valuetext'), '5', 'a bubbled readout pointerdown must not drive the face drag/toggle logic');
+  assert.deepEqual(inputs2, []);
+  knob2.destroy();
+});
+
+// --------------------------------------------------------------------------
 // Scope tests — offline path
 // --------------------------------------------------------------------------
 
@@ -813,15 +1008,30 @@ test('scope: live scope never sets shadowBlur/shadowColor during a normal frame'
   });
 });
 
-test('scope: caps devicePixelRatio backing-store sizing at 2 even when the browser reports higher', () => {
+test('scope: caps devicePixelRatio backing-store sizing at 3 even when the browser reports higher', () => {
   const calls = {};
   const canvas = makeCanvas(calls);
   const prevWindow = globalThis.window;
   globalThis.window = { devicePixelRatio: 4 };
   try {
     scope.attachLiveScope(canvas, makeAnalyser()).destroy();
-    assert.equal(canvas.width, 1200, 'backing store must clamp to dpr 2, not 4');
-    assert.equal(canvas.height, 600);
+    assert.equal(canvas.width, 1800, 'backing store must clamp to dpr 3, not 4');
+    assert.equal(canvas.height, 900);
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+});
+
+test('scope: passes devicePixelRatio through unclamped at 2.5 (browser zoom on retina)', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const prevWindow = globalThis.window;
+  globalThis.window = { devicePixelRatio: 2.5 };
+  try {
+    scope.attachLiveScope(canvas, makeAnalyser()).destroy();
+    assert.equal(canvas.width, 1500, 'expected backing store at the full 2.5 ratio, not clamped');
+    assert.equal(canvas.height, 750);
   } finally {
     if (prevWindow === undefined) delete globalThis.window;
     else globalThis.window = prevWindow;

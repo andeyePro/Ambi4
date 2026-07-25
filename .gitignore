@@ -38,3 +38,7 @@ dist/
 .vibe/
 .vibe-signals/
 # <<< vibe-managed <<<
+
+# vsss/vibe harness state — internal, not for the public repo
+.vss/
+docs-private/

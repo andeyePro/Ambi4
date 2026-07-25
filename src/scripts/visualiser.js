@@ -1,13 +1,26 @@
 /**
- * visualiser.js — canvas track visualiser for the ambient engine (v2).
+ * visualiser.js — canvas track visualiser for the ambient engine (v2, v14
+ * track-order/lamp/chord addendum).
  *
  * export function initVisualiser(canvas, engine) => { destroy() }
  *
- * Six horizontal lanes (pad, bass, melody, texture, arp, percussion) show
+ * Six horizontal lanes (pad, arp, melody, bass, texture, percussion) show
  * scheduled notes scrolling right-to-left on a time axis (right edge = now +
  * a small lookahead), pitch mapped to vertical position, duration to blip
  * width, velocity to opacity/size. A soft per-track level glow comes from
- * `engine.getAnalysers()`. Section/bar events draw context lines.
+ * `engine.getAnalysers()`. Section/bar events draw context lines; bar ticks
+ * show the chord name (from a feature-detected 'chord' event) once one has
+ * fired, with the section letter demoted to a secondary label.
+ *
+ * Each lane name is also an interactive "lamp": a real positioned <button>
+ * overlaid above the canvas (not a canvas-only hit zone, for keyboard/AT
+ * access), cycling that track's state auto → on → off via
+ * `engine.setParams({ tracks: { [track]: { state } } })`. The overlay is
+ * built by wrapping the canvas in a small position:relative host div on
+ * init, and unwrapped back to the canvas's original DOM position on
+ * destroy(). Lamp fills/labels are read from `engine.getParams()` and
+ * refreshed on 'state'/'bar' events plus a light poll — never from inside
+ * the rAF render loop.
  *
  * This module is a pure, self-contained script: no imports, and nothing at
  * module-import time touches `window`/`document`/canvas APIs — every browser
@@ -22,19 +35,19 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-const TRACKS = ['pad', 'bass', 'melody', 'texture', 'arp', 'percussion'];
+const TRACKS = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
 
 const TRACK_LABELS = {
   pad: 'Pad',
-  bass: 'Bass',
-  melody: 'Melody',
-  texture: 'Texture',
   arp: 'Arp',
+  melody: 'Melody',
+  bass: 'Bass',
+  texture: 'Texture',
   percussion: 'Percussion',
 };
 
-// Mix ratios (toward --text) used to derive a distinct accent per lane from
-// --link/--text, per the visualiser contract.
+// Mix ratios (toward --text) used to derive a distinct fallback accent per
+// lane from --link/--text, when the --track-<id> theme tokens are unset.
 const LANE_ACCENT_RATIOS = [0.15, 0.32, 0.48, 0.64, 0.8, 0.95];
 
 const HISTORY_SECONDS = 24;     // scrolled time visible left of "now"
@@ -45,7 +58,12 @@ const MAX_MARKERS = 500;
 const REDUCED_MOTION_FPS = 2;
 const TARGET_FPS = 30;
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
-const MAX_DPR = 2; // retina laptops report 2, but browser zoom can push higher
+// v14 05:4xZ: MAX_DPR=2 rendered soft under browser zoom on retina (effective
+// dpr ~2.5-3). Raised to 3 — this canvas is small (device pixel count stays
+// modest even at dpr 3), and the 30fps frame-rate cap (not backing-store
+// size) carries the v9 thermal/perf budget, so this doesn't reopen that
+// issue.
+const MAX_DPR = 3;
 const TOP_MARGIN = 16;
 const MIN_LABEL_WIDTH = 36;
 const MAX_LABEL_WIDTH = 74;
@@ -55,15 +73,19 @@ const MIN_BAR_TICK_SPACING_PX = 8;
 // positioned by `kind` (low/mid/high), not by this map.
 const DEFAULT_MIDI_RANGE = {
   pad: [36, 72],
-  bass: [24, 50],
-  melody: [55, 85],
-  texture: [72, 100],
   arp: [55, 90],
+  melody: [55, 85],
+  bass: [24, 50],
+  texture: [72, 100],
 };
 
 const PERCUSSION_KIND_ORDER = { low: 0, mid: 1, high: 2 };
 
-const LABEL_FONT = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+const FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+const LABEL_FONT = `11px ${FONT_STACK}`;
+// Smaller/secondary label used for the section letter once bar ticks carry
+// the primary chord-name label (once a 'chord' event has ever fired).
+const SECONDARY_FONT = `9px ${FONT_STACK}`;
 
 // ---------------------------------------------------------------------------
 // Colour helpers (no DOM required — pure string parsing/mixing)
@@ -157,6 +179,21 @@ const FALLBACK_THEME = {
   link: { r: 0, g: 123, b: 255, a: 1 },
 };
 
+/**
+ * Per-lane accent colour: prefers the theme's --track-<id> custom property
+ * (added by the theme agent for pad/arp/melody/bass/texture/percussion);
+ * falls back to a derived mix of --link/--text when unset/unparseable.
+ */
+function laneAccentFor(track, idx, computed, link, text) {
+  const fallback = mixColors(link, text, LANE_ACCENT_RATIOS[idx]);
+  if (!computed) return fallback;
+  try {
+    return parseColor(computed.getPropertyValue(`--track-${track}`), fallback);
+  } catch {
+    return fallback;
+  }
+}
+
 /** Reads --text/--secondary/--border/--link off the canvas and derives per-lane accents. */
 function readTheme(canvas) {
   let computed = null;
@@ -177,7 +214,7 @@ function readTheme(canvas) {
   const secondary = read('--secondary', FALLBACK_THEME.secondary);
   const border = read('--border', FALLBACK_THEME.border);
   const link = read('--link', FALLBACK_THEME.link);
-  const laneAccents = TRACKS.map((_, i) => mixColors(link, text, LANE_ACCENT_RATIOS[i]));
+  const laneAccents = TRACKS.map((t, i) => laneAccentFor(t, i, computed, link, text));
   return { text, secondary, border, link, laneAccents };
 }
 
@@ -224,6 +261,8 @@ export function initVisualiser(canvas, engine) {
   const notesByTrack = new Map(TRACKS.map((t) => [t, []]));
   const barTicks = [];    // { time, bar }
   const sectionMarks = []; // { time, label, bar }
+  const chordMarks = [];  // { time, bar, name } — from the feature-detected 'chord' event
+  let hasChordEvents = false; // once true, chord names take over as the primary bar-tick label
   const midiRange = {};
   for (const t of TRACKS) {
     if (DEFAULT_MIDI_RANGE[t]) {
@@ -340,6 +379,7 @@ export function initVisualiser(canvas, engine) {
     } catch {
       // ignore malformed event
     }
+    refreshLampStates(); // event-driven lamp refresh, outside the rAF loop
   }
 
   function onSection(evt) {
@@ -356,6 +396,21 @@ export function initVisualiser(canvas, engine) {
     }
   }
 
+  function onChord(evt) {
+    try {
+      if (!evt) return;
+      hasChordEvents = true;
+      chordMarks.push({
+        time: typeof evt.time === 'number' ? evt.time : 0,
+        bar: evt.bar,
+        name: evt.name != null ? String(evt.name) : '',
+      });
+      if (chordMarks.length > MAX_MARKERS) chordMarks.shift();
+    } catch {
+      // ignore malformed event
+    }
+  }
+
   function onState(evt) {
     let nowRunning = false;
     try {
@@ -364,6 +419,7 @@ export function initVisualiser(canvas, engine) {
       nowRunning = false;
     }
     running = nowRunning;
+    refreshLampStates();
     if (running) {
       refreshAnalysers();
       ensureLoop();
@@ -376,6 +432,7 @@ export function initVisualiser(canvas, engine) {
   safeOn('note', onNote);
   safeOn('bar', onBar);
   safeOn('section', onSection);
+  safeOn('chord', onChord);
   safeOn('state', onState);
 
   // -- reduced motion --------------------------------------------------
@@ -414,6 +471,7 @@ export function initVisualiser(canvas, engine) {
   let themeMedia = null;
   function onThemeChange() {
     theme = readTheme(canvas);
+    positionLamps(); // lamp label colour follows the per-track theme tokens too
     renderFrame();
   }
   try {
@@ -456,6 +514,7 @@ export function initVisualiser(canvas, engine) {
       cssHeight = canvas.height || 150;
       dpr = 1;
     }
+    positionLamps();
     renderFrame();
     resizing = false;
   }
@@ -473,6 +532,206 @@ export function initVisualiser(canvas, engine) {
     }
   } catch {
     resizeObserver = null;
+  }
+
+  // -- device-pixel snapping (crisp hairlines/text at any dpr) -------------
+  //
+  // Coordinates here are in CSS px but the canvas transform scales by `dpr`,
+  // so a coordinate that isn't a whole number of device pixels renders as a
+  // blurred antialiased edge. snapPixel rounds a CSS coordinate onto the
+  // device-pixel grid; snapHairline additionally offsets by half a device
+  // pixel so a 1-CSS-px-wide stroke centres on a single device pixel row
+  // instead of straddling two (the classic canvas hairline trick, made
+  // dpr-aware instead of assuming dpr===1).
+
+  function snapPixel(v) {
+    return Math.round(v * dpr) / dpr;
+  }
+
+  function snapHairline(v) {
+    return snapPixel(v) + 0.5 / dpr;
+  }
+
+  // -- geometry shared between the canvas draw and the lamp overlay --------
+
+  function computeGeometry() {
+    const width = cssWidth;
+    const labelWidth = clampRange(width * 0.22, MIN_LABEL_WIDTH, MAX_LABEL_WIDTH);
+    return { labelWidth, x0: labelWidth, w: Math.max(1, width - labelWidth) };
+  }
+
+  // -- lamp overlay: per-lane state buttons ---------------------------------
+  //
+  // Each lane name is a real <button> (not a canvas hit zone) so it's
+  // keyboard/AT operable, overlaid above the canvas by wrapping the canvas
+  // in a small position:relative host div. All DOM work here happens
+  // outside the rAF render loop (init, resize, theme flips, and the
+  // 'state'/'bar' events + a light poll below) — never from inside draw().
+
+  let lampHost = null;
+  let lampParent = null;
+  let lampNextSibling = null;
+  const lampButtons = new Map(); // track -> { btn, bulb, text }
+  const lampState = new Map(TRACKS.map((t) => [t, 'auto']));
+  let lampPollId = null;
+
+  const LAMP_FILL = { auto: '#8a8a8a', on: '#ffffff', off: '#000000' };
+  const LAMP_ARIA_PRESSED = { auto: 'mixed', on: 'true', off: 'false' };
+  const LAMP_CYCLE = { auto: 'on', on: 'off', off: 'auto' };
+
+  function setupLampHost() {
+    try {
+      if (typeof document === 'undefined' || typeof document.createElement !== 'function') return;
+      if (!canvas.parentNode || typeof canvas.parentNode.insertBefore !== 'function') return;
+      const host = document.createElement('div');
+      host.style.position = 'relative';
+      lampParent = canvas.parentNode;
+      lampNextSibling = canvas.nextSibling;
+      lampParent.insertBefore(host, canvas);
+      host.appendChild(canvas);
+      lampHost = host;
+    } catch {
+      lampHost = null;
+      lampParent = null;
+      lampNextSibling = null;
+    }
+  }
+
+  function createLampButtons() {
+    if (!lampHost) return;
+    try {
+      for (const track of TRACKS) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.track = track;
+        btn.style.position = 'absolute';
+        btn.style.left = '0px';
+        btn.style.display = 'flex';
+        btn.style.alignItems = 'center';
+        btn.style.gap = '4px';
+        btn.style.padding = '0 6px';
+        btn.style.margin = '0';
+        btn.style.border = 'none';
+        btn.style.background = 'transparent';
+        btn.style.cursor = 'pointer';
+        btn.style.font = LABEL_FONT;
+        btn.style.textAlign = 'left';
+
+        const bulb = document.createElement('span');
+        bulb.setAttribute('aria-hidden', 'true');
+        bulb.style.display = 'inline-block';
+        bulb.style.width = '9px';
+        bulb.style.height = '9px';
+        bulb.style.borderRadius = '50%';
+        bulb.style.border = '1px solid currentColor';
+        bulb.style.flex = '0 0 auto';
+
+        const text = document.createElement('span');
+        text.textContent = TRACK_LABELS[track] || track;
+        text.style.whiteSpace = 'nowrap';
+        text.style.overflow = 'hidden';
+        text.style.textOverflow = 'ellipsis';
+
+        btn.appendChild(bulb);
+        btn.appendChild(text);
+        btn.addEventListener('click', () => onLampClick(track));
+
+        lampHost.appendChild(btn);
+        lampButtons.set(track, { btn, bulb, text });
+      }
+    } catch {
+      // partial DOM support; whatever lamps got created still work, the
+      // rest just fall back to having no interactive overlay
+    }
+  }
+
+  function teardownLampHost() {
+    try {
+      if (lampPollId !== null && typeof clearInterval === 'function') clearInterval(lampPollId);
+    } catch {
+      // ignore
+    }
+    lampPollId = null;
+    try {
+      if (lampHost && lampParent) {
+        lampParent.insertBefore(canvas, lampNextSibling || null);
+        if (typeof lampHost.remove === 'function') lampHost.remove();
+      }
+    } catch {
+      // ignore — best-effort DOM cleanup
+    } finally {
+      lampHost = null;
+      lampParent = null;
+      lampNextSibling = null;
+      lampButtons.clear();
+    }
+  }
+
+  function positionLamps() {
+    if (!lampHost) return;
+    try {
+      const { labelWidth } = computeGeometry();
+      const usableHeight = Math.max(1, cssHeight - TOP_MARGIN);
+      const laneHeight = usableHeight / TRACKS.length;
+      const laneGap = Math.min(4, laneHeight * 0.08);
+      TRACKS.forEach((track, i) => {
+        const entry = lampButtons.get(track);
+        if (!entry) return;
+        const top = TOP_MARGIN + i * laneHeight;
+        const bottom = top + laneHeight - laneGap;
+        entry.btn.style.top = `${top}px`;
+        entry.btn.style.width = `${labelWidth}px`;
+        entry.btn.style.height = `${Math.max(0, bottom - top)}px`;
+        entry.btn.style.color = rgba(theme.laneAccents[i], 1);
+      });
+    } catch {
+      // best-effort; the canvas-drawn lane still functions without it
+    }
+  }
+
+  function applyLampState(track, state) {
+    const entry = lampButtons.get(track);
+    if (!entry) return;
+    const safe = state === 'on' || state === 'off' ? state : 'auto';
+    entry.bulb.style.background = LAMP_FILL[safe];
+    entry.btn.setAttribute('aria-pressed', LAMP_ARIA_PRESSED[safe]);
+    entry.btn.setAttribute('aria-label', `${TRACK_LABELS[track] || track} track: ${safe}`);
+  }
+
+  function readTrackState(track) {
+    try {
+      if (typeof engine?.getParams === 'function') {
+        const params = engine.getParams();
+        const s = params && params.tracks && params.tracks[track] && params.tracks[track].state;
+        if (s === 'auto' || s === 'on' || s === 'off') return s;
+      }
+    } catch {
+      // fall through to the last locally-known state
+    }
+    return lampState.get(track) || 'auto';
+  }
+
+  function refreshLampStates() {
+    if (!lampHost) return;
+    for (const track of TRACKS) {
+      const state = readTrackState(track);
+      lampState.set(track, state);
+      applyLampState(track, state);
+    }
+  }
+
+  function onLampClick(track) {
+    const current = readTrackState(track);
+    const next = LAMP_CYCLE[current] || 'auto';
+    lampState.set(track, next);
+    applyLampState(track, next);
+    try {
+      if (typeof engine?.setParams === 'function') {
+        engine.setParams({ tracks: { [track]: { state: next } } });
+      }
+    } catch {
+      // engine rejected the update; the lamp still reflects the click locally
+    }
   }
 
   // -- visibility gating -----------------------------------------------
@@ -581,6 +840,26 @@ export function initVisualiser(canvas, engine) {
     }
     while (barTicks.length && barTicks[0].time < cutoff) barTicks.shift();
     while (sectionMarks.length && sectionMarks[0].time < cutoff) sectionMarks.shift();
+    while (chordMarks.length && chordMarks[0].time < cutoff) chordMarks.shift();
+  }
+
+  /** Chord name for a specific bar tick: exact bar match first, else the latest chord at/before its time. */
+  function chordNameForBarTick(tick) {
+    for (let i = chordMarks.length - 1; i >= 0; i--) {
+      if (chordMarks[i].bar === tick.bar) return chordMarks[i].name;
+    }
+    for (let i = chordMarks.length - 1; i >= 0; i--) {
+      if (chordMarks[i].time <= tick.time) return chordMarks[i].name;
+    }
+    return null;
+  }
+
+  /** Chord name currently sounding at a point in time (reduced-motion static label). */
+  function chordNameAtTime(t) {
+    for (let i = chordMarks.length - 1; i >= 0; i--) {
+      if (chordMarks[i].time <= t) return chordMarks[i].name;
+    }
+    return null;
   }
 
   function pitchY(track, note, innerTop, innerH) {
@@ -601,9 +880,10 @@ export function initVisualiser(canvas, engine) {
   function drawLaneFrame(top, bottom, x0, w) {
     ctx2d.strokeStyle = rgba(theme.border, 1);
     ctx2d.lineWidth = 1;
+    const y = snapHairline(bottom);
     ctx2d.beginPath();
-    ctx2d.moveTo(x0, bottom + 0.5);
-    ctx2d.lineTo(x0 + w, bottom + 0.5);
+    ctx2d.moveTo(x0, y);
+    ctx2d.lineTo(x0 + w, y);
     ctx2d.stroke();
   }
 
@@ -623,13 +903,14 @@ export function initVisualiser(canvas, engine) {
   }
 
   function drawLaneLabel(track, top, bottom) {
+    if (lampHost) return; // the DOM lamp button already renders the (interactive) label
     const level = levels.get(track) || 0;
     const alpha = clamp01(0.55 + level * 0.45);
     ctx2d.fillStyle = rgba(theme.text, alpha);
     ctx2d.font = LABEL_FONT;
     ctx2d.textBaseline = 'middle';
     ctx2d.textAlign = 'left';
-    ctx2d.fillText(TRACK_LABELS[track] || track, 8, top + (bottom - top) / 2);
+    ctx2d.fillText(TRACK_LABELS[track] || track, snapPixel(8), snapPixel(top + (bottom - top) / 2));
   }
 
   function drawNotes(track, top, bottom, nowCtx, x0, w, accent) {
@@ -689,37 +970,72 @@ export function initVisualiser(canvas, engine) {
     let lastX = -Infinity;
     ctx2d.strokeStyle = rgba(theme.border, 0.9);
     ctx2d.lineWidth = 1;
+    ctx2d.font = LABEL_FONT;
+    ctx2d.textAlign = 'left';
+    ctx2d.textBaseline = 'alphabetic';
     for (const tick of barTicks) {
       const x = x0 + fracForTime(tick.time, nowCtx) * w;
       if (x < x0 - 4 || x > x0 + w + 4) continue;
       if (x - lastX < MIN_BAR_TICK_SPACING_PX) continue;
       lastX = x;
+      const xSnap = snapHairline(x);
+      ctx2d.strokeStyle = rgba(theme.border, 0.9);
+      ctx2d.lineWidth = 1;
       ctx2d.beginPath();
-      ctx2d.moveTo(x + 0.5, TOP_MARGIN);
-      ctx2d.lineTo(x + 0.5, height);
+      ctx2d.moveTo(xSnap, TOP_MARGIN);
+      ctx2d.lineTo(xSnap, height);
       ctx2d.stroke();
+
+      // Once a 'chord' event has ever fired, the chord name becomes the
+      // primary per-bar label (replacing the section letter here).
+      if (hasChordEvents) {
+        const chordName = chordNameForBarTick(tick);
+        if (chordName) {
+          ctx2d.font = LABEL_FONT;
+          ctx2d.fillStyle = rgba(theme.text, 0.9);
+          ctx2d.fillText(chordName, snapPixel(clampRange(x + 3, x0, x0 + w - 4)), snapPixel(12));
+        }
+      }
     }
 
-    ctx2d.font = LABEL_FONT;
     ctx2d.textAlign = 'left';
     ctx2d.textBaseline = 'alphabetic';
     for (const mark of sectionMarks) {
       const x = x0 + fracForTime(mark.time, nowCtx) * w;
       if (x < x0 - 40 || x > x0 + w + 40) continue;
+      const xSnap = snapHairline(x);
       ctx2d.strokeStyle = rgba(theme.link, 0.55);
       ctx2d.lineWidth = 1.5;
       ctx2d.beginPath();
-      ctx2d.moveTo(x + 0.5, 0);
-      ctx2d.lineTo(x + 0.5, height);
+      ctx2d.moveTo(xSnap, 0);
+      ctx2d.lineTo(xSnap, height);
       ctx2d.stroke();
       if (mark.label) {
-        ctx2d.fillStyle = rgba(theme.text, 0.85);
-        ctx2d.fillText(mark.label, clampRange(x + 4, x0, x0 + w - 20), 12);
+        if (hasChordEvents) {
+          // Chord names now carry the primary billing; the section letter
+          // demotes to a smaller, secondary label near the bottom.
+          ctx2d.font = SECONDARY_FONT;
+          ctx2d.fillStyle = rgba(theme.secondary, 0.75);
+          ctx2d.fillText(mark.label, snapPixel(clampRange(x + 4, x0, x0 + w - 20)), snapPixel(height - 4));
+        } else {
+          ctx2d.font = LABEL_FONT;
+          ctx2d.fillStyle = rgba(theme.text, 0.85);
+          ctx2d.fillText(mark.label, snapPixel(clampRange(x + 4, x0, x0 + w - 20)), snapPixel(12));
+        }
       }
     }
   }
 
   function drawCurrentSectionLabel(nowCtx, x0) {
+    const chordName = hasChordEvents ? chordNameAtTime(nowCtx) : null;
+    if (chordName) {
+      ctx2d.fillStyle = rgba(theme.text, 0.9);
+      ctx2d.font = LABEL_FONT;
+      ctx2d.textAlign = 'left';
+      ctx2d.textBaseline = 'alphabetic';
+      ctx2d.fillText(chordName, snapPixel(x0), snapPixel(12));
+    }
+
     if (!sectionMarks.length) return;
     let current = sectionMarks[sectionMarks.length - 1];
     for (let i = sectionMarks.length - 1; i >= 0; i--) {
@@ -729,11 +1045,19 @@ export function initVisualiser(canvas, engine) {
       }
     }
     if (!current || !current.label) return;
+    if (chordName) {
+      ctx2d.fillStyle = rgba(theme.secondary, 0.75);
+      ctx2d.font = SECONDARY_FONT;
+      ctx2d.textAlign = 'left';
+      ctx2d.textBaseline = 'alphabetic';
+      ctx2d.fillText(`Section ${current.label}`, snapPixel(x0), snapPixel(24));
+      return;
+    }
     ctx2d.fillStyle = rgba(theme.text, 0.85);
     ctx2d.font = LABEL_FONT;
     ctx2d.textAlign = 'left';
     ctx2d.textBaseline = 'alphabetic';
-    ctx2d.fillText(`Section ${current.label}`, x0, 12);
+    ctx2d.fillText(`Section ${current.label}`, snapPixel(x0), snapPixel(12));
   }
 
   function draw() {
@@ -748,9 +1072,7 @@ export function initVisualiser(canvas, engine) {
     const nowCtx = engineNow();
     cull(nowCtx);
 
-    const labelWidth = clampRange(width * 0.22, MIN_LABEL_WIDTH, MAX_LABEL_WIDTH);
-    const x0 = labelWidth;
-    const w = Math.max(1, width - labelWidth);
+    const { labelWidth, x0, w } = computeGeometry();
     const usableHeight = Math.max(1, height - TOP_MARGIN);
     const laneHeight = usableHeight / TRACKS.length;
     const laneGap = Math.min(4, laneHeight * 0.08);
@@ -796,19 +1118,31 @@ export function initVisualiser(canvas, engine) {
 
   // -- boot ----------------------------------------------------------------
 
+  setupLampHost();
+  createLampButtons();
+  try {
+    if (lampHost && typeof setInterval === 'function') {
+      lampPollId = setInterval(refreshLampStates, 1000); // light poll fallback, outside the rAF loop
+    }
+  } catch {
+    lampPollId = null;
+  }
+
   try {
     running = !!engine?.running;
   } catch {
     running = false;
   }
   refreshAnalysers();
-  resize(); // also renders the first frame
+  resize(); // also renders the first frame and positions the lamp overlay
+  refreshLampStates();
   if (running) ensureLoop();
 
   function destroy() {
     if (destroyed) return;
     destroyed = true;
     stopLoop();
+    teardownLampHost();
     for (const off of unsubs) {
       try {
         off();

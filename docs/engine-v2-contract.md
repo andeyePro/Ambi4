@@ -482,7 +482,7 @@ drops) the class definition harmlessly.
 
 ## v8 clarification — spec-critic rulings (2026-07-25, binding)
 
-Full rulings in docs/spec-rulings-v6-v8.md. Headlines: controls schema uniform
+Headlines: controls schema uniform
 true|false|string[] per section (adsr/sends always true); gain chain
 TRACK_MIX × clamp(drift(level)×walk,·,1) preserves v5 headroom; randomness stays a
 number default (page probe must widen before any range default ships); sequencer
@@ -498,7 +498,7 @@ play(); RangeValue walk: w∈[0,1], ±0.15/bar, effective = min+(max-min)·w.
 
 ---
 
-# v9 addendum (performance/thermal — URGENT, user's laptop overheating)
+# v9 addendum (performance/thermal)
 
 - Visual perf floor (immediate): no shadowBlur in any rAF loop (pre-rendered glow
   sprite/gradient allowed); visualiser + live scope ≤30 fps active, ≤2 fps hidden-tab
@@ -544,12 +544,11 @@ wrote it.
 
 # v11 addendum (sharing, studio, hook — product roadmap + musicality brief)
 
-- Preset share links: tier 1 (free, next iterations) — params serialised into a
-  share URL (fragment or /p/#data, no server); tier 2 — named links ambi4.work/[name]
-  via Workers KV + submit/approve; tier 3 (PAID) — code-bearing presets: sandboxed
-  execution (isolated context) + AI review gate before public listing + payment.
+- Preset share links: params serialised into a share URL (fragment, no server);
+  later, named links ambi4.work/[name] via Workers KV + submit/approve;
+  code-bearing presets require sandboxed execution + a review gate before listing.
   Hard rule from v10 stands: code never auto-runs from a link without the sandbox.
-- Arrangement studio (PAID, roadmap): live-mix recording → MIDI capture from note
+- Arrangement studio (roadmap): live-mix recording → MIDI capture from note
   events; offline render via OfflineAudioContext; export WAV + FLAC (wasm encoder),
   binaural (HRTF PannerNode) variant, mastering chain (limiter + LUFS normalise,
   platform presets ~-14 LUFS).
@@ -620,23 +619,12 @@ After the gate + push, the loop STOPS at the user's catchy verdict. No iteration
 
 ---
 
-# v13 addendum (user round 03:5xZ — tiers, sequencer 2.0, UX corrections)
+# v13 addendum (user round 03:5xZ — sequencer 2.0, UX corrections)
 
-## Tiers (roadmap; extends v11)
-- Free: dial-in presets, no-code share, auto-assigned three-random-word names
-  (curated word lists so combos read sensibly); name NOT editable.
-- Plus: editable preset names (whitelist check → AI review → human escalation when
-  uncertain — the fee funds review); Scratch-style BLOCK editor for voice/pattern
-  code (blocks compile to a whitelisted DSL → genuinely zero arbitrary-code risk);
-  stereo recording to local file.
-- Pro: full code editing (AI review + occasional human review before sharing);
-  full Arrangement studio (v11).
-- Premium: reserved.
-- Visual editing of presets tiers likewise (degrees of dial/graphic access).
-- Editor entry: subtle code-block icon on each editable unit → block editor; a >_
-  icon inside → raw code view; consent-gated pref 'default to code'. Editors the
-  user's tier doesn't cover render greyed with (plus)/(pro) suffix; clicking a
-  greyed button routes to the subscription page anchored to that feature.
+## Editor access levels
+Some editors (block editor, code editor) are gated by account level; gated editors
+render greyed with a level tag and route to an upgrade page when clicked.
+Commercial details live outside this repo.
 
 ## Corrections/redesigns from live testing (next UI/engine waves)
 - Track state lamp lives on the VISUALISER lane names too (scrolling piano bar),
@@ -669,7 +657,6 @@ After the gate + push, the loop STOPS at the user's catchy verdict. No iteration
 - Footer build-stamp (short SHA + date) so testers know which version they're on.
 - Loudness: flute trim vs peers; bass 'breath' level check; bass vary.voice
   default 0 (wind-noise report root cause).
-- Standalone one-off-purchase desktop/iOS build (Tauri/Capacitor wrap) — roadmap.
 
 ## v13 additions (user round 04:1xZ)
 - Tooltips on hover/focus for compact labels (e.g. Auto detents: "follows Randomness");
@@ -704,8 +691,7 @@ fix); pad/texture stay 0.15. Patch detune is now -50..50, octave -2..2.
 
 # v14 addendum (the "deliver everything" run, 2026-07-25 ~04:50Z)
 
-USER VERDICTS: melody default state becomes 'auto' (user-authorised). Bass FAILED the
-gate — "it's a rhythm instrument, not a low-pitch random": bass rework = groove-led:
+DECISIONS: melody default state becomes 'auto'. Bass needs rework toward rhythmic identity: bass rework = groove-led:
 a per-section rhythmic PATTERN with real identity (anchor pulse + syncopation cells,
 locked to percussion's low lane where active), root-note discipline unchanged, note
 lengths/gates shaping groove (staccato/held mix), pattern develops like the motif
@@ -758,3 +744,55 @@ in-group conditional multiplication — a note's effective prob scales by whethe
 group's previous note sounded); MULTIPLE sequencers per track with end-of-loop
 transition probabilities (Markov chain; add copies current; engine param
 tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [0]).
+
+## v14 additions (user round 05:2xZ)
+- Percussion auto threshold LOWERED so defaults actually reach it (arrives at
+  moderate complexity/intensity; still last in). Bass groove locks to the
+  percussion low lane BY DEFAULT when percussion is active.
+- SWING: global param swing 0-1 (default ~0, global scope default; per-track
+  override param reserved); delays off-beat subdivision onsets musically
+  (classic 50-75% range mapping); sequencers, arp and percussion all honour it.
+- Kit editor (percussion per-instrument overrides): selector tabs
+  Common | (instruments, HIGH at top ... LOW at bottom everywhere lanes render);
+  dials show the common value as a GHOST pointer; editing with an instrument
+  selected creates a per-instrument override (dial accent switches to the
+  instrument colour); clicking the ghost reverts that dial to follow common.
+  Typical split: source/pitch/envelope per instrument, filter/sends common —
+  but ANY dial may be overridden per instrument. Param shape:
+  patches[track][voice].perKind = {low:{...}, mid:{...}, high:{...}} sparse
+  overrides over the common patch.
+- Extensible kit: percussion lanes not limited to three — users can ADD lanes
+  (toms, cymbals for fills) once multi-sequencers land; lane names editable; engine kind becomes lane-indexed with a voice-kind mapping.
+- Shape dial polish: saw glyph = one full cycle (two teeth), truly vertical
+  drops; square = one full cycle (two verticals); the bulky readout text is
+  replaced by a live MINI-WAVEFORM of the exact morphed shape (tiny canvas/SVG
+  of the interpolated Fourier wave, updates on change only); tooltips on the
+  four canonical glyph marks explain each shape.
+- Sequencer playhead: the currently-sounding step is highlighted (white) —
+  driven off note/bar events at step rate, DOM update only, no rAF.
+- Lamp/state clicks NEVER open the edit accordion (off-toggle expanding the
+  editor is a bug); only name-area/Edit affordances open it.
+- Out-of-box goal (product principle): defaults must sound excellent with only
+  the Simple dials; Advanced exists to show it's all user-buildable from
+  scratch (tutorial narrative + "algorithmic, not AI" provenance note).
+
+## v14 addition (05:4xZ)
+- Visualiser blur: MAX_DPR=2 cap renders soft under browser zoom / >2 dpr.
+  Fix: per-canvas cap raised (visualiser/scope ≤3 or exact dpr — their areas are
+  small; fps cap carries the perf load), plus device-pixel snapping for 1px lines
+  and label text. Verify sharpness at 100%/125%/150% zoom.
+
+## v15 addendum (transport strip + repeats + record)
+- Transport strip layout (left→right): [▶ Play/Finish combined button — triangle
+  icon left of "Play"; while running it reads "Finish" with a final-barline 𝄂 icon
+  to its right] [■ Stop button] [● Record button, classic red dot; MediaRecorder on
+  the engine's existing MediaStream output → local download (webm/opus baseline;
+  wav via offline later); recording indicator + elapsed] [far right: sleep (clock)
+  and schedule (alarm) icon buttons stacked, each half the Play button's height].
+- Piano-roll REPEAT BRACKETS: click on the roll's bar ruler sets an open-repeat
+  mark 𝄆 at that bar; the next click to its right sets the close 𝄇; the enclosed
+  bar range then LOOPS (engine replays the captured bar plans + hook state for
+  that range, positional-hold semantics; params stay live) until the user clicks
+  the close mark again (or the open mark to cancel). Engine API:
+  engine.setLoopRegion(startBar, endBar) / engine.clearLoopRegion(); visualiser
+  draws the brackets + dims bars outside; 'bar' events carry loop info.

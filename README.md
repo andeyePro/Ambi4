@@ -26,3 +26,6 @@ services:
 ```
 
 Each service value is that service's playlist id/path, or `null` if the playlist isn't on that service yet (the page shows a "Not on … yet" placeholder there).
+
+## License
+[AGPL-3.0](LICENSE) — © 2024–2026 andeye Ltd. Run it, read it, fork it; if you serve a modified version, share your changes.

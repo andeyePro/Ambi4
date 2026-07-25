@@ -18,7 +18,9 @@
  * control), wheel (non-passive, small steps), full keyboard on the focusable
  * knob (role="slider": arrows ±step, PgUp/PgDn ±10 steps, Home/End), and
  * double-click resets to the DECLARED DEFAULT. `step` is optional — without
- * it the knob is continuous and keys move by (max-min)/200.
+ * it the knob is continuous and keys move by (max-min)/200. The value
+ * readout below the knob is a second, independent focusable control — click
+ * or Enter/Space to type an exact value (see "v14 click-to-type" below).
  *
  * `defaultValue` (number | {min,max}, optional): the value/mode double-click
  * restores. When omitted, double-click falls back to the pre-v12 behaviour
@@ -31,16 +33,33 @@
  * drags never toggle) switches single ↔ range — split keeps the value
  * (min=max=value), merge takes (min+max)/2. Range mode draws the engraved
  * inner pointer for min, a short accent pointer riding the ring for max, and
- * tints the arc between them with --accent-warm at low alpha. Plain
- * drag/wheel/arrows edit min; Shift selects max instead (fine-drag is a
- * single-mode nicety only); pointerdown within ~12° of the max pointer grabs
- * max regardless of Shift; the moving thumb clamps at the other. The knob
- * stays ONE tab stop: PgUp/PgDn/Home/End act on the last-edited thumb
+ * tints the arc between them with --accent-warm at low alpha. v14: a pointer
+ * drag started INSIDE the dial face circle edits min; started OUTSIDE the
+ * face (the tick ring and beyond, still within the knob's own bounds) edits
+ * max; pointerdown within ~12° of the max pointer's current angle grabs max
+ * directly regardless of zone (unchanged from v7); Shift remains a secondary
+ * alias that forces max — kept for wheel/arrow-key parity (still plain=min,
+ * Shift=max there) and as the fallback when getBoundingClientRect is
+ * unavailable (bare-DOM tests). The moving thumb clamps at the other. The
+ * knob stays ONE tab stop: PgUp/PgDn/Home/End act on the last-edited thumb
  * (default min) and aria-valuetext reads "min X, max Y, drifting". onInput
  * emits a number in single mode and {min,max} in range mode; set() accepts
  * both and switches mode to match silently; `rangeDefault` starts a plain
  * numeric value split (min=max=value); double-click restores the INITIAL
  * value AND mode.
+ *
+ * v14 click-to-type: the value readout is itself a focusable <button>
+ * (separate DOM node from the face, so its click never collides with the
+ * face's click-to-toggle-mode gesture above). Click, Enter or Space swaps it
+ * for a themed text input pre-filled with the current value ("min-max",
+ * hyphen-joined, in range mode). Enter or blur commits through the SAME
+ * quantise/clamp path as drag/wheel/keys and fires onInput; Escape cancels
+ * without committing. Parse grammar: "a-b" or "a to b" sets both thumbs
+ * (range mode only, order-independent); a lone number sets the ACTIVE thumb
+ * only in range mode (the last-edited one — same target as
+ * PgUp/PgDn/Home/End) or the whole value in single mode. Unparsable text is
+ * discarded silently, leaving the value unchanged. The input is keyboard
+ * reachable with no pointer required.
  *
  * The value scale is strictly linear between min and max. Log-feel (e.g. a
  * filter-cutoff dial) is the CALLER's job: pass a mapped domain (such as
@@ -355,12 +374,23 @@ export function createKnob(container, options) {
   labelEl.style.marginTop = '2px';
   root.appendChild(labelEl);
 
-  const valueEl = document.createElement('div');
+  // v14: the readout is itself a focusable control — a plain-chrome <button>
+  // so click-to-type is reachable by click OR by keyboard (Enter/Space),
+  // with no pointer required. It is a separate DOM node from the face, so
+  // its own click/keydown never collides with the face's drag or its
+  // click-to-toggle-mode gesture (guarded explicitly in onPointerDown too).
+  const valueEl = document.createElement('button');
+  valueEl.setAttribute('type', 'button');
   valueEl.className = 'knob-value';
   valueEl.style.fontFamily = LABEL_FONT;
   valueEl.style.color = VALUE_COLOR;
   valueEl.style.fontSize = '12px';
   valueEl.style.textAlign = 'center';
+  valueEl.style.background = 'none';
+  valueEl.style.border = 'none';
+  valueEl.style.padding = '0';
+  valueEl.style.margin = '0';
+  valueEl.style.cursor = 'pointer';
   root.appendChild(valueEl);
 
   function degFor(v) {
@@ -445,6 +475,7 @@ export function createKnob(container, options) {
   }
 
   function toggleMode() {
+    closeEditor();
     if (mode === 'single') {
       mode = 'range';
       valueMax = value; // split: min=max=value
@@ -457,6 +488,141 @@ export function createKnob(container, options) {
     updateView();
     emit();
   }
+
+  // -- v14 click-to-type ----------------------------------------------------
+
+  let editing = false;
+  let editInput = null;
+  let editCleanup = null;
+
+  /** Parse committed editor text and apply it through the normal clamp path. */
+  function applyTypedValue(raw) {
+    const text = String(raw == null ? '' : raw).trim();
+    if (!text) return; // empty commit: leave the value unchanged
+    if (mode === 'range') {
+      const toMatch = /^(-?[\d.]+)\s*to\s*(-?[\d.]+)$/i.exec(text);
+      const dashMatch = !toMatch && /^(-?[\d.]+)\s*-\s*(-?[\d.]+)$/.exec(text);
+      const m = toMatch || dashMatch;
+      if (m) {
+        const a = quantise(Number(m[1]));
+        const b = quantise(Number(m[2]));
+        if (!Number.isFinite(a) || !Number.isFinite(b)) return;
+        const lo = Math.min(a, b);
+        const hi = Math.max(a, b);
+        const changed = lo !== value || hi !== valueMax;
+        value = lo;
+        valueMax = hi;
+        activeThumb = 'min';
+        dragRaw = value;
+        updateView();
+        if (changed) emit();
+        return;
+      }
+      // A lone number in range mode sets the ACTIVE thumb only — the same
+      // target PgUp/PgDn/Home/End would hit — via the existing per-thumb
+      // commit/commitMax clamp path.
+      const single = Number(text);
+      if (!Number.isFinite(single)) return;
+      if (activeThumb === 'max') commitMax(single, true);
+      else commit(single, true);
+      return;
+    }
+    const single = Number(text);
+    if (!Number.isFinite(single)) return; // unparsable: silently discarded
+    commit(single, true);
+  }
+
+  function closeEditor() {
+    if (!editing) return;
+    editing = false;
+    if (editCleanup) {
+      editCleanup();
+      editCleanup = null;
+    }
+    if (editInput) {
+      try {
+        if (typeof editInput.remove === 'function') editInput.remove();
+        else if (editInput.parentNode) editInput.parentNode.removeChild(editInput);
+      } catch {
+        // ignore
+      }
+      editInput = null;
+    }
+    valueEl.style.display = '';
+  }
+
+  function openEditor() {
+    if (editing) return;
+    editing = true;
+    valueEl.style.display = 'none';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'knob-value-edit';
+    input.style.fontFamily = LABEL_FONT;
+    input.style.color = VALUE_COLOR;
+    input.style.fontSize = '12px';
+    input.style.textAlign = 'center';
+    input.style.width = '100%';
+    input.style.boxSizing = 'border-box';
+    input.style.border = `1px solid ${RING_STROKE}`;
+    input.style.borderRadius = '3px';
+    input.style.background = 'none';
+    input.style.padding = '0 2px';
+    input.style.outline = 'none';
+    input.value = mode === 'range' ? `${value}-${valueMax}` : `${value}`;
+
+    function commitEdit() {
+      const raw = input.value;
+      closeEditor();
+      applyTypedValue(raw);
+    }
+    function onEditKeydown(e) {
+      if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+      const key = e && e.key;
+      if (key === 'Enter') {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        commitEdit();
+      } else if (key === 'Escape') {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        closeEditor();
+      }
+    }
+    function onEditBlur() {
+      commitEdit();
+    }
+    function onEditGuard(e) {
+      if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+    }
+    input.addEventListener('keydown', onEditKeydown);
+    input.addEventListener('blur', onEditBlur);
+    input.addEventListener('click', onEditGuard);
+    input.addEventListener('pointerdown', onEditGuard);
+    editCleanup = () => {
+      input.removeEventListener('keydown', onEditKeydown);
+      input.removeEventListener('blur', onEditBlur);
+      input.removeEventListener('click', onEditGuard);
+      input.removeEventListener('pointerdown', onEditGuard);
+    };
+    editInput = input;
+    root.appendChild(input);
+    if (typeof input.focus === 'function') input.focus();
+    if (typeof input.select === 'function') input.select();
+  }
+
+  function onValueClick(e) {
+    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+    openEditor();
+  }
+  function onValueKeydown(e) {
+    const key = e && e.key;
+    if (key === 'Enter' || key === ' ' || key === 'Spacebar') {
+      if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      openEditor();
+    }
+  }
+  valueEl.addEventListener('click', onValueClick);
+  valueEl.addEventListener('keydown', onValueKeydown);
 
   // -- interaction ---------------------------------------------------------
 
@@ -475,8 +641,12 @@ export function createKnob(container, options) {
   let pressY = NaN;
   let pressTime = 0;
 
-  /** Pointer angle (deg, 0 = top, clockwise) relative to the face centre. */
-  function pointerDeg(e) {
+  /**
+   * Shared rect/centre lookup for pointer geometry — mock-safe: returns null
+   * when getBoundingClientRect is missing or degenerate (bare-DOM test
+   * mocks), so callers fall back to their non-geometric alternative (Shift).
+   */
+  function pointerCentre(e) {
     if (!e || typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return null;
     if (typeof root.getBoundingClientRect !== 'function') return null;
     let rect;
@@ -489,12 +659,34 @@ export function createKnob(container, options) {
       return null;
     }
     // The SVG face is a square spanning the root's width, at its top.
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.width / 2;
-    return (Math.atan2(e.clientX - cx, cy - e.clientY) * 180) / Math.PI;
+    return { rect, cx: rect.left + rect.width / 2, cy: rect.top + rect.width / 2 };
+  }
+
+  /** Pointer angle (deg, 0 = top, clockwise) relative to the face centre. */
+  function pointerDeg(e) {
+    const c = pointerCentre(e);
+    if (!c) return null;
+    return (Math.atan2(e.clientX - c.cx, c.cy - e.clientY) * 180) / Math.PI;
+  }
+
+  /**
+   * v14: which range-mode thumb a pointerdown zone edits — 'min' inside the
+   * dial face circle, 'max' on the tick ring and beyond (still within the
+   * knob's own bounds). Returns null when geometry is unavailable (bare-DOM
+   * mocks), so the caller falls back to the Shift alias.
+   */
+  function pointerFaceZone(e) {
+    const c = pointerCentre(e);
+    if (!c) return null;
+    const dx = e.clientX - c.cx;
+    const dy = e.clientY - c.cy;
+    const distPx = Math.sqrt(dx * dx + dy * dy);
+    const faceRadiusPx = (FACE_R / 100) * c.rect.width;
+    return distPx <= faceRadiusPx ? 'min' : 'max';
   }
 
   function onPointerDown(e) {
+    if (e && e.target && (e.target === valueEl || e.target === editInput)) return; // readout owns its own click/keydown, never the face's drag/toggle
     if (e && e.button != null && e.button !== 0) return;
     dragging = true;
     lastY = e && typeof e.clientY === 'number' ? e.clientY : 0;
@@ -505,13 +697,22 @@ export function createKnob(container, options) {
     dragThumb = 'min';
     if (mode === 'range') {
       const deg = pointerDeg(e);
+      let grabbedNear = false;
       if (deg != null) {
         let diff = deg - degFor(valueMax);
         while (diff > 180) diff -= 360;
         while (diff < -180) diff += 360;
-        if (Math.abs(diff) <= MAX_GRAB_DEG) dragThumb = 'max'; // grab the outer thumb directly
+        if (Math.abs(diff) <= MAX_GRAB_DEG) {
+          dragThumb = 'max'; // grab the outer thumb directly — unchanged from v7
+          grabbedNear = true;
+        }
       }
-      if (dragThumb !== 'max' && e && e.shiftKey) dragThumb = 'max';
+      if (!grabbedNear) {
+        // v14: inside the face circle = min, on the ring/beyond = max.
+        const zone = pointerFaceZone(e);
+        if (zone) dragThumb = zone;
+        if (e && e.shiftKey) dragThumb = 'max'; // Shift is still a secondary alias for max
+      }
     }
     dragRaw = dragThumb === 'max' ? valueMax : value;
     try {
@@ -635,6 +836,7 @@ export function createKnob(container, options) {
 
   function onDoubleClick(e) {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    closeEditor();
     const changed =
       mode !== resetMode ||
       value !== resetValue ||
@@ -670,6 +872,7 @@ export function createKnob(container, options) {
     el: root,
     /** Update the knob silently — no onInput. Accepts number | {min,max}; the mode follows. */
     set(v) {
+      closeEditor();
       if (v != null && typeof v === 'object') {
         const a = quantise(toFinite(v.min, value));
         const b = quantise(toFinite(v.max, value));
@@ -690,6 +893,13 @@ export function createKnob(container, options) {
       if (destroyed) return;
       destroyed = true;
       dragging = false;
+      closeEditor();
+      try {
+        valueEl.removeEventListener('click', onValueClick);
+        valueEl.removeEventListener('keydown', onValueKeydown);
+      } catch {
+        // ignore
+      }
       for (const [type, fn, listenOpts] of listeners) {
         try {
           root.removeEventListener(type, fn, listenOpts);

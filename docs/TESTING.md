@@ -104,6 +104,55 @@ The six most valuable things to tell the orchestrator:
 - [ ] Voice editors open when a track row gains focus; only applicable knobs show per voice (e.g. Wash shows no oscillator section).
 - [ ] Heat check: leave it playing 10 min - the machine should run much cooler than the previous build (30 fps visuals, no glow blur).
 
+## v14/v15 delta — big UI pass (2026-07-25)
+
+Transport strip
+- [ ] The strip reads: ▶ Play (triangle icon), ■ Stop, ● Record, and — hard right — the clock and alarm-clock icons stacked, each about half the Play button's height. Popovers behave as before.
+- [ ] Playing: the button reads "Finish" with a final-barline icon AFTER the word; the triangle is gone. Stop is greyed when nothing is playing and live when it is.
+- [ ] Record: EXPECTED to be greyed with a tooltip saying recording arrives with the next engine update — the engine keeps its mixed output stream private, so the page cannot reach it yet. The MediaRecorder path is wired and lights up the moment the engine publishes a stream. (If your browser has no MediaRecorder, the tooltip says so instead.)
+- [ ] All transport buttons show on BOTH tabs this build.
+
+Simple tab
+- [ ] FOUR dials now: Speed, Complexity, Randomness, Volume. Repetition has gone from Simple — it is fused into Randomness (and still has its own dial on Advanced).
+- [ ] Each dial is labelled ONCE (under the dial), with end-marks at the tick extremes: Slow/Fast, Calm/Complex, Repetitive/Random, Quiet/Loud. Randomness also carries "Evolving" at the top of its sweep. No duplicated label row above.
+- [ ] Randomness is ONE control for "how much does this change": turning it writes Advanced's Repetition (as its mirror, 1 − x) AND all six tracks' randomness in one go. Check on Advanced that Repetition moves the opposite way as you turn it.
+- [ ] Randomness at 0 reads "Hold": perfect loop, tightest hook — set it to 0 while playing and the material should stop re-rolling. At 1 everything wanders.
+- [ ] Hand-set Advanced's Repetition (or one track's own Randomness) to something inconsistent, then look at the Simple Randomness dial: it shows a blended average and must NOT have overwritten what you just set. Turning it again takes control back.
+- [ ] Click the Randomness dial to switch it to a drifting min–max range: the range goes to every track's randomness, and Repetition takes the mirror of the range's midpoint (Repetition itself can't drift — the engine only accepts a single number there).
+- [ ] Processor dial under the transport (Eco/Low/Med/Full/Auto) with a readout of the tier and note cap. Set Eco while playing: the machine should quieten down; the voice editor's scope drops to the static OFFLINE trace instead of the live one.
+
+Tracks (Advanced)
+- [ ] Order everywhere is pad, arp, melody, bass, texture, percussion.
+- [ ] ONE row per track: coloured lamp + name, voice select, Level dial, Randomness dial, Edit. The Random button and the Hold toggle are GONE.
+- [ ] Each row has its track's colour as a left accent bar and in its lamp.
+- [ ] Clicking the lamp cycles off → auto → on and NEVER opens the editor. Turning a track off never expands or keeps open its editor.
+- [ ] Close an editor with Edit, then Tab through that row: it must NOT spring open again. Pressing Edit again re-arms that behaviour.
+- [ ] Off/Auto/On pills now live in the Edit panel header, next to a small dice button (re-roll that track).
+- [ ] While playing, each row shows a live "level … · random …" readout and a thin cost bar in the track's colour.
+
+Sequencer 2.0 (Edit panel of melody / bass / arp / percussion)
+- [ ] Percussion lanes render High at the TOP, Low at the bottom.
+- [ ] The sounding step lights white as it plays.
+- [ ] There is a fat handle at the top of each velocity band — grab it and only the loud edge moves.
+- [ ] Click-drag SIDEWAYS across cells: they merge into one long tied note (a bridge shows between them). Drag back to shorten. Keyboard: T on a focused cell.
+- [ ] A row of dots sits above each lane. Click one to start a probability group (coloured); click the next dot to extend it; click a grouped dot to leave. Keyboard: G.
+- [ ] "+" adds a second sequencer (a copy). Tabs 1 / 2 appear, plus a Weight box — how likely the others are to hand over to this one at loop end.
+- [ ] The long key legend has moved behind the small ⓘ next to "Step sequencer".
+
+New dials
+- [ ] Repetition now lives on Advanced (Random ← Evolving → Repetitive) and still works on its own.
+- [ ] Swing appears on Advanced (global, Straight → Swung). Set it high with percussion on: an audible shuffle.
+- [ ] Every tuned track's Edit panel has a Dissonance dial (0 = strict to the chord). Push melody's up and it should stray.
+
+Everything else
+- [ ] Shape 1 / Shape 2 readouts show a LIVE mini-waveform of the exact morphed shape, redrawn as you turn. Hovering a waveform mark on the tick ring shows what that shape sounds like. (The short text name stays beside it — it is what screen readers announce.)
+- [ ] Hovering or Tab-focusing a compact control shows a themed tooltip (not a native title); Escape dismisses it.
+- [ ] "?" beside "Transport" opens a docked guided tour on the right; Next/Back walk seven steps, each highlighting the control it describes and switching tabs as needed. The open state survives a reload.
+- [ ] Click the BPM number: it becomes a text box. Enter commits, Escape cancels.
+- [ ] Factory presets row (8 of them) on Advanced. Load one — everything changes and stays fully editable. Your own presets sit below, unchanged.
+- [ ] Melody now DEFAULTS TO AUTO (it used to be off); bass is still off by default.
+- [ ] Regression sweep: consent ask still appears on the first save-worthy change in a private window; save/load/delete/submit presets still work; sleep + alarm popovers unchanged; lock-screen transport keys still work; settings still persist across a reload.
+
 ## v12 delta — UI round (2026-07-25)
 - [ ] Double-click ANY knob resets it to its declared default — a voice-editor knob resets to that VOICE's own factory value (not just whatever value it happened to load with, e.g. from a saved preset); a track's Level/Randomness knob resets to 80%/50%.
 - [ ] Voice editor Detune stays 0-50 cents (unipolar, no negative) and Octave stays -1/0/+1 — both intentionally NOT widened this round (the engine only accepts those ranges; a wider dial would silently clamp).

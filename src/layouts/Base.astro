@@ -7,11 +7,24 @@ const { title, description = 'Customisable endless music generated just for you,
 import '../styles/global.css';
 
 const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
+// Playlists parked 2026-07-25 (imagery + artist range being rebuilt) — page stays
+// reachable at /playlists/, just not in the nav.
 const navLinks = [
   { href: '/', label: 'Generator' },
-  { href: '/playlists/', label: 'Playlists' },
 ];
 const isCurrent = (href: string) => (href.replace(/\/+$/, '') || '/') === currentPath;
+
+// Build stamp — Astro exposes neither a build date nor the deploy commit SHA
+// by default. process.env is only available in frontmatter (build-time
+// Node), guarded in case a future runtime doesn't provide it.
+let buildSha = '';
+try {
+  buildSha = (process.env.CF_PAGES_COMMIT_SHA ?? process.env.WORKERS_CI_COMMIT_SHA ?? '').slice(0, 7);
+} catch {
+  buildSha = '';
+}
+const buildDate = new Date().toISOString().slice(0, 10);
+const buildStamp = buildSha ? `build ${buildDate} ${buildSha}` : `build ${buildDate}`;
 ---
 <html lang="en-gb">
   <head>
@@ -38,6 +51,7 @@ const isCurrent = (href: string) => (href.replace(/\/+$/, '') || '/') === curren
       <span> · Coded with <a href="https://vibe.andeye.com" rel="noopener noreferrer" target="_blank">Vibe</a></span>
       <span> · <a href="https://andeye.com/terms">Terms</a></span>
       <span> · <a href="https://andeye.com/privacy">Privacy</a></span>
+      <span class="build-stamp">{buildStamp}</span>
     </footer>
   </body>
 </html>
@@ -68,5 +82,12 @@ const isCurrent = (href: string) => (href.replace(/\/+$/, '') || '/') === curren
     color: var(--text);
     font-weight: 600;
     border-bottom-color: var(--accent-warm);
+  }
+
+  .build-stamp {
+    display: inline-block;
+    color: var(--secondary);
+    font-size: 11px;
+    opacity: 0.75;
   }
 </style>

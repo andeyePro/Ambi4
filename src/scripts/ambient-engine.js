@@ -68,6 +68,28 @@ export const ARP_PATTERNS = Object.freeze(['up', 'down', 'updown', 'random']);
 export const ARP_RATES = Object.freeze({ '1/4': 1, '1/8': 0.5, '1/16': 0.25, '1/8T': 1 / 3 });
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+
+/** The subdivision swing is felt in: the eighth-note pair (v14). */
+export const SWING_UNIT = 0.5;
+
+/**
+ * Where an onset lands once swing is applied. Each pair of `unit` beats is
+ * re-timed so the point where its halves meet moves later — an even 50/50
+ * split at swing 0, the classic long-short 75/25 at swing 1 — and everything
+ * inside each half is stretched or squeezed with it, so a sixteenth between
+ * two swung eighths keeps its place in the figure instead of colliding with
+ * them. Pair starts (the downbeats) never move.
+ */
+export function swungBeat(beat, unit = SWING_UNIT, swing = 0) {
+  const amount = clamp(Number(swing) || 0, 0, 1);
+  if (amount <= 0 || !(unit > 0) || !Number.isFinite(beat)) return beat;
+  const pair = unit * 2;
+  const base = Math.floor(beat / pair) * pair;
+  const phase = beat - base;
+  const split = unit * (1 + amount * 0.5);
+  if (phase <= unit) return base + phase * (split / unit);
+  return base + split + (phase - unit) * ((pair - split) / (pair - unit));
+}
 const round3 = (v) => Math.round(v * 1000) / 1000;
 
 /** Equal temperament, A4 = 440 Hz, MIDI 69. */
@@ -143,14 +165,14 @@ const DEFAULT_TRACK_VOICES = Object.freeze({
 });
 
 /**
- * v8: melody and bass ship silent. The musicality rework has not passed the
- * subjective "catchy" gate yet, so the two tracks that carry the tune start
- * switched off rather than shipping a half-finished line to every listener.
+ * v14: the melody passed the user's gate and ships on auto. The bass did not —
+ * "a rhythm instrument, not a low-pitch random" — so it stays silent until the
+ * groove rework below passes the same subjective test.
  */
 const DEFAULT_TRACK_STATES = Object.freeze({
   pad: 'auto',
   bass: 'off',
-  melody: 'off',
+  melody: 'auto',
   texture: 'auto',
   arp: 'auto',
   percussion: 'auto',
@@ -169,10 +191,21 @@ export const SEQUENCED_TRACKS = Object.freeze(['melody', 'bass', 'arp', 'percuss
 
 export const PERCUSSION_LANES = Object.freeze(['low', 'mid', 'high']);
 
+/** Tracks that sound a pitch, so a chord discipline means anything to them. */
+export const TUNED_TRACKS = Object.freeze(TRACK_ORDER.filter((name) => name !== 'percussion'));
+
 export const VARY_ASPECTS = Object.freeze(['voice', 'volume', 'pitch', 'timing', 'pan']);
 
 const DEFAULT_TRACK_LEVEL = 0.8;
 const DEFAULT_TRACK_RANDOMNESS = 0.5;
+
+/**
+ * v14 dissonance: how far a tuned track may stray from the chord the group is
+ * playing. 0 — the shipped value — is the strict chord discipline every
+ * version so far has had; low values let passing and neighbour tones through;
+ * high ones borrow from outside the mode altogether.
+ */
+const DEFAULT_TRACK_DISSONANCE = 0;
 
 /**
  * v12 mono/legato. A monophonic track sounds one note at a time: the note in
@@ -220,10 +253,11 @@ function defaultSequencer(track) {
   if (track === 'percussion') {
     return {
       mode: 'auto',
+      weights: [1],
       steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => [lane, defaultStepLane()])),
     };
   }
-  return { mode: 'auto', steps: defaultStepLane() };
+  return { mode: 'auto', weights: [1], steps: defaultStepLane() };
 }
 
 /**
@@ -263,7 +297,14 @@ function defaultTracks() {
       glide: DEFAULT_TRACK_GLIDE[name] ?? 0,
       vary: defaultVary(name),
     };
-    if (SEQUENCED_TRACKS.includes(name)) track.sequencer = defaultSequencer(name);
+    if (TUNED_TRACKS.includes(name)) track.dissonance = DEFAULT_TRACK_DISSONANCE;
+    if (SEQUENCED_TRACKS.includes(name)) {
+      // v14 Sequencer 2.0: a track owns a LIST of sequencers and picks between
+      // them at each loop end; `sequencer` is the same object as `sequencers[0]`,
+      // so every v6 caller still reads and writes the one it knows about.
+      track.sequencers = [defaultSequencer(name)];
+      track.sequencer = track.sequencers[0];
+    }
     tracks[name] = track;
   }
   return tracks;
@@ -297,6 +338,9 @@ function deepFreeze(value) {
 
 export const DEFAULT_PARAMS = Object.freeze({
   speed: 1,
+  // v14: straight by default. The dial is global; per-track overrides are a
+  // later param, so one value gives the whole rhythm section the same feel.
+  swing: 0,
   complexity: 0.5,
   repetition: 0.5,
   root: 'C',
@@ -314,9 +358,12 @@ export const DEFAULT_PARAMS = Object.freeze({
 
 const NUMERIC_RANGES = {
   speed: [0.25, 2],
+  swing: [0, 1],
   complexity: [0, 1],
   repetition: [0, 1],
-  bpm: [40, 120],
+  // 20-220: spans commercially-proven extremes (Richter's Sleep ~<50 to
+  // hardcore/thrash 200+); the speed multiplier reaches further either side.
+  bpm: [20, 220],
   volume: [0, 1],
 };
 
@@ -389,7 +436,7 @@ function sanitiseStep(value, base) {
   let vmin = numberIn(at('vmin'), [0, 1], numberIn(from.vmin, [0, 1], DEFAULT_STEP.vmin));
   let vmax = numberIn(at('vmax'), [0, 1], numberIn(from.vmax, [0, 1], DEFAULT_STEP.vmax));
   if (vmin > vmax) [vmin, vmax] = [vmax, vmin];
-  return {
+  const step = {
     on: v && 'on' in v ? Boolean(v.on) : Boolean(from.on),
     // prob is rangeable (v7): a range means the effective probability drifts.
     prob: sanitiseRangeValue(at('prob'), 0, 1)
@@ -398,6 +445,20 @@ function sanitiseStep(value, base) {
     vmin,
     vmax,
   };
+  // v14 tie/group are OPTIONAL fields: a step that never carried one does not
+  // grow one, so the shipped grid stays exactly the four fields v6 defined.
+  const tie = at('tie') !== undefined ? Boolean(at('tie')) : from.tie === true ? true : undefined;
+  if (tie) step.tie = true;
+  const group = at('group') !== undefined ? groupId(at('group')) : groupId(from.group);
+  if (group !== null) step.group = group;
+  return step;
+}
+
+/** A probability group's id: a non-negative integer, or null for "ungrouped". */
+function groupId(value) {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) && num >= 0 ? Math.round(num) : null;
 }
 
 /** Exactly SEQUENCER_STEP_COUNT steps; short input keeps the base beyond it. */
@@ -420,8 +481,9 @@ function sanitiseSequencer(track, value, base) {
   const at = (key) => (v && key in v ? v[key] : undefined);
   const mode = oneOf(at('mode'), SEQUENCER_MODES,
     oneOf(from && from.mode, SEQUENCER_MODES, 'auto'));
+  const weights = sanitiseWeights(at('weights'), from ? from.weights : undefined);
   if (track !== 'percussion') {
-    return { mode, steps: sanitiseStepLane(at('steps'), from ? from.steps : undefined) };
+    return { mode, weights, steps: sanitiseStepLane(at('steps'), from ? from.steps : undefined) };
   }
   const rawLanes = at('steps');
   const baseLanes = from && from.steps && typeof from.steps === 'object' ? from.steps : null;
@@ -432,8 +494,58 @@ function sanitiseSequencer(track, value, base) {
       baseLanes ? baseLanes[lane] : undefined,
     );
   }
-  return { mode, steps };
+  return { mode, weights, steps };
 }
+
+/**
+ * One sequencer's transition weights: how likely each sequencer in the track's
+ * list is to play next when this one reaches the end of its loop. Non-negative
+ * numbers only; an all-zero or unusable set means "stay on this one", which is
+ * the single-sequencer behaviour every earlier version had.
+ */
+function sanitiseWeights(value, base) {
+  const source = Array.isArray(value) ? value : Array.isArray(base) ? base : [1];
+  const weights = source.map((weight) => numberIn(weight, [0, 100], 0));
+  return weights.length ? weights : [1];
+}
+
+/**
+ * The track's sequencer LIST (v14). `sequencers` is authoritative; the singular
+ * `sequencer` is accepted as input for slot 0 and emitted as an alias of it, so
+ * a v6 caller that only knows about one sequencer keeps working unchanged.
+ * Every sequencer's weight vector is padded/truncated to the list length, which
+ * is what keeps the Markov pick total over the sequencers that exist.
+ */
+function sanitiseSequencerList(track, partial, base) {
+  const baseList = Array.isArray(base) ? base : [];
+  const sent = partial && Array.isArray(partial.sequencers) ? partial.sequencers : null;
+  const list = [];
+  if (sent) {
+    for (let i = 0; i < sent.length && i < MAX_SEQUENCERS; i++) {
+      list.push(sanitiseSequencer(track, sent[i], baseList[i]));
+    }
+  } else {
+    for (const stored of baseList.slice(0, MAX_SEQUENCERS)) {
+      list.push(sanitiseSequencer(track, undefined, stored));
+    }
+  }
+  if (!list.length) list.push(sanitiseSequencer(track, undefined, baseList[0]));
+  // The singular field writes into slot 0 unless the caller sent the whole list.
+  const single = partial && 'sequencer' in partial ? partial.sequencer : undefined;
+  if (!sent && single !== undefined) {
+    list[0] = sanitiseSequencer(track, single, baseList[0]);
+  }
+  for (const sequencer of list) {
+    // A sequencer the caller added without weights is reachable: an unmentioned
+    // slot weighs 1, so "add a copy" is audible without a second edit.
+    sequencer.weights = Array.from({ length: list.length },
+      (unused, i) => (i < sequencer.weights.length ? sequencer.weights[i] : 1));
+  }
+  return list;
+}
+
+/** More than this many alternates per track is a UI accident, not a sequence. */
+const MAX_SEQUENCERS = 8;
 
 /**
  * Per-aspect randomisation targets. `null` is meaningful — "follow this track's
@@ -487,10 +599,16 @@ function sanitiseTracks(value, base) {
         numberIn(baseTrack.glide, [0, 1], DEFAULT_TRACK_GLIDE[name] ?? 0)),
       vary: sanitiseVary(partial && partial.vary, baseTrack.vary),
     };
+    if (TUNED_TRACKS.includes(name)) {
+      track.dissonance = sanitiseRangeValue(partial && partial.dissonance, 0, 1)
+        ?? sanitiseRangeValue(baseTrack.dissonance, 0, 1)
+        ?? DEFAULT_TRACK_DISSONANCE;
+    }
     if (SEQUENCED_TRACKS.includes(name)) {
-      track.sequencer = sanitiseSequencer(
-        name, partial && partial.sequencer, baseTrack.sequencer,
-      );
+      const storedList = Array.isArray(baseTrack.sequencers) ? baseTrack.sequencers
+        : baseTrack.sequencer ? [baseTrack.sequencer] : undefined;
+      track.sequencers = sanitiseSequencerList(name, partial, storedList);
+      track.sequencer = track.sequencers[0];
     }
     tracks[name] = track;
   }
@@ -508,10 +626,11 @@ function bridgeLegacyArpSteps(partial, tracks, arp) {
   const sentMask = Boolean(partial && partial.arp && typeof partial.arp === 'object'
     && Array.isArray(partial.arp.steps));
   if (!sentMask) return;
-  const sentLane = Boolean(partial.tracks && typeof partial.tracks === 'object'
-    && partial.tracks.arp && typeof partial.tracks.arp === 'object'
-    && partial.tracks.arp.sequencer && typeof partial.tracks.arp.sequencer === 'object'
-    && 'steps' in partial.tracks.arp.sequencer);
+  const sentTrack = partial.tracks && typeof partial.tracks === 'object'
+    && partial.tracks.arp && typeof partial.tracks.arp === 'object' ? partial.tracks.arp : null;
+  const sentLane = Boolean(sentTrack && ((sentTrack.sequencer
+    && typeof sentTrack.sequencer === 'object' && 'steps' in sentTrack.sequencer)
+    || Array.isArray(sentTrack.sequencers)));
   if (sentLane) return;
   const lane = tracks.arp.sequencer.steps;
   for (let i = 0; i < ARP_STEP_COUNT; i++) {
@@ -528,13 +647,14 @@ function bridgeLegacyArpSteps(partial, tracks, arp) {
 function bridgeLegacyPercussion(partial, tracks) {
   const legacy = partial && typeof partial === 'object' ? partial.percussion : undefined;
   if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) return;
-  const sentAuthoritative = Boolean(partial.tracks && typeof partial.tracks === 'object'
+  const sentTrack = partial.tracks && typeof partial.tracks === 'object'
     && partial.tracks.percussion && typeof partial.tracks.percussion === 'object'
-    && partial.tracks.percussion.sequencer);
-  if (sentAuthoritative) return;
-  tracks.percussion.sequencer = sanitiseSequencer(
-    'percussion', legacy, tracks.percussion.sequencer,
+    ? partial.tracks.percussion : null;
+  if (sentTrack && (sentTrack.sequencer || Array.isArray(sentTrack.sequencers))) return;
+  tracks.percussion.sequencers[0] = sanitiseSequencer(
+    'percussion', legacy, tracks.percussion.sequencers[0],
   );
+  tracks.percussion.sequencer = tracks.percussion.sequencers[0];
 }
 
 /**
@@ -756,7 +876,7 @@ function copySequencer(sequencer) {
     : Object.fromEntries(
       PERCUSSION_LANES.map((lane) => [lane, copyStepLane(sequencer.steps[lane])]),
     );
-  return { mode: sequencer.mode, steps };
+  return { mode: sequencer.mode, weights: sequencer.weights.slice(), steps };
 }
 
 function copyTrack(track) {
@@ -768,7 +888,12 @@ function copyTrack(track) {
       Object.entries(track.vary).map(([aspect, value]) => [aspect, copyRangeValue(value)]),
     ),
   };
-  if (track.sequencer) out.sequencer = copySequencer(track.sequencer);
+  if ('dissonance' in track) out.dissonance = copyRangeValue(track.dissonance);
+  if (track.sequencers) {
+    out.sequencers = track.sequencers.map(copySequencer);
+    // The alias survives the copy: the caller edits one object, not two.
+    out.sequencer = out.sequencers[0];
+  }
   return out;
 }
 
@@ -1027,6 +1152,55 @@ export function voiceHookChord(degree, colourAmount = 0.5, {
 }
 
 /**
+ * An honest name for a chord, from the semitones it actually contains (v14,
+ * for the visualiser's bar labels). `rootPc` is the chord's own root pitch
+ * class, `semitones` the intervals above it — so the name describes what the
+ * ear meets, not what the stack was called when it was built. That matters in
+ * the pentatonics and whole tone, where a diatonic "third" is nothing of the
+ * kind: stacking scale steps in majorPentatonic gives a sixth chord, and this
+ * says so rather than calling it a triad.
+ *
+ * Only the qualities the engine can actually produce are named; anything else
+ * degrades to the root name plus the intervals it could not place, which is
+ * still true.
+ */
+export function nameChord(rootPc, semitones) {
+  const root = NOTE_NAMES[((Math.round(rootPc) % 12) + 12) % 12];
+  const set = new Set((Array.isArray(semitones) ? semitones : [])
+    .map((s) => ((Math.round(s) % 12) + 12) % 12));
+  set.delete(0);
+  if (!set.size) return `${root}5`;
+
+  const third = set.has(3) ? 'min' : set.has(4) ? 'maj' : null;
+  const fifth = set.has(7) ? 'perfect' : set.has(6) ? 'dim' : set.has(8) ? 'aug' : null;
+  const seventh = set.has(10) ? 'min' : set.has(11) ? 'maj' : null;
+  const sixth = set.has(9) && !seventh;
+  const ninth = set.has(2);
+
+  let quality = '';
+  if (third === 'min') quality = fifth === 'dim' ? 'dim' : 'm';
+  else if (third === 'maj') quality = fifth === 'aug' ? 'aug' : '';
+  else if (set.has(5)) quality = 'sus4';
+  else if (ninth) quality = 'sus2';
+  else if (set.has(9)) quality = 'm';           // a bare root+sixth reads as its relative minor 7 shape
+  else quality = '5';
+
+  let extension = '';
+  if (seventh === 'maj') extension = quality === 'm' ? 'maj7' : 'maj7';
+  else if (seventh === 'min') extension = '7';
+  else if (sixth && quality !== 'sus2' && quality !== 'sus4') extension = '6';
+  if (ninth && seventh) extension = seventh === 'maj' ? 'maj9' : '9';
+  else if (ninth && !extension && quality !== 'sus2') extension = 'add9';
+
+  // A named fifth that the quality has not already accounted for.
+  const tail = fifth === 'dim' && third !== 'min' ? 'b5' : fifth === 'aug' && third !== 'maj' ? '#5' : '';
+  // A suspension takes its extension in front of it, the way it is written: D9sus4.
+  return quality.startsWith('sus')
+    ? `${root}${extension}${quality}${tail}`
+    : `${root}${quality}${extension}${tail}`;
+}
+
+/**
  * A melodic phrase of 1–2 bars. Note degrees are RELATIVE to the chord root
  * degree, so a stored phrase stays consonant when reused over a different
  * chord. Density runs from about one note per bar to six as complexity rises;
@@ -1254,30 +1428,207 @@ export function developMotif(motif, op, {
   return cell;
 }
 
+// -- the bass groove (v14) --------------------------------------------------
+//
+// The v12 bass drew a bar of rhythm from a density and repeated it. The user's
+// verdict on that was blunt: "it's a rhythm instrument, not a low-pitch
+// random". So the bass now has a GROOVE — an anchor pulse that never moves,
+// one or two syncopation cells that give the section its feel, and a note
+// length per step (a bassist's staccato/held mix is half of what makes a line
+// recognisable). The groove is stated once per section and DEVELOPED bar to
+// bar the way the melody's motif is, rather than re-rolled.
+//
+// The harmonic contract is untouched: every felt pulse takes the root; the
+// fifth and the octave only ever appear between the pulses.
+
+/** Note lengths a groove is built from: the gate a step's span is played at. */
+const BASS_FEELS = Object.freeze({
+  // Short, springy notes with air between them — the most obviously "played" feel.
+  staccato: { anchor: 0.55, pulse: 0.45, offbeat: 0.35 },
+  // Long notes that lean into each other; the anchor carries the bar.
+  held: { anchor: 0.98, pulse: 0.9, offbeat: 0.6 },
+  // A held anchor answered by short offbeats — the classic bass-line shape.
+  mixed: { anchor: 0.95, pulse: 0.5, offbeat: 0.35 },
+});
+
+export const BASS_FEEL_NAMES = Object.freeze(Object.keys(BASS_FEELS));
+
 /**
- * A bar of bass rhythm (v12, tightening the v8 harmonic contract). `starts`
- * are the bar's felt pulses: the pattern may play on any of them, and when it
- * does the note is the ROOT of the chord — the pitch class every other track
- * is voicing. Between the pulses it may take the fifth or the octave, which is
- * colour rather than harmony and so cannot muddy the chord.
- *
- * The result is a PATTERN, not a bar: the engine draws it once per section and
- * repeats it, which is the difference between a bass line and a bass noise.
+ * Offbeat placements a groove syncopates on, as a fraction of the pulse that
+ * carries them. Every cell is a real rhythmic figure rather than a random
+ * offbeat: the "and" of the beat, the push into the next one, the two-note
+ * pickup.
  */
-export function buildBassPattern({
-  starts = [0, 1, 2, 3], beats = 4, intensity = 0.5, complexity = 0.5, rng = Math.random,
+const BASS_CELLS = Object.freeze([
+  [0.5],            // the and
+  [0.75],           // the push, late into the next pulse
+  [0.5, 0.75],      // a two-note pickup
+  [0.25, 0.75],     // a syncopated pair straddling the beat
+]);
+
+export const BASS_GROOVE_OPS = Object.freeze([
+  'state', 'ghost', 'push', 'simplify', 'double',
+]);
+
+/**
+ * A groove for the section that is starting. `starts` are the bar's felt
+ * pulses; `lowLane` (optional) are the beats percussion's low lane is hitting,
+ * which the groove locks onto where it can — a bass and a kick that agree on
+ * their onsets are heard as one instrument, which is the whole point of a
+ * rhythm section.
+ */
+export function buildBassGroove({
+  starts = [0, 1, 2, 3], beats = 4, intensity = 0.5, complexity = 0.5,
+  lowLane = null, rng = Math.random,
 } = {}) {
   const density = clamp(0.2 + clamp(intensity, 0, 1) * 0.5 + clamp(complexity, 0, 1) * 0.3, 0, 1);
-  const steps = [{ beat: starts[0] ?? 0, tone: 'root' }];
+  const feelName = pick(
+    density < 0.45 ? ['held', 'mixed'] : density < 0.75 ? ['mixed', 'staccato', 'held'] : ['staccato', 'mixed'],
+    rng,
+  );
+  const gates = BASS_FEELS[feelName];
+  const locked = Array.isArray(lowLane) && lowLane.length ? lowLane : null;
+  const near = (beat) => locked !== null && locked.some((hit) => Math.abs(hit - beat) < 0.13);
+
+  // The anchor: root, accented, the thing the ear counts from. It sits on the
+  // downbeat unless the kick does not — a groove whose first low hit is the
+  // second pulse anchors there instead, which is what locking to the low lane
+  // means when the pattern is not four-on-the-floor.
+  const anchorAt = locked && !near(starts[0] ?? 0)
+    ? starts.find((start) => near(start)) ?? starts[0] ?? 0
+    : starts[0] ?? 0;
+  const steps = [{ beat: anchorAt, tone: 'root', gate: gates.anchor, accent: true }];
+  if (anchorAt !== (starts[0] ?? 0)) {
+    // The bar still owes its downbeat a root; it just is not the accent.
+    steps.push({ beat: starts[0] ?? 0, tone: 'root', gate: gates.pulse, accent: false });
+  }
+
   for (let i = 1; i < starts.length; i++) {
-    if (rng() < density) steps.push({ beat: starts[i], tone: 'root' });
+    // v14: when percussion is playing, its low lane IS the bass's grid — every
+    // pulse the kick lands on is taken, so the two are heard as one instrument.
+    // Away from the kick (or with no percussion at all) it is a density draw.
+    const chance = near(starts[i]) ? 1 : density * 0.8;
+    if (rng() < chance) {
+      steps.push({ beat: starts[i], tone: 'root', gate: gates.pulse, accent: false });
+    }
   }
-  for (let beat = 0.5; beat < beats - 1e-9; beat += 1) {
-    if (starts.some((start) => Math.abs(start - beat) < 1e-9)) continue;
-    if (rng() >= density * 0.4) continue;
-    steps.push({ beat, tone: rng() < 0.65 ? 'fifth' : 'octave' });
+
+  // Syncopation: one cell, hung off a pulse, plus a second when the section is
+  // busy enough to carry it. Off-pulse notes are where the fifth and octave
+  // live, so the root discipline survives every one of them.
+  const cells = 1 + (density > 0.6 && rng() < density ? 1 : 0);
+  for (let c = 0; c < cells; c++) {
+    const cell = pick(BASS_CELLS, rng);
+    const pulse = starts[1 + (Math.floor(rng() * Math.max(1, starts.length - 1)) % Math.max(1, starts.length - 1))]
+      ?? starts[0];
+    for (const offset of cell) {
+      const beat = pulse + offset;
+      if (beat >= beats - 1e-9) continue;
+      if (steps.some((step) => Math.abs(step.beat - beat) < 1e-9)) continue;
+      steps.push({
+        beat,
+        tone: rng() < 0.65 ? 'fifth' : 'octave',
+        gate: gates.offbeat,
+        accent: false,
+        ghost: rng() < 0.4,
+      });
+    }
   }
-  return steps.sort((a, b) => a.beat - b.beat);
+
+  return { feel: feelName, beats, steps: sortGroove(steps) };
+}
+
+const sortGroove = (steps) => steps.slice().sort((a, b) => a.beat - b.beat);
+
+export function cloneBassGroove(groove) {
+  return { feel: groove.feel, beats: groove.beats, steps: groove.steps.map((step) => ({ ...step })) };
+}
+
+/**
+ * One development of a stated groove — the same idea, said slightly
+ * differently. `state` is the groove itself, which is what most bars play; the
+ * rest are the variations a bassist reaches for without changing the line:
+ *
+ * - ghost      a quiet extra note in a gap
+ * - push       one off-pulse note anticipated by a semiquaver
+ * - simplify   the last off-pulse note dropped
+ * - double     an off-pulse note repeated an eighth later
+ *
+ * `starts` is passed so every branch can re-assert the harmonic contract: a
+ * step that lands on a felt pulse is the root, whatever it was before.
+ */
+export function developBassGroove(groove, op, {
+  starts = [0, 1, 2, 3], rng = Math.random,
+} = {}) {
+  const next = cloneBassGroove(groove);
+  const beats = next.beats;
+  const onPulse = (beat) => starts.some((start) => Math.abs(start - beat) < 1e-9);
+  const offPulse = next.steps.filter((step) => !onPulse(step.beat));
+  const taken = (beat) => next.steps.some((step) => Math.abs(step.beat - beat) < 1e-9);
+
+  if (op === 'ghost') {
+    const slots = [];
+    for (let beat = 0.5; beat < beats - 1e-9; beat += 0.5) {
+      if (!onPulse(beat) && !taken(beat)) slots.push(beat);
+    }
+    if (slots.length) {
+      const beat = pick(slots, rng);
+      next.steps.push({ beat, tone: 'octave', gate: 0.3, accent: false, ghost: true });
+    }
+  } else if (op === 'push' && offPulse.length) {
+    const step = pick(offPulse, rng);
+    const to = step.beat - 0.25;
+    if (to > 0 && !onPulse(to) && !taken(to)) step.beat = to;
+  } else if (op === 'simplify' && offPulse.length) {
+    const last = offPulse[offPulse.length - 1];
+    next.steps = next.steps.filter((step) => step !== last);
+  } else if (op === 'double' && offPulse.length) {
+    const step = pick(offPulse, rng);
+    const beat = step.beat + 0.5;
+    if (beat < beats - 1e-9 && !onPulse(beat) && !taken(beat)) {
+      next.steps.push({ ...step, beat, gate: 0.3, accent: false, ghost: true });
+    }
+  }
+
+  // The contract, re-asserted after every branch: felt pulses voice the root.
+  for (const step of next.steps) if (onPulse(step.beat)) step.tone = 'root';
+  next.steps = sortGroove(next.steps);
+  return next;
+}
+
+/**
+ * Which development a bar of the groove states. Bar 0 of every four-bar cycle
+ * is the groove itself — a line nobody ever hears plain is not a groove — and
+ * `variation` (the bass's randomness) decides how far the others stray:
+ * whether the bar varies at all, which way, and whether it simply says again
+ * what the bar before said, because a development stated twice is the one the
+ * ear actually catches.
+ *
+ * All three draws are made whatever the variation is — the rule the register
+ * wander already follows: the dial changes the LINE, not the position every
+ * later draw in the bar takes in the stream. At variation 0 the groove is
+ * stated every bar, so a frozen bass is frozen bar for bar.
+ */
+export function bassGrooveOp(barInCycle, variation = 0.5, rng = Math.random, previousOp = 'state') {
+  const roll = rng();
+  const again = rng();
+  const choice = rng();
+  if (barInCycle % 4 === 0 || variation <= 0) return 'state';
+  if (previousOp !== 'state' && again < 0.25 + (1 - variation) * 0.45) return previousOp;
+  if (roll >= variation * 0.6) return 'state';
+  const weights = [
+    ['ghost', 1.2],
+    ['push', 0.8],
+    ['simplify', 0.7],
+    ['double', 0.6],
+  ];
+  const total = weights.reduce((sum, [, weight]) => sum + weight, 0);
+  let r = choice * total;
+  for (const [op, weight] of weights) {
+    r -= weight;
+    if (r <= 0) return op;
+  }
+  return 'state';
 }
 
 // -- song structure ---------------------------------------------------------
@@ -1352,13 +1703,75 @@ export function sectionAtBar(preset, bar, customStructure = []) {
  * thresholds rise along TRACK_ORDER, so the active set is always a prefix of
  * it: pad first, arp and percussion last to join.
  */
+/**
+ * v14 retune: at the shipped defaults the old ladder never reached percussion
+ * at all — complexity 0.5 under `waves` tops out at energy 0.64, short of the
+ * 0.78 it used to ask for — so the kit the user likes best simply never
+ * arrived. The top of the ladder is pulled down to fit inside the range the
+ * defaults actually cover, and the rest is spread evenly beneath it. The order
+ * is unchanged: pad first, percussion still last in.
+ */
 const AUTO_THRESHOLDS = Object.freeze({
-  pad: 0, bass: 0.12, melody: 0.3, texture: 0.45, arp: 0.62, percussion: 0.78,
+  pad: 0, bass: 0.1, melody: 0.24, texture: 0.36, arp: 0.48, percussion: 0.6,
 });
 
 export function autoActiveTracks(intensity = 0.5, complexity = 0.5) {
   const energy = 0.55 * clamp(Number(intensity) || 0, 0, 1) + 0.45 * clamp(Number(complexity) || 0, 0, 1);
   return TRACK_ORDER.filter((name) => energy >= AUTO_THRESHOLDS[name]);
+}
+
+// -- the silence floor (v14) ------------------------------------------------
+//
+// The defect the user reported: at the shipped defaults the piece can fall
+// silent for whole bars at a time — the pad takes one of its v11 breathing
+// rests while the texture happens to be below its activation threshold, and
+// nothing at all is left sounding. The engine's own guard is in beginBar; the
+// two predicates below are the same question asked of a RECORDING, so the
+// property can be checked from outside without reaching into engine state.
+
+/**
+ * How many bars of the log a note is audible in. `notes` are 'note' events
+ * ({ time, duration }); `bars` are 'bar' events ({ bar, time }). The final bar
+ * is not judged: nothing has told us when it ends.
+ */
+export function silentBars(notes, bars) {
+  const list = Array.isArray(bars) ? bars.filter((b) => b && Number.isFinite(b.time)) : [];
+  const sounds = Array.isArray(notes) ? notes.filter((n) => n && Number.isFinite(n.time)) : [];
+  const silent = [];
+  for (let i = 0; i + 1 < list.length; i++) {
+    const from = list[i].time;
+    const to = list[i + 1].time;
+    const heard = sounds.some((note) => note.time < to - 1e-9
+      && note.time + Math.max(0, Number(note.duration) || 0) > from + 1e-9);
+    if (!heard) silent.push(list[i].bar ?? i);
+  }
+  return silent;
+}
+
+/** The longest stretch of consecutive silent bars in a recording. */
+export function longestSilentRun(notes, bars) {
+  const silent = new Set(silentBars(notes, bars));
+  let longest = 0;
+  let run = 0;
+  const list = Array.isArray(bars) ? bars : [];
+  for (let i = 0; i + 1 < list.length; i++) {
+    if (silent.has(list[i].bar ?? i)) {
+      run += 1;
+      if (run > longest) longest = run;
+    } else {
+      run = 0;
+    }
+  }
+  return longest;
+}
+
+/**
+ * The property the v14 defect asks for: a piece that never falls audibly
+ * silent. `maxSilentBars` is the tolerance — 0 for "something is always
+ * sounding", 1 for the single bar of breath a solo pad is allowed.
+ */
+export function isContinuouslyAudible(notes, bars, { maxSilentBars = 0 } = {}) {
+  return longestSilentRun(notes, bars) <= Math.max(0, maxSilentBars);
 }
 
 // -- arpeggiator ------------------------------------------------------------
@@ -1733,6 +2146,13 @@ export function createEngine(initialParams, options = {}) {
   let padSwellPhase = 0;       // position in the pad's four-bar dynamic contour
   let padRested = false;       // the chord span just gone was a rest
 
+  // The v14 silence floor: tracks promoted for one bar to cover a gap, how
+  // many bars have now passed with nothing audible, and the end of the last
+  // note the engine scheduled (how far the piece is covered to).
+  const promoted = new Set();
+  let silentRun = 0;
+  let lastNoteEnd = 0;
+
   // Melodic state — the v12 motif: one cell per section, developed bar by bar,
   // banked and recalled through the same machinery as the hook.
   let motif = null;              // the cell every melody bar is a development of
@@ -1743,14 +2163,18 @@ export function createEngine(initialParams, options = {}) {
   let phraseBar = 0;             // bar within the current phrase
   const motifBank = createVariantBank({ size: MOTIF_BANK_SIZE, clone: cloneMotif });
 
-  // The bass's per-section rhythm, drawn once per section rather than per bar.
-  let bassPattern = null;
-  let bassPatternKey = '';
+  // The bass's per-section groove, drawn once per section rather than per bar,
+  // and the bar count it is developed against.
+  let bassGroove = null;
+  let bassGrooveKey = '';
+  let bassGrooveBar = 0;
+  let bassGrooveOpLast = 'state';
 
   // Realised bar plans (see planFor): every random draw a bar needs is made
   // once, at the barline, so hold can replay a bar identically.
   let melodyPlan = { motifDerived: false, notes: [] };
   let melodyShift = 0;         // the bar's octave transposition into the register band
+  let responder = null;        // the instrument answering the melody this bar (v14)
   let texturePlan = [];
   let arpPlan = null;
   let percussionPlan = [];
@@ -1764,6 +2188,7 @@ export function createEngine(initialParams, options = {}) {
   const held = new Set();           // tracks whose bar plan is frozen right now
   const frozenPlans = new Map();    // plan key → the plan a held track replays
   const pendingRandomise = new Set(); // tracks to re-roll at the next barline
+  const activeSequencer = new Map();  // track → index into tracks[t].sequencers
   // vary.voice wander: EPHEMERAL, so it never reaches params/getParams.
   const wanderedVoice = new Map();  // track → the voice id actually sounding
 
@@ -1821,11 +2246,17 @@ export function createEngine(initialParams, options = {}) {
   }
 
   function advanceWalks() {
+    // v14 random/hold merge: randomness 0 IS a hold, so a track sitting at 0
+    // drifts by nothing at all. Resolved before the loop because reading a
+    // ranged randomness can open a walk of its own, and a Map must not grow
+    // while it is being walked.
+    const frozen = new Set(TRACK_ORDER.filter(isFrozenTrack));
     for (const [key, position] of walkPhases) {
       // SPEC-CRITIC [hold/prob] → ruling 5: hold freezes every draw the bar
       // makes, and the walk step is one of them. A held track's ranged params —
       // step probability included — therefore sit still until it is released.
-      if (held.has(key.slice(0, key.indexOf(':')))) continue;
+      const track = key.slice(0, key.indexOf(':'));
+      if (held.has(track) || frozen.has(track)) continue;
       let next = position + (rng() * 2 - 1) * WALK_STEP;
       if (next < 0) next = -next;
       if (next > 1) next = 2 - next;
@@ -1867,6 +2298,24 @@ export function createEngine(initialParams, options = {}) {
     return clamp(value ?? DEFAULT_TRACK_RANDOMNESS, 0, 1);
   }
 
+  /**
+   * v14: randomness 0 means HOLD — the material loops exactly, nothing drifts
+   * and nothing re-rolls. The `hold` param stays a separate switch (the UI
+   * drives both from the one dial), so this is the half of the merge the
+   * engine owes: at 0 a track's own generators stop varying, whether or not
+   * anything set hold.
+   */
+  function isFrozenTrack(track) {
+    return trackRandomness(track) <= 0;
+  }
+
+  /** A track's dissonance (v14): how far it may stray from the group chord. */
+  function trackDissonance(track) {
+    const config = params.tracks[track];
+    if (!config || config.dissonance === undefined) return 0;
+    return clamp(resolveRange(track, 'dissonance', config.dissonance) ?? 0, 0, 1);
+  }
+
   /** Per-note velocity jitter: ±15 % of the note's own velocity at aspect 1. */
   function velocityJitter(track) {
     return 1 + varyAmount(track, 'volume') * between(-0.15, 0.15, rng);
@@ -1901,14 +2350,100 @@ export function createEngine(initialParams, options = {}) {
     return rng() < OCTAVE_WANDER_CHANCE * varyAmount(track, 'pitch') ? direction : 0;
   }
 
+  /**
+   * One dissonance decision for one note (v14). Returns 0 for the strict
+   * chord discipline every earlier version had, `{ chromatic: false, dir }`
+   * for a passing/neighbour tone still inside the mode, or
+   * `{ chromatic: true, dir }` for a borrowed tone from outside it — the
+   * higher the dial, the more often, and the more often borrowed.
+   *
+   * Nothing is drawn at dissonance 0, so the shipped defaults spend no
+   * randomness on a feature they are not using.
+   */
+  function dissonanceDraw(track) {
+    const amount = trackDissonance(track);
+    if (amount <= 0) return 0;
+    if (rng() >= amount * 0.45) return 0;
+    const dir = rng() < 0.5 ? -1 : 1;
+    return { chromatic: rng() < amount * 0.7, dir };
+  }
+
   /** A sequencer step's firing probability, resolving a v7 range via its walk. */
   function effectiveProb(track, param, prob) {
     return clamp(resolveRange(track, param, prob) ?? 1, 0, 1);
   }
 
-  /** The sequencer lane(s) of a pulsed track, or null for pad/texture. */
+  /**
+   * The sequencer a pulsed track is CURRENTLY playing, or null for pad and
+   * texture. With one sequencer this is the one the v6 param always was; with
+   * several (v14) it is whichever the Markov walk last landed on.
+   */
   function sequencerFor(track) {
-    return params.tracks[track].sequencer ?? null;
+    const list = params.tracks[track].sequencers;
+    if (!list || !list.length) return params.tracks[track].sequencer ?? null;
+    const at = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
+    return list[at];
+  }
+
+  /**
+   * End of a loop: which of the track's sequencers plays the next bar. The
+   * current one's weights are the transition row of a small Markov chain, so a
+   * user can make one sequence lead reliably into another, or let a set of
+   * variations shuffle. A single sequencer (or an all-zero row) never moves,
+   * and never draws.
+   */
+  function advanceSequencers() {
+    for (const track of SEQUENCED_TRACKS) {
+      const list = params.tracks[track].sequencers;
+      if (!list || list.length < 2) continue;
+      if (held.has(track) || isFrozenTrack(track)) continue;
+      const from = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
+      const weights = list[from].weights;
+      const total = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+      if (total <= 0) continue;
+      let r = rng() * total;
+      let next = from;
+      for (let i = 0; i < weights.length; i++) {
+        r -= Math.max(0, weights[i]);
+        if (r <= 0) { next = i; break; }
+      }
+      if (next !== from) clearFrozen(track);
+      activeSequencer.set(track, next);
+    }
+  }
+
+  /**
+   * A step's effective probability inside its group (v14 conditional trigs):
+   * within a group, a step only has its own chance if the group's previous
+   * step actually sounded. Break the chain and the rest of the group stays
+   * quiet until the group starts again on the next bar.
+   */
+  function groupedProb(sounded, step, prob) {
+    if (step.group === undefined) return prob;
+    return sounded.get(step.group) === false ? 0 : prob;
+  }
+
+  /**
+   * Ties (v14): a step marked `tie` merges with the step after it — ONE note
+   * spanning both. The absorbed step is dropped from the bar, so the note in
+   * front of it simply runs on to whatever comes next.
+   */
+  function mergeTies(notes, lane, slots) {
+    if (!notes.some((note) => lane[note.index] && lane[note.index].tie === true)) return notes;
+    const merged = [];
+    let i = 0;
+    while (i < notes.length) {
+      const note = notes[i];
+      let end = note.index;
+      while (end + 1 < slots && lane[end].tie === true) end += 1;
+      // How many grid slots the merged note covers, for the tracks whose note
+      // length is its own field rather than the gap to the next onset.
+      note.slots = end - note.index + 1;
+      merged.push(note);
+      i += 1;
+      while (i < notes.length && notes[i].index <= end) i += 1;
+    }
+    return merged;
   }
 
   function isManual(track) {
@@ -1978,8 +2513,10 @@ export function createEngine(initialParams, options = {}) {
           chordBarsLeft = 0;
           // The bass's own re-roll is its rhythm; the pattern is redrawn for
           // the section it is in.
-          bassPattern = null;
-          bassPatternKey = '';
+          bassGroove = null;
+          bassGrooveKey = '';
+          bassGrooveBar = 0;
+          bassGrooveOpLast = 'state';
           break;
         case 'melody':
           motifBank.clear();
@@ -2022,6 +2559,9 @@ export function createEngine(initialParams, options = {}) {
   function isActive(name) {
     const state = params.tracks[name].state;
     if (state === 'off') return false;
+    // The silence floor promoted this track for the bar being scheduled: it is
+    // covering a gap nothing else would have filled.
+    if (promoted.has(name)) return true;
     // The closing bar always gets its pad and bass, whatever the section
     // intensity would otherwise have decided — that is the resolution.
     if (outroStarted && (name === 'pad' || name === 'bass')) return true;
@@ -2419,6 +2959,7 @@ export function createEngine(initialParams, options = {}) {
       }
     }
     recordNote(track, full.when);
+    if (full.when + full.duration > lastNoteEnd) lastNoteEnd = full.when + full.duration;
     const event = {
       track,
       midi: full.midi,
@@ -2650,6 +3191,24 @@ export function createEngine(initialParams, options = {}) {
     }
   }
 
+  /**
+   * Publish the chord the bar is built on (v14), for the visualiser's bar
+   * labels. The midis are the pad's own voicing so the label names what is
+   * actually sounding, and the name is derived from those semitones rather
+   * than from the degree the stack was built from.
+   */
+  function emitChord(barNumber, time) {
+    const midis = chordMidis(3, colour() > 0.5 ? 4 : 3);
+    if (!midis.length) return;
+    const rootMidi = scaleDegreeToMidi(chordDegree, scale(), pitchClass(params.root), 3);
+    emit('chord', {
+      name: nameChord(rootMidi % 12, midis.map((midi) => midi - rootMidi)),
+      midis,
+      bar: barNumber,
+      time,
+    });
+  }
+
   /** The current chord, voiced upward from `baseOctave` with no crossings. */
   function chordMidis(baseOctave, maxNotes) {
     const degrees = voiceHookChord(chordDegree, colour(), {
@@ -2696,9 +3255,12 @@ export function createEngine(initialParams, options = {}) {
       jitters: Array.from({ length: 5 }, () => velocityJitter('pad')),
       nudges: Array.from({ length: 5 }, () => timingNudge('pad')),
       pans: Array.from({ length: 5 }, () => panSpread('pad')),
-      // Rests thin out as the section lifts; re-attacks do the opposite.
-      rest: rng() < (PAD_REST_BASE + spread * PAD_REST_SPAN) * (1 - intensity),
-      reattack: rng() < (PAD_REATTACK_BASE + spread * PAD_REATTACK_SPAN) * (0.5 + intensity),
+      // Rests thin out as the section lifts; re-attacks do the opposite. Both
+      // draws are made whatever the spread is, but at randomness 0 — the hold
+      // position of the dial — the pad simply keeps playing what it played.
+      rest: rng() < (PAD_REST_BASE + spread * PAD_REST_SPAN) * (1 - intensity) && spread > 0,
+      reattack: rng() < (PAD_REATTACK_BASE + spread * PAD_REATTACK_SPAN) * (0.5 + intensity)
+        && spread > 0,
       // A smooth contour rather than a per-bar draw: the pad swells and settles
       // over four bars, and only as far as the section's intensity asks.
       swell: 1 + Math.sin(padSwellPhase * Math.PI * 2) * PAD_SWELL_DEPTH * intensity,
@@ -2733,6 +3295,101 @@ export function createEngine(initialParams, options = {}) {
     attackChord(time + half, duration - half, plan, PAD_REATTACK_LEVEL);
   }
 
+  // -- the silence floor -----------------------------------------------------
+
+  /** Bars 0–4 belong to the staged entry; the floor takes over after it. */
+  const STAGE_BARS = TRACK_ORDER.length - 1;
+
+  /** One bar of breath is music; two in a row is the defect. */
+  const SILENCE_TOLERANCE_BARS = 1;
+
+  /** A gap is covered by the wash first, then the chord, then whatever plays. */
+  const COVER_ORDER = Object.freeze(['texture', 'pad', 'arp', 'melody', 'bass', 'percussion']);
+
+  /**
+   * Whether the bar starting at `time` will be heard at all: something already
+   * sounding rings through at least its first quarter, or one of the plans
+   * just realised has a note in it.
+   */
+  function barWillSound(time) {
+    if (lastNoteEnd > time + bar.duration * 0.25) return true;
+    return Boolean(melodyPlan.notes.length || texturePlan.length
+      || (arpPlan && arpPlan.steps.length) || percussionPlan.length);
+  }
+
+  /**
+   * The tracks that could cover a silent bar. A track the user is sequencing
+   * by hand is never one of them: a grid of steps at probability 0 is silence
+   * somebody ASKED for, and the floor exists to catch the silence nobody did.
+   */
+  function coverCandidates() {
+    return COVER_ORDER.filter((name) => params.tracks[name].state !== 'off'
+      && currentBarNumber >= TRACK_ORDER.indexOf(name)
+      && !isManual(name));
+  }
+
+  /** A cover note: soft, on the chord, and drawn from no randomness at all. */
+  function playCover(track, time) {
+    const rootPc = pitchClass(params.root);
+    if (track === 'pad') {
+      // The pad's own voicing, a shade under its usual level — the rest it was
+      // taking becomes a quieter re-entry rather than a hole.
+      attackChord(time, bar.duration * (Math.max(0, chordBarsLeft) + 1), {
+        maxNotes: 3,
+        jitters: [1, 1, 1, 1, 1],
+        nudges: [0, 0, 0, 0, 0],
+        pans: [0, 0, 0, 0, 0],
+        swell: 1,
+      }, 0.8);
+      return;
+    }
+    if (track === 'percussion') {
+      playNote('percussion', {
+        midi: null, freq: null, kind: 'low', when: time, duration: 0.4, velocity: 0.45,
+      });
+      return;
+    }
+    const octave = track === 'texture' ? 6 : track === 'bass' ? 2 : 4;
+    const midi = scaleDegreeToMidi(chordDegree, scale(), rootPc, octave);
+    playNote(track, {
+      midi,
+      when: time,
+      duration: bar.duration * (track === 'texture' ? 1.5 : 0.9),
+      velocity: track === 'texture' ? 0.32 : track === 'bass' ? 0.6 : 0.4,
+      pan: 0,
+    });
+  }
+
+  /**
+   * The floor itself, run once every bar after the staged entry: if nothing at
+   * all would be heard, something is made to play. A piece with only ONE track
+   * in it keeps a single bar of breath (SILENCE_TOLERANCE_BARS), because with
+   * nothing else playing that breath IS the piece — a solo pad or a solo
+   * melody must still be allowed to phrase. The moment a second track exists
+   * it covers the gap instead, and the piece never falls silent at all.
+   */
+  function coverSilence(time) {
+    if (currentBarNumber < STAGE_BARS || outroStarted) return;
+    if (barWillSound(time)) {
+      silentRun = 0;
+      return;
+    }
+    silentRun += 1;
+    const candidates = coverCandidates();
+    const cover = candidates[0];
+    if (!cover) return;
+    if (candidates.length < 2 && silentRun <= SILENCE_TOLERANCE_BARS) return;
+    silentRun = 0;
+    promoted.add(cover);
+    // The promoted track may have been muted a moment ago; open its gain from
+    // the note's own onset so the cover is actually audible.
+    applyTracks(0.15, time);
+    playCover(cover, time);
+  }
+
+  /** A beat position as the swung bar reads it (v14). */
+  const swung = (beat) => swungBeat(beat, SWING_UNIT, bar.swing);
+
   /** Which pulse of the current bar a beat position falls in. */
   function pulseAtBeat(beat) {
     let index = 0;
@@ -2755,55 +3412,91 @@ export function createEngine(initialParams, options = {}) {
   function planBassManual() {
     const lane = sequencerFor('bass').steps;
     const slots = sequencerStepsPerBar(params.timeSignature);
-    const steps = [];
+    const sounded = new Map();
+    let steps = [];
     for (let i = 0; i < slots; i++) {
       const step = lane[i];
       if (!step.on) continue;
-      if (rng() >= effectiveProb('bass', `step.${i}`, step.prob)) continue;
+      const prob = groupedProb(sounded, step, effectiveProb('bass', `step.${i}`, step.prob));
+      const fires = rng() < prob;
+      if (step.group !== undefined) sounded.set(step.group, fires);
+      if (!fires) continue;
       const beat = i / 4;
       steps.push({
+        index: i,
         beat,
         fifth: !isStrongBeat(beat) && rng() < 0.35,
         velocity: between(step.vmin, step.vmax, rng) * velocityJitter('bass'),
         nudge: timingNudge('bass'),
       });
     }
+    steps = mergeTies(steps, lane, slots);
     return { manual: true, steps };
   }
 
   /**
-   * The bass's rhythm for the section it is in (v12). Drawn ONCE per section
-   * rather than per bar: a bass line that re-rolls its rhythm every bar is a
-   * random walk, not a groove. Every felt pulse it plays on takes the root —
-   * that is the v8 harmonic contract — and the fifth and the octave are only
-   * ever allowed between the pulses.
+   * The bass's groove for the section it is in (v14, replacing the v12
+   * pattern). Drawn ONCE per section: a bass line that re-rolls its rhythm
+   * every bar is a random walk, not a groove. Every felt pulse it plays on
+   * takes the root — the v8 harmonic contract — and the fifth and the octave
+   * are only ever allowed between the pulses.
+   *
+   * When percussion is playing, the groove is handed the low lane's onsets
+   * from the bar just gone and locks onto them where it can.
    */
-  function ensureBassPattern() {
+  function ensureBassGroove() {
     const key = [
       currentSection.label, round3(sectionIntensity()), params.timeSignature,
-      round3(params.complexity), round3(trackRandomness('bass')),
+      round3(params.complexity),
     ].join(':');
-    if (bassPattern && bassPatternKey === key) return bassPattern;
-    bassPatternKey = key;
-    bassPattern = buildBassPattern({
+    if (bassGroove && bassGrooveKey === key) return bassGroove;
+    bassGrooveKey = key;
+    bassGrooveBar = 0;
+    bassGroove = buildBassGroove({
       starts: bar.starts,
       beats: bar.beats,
       intensity: sectionIntensity(),
       complexity: params.complexity,
+      lowLane: percussionLowBeats(),
       rng,
     });
-    return bassPattern;
+    return bassGroove;
+  }
+
+  /** Where percussion's low lane last landed, in beats — the groove's anchor grid. */
+  function percussionLowBeats() {
+    if (!isActive('percussion') || !percussionPlan.length) return null;
+    const beats = [];
+    for (const hit of percussionPlan) {
+      if (hit.kind !== 'low') continue;
+      beats.push((bar.starts[hit.pulse] ?? 0) + (hit.offset ?? 0));
+    }
+    return beats.length ? beats : null;
   }
 
   function planBass() {
     if (isManual('bass')) return planBassManual();
-    const pattern = ensureBassPattern();
+    const groove = ensureBassGroove();
+    // The groove is stated, then developed — the same relationship the melody
+    // has with its motif. randomness 0 states it every bar and draws nothing.
+    const op = bassGrooveOp(bassGrooveBar, trackRandomness('bass'), rng, bassGrooveOpLast);
+    bassGrooveOpLast = op;
+    const shape = op === 'state' ? groove
+      : developBassGroove(groove, op, { starts: bar.starts, rng });
     return {
       manual: false,
-      steps: pattern.map((step, i) => ({
+      op,
+      steps: shape.steps.map((step, i) => ({
         beat: step.beat,
         tone: step.tone,
-        velocity: clamp((step.tone === 'root' ? 0.8 : 0.62) * velocityJitter('bass'), 0.05, 1),
+        // The gate is what makes it sound played rather than held: a staccato
+        // groove leaves air between its notes, a sustained one does not.
+        gate: step.gate ?? 0.9,
+        velocity: clamp(
+          (step.ghost ? 0.42 : step.accent ? 0.85 : step.tone === 'root' ? 0.74 : 0.62)
+          * velocityJitter('bass'),
+          0.05, 1,
+        ),
         nudge: timingNudge('bass'),
         accent: i === 0,
       })),
@@ -2835,10 +3528,11 @@ export function createEngine(initialParams, options = {}) {
       plan.steps.forEach((step, i) => {
         // A step rings until the next one, so a sparse grid still sustains.
         const next = i + 1 < plan.steps.length ? plan.steps[i + 1].beat : bar.beats;
+        const at = swung(step.beat);
         playNote('bass', {
           midi: step.fifth ? fifth : root,
-          when: time + step.beat * bar.secPerBeat + step.nudge,
-          duration: Math.max(0.08, (next - step.beat) * bar.secPerBeat * 0.9),
+          when: time + at * bar.secPerBeat + step.nudge,
+          duration: Math.max(0.08, (swung(next) - at) * bar.secPerBeat * 0.9),
           velocity: step.velocity,
         });
       });
@@ -2865,13 +3559,18 @@ export function createEngine(initialParams, options = {}) {
       );
     }
 
-    const overlap = params.tracks.bass.mono ? 1.02 : 0.95;
+    // A held step slurs into the next one on a mono track; anything shorter
+    // stops where its gate says and leaves the gap the groove asked for.
+    const legato = params.tracks.bass.mono ? 1.02 : 0.95;
     events.forEach((event, i) => {
       const next = i + 1 < events.length ? events[i + 1].beat : bar.beats;
+      const gate = clamp(event.gate ?? 0.9, 0.1, 1);
+      const at = swung(event.beat);
+      const span = (swung(next) - at) * bar.secPerBeat;
       playNote('bass', {
         midi: event.midi,
-        when: time + event.beat * bar.secPerBeat + event.nudge,
-        duration: Math.max(0.1, (next - event.beat) * bar.secPerBeat * overlap),
+        when: time + at * bar.secPerBeat + event.nudge,
+        duration: Math.max(0.1, span * (gate >= 0.95 ? legato : gate)),
         velocity: event.velocity,
       });
     });
@@ -2901,21 +3600,34 @@ export function createEngine(initialParams, options = {}) {
     const lane = sequencerFor('melody').steps;
     const slots = sequencerStepsPerBar(params.timeSignature);
     const degrees = manualDegrees();
-    const notes = [];
+    const sounded = new Map();
+    let notes = [];
     let taken = 0;
     for (let i = 0; i < slots; i++) {
       const step = lane[i];
       if (!step.on) continue;
-      if (rng() >= effectiveProb('melody', `step.${i}`, step.prob)) continue;
+      const prob = groupedProb(sounded, step, effectiveProb('melody', `step.${i}`, step.prob));
+      const fires = rng() < prob;
+      if (step.group !== undefined) sounded.set(step.group, fires);
+      if (!fires) continue;
+      const stray = dissonanceDraw('melody');
+      const degree = degrees[taken++ % degrees.length];
       notes.push({
+        index: i,
         beat: i / 4,
-        degree: degrees[taken++ % degrees.length],
+        degree: stray && !stray.chromatic ? degree + stray.dir : degree,
+        bend: stray && stray.chromatic ? stray.dir : 0,
         duration: 1,
         velocity: between(step.vmin, step.vmax, rng) * velocityJitter('melody'),
         pan: between(-0.25, 0.25, rng) + panSpread('melody'),
         octave: octaveWander('melody'),
         nudge: timingNudge('melody'),
       });
+    }
+    notes = mergeTies(notes, lane, slots);
+    // A tied note is one note over both slots, so it lasts as long as it spans.
+    for (const note of notes) {
+      if (note.slots > 1) note.duration = Math.max(note.duration, note.slots / 4);
     }
     // The cadence rule applies whoever owns the rhythm: the last note of a
     // phrase, or of a section, lands on a chord tone.
@@ -2965,6 +3677,21 @@ export function createEngine(initialParams, options = {}) {
   const emptyMelodyPlan = () => ({ motifDerived: false, notes: [] });
 
   /**
+   * Call and response (v14): every other phrase, the bar that answers the
+   * statement is played by ANOTHER instrument — the same cell, the same
+   * rhythm, a different voice, so the tune sounds like two players trading
+   * rather than one player talking. Deliberately subtle: one bar in eight, and
+   * only in auto, with both instruments already sounding and neither being
+   * hand-sequenced (a user's own grid is not the engine's to reassign).
+   */
+  function responderTrack() {
+    if (params.tracks.melody.state !== 'auto' || !isActive('melody') || isManual('melody')) return null;
+    if (phraseBar !== PHRASE_BARS - 1 || motifPhrase % 2 === 0) return null;
+    if (params.tracks.arp.state === 'off' || !isActive('arp') || isManual('arp')) return null;
+    return 'arp';
+  }
+
+  /**
    * One octave transposition for the WHOLE bar, chosen so the cell sits inside
    * the register band. Folding note by note would keep every note in range and
    * destroy the tune doing it: a rising cell whose top note wrapped would come
@@ -3011,7 +3738,7 @@ export function createEngine(initialParams, options = {}) {
     // Phrase breathing: a bar the melody sits out. Only ever mid-phrase — the
     // statement and the cadence are the two bars the phrase is made of.
     const resting = phraseBar > 0 && phraseBar < PHRASE_BARS - 1
-      && rng() < (0.1 + spread * 0.18) * (1 - intensity * 0.6);
+      && rng() < (0.1 + spread * 0.18) * (1 - intensity * 0.6) && spread > 0;
     if (resting) return emptyMelodyPlan();
 
     const cell = developMotif(motif, op, { beatsPerBar: barBeats, scaleLength, rng });
@@ -3021,7 +3748,8 @@ export function createEngine(initialParams, options = {}) {
       ? cell.beats.length
       : cell.beats.length - 1;
     const cadence = phraseBar === PHRASE_BARS - 1 || sectionEndsThisBar();
-    const ornamentChance = params.complexity * 0.3 * (0.4 + spread);
+    // At randomness 0 the bar is a hold: the cell is stated undecorated.
+    const ornamentChance = spread > 0 ? params.complexity * 0.3 * (0.4 + spread) : 0;
     // vary.pitch moves the WHOLE cell an octave, once per bar, never one note
     // of it: a register jump inside a motif is heard as a wrong note, because
     // the contour is most of what the ear is holding on to.
@@ -3048,9 +3776,14 @@ export function createEngine(initialParams, options = {}) {
           nudge: timingNudge('melody'),
         });
       }
+      // Dissonance (v14): a note may lean off the chord — a step inside the
+      // mode at low settings, a borrowed semitone at high ones. Never the
+      // cadence note, which is what tells the ear the phrase has landed.
+      const stray = last && cadence ? 0 : dissonanceDraw('melody');
       notes.push({
         beat,
-        degree,
+        degree: stray && !stray.chromatic ? degree + stray.dir : degree,
+        bend: stray && stray.chromatic ? stray.dir : 0,
         // The head of the cell is accented every time it comes round: the ear
         // has to be told where the idea starts.
         duration: last && cadence ? Math.max(cell.lengths[i], 1) : cell.lengths[i],
@@ -3068,9 +3801,11 @@ export function createEngine(initialParams, options = {}) {
     const events = [];
     for (let index = 0; index < bar.pulses.length; index++) {
       if (rng() >= chance) continue;
+      const stray = dissonanceDraw('texture');
       events.push({
         pulse: index,
-        degree: Math.floor(rng() * bar.scale.length * 2),
+        degree: Math.floor(rng() * bar.scale.length * 2) + (stray && !stray.chromatic ? stray.dir : 0),
+        bend: stray && stray.chromatic ? stray.dir : 0,
         offset: rng() * bar.pulses[index],
         duration: between(3, 6, rng),
         velocity: between(0.3, 0.6, rng) * velocityJitter('texture'),
@@ -3090,8 +3825,10 @@ export function createEngine(initialParams, options = {}) {
     // The sequencer lane replaces the mask outright in manual mode, so there is
     // nothing to draw for and no rng to spend.
     if (!needMask) return { ...auto, gate: params.arp.gate, steps: null };
-    // Repetition decides how often the auto step mask is rewritten.
-    if (!autoArpSteps || rng() > params.repetition) {
+    // Repetition decides how often the auto step mask is rewritten — unless the
+    // arp is sitting at randomness 0, where the mask it has is the mask it keeps.
+    const reroll = rng() > params.repetition && !isFrozenTrack('arp');
+    if (!autoArpSteps || reroll) {
       autoArpSteps = new Array(ARP_STEP_COUNT);
       for (let i = 0; i < ARP_STEP_COUNT; i++) {
         const weight = i % 4 === 0 ? 0.35 : i % 2 === 0 ? 0.15 : 0;
@@ -3120,6 +3857,7 @@ export function createEngine(initialParams, options = {}) {
     if (!sequence.length) return null;
     const plan = { pattern: cfg.pattern, octaves: cfg.octaves, steps: [] };
     let steps = 0;
+    const sounded = new Map();
     // The step grid is bar-anchored: step 0 realigns to every barline. A phase
     // carried across bars rotates the pattern in any metre where a bar is not a
     // whole number of mask cycles (repro'd at 1/8T: offsets drifted 0, 12, 8,
@@ -3134,7 +3872,10 @@ export function createEngine(initialParams, options = {}) {
         if (index >= laneLength) continue;
         const step = lane[index];
         if (!step.on) continue;
-        if (rng() >= effectiveProb('arp', `step.${index}`, step.prob)) continue;
+        const prob = groupedProb(sounded, step, effectiveProb('arp', `step.${index}`, step.prob));
+        const fires = rng() < prob;
+        if (step.group !== undefined) sounded.set(step.group, fires);
+        if (!fires) continue;
         velocity = between(step.vmin, step.vmax, rng) * velocityJitter('arp');
       } else {
         const maskIndex = index % ARP_STEP_COUNT;
@@ -3147,6 +3888,7 @@ export function createEngine(initialParams, options = {}) {
         ? Math.floor(rng() * sequence.length) % sequence.length
         : (arpCursor + index) % sequence.length;
       plan.steps.push({
+        index,
         beat,
         seqIndex,
         gateBeats: stepBeats * cfg.gate,
@@ -3155,6 +3897,14 @@ export function createEngine(initialParams, options = {}) {
         octave: octaveWander('arp'),
         nudge: timingNudge('arp'),
       });
+    }
+    if (manual) {
+      // A tied arp step holds through the slot it merges with instead of
+      // re-plucking it, so the gate grows by exactly the slots it swallowed.
+      plan.steps = mergeTies(plan.steps, lane, laneLength);
+      for (const step of plan.steps) {
+        if (step.slots > 1) step.gateBeats = stepBeats * (step.slots - 1 + cfg.gate);
+      }
     }
     arpCursor = (arpCursor + steps) % sequence.length;
     return plan;
@@ -3178,6 +3928,7 @@ export function createEngine(initialParams, options = {}) {
     arpPlan = null;
     percussionPlan = [];
     melodyPlan = emptyMelodyPlan();
+    responder = null;
     texturePlan = [];
     motif = null;
     phraseBar = 0;
@@ -3204,7 +3955,10 @@ export function createEngine(initialParams, options = {}) {
 
   function choosePercussion(intensity) {
     const density = clamp(0.15 + intensity * params.complexity * 1.2, 0, 1);
-    if (percussionBank.length && rng() < params.repetition) return pick(percussionBank, rng);
+    // At randomness 0 the bank never grows past the pattern in it, so reusing
+    // it is a literal loop of the bar that is already playing.
+    const reuse = rng() < params.repetition || isFrozenTrack('percussion');
+    if (percussionBank.length && reuse) return pick(percussionBank, rng);
     const pattern = generatePercussionPattern({ pulses: bar.pulses, density, rng });
     percussionBank.push(pattern);
     if (percussionBank.length > 6) percussionBank.shift();
@@ -3228,13 +3982,20 @@ export function createEngine(initialParams, options = {}) {
     const slots = sequencerStepsPerBar(params.timeSignature);
     const hits = [];
     for (const lane of PERCUSSION_LANES) {
+      const sounded = new Map();
+      let laneHits = [];
       for (let i = 0; i < slots; i++) {
         const step = lanes[lane][i];
         if (!step.on) continue;
-        if (rng() >= effectiveProb('percussion', `step.${lane}.${i}`, step.prob)) continue;
+        const prob = groupedProb(sounded, step,
+          effectiveProb('percussion', `step.${lane}.${i}`, step.prob));
+        const fires = rng() < prob;
+        if (step.group !== undefined) sounded.set(step.group, fires);
+        if (!fires) continue;
         const beat = i / 4;
         const pulse = pulseAtBeat(beat);
-        hits.push({
+        laneHits.push({
+          index: i,
           pulse,
           offset: beat - bar.starts[pulse],
           kind: lane,
@@ -3243,6 +4004,9 @@ export function createEngine(initialParams, options = {}) {
           nudge: timingNudge('percussion'),
         });
       }
+      // A tie on a drum lane swallows the hit it merges with: one longer stroke.
+      laneHits = mergeTies(laneHits, lanes[lane], slots);
+      for (const hit of laneHits) hits.push(hit);
     }
     hits.sort((a, b) => a.pulse - b.pulse || a.offset - b.offset);
     return hits;
@@ -3283,8 +4047,10 @@ export function createEngine(initialParams, options = {}) {
       motif = null;
       motifPending = null;
       phraseBar = 0;
-      bassPattern = null;
-      bassPatternKey = '';
+      bassGroove = null;
+      bassGrooveKey = '';
+      bassGrooveBar = 0;
+      bassGrooveOpLast = 'state';
       frozenPlans.clear();
     }
     const pulses = TIME_SIGNATURES[params.timeSignature];
@@ -3306,6 +4072,9 @@ export function createEngine(initialParams, options = {}) {
       // mode changes to bar boundaries.
       scale: SCALES[params.mode],
       rootPc: pitchClass(params.root),
+      // Swing is read here and nowhere else, so a change of feel lands on a
+      // barline like every other timing decision.
+      swing: clamp(params.swing, 0, 1),
     };
 
     retuneDelay(time, secPerBeat);
@@ -3355,15 +4124,22 @@ export function createEngine(initialParams, options = {}) {
     if (finishRequest && !outroStarted) {
       beginOutro(time);
       scheduleClosingBar(time);
+      emitChord(barIndex, time);
       barIndex += 1;
       structureBar += 1;
       return;
     }
 
+    // A promotion lasts one bar: whatever covered the last gap goes back to
+    // whatever its own state says before this bar's activity is decided.
+    promoted.clear();
     // Hold, re-rolls and the drift walks all settle before anything is drawn,
     // so a bar is realised exactly once against a stable set of decisions.
     applyHolds();
     advanceWalks();
+    // A lane's loop is the bar, so the Markov pick between a track's several
+    // sequencers happens here, before anything reads one.
+    advanceSequencers();
     consumeRandomise();
     wanderVoices(time);
     // Track gains are re-applied EVERY bar, not only when the section changes:
@@ -3397,6 +4173,8 @@ export function createEngine(initialParams, options = {}) {
 
     if (isActive('bass')) {
       scheduleBass(time, bar.duration, planFor('bass', undefined, planBass));
+      // The groove's own clock: bar 0 of every four-bar cycle states it plain.
+      bassGrooveBar += 1;
     }
 
     advanceMelodyPhrase(intensity);
@@ -3409,12 +4187,19 @@ export function createEngine(initialParams, options = {}) {
       ? planFor('melody', isManual('melody') ? undefined : phraseBar,
         () => planMelody(intensity)) : emptyMelodyPlan();
     melodyShift = melodyOctave(melodyPlan);
+    // The answering instrument takes the melody's bar; it does not also play
+    // its own, or the answer arrives underneath an arpeggio of itself.
+    responder = melodyPlan.notes.length ? responderTrack() : null;
     texturePlan = isActive('texture')
       ? planFor('texture', undefined, () => planTexture(intensity)) : [];
-    arpPlan = isActive('arp')
+    arpPlan = isActive('arp') && responder !== 'arp'
       ? planFor('arp', undefined, () => planArp(intensity)) : null;
     percussionPlan = isActive('percussion')
       ? planFor('percussion', undefined, () => planPercussion(intensity)) : [];
+
+    // Everything is planned: if the bar would pass in silence, cover it.
+    coverSilence(time);
+    emitChord(barIndex, time);
 
     barIndex += 1;
     structureBar += 1;
@@ -3448,16 +4233,17 @@ export function createEngine(initialParams, options = {}) {
             bar.beats - note.beat,
           )
           : Infinity;
-        const at = time + (note.beat - from) * bar.secPerBeat + (note.nudge ?? 0);
+        const at = time + (swung(note.beat) - from) * bar.secPerBeat + (note.nudge ?? 0);
         let midi = scaleDegreeToMidi(
           chordDegree + note.degree, bar.scale, bar.rootPc, 4,
-        ) + 12 * (melodyShift + (melodyPlan.octave ?? 0) + (note.octave ?? 0));
+        ) + 12 * (melodyShift + (melodyPlan.octave ?? 0) + (note.octave ?? 0))
+          + (note.bend ?? 0);
         // The band is a last guard behind the bar's own transposition, and it
         // FOLDS by octaves rather than clamping: clamping would land the note
         // on the band edge, which is not necessarily a note of the scale.
         while (midi > centre + MELODY_BAND) midi -= 12;
         while (midi < centre - MELODY_BAND) midi += 12;
-        playNote('melody', {
+        playNote(responder ?? 'melody', {
           midi,
           when: at,
           duration: clamp(Math.min(note.duration, gap) * bar.secPerBeat * overlap, 0.1, 3),
@@ -3474,7 +4260,7 @@ export function createEngine(initialParams, options = {}) {
         let midi = scaleDegreeToMidi(event.degree, bar.scale, bar.rootPc, 6);
         while (midi > 100) midi -= 12;
         while (midi < 79) midi += 12;
-        midi = clamp(midi + 12 * (event.octave ?? 0), 67, 108);
+        midi = clamp(midi + 12 * (event.octave ?? 0) + (event.bend ?? 0), 67, 108);
         playNote('texture', {
           midi,
           when: time + event.offset * bar.secPerBeat + (event.nudge ?? 0),
@@ -3492,7 +4278,7 @@ export function createEngine(initialParams, options = {}) {
         const midi = sequence[step.seqIndex % sequence.length] + 12 * (step.octave ?? 0);
         playNote('arp', {
           midi: clamp(midi, 36, 96),
-          when: time + (step.beat - from) * bar.secPerBeat + (step.nudge ?? 0),
+          when: time + (swung(step.beat) - from) * bar.secPerBeat + (step.nudge ?? 0),
           duration: Math.max(0.05, step.gateBeats * bar.secPerBeat),
           velocity: step.velocity,
           pan: step.pan,
@@ -3503,11 +4289,14 @@ export function createEngine(initialParams, options = {}) {
     for (const hit of percussionPlan) {
       if (hit.pulse !== index) continue;
       const offset = Math.min(hit.offset, length * 0.9);
+      // Swing is felt across the bar, so the hit is swung at its ABSOLUTE
+      // position and then read back as an offset inside its own pulse.
+      const swingOffset = swung(from + offset) - from;
       playNote('percussion', {
         midi: null,
         freq: null,
         kind: hit.kind,
-        when: time + offset * bar.secPerBeat + (hit.nudge ?? 0),
+        when: time + swingOffset * bar.secPerBeat + (hit.nudge ?? 0),
         duration: hit.kind === 'low' ? 0.4 : hit.kind === 'mid' ? 0.22 : 0.14,
         velocity: hit.velocity,
         pan: hit.pan ?? 0,
@@ -3912,6 +4701,7 @@ export function createEngine(initialParams, options = {}) {
       arpPlan = null;
       percussionPlan = [];
       melodyPlan = emptyMelodyPlan();
+      responder = null;
       texturePlan = [];
       motif = null;
       motifPending = null;
@@ -3920,8 +4710,10 @@ export function createEngine(initialParams, options = {}) {
       motifSectionPending = false;
       phraseBar = 0;
       motifBank.clear();
-      bassPattern = null;
-      bassPatternKey = '';
+      bassGroove = null;
+      bassGrooveKey = '';
+      bassGrooveBar = 0;
+      bassGrooveOpLast = 'state';
       monoNotes.clear();
       // A performance starts from a fresh set of decisions: no frozen bar from
       // the last run, and drift walks that begin wherever this run takes them.
@@ -3942,6 +4734,10 @@ export function createEngine(initialParams, options = {}) {
       nextPulseTime = ctx.currentTime + 0.15;
       padSwellPhase = 0;
       padRested = false;
+      promoted.clear();
+      silentRun = 0;
+      lastNoteEnd = 0;
+      activeSequencer.clear();
       // A performance opens on the hook's tonic. Establishing here rather than
       // at the first barline is also what resets a loop the last run left
       // mid-pass, and re-reads a mode or repetition changed while stopped.
@@ -4003,7 +4799,7 @@ export function createEngine(initialParams, options = {}) {
     const tracks = partial.tracks && typeof partial.tracks === 'object' ? partial.tracks : null;
     for (const name of SEQUENCED_TRACKS) {
       const track = tracks && tracks[name] && typeof tracks[name] === 'object' ? tracks[name] : null;
-      if (track && 'sequencer' in track) clearFrozen(name);
+      if (track && ('sequencer' in track || 'sequencers' in track)) clearFrozen(name);
     }
     if (partial.arp && typeof partial.arp === 'object' && 'steps' in partial.arp) clearFrozen('arp');
     if (partial.percussion && typeof partial.percussion === 'object') clearFrozen('percussion');
@@ -4029,6 +4825,49 @@ export function createEngine(initialParams, options = {}) {
 
   function getParams() {
     return copyParams(params);
+  }
+
+  /**
+   * v14 live readouts: the numbers the engine is ACTUALLY playing right now,
+   * for dials that show a drifting value. Every RangeValue is resolved through
+   * its current walk position, the voice is the one sounding (wander included,
+   * which is what lets an editor follow it), and the patch is the resolved one
+   * that voice is being played with. Cheap enough to poll a few times a second
+   * — it reads state, allocates a small object and draws no randomness.
+   */
+  function getResolved() {
+    const tracks = {};
+    for (const name of TRACK_ORDER) {
+      const config = params.tracks[name];
+      const resolved = {
+        state: config.state,
+        active: isActive(name),
+        voice: effectiveVoice(name),
+        level: resolveRange(name, 'level', config.level),
+        randomness: trackRandomness(name),
+        held: held.has(name) || isFrozenTrack(name),
+        vary: Object.fromEntries(VARY_ASPECTS.map((aspect) => [aspect, varyAmount(name, aspect)])),
+      };
+      if (config.dissonance !== undefined) resolved.dissonance = trackDissonance(name);
+      if (config.sequencers && config.sequencers.length > 1) {
+        resolved.sequencer = clamp(activeSequencer.get(name) ?? 0, 0, config.sequencers.length - 1);
+      }
+      tracks[name] = resolved;
+    }
+    const patches = {};
+    for (const name of TRACK_ORDER) {
+      const patch = patchFor(name);
+      patches[name] = patch
+        ? Object.fromEntries(Object.entries(patch).map(([section, fields]) => [section, { ...fields }]))
+        : null;
+    }
+    return {
+      running: isRunning,
+      bar: currentBarNumber,
+      section: { label: currentSection.label, intensity: currentSection.intensity },
+      tracks,
+      patches,
+    };
   }
 
   function getAnalysers() {
@@ -4109,9 +4948,17 @@ export function createEngine(initialParams, options = {}) {
     randomise,
     setParams,
     getParams,
+    getResolved,
     getAnalysers,
     getStats,
     setPowerBudget,
+    // Post-master mix as a MediaStream (what the listener hears), for
+    // page-side MediaRecorder. Null on the direct-output route or pre-start.
+    getOutputStream() {
+      return output && output.mode === 'element' && output.streamDest
+        ? output.streamDest.stream
+        : null;
+    },
     on,
     now,
   };

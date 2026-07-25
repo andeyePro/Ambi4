@@ -40,7 +40,12 @@ const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 const SHAPE_NAMES = { sine: 0, triangle: 1, sawtooth: 2, square: 3 };
 const TARGET_FPS = 30;
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
-const MAX_DPR = 2; // retina laptops report 2, but browser zoom can push higher
+// v14 05:4xZ: MAX_DPR=2 rendered soft under browser zoom on retina (effective
+// dpr ~2.5-3). Raised to 3 — this canvas is small (device pixel count stays
+// modest even at dpr 3), and the 30fps frame-rate cap (not backing-store
+// size) carries the v9 thermal/perf budget, so this doesn't reopen that
+// issue.
+const MAX_DPR = 3;
 const GLOW_ALPHA = 0.25;
 const GLOW_LINE_WIDTH = 6;
 const DIM_ALPHA = 0.35; // trace alpha multiplier while the silence floor is showing
@@ -346,7 +351,24 @@ function fitCanvas(canvas, ctx) {
   if (canvas.width !== bw) canvas.width = bw;
   if (canvas.height !== bh) canvas.height = bh;
   if (typeof ctx.setTransform === 'function') ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return { w, h };
+  return { w, h, dpr };
+}
+
+// -- device-pixel snapping (crisp hairlines/text at any dpr) ---------------
+//
+// Coordinates are in CSS px but the canvas transform scales by `dpr`, so a
+// coordinate that isn't a whole number of device pixels renders as a
+// blurred antialiased edge. snapPixel rounds a CSS coordinate onto the
+// device-pixel grid; snapHairline additionally offsets by half a device
+// pixel so a 1-CSS-px-wide stroke centres on a single device pixel row
+// instead of straddling two.
+
+function snapPixel(v, dpr) {
+  return Math.round(v * dpr) / dpr;
+}
+
+function snapHairline(v, dpr) {
+  return snapPixel(v, dpr) + 0.5 / dpr;
 }
 
 /** Reads the three scope CSS vars once; callers on a per-frame loop cache this. */
@@ -364,7 +386,7 @@ function readScopeColors(canvas) {
  * one-shot static render reads fresh each call).
  */
 function drawScope(canvas, ctx, samples, colors, opts) {
-  const { w, h } = fitCanvas(canvas, ctx);
+  const { w, h, dpr } = fitCanvas(canvas, ctx);
   const resolved = colors || readScopeColors(canvas);
   const { bg, grid, trace } = resolved;
   const dimFactor = opts && opts.dim ? DIM_ALPHA : 1;
@@ -379,21 +401,21 @@ function drawScope(canvas, ctx, samples, colors, opts) {
   ctx.strokeStyle = grid;
   ctx.lineWidth = 1;
   for (let i = 0; i <= GRID_COLS; i++) {
-    const x = (w * i) / GRID_COLS;
+    const x = snapHairline((w * i) / GRID_COLS, dpr);
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, h);
     ctx.stroke();
   }
   for (let j = 0; j <= GRID_ROWS; j++) {
-    const y = (h * j) / GRID_ROWS;
+    const y = snapHairline((h * j) / GRID_ROWS, dpr);
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(w, y);
     ctx.stroke();
   }
 
-  if (!samples || samples.length < 2) return { w, h };
+  if (!samples || samples.length < 2) return { w, h, dpr };
 
   ctx.strokeStyle = trace;
   ctx.lineJoin = 'round';
@@ -425,11 +447,11 @@ function drawScope(canvas, ctx, samples, colors, opts) {
   strokeTrace();
   ctx.globalAlpha = 1;
 
-  return { w, h };
+  return { w, h, dpr };
 }
 
 /** Tiny corner readout of the current auto-gain; no-ops without fillText (bare Node). */
-function drawGainReadout(ctx, w, h, label, color) {
+function drawGainReadout(ctx, w, h, label, color, dpr = 1) {
   if (typeof ctx.fillText !== 'function') return;
   try {
     ctx.font = READOUT_FONT;
@@ -437,7 +459,7 @@ function drawGainReadout(ctx, w, h, label, color) {
     ctx.textBaseline = 'bottom';
     ctx.globalAlpha = READOUT_ALPHA;
     ctx.fillStyle = color;
-    ctx.fillText(label, w - READOUT_PAD, h - READOUT_PAD);
+    ctx.fillText(label, snapPixel(w - READOUT_PAD, dpr), snapPixel(h - READOUT_PAD, dpr));
     ctx.globalAlpha = 1;
   } catch {
     // a readout failure must never break the trace draw
@@ -680,7 +702,7 @@ export function attachLiveScope(canvas, analyser) {
       const size = drawScope(canvas, ctx, scaleWindow(window, gain), themeColors, { dim: silent });
       if (size) {
         const label = silent ? 'silent' : `×${gain.toFixed(1)} (${(20 * Math.log10(gain)).toFixed(1)} dB)`;
-        drawGainReadout(ctx, size.w, size.h, label, themeColors.trace);
+        drawGainReadout(ctx, size.w, size.h, label, themeColors.trace, size.dpr);
       }
     } catch {
       // never let a draw error kill the loop

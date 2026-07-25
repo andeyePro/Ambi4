@@ -18,6 +18,25 @@
  *          --knob-pointer #f6e8ca on --knob-face #37302a 10.7:1
  *          --tick-major on --panel 12.5:1 · --tick on --panel 3.7:1 (non-text, ≥3:1)
  *          --scope-trace #c8e05a on --scope-bg #10140e 12.6:1
+ *   Track colours (v14, computed via WCAG relative-luminance formula, script
+ *   kept alongside this file's history — see docs/engine-v2-contract.md v14):
+ *     --track-pad #5d4419 on --panel #f2ead9 7.61:1 · on --bg #faf6ee 8.45:1
+ *     --track-arp #296065 on --panel 5.94:1 · on --bg 6.59:1
+ *     --track-melody #4a1d11 on --panel 11.90:1 · on --bg 13.21:1
+ *     --track-bass #51702e on --panel 4.73:1 · on --bg 5.26:1
+ *     --track-texture #964a96 on --panel 4.72:1 · on --bg 5.24:1
+ *     --track-percussion #2b3a50 on --panel 9.62:1 · on --bg 10.68:1
+ *   All six clear AA normal-text (4.5:1) as well as the ≥3:1 non-text floor,
+ *   so any of them may be used for text, chips, lamps or trace colour alike.
+ *   Hues chosen wide apart (12°/38°/88°/185°/215°/300°) and lightness
+ *   deliberately decorrelated from hue (not a simple rainbow sweep), then
+ *   grid-searched to maximise the worst-case pairwise colour distance under
+ *   simulated protanopia/deuteranopia/tritanopia (Machado/Oliveira/Fairchild
+ *   2009 matrices) — worst case ~44 (deuteranopia, pad vs melody) on a 0-441
+ *   RGB-distance scale, comfortably discernible. "Sand" from the suggested
+ *   70s palette was swapped for a navy/slate percussion colour: sand shares
+ *   melody/pad/bass's warm hue range, which is the exact range that
+ *   red-green colour-vision deficiencies compress hardest.
  *   Dark:  --text #e6dfd1 on --bg #1e1b17 12.9:1 · on --panel #27231e 11.8:1
  *          --secondary #b0a390 on --bg 6.9:1 · on --panel 6.3:1
  *          --link #e8a743 on --bg 8.2:1 · on --panel 7.5:1 · --link-hover on --bg 10.2:1
@@ -26,6 +45,14 @@
  *          --knob-pointer #ffb454 on --knob-face #302b25 8.0:1
  *          --tick-major on --panel 11.8:1 · --tick on --panel 4.0:1 (non-text, ≥3:1)
  *          --scope-trace on --scope-bg #0b0f0a 13.1:1
+ *     --track-pad #d6ad66 on --panel #27231e 7.45:1 · on --bg #1e1b17 8.19:1
+ *     --track-arp #a1d4d9 on --panel 9.61:1 · on --bg 10.56:1
+ *     --track-melody #d66c51 on --panel 4.55:1 · on --bg 5.00:1
+ *     --track-bass #bad69a on --panel 9.79:1 · on --bg 10.76:1
+ *     --track-texture #ba73ba on --panel 4.64:1 · on --bg 5.10:1
+ *     --track-percussion #9cafc9 on --panel 6.98:1 · on --bg 7.67:1
+ *   Dark-theme worst-case CVD-simulated pairwise distance ~46 (tritanopia,
+ *   arp vs percussion) — tuned separately from light, same method.
  *   --panel-edge and --scope-grid are decorative (no text on them); the dark
  *   walnut edge is intentionally dim against the dark faceplate.
  */
@@ -55,6 +82,16 @@
   --scope-grid: #29331f;
   --scope-trace: #c8e05a;
   --accent-warm: #9d5407;
+
+  /* v14 contract tokens — per-track identity colours (docs/engine-v2-contract.md
+     v14 addendum). Fixed names; contrast/CVD rationale in the header comment. */
+  --track-pad: #5d4419;
+  --track-arp: #296065;
+  --track-melody: #4a1d11;
+  --track-bass: #51702e;
+  --track-texture: #964a96;
+  --track-percussion: #2b3a50;
+
   /* Spaced, uppercase-friendly retro label stack; pair with .panel-label for
      the letter-spacing/size treatment. System fonts only. */
   --label-font: 'Futura', 'Futura PT', 'Avenir Next', 'Century Gothic',
@@ -99,6 +136,13 @@
     --scope-grid: #232b1c;
     --scope-trace: #c8e05a;
     --accent-warm: #f0a942;
+
+    --track-pad: #d6ad66;
+    --track-arp: #a1d4d9;
+    --track-melody: #d66c51;
+    --track-bass: #bad69a;
+    --track-texture: #ba73ba;
+    --track-percussion: #9cafc9;
 
     --pot-track: #14110e;
     --screw-hi: #9c9078;
@@ -269,6 +313,48 @@ main a:hover {
 
 .panel-label {
   display: inline-block;
+}
+
+/* ---- track identity colours (v14) ---------------------------------------
+ * .track-color-<name> sets --track-accent to that track's token; consumers
+ * (lamps, row accents, editor panels, visualiser lanes) read --track-accent
+ * rather than the individual --track-* tokens so one class switches the
+ * whole accent. .track-chip is a small colour dot for lamps/row markers.
+ */
+
+.track-color-pad {
+  --track-accent: var(--track-pad);
+}
+
+.track-color-arp {
+  --track-accent: var(--track-arp);
+}
+
+.track-color-melody {
+  --track-accent: var(--track-melody);
+}
+
+.track-color-bass {
+  --track-accent: var(--track-bass);
+}
+
+.track-color-texture {
+  --track-accent: var(--track-texture);
+}
+
+.track-color-percussion {
+  --track-accent: var(--track-percussion);
+}
+
+.track-chip {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--track-accent, var(--secondary));
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  flex: none;
 }
 
 /* Decorative faceplate screw — pure CSS: slot line over a domed metal

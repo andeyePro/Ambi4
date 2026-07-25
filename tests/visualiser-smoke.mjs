@@ -3,9 +3,10 @@
  *   node tests/visualiser-smoke.mjs
  *
  * Drives initVisualiser() against a mock 2d canvas context and a fake
- * engine that emits note/bar/section/state events, proving the render
- * path, event wiring and destroy() never throw — including in a bare
- * environment with no window/document/ResizeObserver at all.
+ * engine that emits note/bar/section/state/chord events, proving the render
+ * path, event wiring, lamp overlay lifecycle, and destroy() never throw —
+ * including in a bare environment with no window/document/ResizeObserver at
+ * all.
  */
 
 import assert from 'node:assert/strict';
@@ -19,10 +20,13 @@ const test = (name, fn) => tests.push([name, fn]);
 
 // `propWrites`, if passed, collects every property NAME assigned on the 2d
 // context (not just method calls) so tests can assert e.g. 'shadowBlur' is
-// never touched during a normal frame.
+// never touched during a normal frame. If `calls.texts` / `calls.fillStyles`
+// are pre-seeded to arrays, every fillText()/fillStyle assignment is also
+// recorded into them (opt-in, so unrelated tests pay no extra cost).
 function makeCtx2d(calls, propWrites) {
   const record = (name) => { calls[name] = (calls[name] || 0) + 1; };
-  const base = {
+  let fillStyleValue = '';
+  const methods = {
     clearRect() { record('clearRect'); },
     fillRect() { record('fillRect'); },
     beginPath() {},
@@ -33,18 +37,110 @@ function makeCtx2d(calls, propWrites) {
     stroke() { record('stroke'); },
     fill() { record('fill'); },
     arc() {},
-    fillText(text) { record('fillText'); calls.lastText = text; },
+    fillText(text) {
+      record('fillText');
+      calls.lastText = text;
+      if (calls.texts) calls.texts.push(text);
+    },
     setTransform() {},
     createLinearGradient() { return { addColorStop() {} }; },
   };
-  if (!propWrites) return { ...base, fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '' };
-  return new Proxy(base, {
-    set(target, prop, value) {
+  const target = Object.assign({}, methods, { strokeStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '' });
+  Object.defineProperty(target, 'fillStyle', {
+    enumerable: true,
+    get() { return fillStyleValue; },
+    set(v) {
+      fillStyleValue = v;
+      if (calls.fillStyles) calls.fillStyles.push(v);
+    },
+  });
+  if (!propWrites) return target;
+  return new Proxy(target, {
+    set(obj, prop, value) {
       propWrites.add(prop);
-      target[prop] = value;
+      obj[prop] = value;
       return true;
     },
   });
+}
+
+// --------------------------------------------------------------------------
+// Minimal in-memory DOM node mock (for lamp-overlay tests only)
+// --------------------------------------------------------------------------
+
+function makeFakeElement(tag) {
+  const listeners = new Map();
+  const node = {
+    tagName: tag,
+    style: {},
+    dataset: {},
+    children: [],
+    parentNode: null,
+    attrs: {},
+    setAttribute(name, value) { node.attrs[name] = String(value); },
+    getAttribute(name) { return node.attrs[name]; },
+    appendChild(child) {
+      child.parentNode = node;
+      node.children.push(child);
+      return child;
+    },
+    insertBefore(newChild, refChild) {
+      newChild.parentNode = node;
+      if (refChild == null) {
+        node.children.push(newChild);
+      } else {
+        const idx = node.children.indexOf(refChild);
+        node.children.splice(idx === -1 ? node.children.length : idx, 0, newChild);
+      }
+      return newChild;
+    },
+    removeChild(child) {
+      const idx = node.children.indexOf(child);
+      if (idx !== -1) node.children.splice(idx, 1);
+      child.parentNode = null;
+      return child;
+    },
+    remove() {
+      if (node.parentNode) node.parentNode.removeChild(node);
+    },
+    get nextSibling() {
+      if (!node.parentNode) return null;
+      const idx = node.parentNode.children.indexOf(node);
+      return node.parentNode.children[idx + 1] || null;
+    },
+    addEventListener(type, fn) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(fn);
+    },
+    removeEventListener(type, fn) {
+      listeners.get(type)?.delete(fn);
+    },
+    dispatch(type) {
+      for (const fn of listeners.get(type) || []) fn({ target: node });
+    },
+    click() { node.dispatch('click'); },
+  };
+  return node;
+}
+
+// A canvas mock that also behaves like a DOM node (parentNode/appendChild/…)
+// so it can be wrapped by the lamp overlay host.
+function makeDomCanvas(calls, opts = {}) {
+  const node = makeFakeElement('canvas');
+  Object.assign(node, {
+    width: 600,
+    height: 300,
+    clientWidth: 600,
+    clientHeight: 300,
+    getContext(kind) {
+      if (kind !== '2d') return null;
+      return makeCtx2d(calls, opts.propWrites);
+    },
+    getBoundingClientRect() {
+      return { width: 600, height: 300 };
+    },
+  });
+  return node;
 }
 
 function makeCanvas(calls, opts = {}) {
@@ -274,7 +370,7 @@ test('never sets shadowBlur/shadowColor during a normal frame', () => {
   assert.ok(!propWrites.has('shadowColor'), 'visualiser must never set ctx.shadowColor');
 });
 
-test('caps devicePixelRatio backing-store sizing at 2 even when the browser reports higher', () => {
+test('caps devicePixelRatio backing-store sizing at 3 even when the browser reports higher', () => {
   const calls = {};
   const canvas = makeCanvas(calls);
   const engine = makeEngine();
@@ -282,8 +378,25 @@ test('caps devicePixelRatio backing-store sizing at 2 even when the browser repo
   globalThis.window = { devicePixelRatio: 4 };
   try {
     const inst = initVisualiser(canvas, engine);
-    assert.equal(canvas.width, 1200, 'backing store must clamp to dpr 2, not 4');
-    assert.equal(canvas.height, 600);
+    assert.equal(canvas.width, 1800, 'backing store must clamp to dpr 3, not 4');
+    assert.equal(canvas.height, 900);
+    inst.destroy();
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+});
+
+test('passes devicePixelRatio through unclamped at 2.5 (browser zoom on retina)', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  const prevWindow = globalThis.window;
+  globalThis.window = { devicePixelRatio: 2.5 };
+  try {
+    const inst = initVisualiser(canvas, engine);
+    assert.equal(canvas.width, 1500, 'expected backing store at the full 2.5 ratio, not clamped');
+    assert.equal(canvas.height, 750);
     inst.destroy();
   } finally {
     if (prevWindow === undefined) delete globalThis.window;
@@ -341,6 +454,176 @@ test('observes device-pixel-content-box, falling back to plain observe', () => {
     else globalThis.ResizeObserver = prevRO;
   }
   assert.deepEqual(observeCalls, [{ box: 'device-pixel-content-box' }, undefined]);
+});
+
+// --------------------------------------------------------------------------
+// v14: track order, lamp overlay, chord labels, colour token consumption
+// --------------------------------------------------------------------------
+
+test('lane order top-to-bottom is pad, arp, melody, bass, texture, percussion', () => {
+  const calls = {};
+  calls.texts = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: false }); // forces a synchronous static render
+
+  const order = ['Pad', 'Arp', 'Melody', 'Bass', 'Texture', 'Percussion'];
+  const positions = order.map((label) => calls.texts.indexOf(label));
+  assert.ok(positions.every((p) => p !== -1), `expected all six lane labels, got: ${calls.texts.join(', ')}`);
+  for (let i = 1; i < positions.length; i++) {
+    assert.ok(positions[i] > positions[i - 1], 'lane labels must be drawn top-to-bottom in the new track order');
+  }
+
+  inst.destroy();
+});
+
+test('lamp overlay: wraps the canvas, creates six lamp buttons, cycles state via engine.setParams, and cleans up on destroy', () => {
+  const prevDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => makeFakeElement(tag) };
+  try {
+    const calls = {};
+    const root = makeFakeElement('div');
+    const canvas = makeDomCanvas(calls);
+    root.appendChild(canvas);
+
+    const engine = makeEngine();
+    const setParamsCalls = [];
+    let trackState = 'auto';
+    engine.getParams = () => ({ tracks: { pad: { state: trackState } } });
+    engine.setParams = (partial) => {
+      setParamsCalls.push(partial);
+      trackState = partial.tracks.pad.state;
+    };
+
+    const inst = initVisualiser(canvas, engine);
+
+    assert.ok(canvas.parentNode, 'canvas must be wrapped in a lamp host div');
+    const lampHost = canvas.parentNode;
+    assert.equal(lampHost.parentNode, root, 'lamp host must be inserted where the canvas used to live');
+    assert.equal(lampHost.children.length, 7, 'lamp host holds the canvas plus 6 lamp buttons');
+
+    const padButton = lampHost.children.find((c) => c.tagName === 'button' && c.dataset.track === 'pad');
+    assert.ok(padButton, 'expected a pad lamp button');
+    assert.equal(padButton.getAttribute('aria-label'), 'Pad track: auto');
+    assert.equal(padButton.getAttribute('aria-pressed'), 'mixed');
+
+    padButton.click();
+    assert.deepEqual(setParamsCalls, [{ tracks: { pad: { state: 'on' } } }]);
+    assert.equal(padButton.getAttribute('aria-label'), 'Pad track: on');
+    assert.equal(padButton.getAttribute('aria-pressed'), 'true');
+
+    // Out-of-band state change (e.g. another UI control) is picked up via
+    // getParams() on the next 'bar' event, not just via lamp clicks.
+    trackState = 'off';
+    engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 1 });
+    assert.equal(padButton.getAttribute('aria-label'), 'Pad track: off');
+    assert.equal(padButton.getAttribute('aria-pressed'), 'false');
+
+    inst.destroy();
+    assert.equal(canvas.parentNode, root, 'canvas restored to its original parent on destroy');
+    assert.ok(!root.children.includes(lampHost), 'lamp host removed from the DOM on destroy');
+
+    inst.destroy(); // repeat destroy must be a no-op, not a throw
+  } finally {
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+  }
+});
+
+test('lamp overlay: never built when there is no document (bare Node / no DOM)', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls); // plain object, no parentNode/DOM at all
+  const engine = makeEngine();
+  const inst = initVisualiser(canvas, engine);
+  inst.destroy(); // must not throw despite there being nothing to unwrap
+});
+
+test('chord event drives bar-tick chord labels; falls back to the section label until one fires', () => {
+  const calls = {};
+  calls.texts = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+  engine.emit('section', { label: 'A', intensity: 0.4, bar: 0, time: 0 });
+  engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 });
+  engine.emit('state', { running: false }); // forces a synchronous static render
+
+  assert.ok(calls.texts.includes('A'), 'without a chord event, the section label keeps drawing as before');
+  assert.ok(!calls.texts.includes('Cmaj7'), 'no chord text before any chord event has fired');
+
+  calls.texts.length = 0;
+  engine.emit('chord', { name: 'Cmaj7', bar: 0, time: 0 });
+  engine.emit('state', { running: false });
+
+  assert.ok(calls.texts.includes('Cmaj7'), 'chord name drawn at the bar tick once a chord event has fired');
+
+  inst.destroy();
+});
+
+test('malformed chord events are dropped, not thrown', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+  engine.emit('chord', null);
+  engine.emit('chord', undefined);
+  engine.emit('chord', { bar: 0, time: 0 }); // no name
+  inst.destroy();
+});
+
+test('consumes --track-<id> CSS custom properties for lane accent colour', () => {
+  const prevGetComputedStyle = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = () => ({
+    getPropertyValue(name) {
+      return name === '--track-pad' ? '#ff0000' : '';
+    },
+  });
+  try {
+    const calls = {};
+    calls.fillStyles = [];
+    const canvas = makeCanvas(calls);
+    const engine = makeEngine();
+    engine.running = true;
+    const inst = initVisualiser(canvas, engine);
+    engine.emit('state', { running: true });
+    engine.emit('note', { track: 'pad', midi: 60, velocity: 0.8, time: 0, duration: 0.3 });
+    engine.emit('state', { running: false }); // synchronous static render
+
+    assert.ok(
+      calls.fillStyles.some((v) => typeof v === 'string' && v.startsWith('rgba(255, 0, 0,')),
+      'pad lane should render using the --track-pad custom property colour',
+    );
+
+    inst.destroy();
+  } finally {
+    if (prevGetComputedStyle === undefined) delete globalThis.getComputedStyle;
+    else globalThis.getComputedStyle = prevGetComputedStyle;
+  }
+});
+
+test('falls back to a derived accent colour when --track-<id> custom properties are unset', () => {
+  const calls = {};
+  calls.fillStyles = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+  engine.emit('note', { track: 'pad', midi: 60, velocity: 0.8, time: 0, duration: 0.3 });
+  engine.emit('state', { running: false });
+
+  assert.ok(calls.fillStyles.length > 0, 'expected at least one fillStyle assignment');
+  assert.ok(
+    !calls.fillStyles.some((v) => typeof v === 'string' && v.startsWith('rgba(255, 0, 0,')),
+    'without a --track-pad custom property, the derived fallback accent must be used instead',
+  );
+
+  inst.destroy();
 });
 
 // --------------------------------------------------------------------------

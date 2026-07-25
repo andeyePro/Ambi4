@@ -28,12 +28,13 @@ const structures: [string, string][] = [
 // engine-voices.js into frontmatter — the voice implementations aren't
 // relevant here, only the ids/labels the <select> options need. (The page
 // script lazily dynamic-imports engine-voices.js for patch defaults only.)
+// v13/v14 track order, used EVERYWHERE (rows, editors, visualiser lanes).
 const TRACKS: [string, string][] = [
   ['pad', 'Pad'],
-  ['bass', 'Bass'],
-  ['melody', 'Melody'],
-  ['texture', 'Texture'],
   ['arp', 'Arp'],
+  ['melody', 'Melody'],
+  ['bass', 'Bass'],
+  ['texture', 'Texture'],
   ['percussion', 'Percussion'],
 ];
 
@@ -78,22 +79,55 @@ const VOICES: Record<string, [string, string][]> = {
 
   <div id="generator-app" hidden>
     <div class="module-panel transport-module">
-      <span class="panel-label transport-label" aria-hidden="true">Transport</span>
-      <div class="transport-main">
+      <div class="transport-head">
+        <span class="panel-label transport-label" aria-hidden="true">Transport</span>
         <button
-          id="toggle-play"
           type="button"
-          class="play-toggle"
-          aria-pressed="false"
-        >
-          <span class="play-toggle-label">Play</span>
-        </button>
+          id="tutorial-toggle"
+          class="round-button"
+          data-transport="tutorial"
+          aria-label="Show the guided tour"
+          aria-expanded="false"
+          aria-controls="tutorial-panel"
+        >?</button>
+      </div>
+      <div class="transport-main">
+        <div class="transport-buttons">
+          <button
+            id="toggle-play"
+            type="button"
+            class="play-toggle"
+            data-transport="play"
+            aria-pressed="false"
+          >
+            <span class="transport-glyph play-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 4.5 19 12 7 19.5Z" /></svg>
+            </span>
+            <span class="play-toggle-label">Play</span>
+            <span class="transport-glyph finish-glyph" aria-hidden="true" hidden>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="8" y="4" width="2" height="16" /><rect x="13" y="4" width="5" height="16" /></svg>
+            </span>
+          </button>
+          <button id="stop-now" type="button" class="transport-button stop-button" data-transport="stop" disabled>
+            <span class="transport-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
+            </span>
+            <span>Stop</span>
+          </button>
+          <button id="record-toggle" type="button" class="transport-button record-button" data-transport="record" aria-pressed="false">
+            <span class="transport-glyph record-dot" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
+            </span>
+            <span class="record-label">Record</span>
+          </button>
+        </div>
         <div class="transport-icons">
           <div class="popover-anchor">
             <button
               type="button"
               id="sleep-toggle"
               class="icon-button"
+              data-transport="sleep"
               aria-label="Sleep timer"
               aria-haspopup="dialog"
               aria-expanded="false"
@@ -129,6 +163,7 @@ const VOICES: Record<string, [string, string][]> = {
               type="button"
               id="alarm-toggle"
               class="icon-button"
+              data-transport="alarm"
               aria-label="Schedule start"
               aria-haspopup="dialog"
               aria-expanded="false"
@@ -161,7 +196,14 @@ const VOICES: Record<string, [string, string][]> = {
 
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
-        <button id="stop-now" type="button" class="link-button" hidden>Stop now</button>
+        <span id="record-status" class="record-status" role="status" hidden></span>
+      </div>
+
+      <div class="processor-row">
+        <div class="dial-slot" id="processor-dial"></div>
+        <div class="processor-info">
+          <span id="processor-readout" class="value-readout"></span>
+        </div>
       </div>
     </div>
 
@@ -183,47 +225,25 @@ const VOICES: Record<string, [string, string][]> = {
 
     <section id="panel-simple" role="tabpanel" aria-labelledby="tab-simple" tabindex="0">
       <div class="module-panel sliders-module">
-        <div class="control simple-dial">
-          <div class="control-label-row">
-            <label for="speed" class="panel-label">Speed</label>
-            <span class="end-label">Slower &ndash; Faster</span>
+        {[
+          ['speed', 'Speed', 'Slow', null, 'Fast'],
+          ['complexity', 'Complexity', 'Calm', null, 'Complex'],
+          ['randomness', 'Randomness', 'Repetitive', 'Evolving', 'Random'],
+          ['volume', 'Master volume', 'Quiet', null, 'Loud'],
+        ].map(([id, label, lowMark, midMark, highMark]) => (
+          <div class="control simple-dial" id={`dial-${id}`}>
+            <div class="control-label-row">
+              <label for={id} class="panel-label">{label}</label>
+            </div>
+            <div class="dial-slot" id={`${id}-dial`}>
+              {midMark && <span class="dial-mid" aria-hidden="true">{midMark}</span>}
+              <span class="dial-ends" aria-hidden="true">
+                <span class="dial-end dial-end-low">{lowMark}</span>
+                <span class="dial-end dial-end-high">{highMark}</span>
+              </span>
+            </div>
           </div>
-          <div class="dial-slot" id="speed-dial"></div>
-        </div>
-
-        <div class="control simple-dial">
-          <div class="control-label-row">
-            <label for="complexity" class="panel-label">Complexity</label>
-            <span class="end-label">Calm &ndash; Complex</span>
-          </div>
-          <div class="dial-slot" id="complexity-dial"></div>
-        </div>
-
-        <div class="control simple-dial">
-          <div class="control-label-row">
-            <label for="repetition" class="panel-label">Repetition</label>
-          </div>
-          <div class="dial-slot" id="repetition-dial"></div>
-          <div class="tri-label" aria-hidden="true">
-            <span>Random</span>
-            <span>Evolving</span>
-            <span>Repetitive</span>
-          </div>
-        </div>
-
-        <div class="control simple-dial">
-          <div class="control-label-row">
-            <label for="randomness" class="panel-label">Randomness</label>
-          </div>
-          <div class="dial-slot" id="randomness-dial"></div>
-        </div>
-
-        <div class="control simple-dial">
-          <div class="control-label-row">
-            <label for="volume" class="panel-label">Master volume</label>
-          </div>
-          <div class="dial-slot" id="volume-dial"></div>
-        </div>
+        ))}
       </div>
     </section>
 
@@ -232,7 +252,7 @@ const VOICES: Record<string, [string, string][]> = {
         <h2 class="tracks-heading panel-label">Tracks</h2>
         <div class="track-rows">
           {TRACKS.map(([id, label]) => (
-            <div class="track-item">
+            <div class={`track-item track-color-${id}`}>
               <div class="track-row" data-track={id}>
                 <button
                   type="button"
@@ -240,17 +260,9 @@ const VOICES: Record<string, [string, string][]> = {
                   id={`track-lamp-${id}`}
                   aria-label={`${label} state. Press to cycle Off, Auto, On.`}
                 >
-                  <span class="lamp-dot" aria-hidden="true"></span>
+                  <span class="track-chip lamp-dot" aria-hidden="true"></span>
                   <span class="lamp-text">{label}</span>
                 </button>
-                <div class="segmented track-state" role="radiogroup" aria-label={`${label} state`}>
-                  <input type="radio" name={`track-state-${id}`} id={`track-${id}-off`} value="off" />
-                  <label for={`track-${id}-off`}>Off</label>
-                  <input type="radio" name={`track-state-${id}`} id={`track-${id}-auto`} value="auto" checked />
-                  <label for={`track-${id}-auto`}>Auto</label>
-                  <input type="radio" name={`track-state-${id}`} id={`track-${id}-on`} value="on" />
-                  <label for={`track-${id}-on`}>On</label>
-                </div>
                 <select id={`track-voice-${id}`} class="track-voice" aria-label={`${label} voice`}>
                   {VOICES[id].map(([value, voiceLabel]) => <option value={value}>{voiceLabel}</option>)}
                 </select>
@@ -263,10 +275,41 @@ const VOICES: Record<string, [string, string][]> = {
                   aria-expanded="false"
                   aria-controls={`voice-editor-${id}`}
                 >Edit</button>
+                <span class="track-foot">
+                  <span class="resolved-readout" id={`resolved-${id}`} aria-hidden="true"></span>
+                  <span class="cost-meter" id={`cost-meter-${id}`} hidden>
+                    <span class="cost-meter-fill"></span>
+                  </span>
+                </span>
               </div>
               <div class="voice-editor module-panel" id={`voice-editor-${id}`} hidden></div>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div class="control simple-dial" id="dial-repetition">
+        <div class="control-label-row">
+          <label for="repetition" class="panel-label">Repetition</label>
+        </div>
+        <div class="dial-slot" id="repetition-dial">
+          <span class="dial-mid" aria-hidden="true">Evolving</span>
+          <span class="dial-ends" aria-hidden="true">
+            <span class="dial-end dial-end-low">Random</span>
+            <span class="dial-end dial-end-high">Repetitive</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="control simple-dial" id="dial-swing" hidden>
+        <div class="control-label-row">
+          <label for="swing" class="panel-label">Swing</label>
+        </div>
+        <div class="dial-slot" id="swing-dial">
+          <span class="dial-ends" aria-hidden="true">
+            <span class="dial-end dial-end-low">Straight</span>
+            <span class="dial-end dial-end-high">Swung</span>
+          </span>
         </div>
       </div>
 
@@ -294,7 +337,7 @@ const VOICES: Record<string, [string, string][]> = {
       <div class="control">
         <div class="control-label-row">
           <label for="bpm">BPM</label>
-          <span class="value-readout"><output for="bpm" id="bpm-value">60</output></span>
+          <span class="value-readout bpm-readout" id="bpm-readout"><output for="bpm" id="bpm-value">60</output></span>
         </div>
         <input type="range" id="bpm" min="40" max="120" step="1" value="60" />
       </div>
@@ -313,8 +356,14 @@ const VOICES: Record<string, [string, string][]> = {
         <p class="hint">Loops forever, in order. Up to 8 blocks.</p>
       </div>
 
+      <div class="module-panel factory-presets">
+        <span class="panel-label">Factory presets</span>
+        <div id="factory-preset-row" class="factory-preset-row"></div>
+        <p class="hint">Load one and change anything you like &mdash; nothing is locked.</p>
+      </div>
+
       <fieldset class="presets-group">
-        <legend>Presets</legend>
+        <legend>Your presets</legend>
         <div class="preset-row">
           <label for="preset-name" class="visually-hidden">Preset name</label>
           <input id="preset-name" type="text" placeholder="Preset name" />
@@ -336,6 +385,19 @@ const VOICES: Record<string, [string, string][]> = {
     </section>
   </div>
 
+  <aside id="tutorial-panel" class="tutorial-panel module-panel" aria-labelledby="tutorial-title" hidden>
+    <div class="tutorial-head">
+      <span class="panel-label" id="tutorial-title">Guided tour</span>
+      <button type="button" id="tutorial-close" class="round-button" aria-label="Close the guided tour">&times;</button>
+    </div>
+    <p id="tutorial-step-text" class="tutorial-step-text"></p>
+    <div class="tutorial-nav">
+      <button type="button" id="tutorial-prev" class="secondary-button">Back</button>
+      <span id="tutorial-progress" class="value-readout"></span>
+      <button type="button" id="tutorial-next" class="secondary-button">Next</button>
+    </div>
+  </aside>
+
   <p id="generator-unavailable" hidden>
     Sorry &mdash; this browser can&rsquo;t run the generator (Web Audio isn&rsquo;t
     available, or the audio engine failed to load). Try a recent version of
@@ -352,25 +414,53 @@ const VOICES: Record<string, [string, string][]> = {
 
     const LEGACY_STORAGE_KEY = 'ambi4-generator-settings-v2';
 
-    const TRACK_IDS = ['pad', 'bass', 'melody', 'texture', 'arp', 'percussion'];
+    // v13/v14 order — the same everywhere: rows, editors, visualiser lanes.
+    const TRACK_IDS = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
     const TRACK_LABELS = {
       pad: 'Pad',
-      bass: 'Bass',
-      melody: 'Melody',
-      texture: 'Texture',
       arp: 'Arp',
+      melody: 'Melody',
+      bass: 'Bass',
+      texture: 'Texture',
       percussion: 'Percussion',
     };
+    // Tuned tracks take a Dissonance dial (v14); percussion has no chord to
+    // stray from.
+    const TUNED_TRACKS = TRACK_IDS.filter((id) => id !== 'percussion');
+
+    // Voice ids → display names, mirroring the frontmatter's <option> labels
+    // (the page never imports engine-voices.js just for names).
+    const VOICE_LABELS = {
+      pad: { warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir' },
+      arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba' },
+      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys' },
+      bass: { sub: 'Sub', round: 'Round', breath: 'Breath' },
+      texture: { sparkle: 'Sparkle', grains: 'Grains', chimes: 'Chimes', wash: 'Wash' },
+      percussion: { soft: 'Soft kit', hand: 'Hand drum', tick: 'Ticks' },
+    };
+
+    // Transport controls hidden on the Simple tab. Deliberately EMPTY for this
+    // build (every button ships visible on both tabs); adding e.g. 'record'
+    // here is the whole change needed to demote a button to Advanced-only.
+    const SIMPLE_HIDDEN = new Set([]);
 
     // ---- v6 step sequencers (shared shape) ------------------------------
     // Steps-per-bar by metre; all 20 slots persist, the first N render/play.
     const STEPS_PER_BAR = { '3/4': 12, '4/4': 16, '5/4': 20, '6/8': 12, '7/8': 14 };
     const SEQ_SLOTS = 20;
+    const SEQ_MAX = 8; // sequencers per track (Markov chain size ceiling)
     const SEQ_SINGLE_TRACKS = ['melody', 'bass', 'arp'];
+    const SEQ_TRACKS = ['melody', 'bass', 'arp', 'percussion'];
+    // Probability-group dot colours (v13/v14): group id → hue. Deliberately
+    // distinct from the six track accents so a group never reads as a track.
+    const GROUP_COLOURS = ['#d98324', '#3f8f6d', '#8a5cd6', '#c2456b', '#3f7fbf', '#9a8f2e'];
+    // v14: lanes render HIGH at the top, LOW at the bottom — the way a drum
+    // grid is read everywhere else. The param object is keyed, not ordered,
+    // so this is purely a render order.
     const PERC_LANES = [
-      ['low', 'Low'],
-      ['mid', 'Mid'],
       ['high', 'High'],
+      ['mid', 'Mid'],
+      ['low', 'Low'],
     ];
     const VARY_KEYS = [
       ['voice', 'Voice'],
@@ -406,7 +496,168 @@ const VOICES: Record<string, [string, string][]> = {
       return { voice: null, volume: null, pitch: null, timing: null, pan: null };
     }
 
+    // v14 Sequencer 2.0: a track owns a LIST of sequencers and picks between
+    // them at each loop end (Markov transition weights). `sequencer` stays as
+    // an alias of sequencers[0] so a pre-v14 engine still sees the one it
+    // knows about.
+    function defaultSequencer(track) {
+      const steps =
+        track === 'percussion'
+          ? { low: defaultLane('low'), mid: defaultLane('mid'), high: defaultLane('high') }
+          : defaultLane(track);
+      return { mode: 'auto', weights: [1], steps };
+    }
+
+    // DEFAULTS carry only the SINGULAR sequencer: deepMerge keeps keys that
+    // exist solely in the saved object, so a stored `sequencers` list
+    // survives a merge, while a default-shaped list here would shadow (and
+    // silently discard) a pre-v14 save's singular sequencer.
+    // normaliseSequencerList() builds the list from whichever is present.
+    function withSequencers(track) {
+      return { sequencer: defaultSequencer(track) };
+    }
+
+    /**
+     * v9/v14 factory presets: curated starting points, composed across the
+     * whole param space (tempo, key/mode, metre, structure, swing, which
+     * tracks play and with what voice/level/randomness/dissonance). Each is a
+     * PARTIAL params object — deepMerge fills the rest from DEFAULTS — and
+     * loading one is an ordinary settings load, so everything stays editable
+     * afterwards. Nothing here is locked or re-applied behind the user.
+     */
+    const FACTORY_PRESETS = [
+      {
+        name: 'Night Shift',
+        blurb: 'Slow, low and unhurried — for the small hours.',
+        params: {
+          bpm: 46, root: 'A', mode: 'aeolian', timeSignature: '4/4',
+          complexity: 0.28, repetition: 0.75, structure: 'drone', volume: 0.7,
+          tracks: {
+            pad: { state: 'on', voice: 'warm', level: 0.85, randomness: 0.2 },
+            arp: { state: 'off' },
+            melody: { state: 'off' },
+            bass: { state: 'auto', voice: 'sub', level: 0.7, randomness: 0.15 },
+            texture: { state: 'auto', voice: 'wash', level: 0.5, randomness: 0.3 },
+            percussion: { state: 'off' },
+          },
+        },
+      },
+      {
+        name: 'Glass Office',
+        blurb: 'Bright, clean and slightly restless. Daylight work.',
+        params: {
+          bpm: 68, root: 'C', mode: 'lydian', timeSignature: '4/4',
+          complexity: 0.48, repetition: 0.55, structure: 'waves',
+          tracks: {
+            pad: { state: 'on', voice: 'glass', level: 0.75 },
+            arp: { state: 'auto', voice: 'crystal', level: 0.6, randomness: 0.4 },
+            melody: { state: 'off' },
+            bass: { state: 'off' },
+            texture: { state: 'auto', voice: 'chimes', level: 0.55 },
+            percussion: { state: 'off' },
+          },
+        },
+      },
+      {
+        name: 'Deep Focus',
+        blurb: 'Almost nothing happens, on purpose.',
+        params: {
+          bpm: 56, root: 'D', mode: 'dorian', timeSignature: '4/4',
+          complexity: 0.22, repetition: 0.9, structure: 'drone', volume: 0.72,
+          tracks: {
+            pad: { state: 'on', voice: 'strings', level: 0.8, randomness: 0.1 },
+            arp: { state: 'off' },
+            melody: { state: 'off' },
+            bass: { state: 'off' },
+            texture: { state: 'auto', voice: 'grains', level: 0.45, randomness: 0.15 },
+            percussion: { state: 'off' },
+          },
+        },
+      },
+      {
+        name: 'Morning Rain',
+        blurb: 'Soft ticking, a bell now and then, everything damp.',
+        params: {
+          bpm: 72, root: 'G', mode: 'majorPentatonic', timeSignature: '4/4',
+          complexity: 0.55, repetition: 0.5, structure: 'waves',
+          tracks: {
+            pad: { state: 'auto', voice: 'warm', level: 0.65 },
+            arp: { state: 'auto', voice: 'softPluck', level: 0.5 },
+            melody: { state: 'auto', voice: 'bell', level: 0.6, randomness: 0.6, dissonance: 0.15 },
+            bass: { state: 'off' },
+            texture: { state: 'auto', voice: 'sparkle', level: 0.5 },
+            percussion: { state: 'auto', voice: 'tick', level: 0.35 },
+          },
+        },
+      },
+      {
+        name: 'Slow Tide',
+        blurb: 'Long swells in six-eight. Choir underneath.',
+        params: {
+          bpm: 52, root: 'F', mode: 'minorPentatonic', timeSignature: '6/8',
+          complexity: 0.38, repetition: 0.65, structure: 'waves', volume: 0.78,
+          tracks: {
+            pad: { state: 'on', voice: 'choir', level: 0.8 },
+            arp: { state: 'off' },
+            melody: { state: 'off' },
+            bass: { state: 'auto', voice: 'round', level: 0.7 },
+            texture: { state: 'auto', voice: 'wash', level: 0.55 },
+            percussion: { state: 'off' },
+          },
+        },
+      },
+      {
+        name: 'Paper Lanterns',
+        blurb: 'Marimba, hand drum and a shuffle. Warm evening.',
+        params: {
+          bpm: 82, root: 'E', mode: 'majorPentatonic', timeSignature: '4/4',
+          complexity: 0.62, repetition: 0.45, structure: 'abab', swing: 0.4,
+          tracks: {
+            pad: { state: 'auto', voice: 'warm', level: 0.6 },
+            arp: { state: 'on', voice: 'marimba', level: 0.65, randomness: 0.55 },
+            melody: { state: 'auto', voice: 'keys', level: 0.6 },
+            bass: { state: 'auto', voice: 'round', level: 0.65 },
+            texture: { state: 'auto', voice: 'chimes', level: 0.4 },
+            percussion: { state: 'on', voice: 'hand', level: 0.55 },
+          },
+        },
+      },
+      {
+        name: 'Cold Start',
+        blurb: 'Whole-tone and wide awake. The busiest of the set.',
+        params: {
+          bpm: 96, root: 'A', mode: 'wholeTone', timeSignature: '7/8',
+          complexity: 0.78, repetition: 0.3, structure: 'journey', swing: 0.15,
+          tracks: {
+            pad: { state: 'auto', voice: 'glass', level: 0.55 },
+            arp: { state: 'on', voice: 'crystal', level: 0.6, randomness: 0.7 },
+            melody: { state: 'on', voice: 'flute', level: 0.6, randomness: 0.65, dissonance: 0.35 },
+            bass: { state: 'auto', voice: 'sub', level: 0.7 },
+            texture: { state: 'auto', voice: 'sparkle', level: 0.45 },
+            percussion: { state: 'on', voice: 'soft', level: 0.5 },
+          },
+        },
+      },
+      {
+        name: 'Long Corridor',
+        blurb: 'One chord, drifting filters, no hurry at all.',
+        params: {
+          bpm: 44, root: 'B', mode: 'aeolian', timeSignature: '3/4',
+          complexity: 0.2, repetition: 0.85, structure: 'drone', volume: 0.68,
+          tracks: {
+            pad: { state: 'on', voice: 'strings', level: { min: 0.55, max: 0.85 }, randomness: 0.12 },
+            arp: { state: 'off' },
+            melody: { state: 'off' },
+            bass: { state: 'off' },
+            texture: { state: 'auto', voice: 'grains', level: { min: 0.3, max: 0.55 }, randomness: 0.2 },
+            percussion: { state: 'off' },
+          },
+        },
+      },
+    ];
+
     const DEFAULTS = {
+      swing: 0,
       complexity: 0.5,
       repetition: 0.5,
       volume: 0.8,
@@ -428,38 +679,40 @@ const VOICES: Record<string, [string, string][]> = {
         steps: new Array(16).fill(true),
       },
       tracks: {
-        pad: { state: 'auto', voice: 'warm', level: 0.8, hold: false, randomness: 0.5, vary: defaultVary() },
-        // melody/bass default OFF (v8): the musicality rework hasn't yet
-        // passed the user's "catchy" gate, so these start silent until the
-        // listener explicitly asks for them (Auto or On).
-        bass: {
-          state: 'off',
-          voice: 'sub',
-          level: 0.8,
-          hold: false,
-          randomness: 0.5,
-          vary: defaultVary(),
-          sequencer: { mode: 'auto', steps: defaultLane('bass') },
-        },
-        melody: {
-          state: 'off',
-          voice: 'pluck',
-          level: 0.8,
-          hold: false,
-          randomness: 0.5,
-          vary: defaultVary(),
-          sequencer: { mode: 'auto', steps: defaultLane('melody') },
-        },
-        texture: { state: 'auto', voice: 'sparkle', level: 0.8, hold: false, randomness: 0.5, vary: defaultVary() },
+        pad: { state: 'auto', voice: 'warm', level: 0.8, hold: false, randomness: 0.5, dissonance: 0, vary: defaultVary() },
         arp: {
           state: 'auto',
           voice: 'softPluck',
           level: 0.8,
           hold: false,
           randomness: 0.5,
+          dissonance: 0,
           vary: defaultVary(),
-          sequencer: { mode: 'auto', steps: defaultLane('arp') },
+          ...withSequencers('arp'),
         },
+        // v14 user verdict: melody joins the default mix ('auto'); bass stays
+        // OFF until the groove rework passes the listener's own gate.
+        melody: {
+          state: 'auto',
+          voice: 'pluck',
+          level: 0.8,
+          hold: false,
+          randomness: 0.5,
+          dissonance: 0,
+          vary: defaultVary(),
+          ...withSequencers('melody'),
+        },
+        bass: {
+          state: 'off',
+          voice: 'sub',
+          level: 0.8,
+          hold: false,
+          randomness: 0.5,
+          dissonance: 0,
+          vary: defaultVary(),
+          ...withSequencers('bass'),
+        },
+        texture: { state: 'auto', voice: 'sparkle', level: 0.8, hold: false, randomness: 0.5, dissonance: 0, vary: defaultVary() },
         percussion: {
           state: 'auto',
           voice: 'soft',
@@ -467,14 +720,13 @@ const VOICES: Record<string, [string, string][]> = {
           hold: false,
           randomness: 0.5,
           vary: defaultVary(),
-          sequencer: {
-            mode: 'auto',
-            steps: { low: defaultLane('low'), mid: defaultLane('mid'), high: defaultLane('high') },
-          },
+          ...withSequencers('percussion'),
         },
       },
       patches: {},
-      ui: { activeTab: 'simple' },
+      // `ui` is page-only state: stripped before anything reaches the engine
+      // (engineParamsFrom) or a preset snapshot (paramsSnapshot).
+      ui: { activeTab: 'simple', processor: 'auto', tutorialOpen: false, tutorialStep: 0 },
     };
 
     // Used only when a voice doesn't export .defaults (older engine-voices).
@@ -652,9 +904,55 @@ const VOICES: Record<string, [string, string][]> = {
         // stay plain numbers via num().
         const step = { on: s.on === true, prob: normaliseRangeValue(s.prob, 1), vmin: num(s.vmin, 0.5), vmax: num(s.vmax, 0.9) };
         if (step.vmin > step.vmax) [step.vmin, step.vmax] = [step.vmax, step.vmin];
+        // v14 tie/group are OPTIONAL: a step that never carried one keeps the
+        // key absent, matching the engine's own sanitiser so a round-trip
+        // through getParams() doesn't grow the payload.
+        if (s.tie === true) step.tie = true;
+        if (Number.isFinite(s.group) && s.group >= 0) step.group = Math.floor(s.group);
         out[i] = step;
       }
       return out;
+    }
+
+    /** One sequencer of a track's list: mode + Markov transition weights +
+     * lane(s). `weights` is padded/truncated to the list length by the caller. */
+    function normaliseSequencer(seq, track) {
+      const src = isPlainObject(seq) ? seq : {};
+      const steps =
+        track === 'percussion'
+          ? (() => {
+              const raw = isPlainObject(src.steps) ? src.steps : {};
+              return {
+                low: normaliseLane(raw.low, 'low'),
+                mid: normaliseLane(raw.mid, 'mid'),
+                high: normaliseLane(raw.high, 'high'),
+              };
+            })()
+          : normaliseLane(src.steps, track);
+      const weights = Array.isArray(src.weights)
+        ? src.weights.map((w) => (Number.isFinite(w) ? clamp(w, 0, 100) : 1))
+        : [1];
+      return { mode: src.mode === 'manual' ? 'manual' : 'auto', weights: weights.length ? weights : [1], steps };
+    }
+
+    /**
+     * Rebuild a track's sequencer LIST. A pre-v14 save carries only the
+     * singular `sequencer`; it becomes sequencers[0]. Afterwards `sequencer`
+     * is re-pointed at sequencers[0] (the same object, as the engine does)
+     * so every v6-era read/write path still works unchanged.
+     */
+    function normaliseSequencerList(t, track) {
+      const list = Array.isArray(t.sequencers) && t.sequencers.length
+        ? t.sequencers
+        : [isPlainObject(t.sequencer) ? t.sequencer : {}];
+      t.sequencers = list.slice(0, SEQ_MAX).map((seq) => normaliseSequencer(seq, track));
+      const n = t.sequencers.length;
+      for (const seq of t.sequencers) {
+        seq.weights = Array.from({ length: n }, (unused, i) =>
+          i < seq.weights.length ? seq.weights[i] : 1
+        );
+      }
+      t.sequencer = t.sequencers[0];
     }
 
     /**
@@ -664,6 +962,7 @@ const VOICES: Record<string, [string, string][]> = {
      * boolean mirror from the arp sequencer's on-flags.
      */
     function normaliseV6Tracks(s) {
+      s.swing = clamp(typeof s.swing === 'number' && Number.isFinite(s.swing) ? s.swing : 0, 0, 1);
       for (const id of TRACK_IDS) {
         const t = s.tracks[id];
         t.level = normaliseRangeValue(t.level, 0.8);
@@ -671,6 +970,8 @@ const VOICES: Record<string, [string, string][]> = {
         // Rangeable (v7 addendum) — preserve a valid {min,max}; only a
         // genuinely invalid value falls back to the 0.5 default.
         t.randomness = normaliseRangeValue(t.randomness, 0.5);
+        if (TUNED_TRACKS.includes(id)) t.dissonance = normaliseRangeValue(t.dissonance, 0);
+        else delete t.dissonance;
         const vary = isPlainObject(t.vary) ? t.vary : {};
         t.vary = defaultVary();
         for (const [key] of VARY_KEYS) {
@@ -678,28 +979,10 @@ const VOICES: Record<string, [string, string][]> = {
           if (typeof v === 'number' && Number.isFinite(v)) t.vary[key] = clamp(v, 0, 1);
         }
       }
-      for (const id of SEQ_SINGLE_TRACKS) {
-        const t = s.tracks[id];
-        const seq = isPlainObject(t.sequencer) ? t.sequencer : {};
-        t.sequencer = {
-          mode: seq.mode === 'manual' ? 'manual' : 'auto',
-          steps: normaliseLane(seq.steps, id),
-        };
-      }
-      const tp = s.tracks.percussion;
-      const pseq = isPlainObject(tp.sequencer) ? tp.sequencer : {};
-      const psteps = isPlainObject(pseq.steps) ? pseq.steps : {};
-      tp.sequencer = {
-        mode: pseq.mode === 'manual' ? 'manual' : 'auto',
-        steps: {
-          low: normaliseLane(psteps.low, 'low'),
-          mid: normaliseLane(psteps.mid, 'mid'),
-          high: normaliseLane(psteps.high, 'high'),
-        },
-      };
-      // Legacy boolean mask follows the sequencer (kept for older engines
-      // and for the combined-complexity estimate).
-      s.arp.steps = s.tracks.arp.sequencer.steps.slice(0, 16).map((st) => !!st.on);
+      for (const id of SEQ_TRACKS) normaliseSequencerList(s.tracks[id], id);
+      // Legacy boolean mask follows the arp's FIRST sequencer (kept for older
+      // engines and for the combined-complexity estimate).
+      s.arp.steps = s.tracks.arp.sequencers[0].steps.slice(0, 16).map((st) => !!st.on);
     }
 
     // ---- tempo mapping (one tempo, two views) ---------------------------
@@ -753,21 +1036,75 @@ const VOICES: Record<string, [string, string][]> = {
       '<path d="M2 20 L2 4 L11 4 L11 20 L20 20 L20 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
     ];
 
-    function shapeGlyphSvg(index, size) {
-      const i = clamp(Math.round(index), 0, 3);
-      return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${SHAPE_GLYPH_PATHS[i]}</svg>`;
+    // v14: what each canonical mark sounds like, shown as an SVG <title> on
+    // the mark glyph — a native tooltip that reaches AT as well, and needs no
+    // knob.js change (markGlyphs markup is inserted verbatim).
+    const SHAPE_MARK_HINTS = [
+      'Sine — pure, no harmonics: the softest of the four.',
+      'Triangle — odd harmonics, falling away fast: hollow and flute-like.',
+      'Sawtooth — every harmonic: bright and brassy, the richest.',
+      'Square — odd harmonics only: hollow but strong, clarinet-ish.',
+    ];
+
+    function shapeMarkGlyph(index) {
+      return `<title>${SHAPE_MARK_HINTS[index]}</title>${SHAPE_GLYPH_PATHS[index]}`;
     }
 
     // Passed to knob.js's `markGlyphs`: one entry per canonical mark value.
-    const SHAPE_MARK_GLYPHS = { 0: shapeGlyphSvg(0, 12), 1: shapeGlyphSvg(1, 12), 2: shapeGlyphSvg(2, 12), 3: shapeGlyphSvg(3, 12) };
+    // The 24×24 paths are centred on the mark by the -12,-12 translate.
+    const SHAPE_MARK_GLYPHS = Object.fromEntries(
+      [0, 1, 2, 3].map((i) => [
+        i,
+        `<svg viewBox="0 0 24 24" width="12" height="12" x="-6" y="-6" overflow="visible">${shapeMarkGlyph(i)}</svg>`,
+      ])
+    );
 
-    // Passed to knob.js's `glyph`: one icon on a canonical mark, a pair either
-    // side of the "~" for a fractional morph (mirrors shapeFormat's text rule).
+    // ---- v14 live mini-waveform readout ---------------------------------
+    // The shape dials used to print "Saw~Sq" and a pair of static icons. The
+    // readout is now a tiny trace of the ACTUAL interpolated wave: the four
+    // canonical shapes are crossfaded sample-by-sample, which is exactly
+    // linear interpolation of their Fourier coefficients (the engine's own
+    // morph), so what you see is the wave you get. Redrawn only when the
+    // value changes — knob.js calls `glyph` from updateView, never on a timer.
+    function canonicalWave(kind, phase) {
+      switch (kind) {
+        case 0:
+          return Math.sin(2 * Math.PI * phase);
+        case 1:
+          // 0 at phase 0, +1 at a quarter, -1 at three quarters — in phase
+          // with the sine above, so a morph between them never lurches.
+          return 4 * Math.abs(phase - Math.floor(phase + 0.75) + 0.25) - 1;
+        case 2:
+          return 2 * (phase - Math.floor(phase + 0.5));
+        default:
+          return phase < 0.5 ? 1 : -1;
+      }
+    }
+
+    function morphedWave(shape, phase) {
+      const c = clamp(shape, 0, 3);
+      const lo = Math.floor(c);
+      const hi = Math.min(3, lo + 1);
+      const t = c - lo;
+      return canonicalWave(lo, phase) * (1 - t) + canonicalWave(hi, phase) * t;
+    }
+
+    const WAVE_W = 46;
+    const WAVE_H = 18;
+    const WAVE_SAMPLES = 64;
+
     function shapeGlyph(v) {
-      const c = clamp(v, 0, 3);
-      const r = Math.round(c);
-      if (Math.abs(c - r) < 0.05) return shapeGlyphSvg(r, 16);
-      return shapeGlyphSvg(Math.floor(c), 14) + shapeGlyphSvg(Math.ceil(c), 14);
+      const points = [];
+      for (let i = 0; i <= WAVE_SAMPLES; i++) {
+        const phase = i / WAVE_SAMPLES;
+        const y = WAVE_H / 2 - morphedWave(v, phase) * (WAVE_H / 2 - 1.5);
+        points.push(`${((phase * WAVE_W).toFixed(1))},${y.toFixed(1)}`);
+      }
+      return (
+        `<svg class="wave-readout" viewBox="0 0 ${WAVE_W} ${WAVE_H}" width="${WAVE_W}" height="${WAVE_H}" aria-hidden="true">` +
+        `<polyline points="${points.join(' ')}" fill="none" stroke="currentColor" stroke-width="1.5" ` +
+        'stroke-linejoin="round" stroke-linecap="round"/></svg>'
+      );
     }
 
     function readShape(source, n) {
@@ -850,23 +1187,30 @@ const VOICES: Record<string, [string, string][]> = {
       // arp.steps boolean mask that every v2+ engine honours.
       const engineCaps = {
         randomise: typeof engine.randomise === 'function',
-        hold: {},
+        getResolved: typeof engine.getResolved === 'function',
+        getStats: typeof engine.getStats === 'function',
+        setPowerBudget: typeof engine.setPowerBudget === 'function',
+        swing: false,
         randomness: {},
+        dissonance: {},
         vary: {},
         sequencer: {},
+        sequencers: {},
         level: {},
       };
       try {
         const p = engine.getParams() || {};
+        engineCaps.swing = typeof p.swing === 'number';
         const t = isPlainObject(p.tracks) ? p.tracks : {};
         for (const id of TRACK_IDS) {
           const entry = isPlainObject(t[id]) ? t[id] : {};
-          engineCaps.hold[id] = typeof entry.hold === 'boolean';
           // Accept a plain {min,max} RangeValue too (v7), not just a bare
           // number — a range-shipping engine must not make the knob vanish.
           engineCaps.randomness[id] = isNumberOrRange(entry.randomness);
+          engineCaps.dissonance[id] = isNumberOrRange(entry.dissonance);
           engineCaps.vary[id] = isPlainObject(entry.vary);
           engineCaps.sequencer[id] = isPlainObject(entry.sequencer);
+          engineCaps.sequencers[id] = Array.isArray(entry.sequencers);
           engineCaps.level[id] = isNumberOrRange(entry.level);
         }
       } catch {}
@@ -987,9 +1331,14 @@ const VOICES: Record<string, [string, string][]> = {
       // ---- visualiser (optional decoration) -----------------------------
 
       const canvas = document.getElementById('track-visualiser');
+      let visualiserHandle = null;
+      // Declared up here (not with the governor block below) because
+      // updateScopeMode reads the budget and can run before it.
+      let governor = null;
+      let powerBudget = null;
       try {
         const { initVisualiser } = await import('../scripts/visualiser.js');
-        initVisualiser(canvas, engine);
+        visualiserHandle = initVisualiser(canvas, engine);
       } catch {
         // The generator works without it.
       }
@@ -998,8 +1347,21 @@ const VOICES: Record<string, [string, string][]> = {
 
       const toggleButton = document.getElementById('toggle-play');
       const playLabel = toggleButton.querySelector('.play-toggle-label');
+      const playGlyph = toggleButton.querySelector('.play-glyph');
+      const finishGlyph = toggleButton.querySelector('.finish-glyph');
       const stopNowButton = document.getElementById('stop-now');
+      const recordButton = document.getElementById('record-toggle');
+      const recordStatus = document.getElementById('record-status');
       const transportStatus = document.getElementById('transport-status');
+
+      // v15: a transport control can be demoted to Advanced-only by adding
+      // its data-transport id to SIMPLE_HIDDEN — nothing else changes.
+      function applyTransportVisibility(tabName) {
+        for (const el of document.querySelectorAll('[data-transport]')) {
+          const owner = el.closest('.popover-anchor') || el;
+          owner.hidden = tabName === 'simple' && SIMPLE_HIDDEN.has(el.dataset.transport);
+        }
+      }
 
       // iOS routes Web Audio through the ringer channel, so the hardware
       // silent switch mutes it — surface a hint only where it applies.
@@ -1017,11 +1379,14 @@ const VOICES: Record<string, [string, string][]> = {
       let repetitionDial = null;
       let randomnessDial = null;
       let volumeDial = null;
+      let swingDial = null;
+      let processorDial = null;
       const rootSelect = document.getElementById('root');
       const modeSelect = document.getElementById('mode');
       const timeSignatureSelect = document.getElementById('timeSignature');
       const bpmInput = document.getElementById('bpm');
-      const bpmValue = document.getElementById('bpm-value');
+      const bpmReadout = document.getElementById('bpm-readout');
+      let bpmTypable = null;
       const structureSelect = document.getElementById('structure');
 
       function engineParamsFrom(s) {
@@ -1088,7 +1453,7 @@ const VOICES: Record<string, [string, string][]> = {
         bpm = Math.round(clamp(bpm, 40, 120));
         settings.bpm = bpm;
         bpmInput.value = String(bpm);
-        bpmValue.textContent = String(bpm);
+        bpmTypable?.refresh();
         if (!skipSpeedThumb) speedDial?.set(speedTFromBpm(bpm));
         engine.setParams({ bpm, speed: 1 });
         persistSettings();
@@ -1107,6 +1472,27 @@ const VOICES: Record<string, [string, string][]> = {
           rangeMid(sanitiseRangeValueIn(settings.tracks[id].randomness, 0, 1, 0.5))
         );
         return vals.reduce((a, b) => a + b, 0) / vals.length;
+      }
+
+      /**
+       * What the Simple tab's fused Randomness dial should READ. Normally the
+       * dial's own x, recovered exactly: every track carries the same
+       * randomness and repetition is its mirror (1 - x), so the shared value —
+       * range included — is handed straight back. Once the Advanced tab has
+       * hand-set repetition or an individual track's randomness to something
+       * no single x could produce, it falls back to the blended estimate
+       * ((1 - repetition) + mean(randomness)) / 2: a display only, exactly
+       * like the combined-complexity read-out, never written anywhere.
+       */
+      function fusedRandomnessValue() {
+        const first = settings.tracks[TRACK_IDS[0]].randomness;
+        const shape = JSON.stringify(first);
+        const uniform = TRACK_IDS.every(
+          (id) => JSON.stringify(settings.tracks[id].randomness) === shape
+        );
+        const mid = rangeMid(sanitiseRangeValueIn(first, 0, 1, 0.5));
+        if (uniform && Math.abs(1 - settings.repetition - mid) < 0.02) return first;
+        return clamp((1 - settings.repetition + meanRandomness()) / 2, 0, 1);
       }
 
       for (const [select, key] of [
@@ -1150,6 +1536,7 @@ const VOICES: Record<string, [string, string][]> = {
           tabPanels[tabNames[i]].hidden = !active;
           if (active && focus) button.focus();
         });
+        applyTransportVisibility(name);
         if (settings.ui.activeTab !== name) {
           settings.ui.activeTab = name;
           if (persist) persistSettings();
@@ -1199,13 +1586,52 @@ const VOICES: Record<string, [string, string][]> = {
         }
       }
 
+      // v14: the Off/Auto/On segmented control moved OUT of the row (which is
+      // now a single line: lamp+name, voice, Level, Randomness, Edit) and
+      // into the Edit panel header, so it exists only while that editor is
+      // open. Instances register here; the row lamp is the always-present
+      // state control.
+      const stateControls = new Map(); // track -> { set(state) }
+
       function syncTrackStateUI() {
         for (const id of TRACK_IDS) {
-          const radio = document.getElementById(`track-${id}-${settings.tracks[id].state}`);
-          if (radio) radio.checked = true;
+          stateControls.get(id)?.set(settings.tracks[id].state);
           syncTrackOffIndicator(id);
         }
         updateComplexityDisplay();
+      }
+
+      function buildStateControl(container, track) {
+        const group = document.createElement('div');
+        group.className = 'segmented track-state';
+        group.setAttribute('role', 'radiogroup');
+        group.setAttribute('aria-label', `${TRACK_LABELS[track]} state`);
+        const radios = [];
+        for (const state of TRACK_STATE_CYCLE) {
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `track-state-${track}`;
+          input.id = `track-${track}-${state}`;
+          input.value = state;
+          input.checked = settings.tracks[track].state === state;
+          const label = document.createElement('label');
+          label.htmlFor = input.id;
+          label.textContent = TRACK_STATE_TEXT[state];
+          input.addEventListener('change', () => {
+            if (!input.checked) return;
+            setTrackState(track, state);
+          });
+          group.append(input, label);
+          radios.push(input);
+        }
+        container.append(group);
+        const handle = {
+          set: (state) => {
+            for (const input of radios) input.checked = input.value === state;
+          },
+        };
+        stateControls.set(track, handle);
+        return handle;
       }
 
       // v12: single commit path for a track's state — the segmented radios
@@ -1218,27 +1644,31 @@ const VOICES: Record<string, [string, string][]> = {
         engine.setParams({ tracks: { [id]: { state } } });
         updateComplexityDisplay();
         syncTrackOffIndicator(id);
+        stateControls.get(id)?.set(state);
         persistSettings();
       }
 
+      // Short "what does this one sound like" hints on the voice selects —
+      // the kit hints the v13 round asked for, extended to every track.
+      const VOICE_HINTS = {
+        pad: 'The sustained chord bed. Warm is the default; Glass is brighter, Choir the most vocal.',
+        arp: 'The broken-chord line. Soft pluck sits back, Crystal cuts through, Marimba is woody.',
+        melody: 'The tune. Pluck and Keys are struck; Flute and Bell ring on.',
+        bass: 'The bottom. Sub is pure weight, Round has body, Breath adds air.',
+        texture: 'The atmosphere between the notes. Wash is the widest, Grains the grittiest.',
+        percussion: 'The kit. Soft kit is brushed and quiet, Hand drum is warm and tuned, Ticks is a dry pulse.',
+      };
+
       for (const id of TRACK_IDS) {
-        const stateRadios = document.querySelectorAll(`input[name="track-state-${id}"]`);
         const voiceSelect = document.getElementById(`track-voice-${id}`);
         const lamp = document.getElementById(`track-lamp-${id}`);
-
-        for (const radio of stateRadios) {
-          radio.addEventListener('change', () => {
-            if (!radio.checked) return;
-            setTrackState(id, radio.value);
-          });
-        }
+        describe(voiceSelect, VOICE_HINTS[id]);
+        if (lamp) describe(lamp, 'Off never plays · Auto lets the generator decide · On always plays.');
 
         if (lamp) {
           lamp.addEventListener('click', () => {
             const cur = settings.tracks[id].state;
             const next = TRACK_STATE_CYCLE[(TRACK_STATE_CYCLE.indexOf(cur) + 1) % TRACK_STATE_CYCLE.length];
-            const radio = document.getElementById(`track-${id}-${next}`);
-            if (radio) radio.checked = true;
             setTrackState(id, next);
           });
         }
@@ -1289,18 +1719,170 @@ const VOICES: Record<string, [string, string][]> = {
 
       const pctFormat = (v) => `${Math.round(v * 100)}%`;
 
+      // ---- v13 tooltips + ⓘ info boxes -----------------------------------
+      // Native `title` is unreachable by touch and unreliable by keyboard, so
+      // compact labels get a themed tooltip shown on hover AND focus, plus a
+      // visually-hidden description node the control points at with
+      // aria-describedby (so the text reaches AT even when nothing is drawn).
+      const tooltipEl = document.createElement('div');
+      tooltipEl.className = 'ui-tooltip';
+      tooltipEl.setAttribute('role', 'tooltip');
+      tooltipEl.hidden = true;
+      document.body.append(tooltipEl);
+      let tipSeq = 0;
+
+      function hideTooltip() {
+        tooltipEl.hidden = true;
+      }
+
+      function showTooltip(el, text) {
+        tooltipEl.textContent = text;
+        tooltipEl.hidden = false;
+        const r = el.getBoundingClientRect();
+        const w = tooltipEl.offsetWidth;
+        const left = clamp(r.left + r.width / 2 - w / 2, 8, Math.max(8, window.innerWidth - w - 8));
+        tooltipEl.style.left = `${left + window.scrollX}px`;
+        tooltipEl.style.top = `${r.bottom + window.scrollY + 6}px`;
+      }
+
+      /** Attach a hover/focus tooltip + an AT description. Returns `el`. */
+      function describe(el, text) {
+        if (!el || !text) return el;
+        let descId = el.getAttribute('aria-describedby');
+        if (!descId && el.parentNode) {
+          const desc = document.createElement('span');
+          desc.className = 'visually-hidden';
+          desc.id = `ui-desc-${++tipSeq}`;
+          desc.textContent = text;
+          el.parentNode.insertBefore(desc, el.nextSibling);
+          descId = desc.id;
+          el.setAttribute('aria-describedby', descId);
+        }
+        el.addEventListener('pointerenter', () => showTooltip(el, text));
+        el.addEventListener('pointerleave', hideTooltip);
+        el.addEventListener('focus', () => showTooltip(el, text));
+        el.addEventListener('blur', hideTooltip);
+        return el;
+      }
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') hideTooltip();
+      });
+
+      // ---- v13 click-to-type on page-level numeric readouts ---------------
+      // knob.js already does this for every dial readout. This is the same
+      // gesture for the numbers the page owns outside a knob: the readout is
+      // a button, clicking (or Enter/Space) swaps it for a text input, and
+      // Enter/blur commits through the SAME clamp path as the control it
+      // mirrors. Escape cancels. Zero cost while idle.
+      function makeTypable(host, { read, commit, format, label }) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'typable';
+        button.setAttribute('aria-label', label);
+        const refresh = () => {
+          button.textContent = format(read());
+        };
+        refresh();
+        button.addEventListener('click', () => {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'typable-input';
+          input.setAttribute('aria-label', label);
+          input.value = String(read());
+          host.replaceChild(input, button);
+          input.focus();
+          input.select();
+          const done = (save) => {
+            if (input.parentNode !== host) return;
+            host.replaceChild(button, input);
+            const parsed = parseFloat(input.value);
+            if (save && Number.isFinite(parsed)) commit(parsed);
+            refresh();
+            button.focus();
+          };
+          input.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              done(true);
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              done(false);
+            }
+          });
+          input.addEventListener('blur', () => done(true));
+        });
+        host.innerHTML = '';
+        host.append(button);
+        return { refresh };
+      }
+
+      /** A small ⓘ button that toggles a dismissable info box under it. */
+      function infoButton(container, title, body) {
+        const wrap = document.createElement('span');
+        wrap.className = 'info-anchor';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'round-button info-button';
+        btn.textContent = 'i';
+        btn.setAttribute('aria-label', `About ${title}`);
+        btn.setAttribute('aria-expanded', 'false');
+        const box = document.createElement('div');
+        box.className = 'info-box module-panel';
+        box.hidden = true;
+        box.textContent = body;
+        btn.addEventListener('click', () => {
+          const open = box.hidden;
+          box.hidden = !open;
+          btn.setAttribute('aria-expanded', String(open));
+        });
+        box.addEventListener('keydown', (event) => {
+          if (event.key !== 'Escape') return;
+          box.hidden = true;
+          btn.setAttribute('aria-expanded', 'false');
+          btn.focus();
+        });
+        wrap.append(btn, box);
+        container.append(wrap);
+        return wrap;
+      }
+
+      // ---- v14 randomness = the hold control ------------------------------
+      // The Random button and the Hold toggle are gone: this one dial does
+      // both jobs. 0 means "hold" — the engine keeps looping the material it
+      // is playing now — and re-rolls scale in as the dial rises.
+      const HOLD_EPSILON = 0.0001;
+      const RANDOMNESS_HINT = '0 = hold: loops the current bars exactly. Higher re-rolls more often.';
+
+      function isHoldValue(v) {
+        return rangeMid(sanitiseRangeValueIn(v, 0, 1, 0.5)) <= HOLD_EPSILON;
+      }
+
+      const randomnessFormat = (v) => (v <= HOLD_EPSILON ? 'Hold' : pctFormat(v));
+
       // ---- v12: Simple tab music-box dials --------------------------------
       // knob.js when available, native <input type=range> fallback when not
       // (per-dial: whichever built cleanly). Both paths funnel into the same
       // commit callback, so there's exactly one source of truth per dial —
       // no shadow/dual-wiring, no reentrancy to reason about.
+      // v14 single labelling: knob.js draws the dial's own name under the
+      // face, so the markup's <label> row (which exists for the no-knob
+      // slider fallback) is hidden the moment a knob builds — the name then
+      // appears exactly once. The end-marks (`.dial-ends`, "Slow"/"Fast" at
+      // the tick extremes) live in the markup and are never removed, so a
+      // failed knob build must not wipe the slot wholesale.
       function buildSimpleDial(dialId, opts, commit) {
         const box = document.getElementById(dialId);
         if (!box) return { set() {} };
+        const control = box.closest('.control');
+        const labelRow = control ? control.querySelector('.control-label-row') : null;
         if (knobApi) {
           try {
             const handle = knobApi.createKnob(box, { ...opts, onInput: commit });
+            if (labelRow) labelRow.hidden = true;
+            if (control) control.classList.add('dial-knob');
             return {
+              el: handle.el,
               set: (v) => {
                 try {
                   handle.set?.(v);
@@ -1308,9 +1890,10 @@ const VOICES: Record<string, [string, string][]> = {
               },
             };
           } catch {
-            box.innerHTML = '';
+            for (const stale of box.querySelectorAll('.knob')) stale.remove();
           }
         }
+        if (control) control.classList.add('dial-fallback');
         const input = document.createElement('input');
         input.type = 'range';
         if (opts.id) input.id = opts.id;
@@ -1322,6 +1905,7 @@ const VOICES: Record<string, [string, string][]> = {
         box.append(input);
         input.addEventListener('input', () => commit(parseFloat(input.value)));
         return {
+          el: input,
           set: (v) => {
             input.value = String(typeof v === 'object' ? (v.min + v.max) / 2 : v);
           },
@@ -1378,6 +1962,9 @@ const VOICES: Record<string, [string, string][]> = {
         }
       );
 
+      // Advanced keeps Repetition as its own dial (the Simple tab's fused
+      // Randomness dial writes it, but hand-setting it here is what makes
+      // that dial fall back to its blended read-out).
       repetitionDial = buildSimpleDial(
         'repetition-dial',
         {
@@ -1393,20 +1980,25 @@ const VOICES: Record<string, [string, string][]> = {
         (value) => {
           settings.repetition = value;
           engine.setParams({ repetition: value });
+          randomnessDial?.set(fusedRandomnessValue());
           persistSettings();
         }
       );
 
-      // Randomness fans OUT to every track's tracks[t].randomness (a genuine
-      // RangeValue field per-track, per the v7 default-RANGE list) and reads
-      // back the mean — mixed per-track values converge to a display-only
-      // average, never silently overwritten until the user actually turns
-      // this dial. Complexity/Repetition above stay single-value: the
-      // engine's top-level params (ambient-engine.js NUMERIC_RANGES) only
-      // accept plain numbers, so a "drifting range" affordance there would
-      // visually claim drift the engine silently ignores — deviated from
-      // the addendum's "click toggles range on complexity/repetition" line
-      // for that reason.
+      // ONE dial for "how much does this thing change" (user decision, v15):
+      // Repetitive ← Evolving → Random. It drives BOTH halves of that
+      // question in a single setParams: repetition = 1 - x (tight hook at 0,
+      // loose at 1) and every track's randomness = x (perfect-loop hold at 0,
+      // maximal wander at 1). Advanced still exposes the two separately; when
+      // they're hand-set to a pair no single x could produce, this dial just
+      // shows the blended estimate (fusedRandomnessValue) without touching
+      // them — the same interlink manners as Complexity.
+      //
+      // Range capability is asymmetric on purpose: tracks[t].randomness is a
+      // genuine RangeValue, but repetition is a top-level engine param and
+      // ambient-engine.js's NUMERIC_RANGES only accept plain numbers there.
+      // So a range from this dial is written verbatim to every track's
+      // randomness, and repetition takes 1 - (midpoint of that range).
       randomnessDial = buildSimpleDial(
         'randomness-dial',
         {
@@ -1415,21 +2007,30 @@ const VOICES: Record<string, [string, string][]> = {
           min: 0,
           max: 1,
           step: 0.01,
-          value: meanRandomness(),
-          format: pctFormat,
+          marks: [0, 0.5, 1],
+          value: fusedRandomnessValue(),
+          format: randomnessFormat,
           allowRange: true,
           defaultValue: DEFAULTS.tracks.pad.randomness,
         },
         (value) => {
+          const repetition = clamp(1 - rangeMid(sanitiseRangeValueIn(value, 0, 1, 0.5)), 0, 1);
+          settings.repetition = repetition;
           const trackStates = {};
           for (const id of TRACK_IDS) {
             settings.tracks[id].randomness = value;
-            trackStates[id] = { randomness: value };
+            settings.tracks[id].hold = isHoldValue(value);
+            trackStates[id] = { randomness: value, hold: settings.tracks[id].hold };
           }
-          engine.setParams({ tracks: trackStates });
+          engine.setParams({ repetition, tracks: trackStates });
+          repetitionDial?.set(repetition);
           syncAllTrackExtras();
           persistSettings();
         }
+      );
+      describe(
+        randomnessDial.el,
+        `${RANDOMNESS_HINT} It sets repetition and every track's randomness together.`
       );
 
       volumeDial = buildSimpleDial(
@@ -1450,6 +2051,43 @@ const VOICES: Record<string, [string, string][]> = {
           persistSettings();
         }
       );
+
+      bpmTypable = makeTypable(bpmReadout, {
+        read: () => settings.bpm,
+        commit: (v) => setTempo(v),
+        format: (v) => String(v),
+        label: 'Beats per minute — click to type a value',
+      });
+
+      // ---- v14 Swing (global; Advanced tab) -------------------------------
+      // Only rendered when the engine advertises the param — a dial that
+      // visibly does nothing is worse than no dial.
+      if (engineCaps.swing) {
+        const swingControl = document.getElementById('dial-swing');
+        if (swingControl) swingControl.hidden = false;
+        swingDial = buildSimpleDial(
+          'swing-dial',
+          {
+            id: 'swing',
+            label: 'Swing',
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: settings.swing,
+            format: (v) => (v <= 0.005 ? 'Straight' : pctFormat(v)),
+            defaultValue: DEFAULTS.swing,
+          },
+          (value) => {
+            settings.swing = value;
+            engine.setParams({ swing: value });
+            persistSettings();
+          }
+        );
+        describe(
+          swingDial.el,
+          'Delays every off-beat subdivision — straight at 0, a classic long-short shuffle at the top. Sequencers, arp and percussion all follow it.'
+        );
+      }
 
       const DICE_SVG =
         '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">' +
@@ -1479,9 +2117,6 @@ const VOICES: Record<string, [string, string][]> = {
         const set = extrasInstances.get(track);
         if (!set) return;
         for (const inst of set) {
-          if (inst.holdBtn) {
-            inst.holdBtn.setAttribute('aria-pressed', String(!!settings.tracks[track].hold));
-          }
           if (inst !== skip && inst.setRand) {
             inst.setRand(settings.tracks[track].randomness);
           }
@@ -1492,37 +2127,25 @@ const VOICES: Record<string, [string, string][]> = {
         for (const id of TRACK_IDS) syncTrackExtras(id);
       }
 
-      function buildTrackExtras(container, track, { knobs = null } = {}) {
-        const inst = { holdBtn: null, setRand: null };
-        if (engineCaps.randomise) {
+      // v14: the Random button and Hold toggle are GONE from the row — the
+      // Randomness dial alone drives both (0 = hold). engine.randomise() is
+      // kept for power use behind a small dice icon, and only inside the Edit
+      // panel header (`withDice`), never in the row.
+      function buildTrackExtras(container, track, { knobs = null, withDice = false } = {}) {
+        const inst = { setRand: null };
+        if (withDice && engineCaps.randomise) {
           const btn = document.createElement('button');
           btn.type = 'button';
-          btn.className = 'secondary-button track-random';
-          btn.innerHTML = `${DICE_SVG}<span>Random</span>`;
-          btn.setAttribute('aria-label', `Randomise ${TRACK_LABELS[track]}`);
+          btn.className = 'round-button track-random';
+          btn.innerHTML = DICE_SVG;
+          btn.setAttribute('aria-label', `Re-roll ${TRACK_LABELS[track]}`);
           btn.addEventListener('click', () => {
             try {
               engine.randomise(track);
             } catch {}
           });
           container.append(btn);
-        }
-        if (engineCaps.hold[track]) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'secondary-button track-hold';
-          btn.textContent = 'Hold';
-          btn.setAttribute('aria-label', `Hold ${TRACK_LABELS[track]}`);
-          btn.setAttribute('aria-pressed', String(!!settings.tracks[track].hold));
-          btn.addEventListener('click', () => {
-            const next = !settings.tracks[track].hold;
-            settings.tracks[track].hold = next;
-            engine.setParams({ tracks: { [track]: { hold: next } } });
-            syncTrackExtras(track);
-            persistSettings();
-          });
-          container.append(btn);
-          inst.holdBtn = btn;
+          describe(btn, `Re-roll ${TRACK_LABELS[track]}'s material from the next bar.`);
         }
         if (engineCaps.randomness[track]) {
           // v7/v8: the capability probe (engineCaps.randomness, built from
@@ -1534,11 +2157,17 @@ const VOICES: Record<string, [string, string][]> = {
           const onValue = (v) => {
             v = sanitiseRangeValueIn(v, 0, 1, 0.5);
             settings.tracks[track].randomness = v;
-            engine.setParams({ tracks: { [track]: { randomness: v } } });
+            // One dial, both params: the engine keeps `hold` as its own
+            // switch, the UI drives it off the dial's zero position.
+            settings.tracks[track].hold = isHoldValue(v);
+            engine.setParams({
+              tracks: { [track]: { randomness: v, hold: settings.tracks[track].hold } },
+            });
             syncTrackExtras(track, inst);
-            // Keep the Simple tab's fan-out Randomness dial's mean display
-            // current when a single track's own knob moves it independently.
-            randomnessDial?.set(meanRandomness());
+            // Keep the Simple tab's fused Randomness dial current when a
+            // single track's own knob moves independently of the others —
+            // it falls back to its blended read-out (display only).
+            randomnessDial?.set(fusedRandomnessValue());
             persistSettings();
           };
           if (knobApi) {
@@ -1551,12 +2180,13 @@ const VOICES: Record<string, [string, string][]> = {
                 min: 0,
                 max: 1,
                 value: sanitiseRangeValueIn(settings.tracks[track].randomness, 0, 1, 0.5),
-                format: pctFormat,
+                format: randomnessFormat,
                 allowRange: true,
                 rangeDefault: true,
                 defaultValue: DEFAULTS.tracks[track].randomness,
                 onInput: onValue,
               });
+              describe(handle.el, RANDOMNESS_HINT);
               if (knobs) knobs.push(handle);
               inst.setRand = (v) => {
                 try {
@@ -1575,7 +2205,7 @@ const VOICES: Record<string, [string, string][]> = {
             wrap.className = 'rand-slider';
             const name = document.createElement('span');
             name.className = 'visually-hidden';
-            name.textContent = `${TRACK_LABELS[track]} randomness`;
+            name.textContent = `${TRACK_LABELS[track]} randomness. ${RANDOMNESS_HINT}`;
             const input = document.createElement('input');
             input.type = 'range';
             input.min = '0';
@@ -1585,6 +2215,7 @@ const VOICES: Record<string, [string, string][]> = {
             input.addEventListener('input', () => onValue(parseFloat(input.value)));
             wrap.append(name, input);
             container.append(wrap);
+            describe(input, RANDOMNESS_HINT);
             inst.setRand = (v) => {
               input.value = String(rangeMid(sanitiseRangeValueIn(v, 0, 1, 0.5)));
             };
@@ -1639,6 +2270,10 @@ const VOICES: Record<string, [string, string][]> = {
                 defaultValue: 0,
                 onInput: (v) => commitVary(varyValueFromRaw(v)),
               });
+              describe(
+                handle.el,
+                `How much ${TRACK_LABELS[track]}'s ${label.toLowerCase()} varies. At the left detent it follows this track's Randomness dial; anywhere else overrides it.`
+              );
               if (knobs) knobs.push(handle);
               built = true;
             } catch {
@@ -1676,6 +2311,77 @@ const VOICES: Record<string, [string, string][]> = {
             cells.append(wrap);
           }
         }
+      }
+
+      // ---- v14: per-track Dissonance (tuned tracks only) -----------------
+      // How far this instrument may stray from the chord the group is
+      // playing: 0 is strict, low values allow passing/neighbour tones,
+      // high ones borrow from outside the mode. RangeValue-capable, so it
+      // can drift between two bounds like every other v7 dial.
+      const DISSONANCE_HINT =
+        'How far this instrument may stray from the group chord. 0 keeps strictly to it.';
+
+      function buildDissonanceControl(container, track, knobs) {
+        if (!engineCaps.dissonance[track]) return;
+        const commitDissonance = (v) => {
+          v = sanitiseRangeValueIn(v, 0, 1, 0);
+          settings.tracks[track].dissonance = v;
+          engine.setParams({ tracks: { [track]: { dissonance: v } } });
+          persistSettings();
+        };
+        const value = sanitiseRangeValueIn(settings.tracks[track].dissonance, 0, 1, 0);
+        const row = document.createElement('div');
+        row.className = 'dissonance-row';
+        container.append(row);
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = 'knob-cell dissonance-knob';
+          row.append(cell);
+          try {
+            const handle = knobApi.createKnob(cell, {
+              label: 'Dissonance',
+              min: 0,
+              max: 1,
+              value,
+              format: pctFormat,
+              allowRange: true,
+              defaultValue: 0,
+              onInput: commitDissonance,
+            });
+            describe(handle.el, DISSONANCE_HINT);
+            if (knobs) knobs.push(handle);
+            return;
+          } catch {
+            cell.remove();
+          }
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'control ve-control';
+        const id = `dissonance-${track}`;
+        const labelRow = document.createElement('div');
+        labelRow.className = 'control-label-row';
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = 'Dissonance';
+        const readout = document.createElement('span');
+        readout.className = 'value-readout';
+        readout.textContent = pctFormat(rangeMid(value));
+        labelRow.append(label, readout);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.id = id;
+        input.min = '0';
+        input.max = '1';
+        input.step = '0.01';
+        input.value = String(rangeMid(value));
+        input.addEventListener('input', () => {
+          const v = parseFloat(input.value);
+          readout.textContent = pctFormat(v);
+          commitDissonance(v);
+        });
+        wrap.append(labelRow, input);
+        row.append(wrap);
+        describe(input, DISSONANCE_HINT);
       }
 
       // ---- v6: shared step sequencer ------------------------------------
@@ -1739,9 +2445,23 @@ const VOICES: Record<string, [string, string][]> = {
         return track === 'arp' ? arpPulseStarts(n) : currentPulseStarts();
       }
 
+      /**
+       * Push a track's whole sequencer LIST. `sequencers` is authoritative
+       * for a v14 engine; the singular `sequencer` (an alias of [0]) rides
+       * along so a pre-v14 sanitiser still honours the first pattern. An
+       * engine that understands neither simply drops both keys.
+       */
       function commitSequencer(track) {
-        const seq = settings.tracks[track].sequencer;
-        const partial = { tracks: { [track]: { sequencer: structuredClone(seq) } } };
+        const t = settings.tracks[track];
+        t.sequencer = t.sequencers[0];
+        const partial = {
+          tracks: {
+            [track]: {
+              sequencers: structuredClone(t.sequencers),
+              sequencer: structuredClone(t.sequencers[0]),
+            },
+          },
+        };
         if (track === 'arp') {
           // Mirror the on-flags into the legacy boolean mask so pre-v6
           // engines still honour the grid (and the complexity estimate
@@ -1750,8 +2470,9 @@ const VOICES: Record<string, [string, string][]> = {
           // the rest with false so a pre-v6 engine can't play a step that
           // isn't really in the pattern (and the complexity estimate below
           // isn't skewed by stale "on" flags left over from a faster rate).
+          const steps = t.sequencers[0].steps;
           const n = Math.min(16, arpStepsPerBar());
-          settings.arp.steps = Array.from({ length: 16 }, (_, i) => (i < n ? !!seq.steps[i].on : false));
+          settings.arp.steps = Array.from({ length: 16 }, (unused, i) => (i < n ? !!steps[i].on : false));
           partial.arp = { steps: settings.arp.steps.slice() };
           updateComplexityDisplay();
         }
@@ -1759,12 +2480,37 @@ const VOICES: Record<string, [string, string][]> = {
         persistSettings();
       }
 
+      /** Next free probability-group id in a lane (v14 conditional trigs). */
+      function nextGroupId(lane, slots) {
+        let top = -1;
+        for (let i = 0; i < slots; i++) {
+          const g = lane[i] && lane[i].group;
+          if (Number.isFinite(g) && g > top) top = g;
+        }
+        return top + 1;
+      }
+
+      const SEQ_LEGEND =
+        'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
+        'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability, Shift+[ / Shift+] ' +
+        '(or Shift+, / Shift+.) narrows/widens a drifting probability range · T ties a ' +
+        'step to the next one · G joins or leaves the probability group above the step. ' +
+        'Pointer: drag a cell vertically for the velocity band, grab the fat handle at ' +
+        'the band top for its loudest edge, drag sideways across cells to tie them into ' +
+        'one long note, and drag the thin bar under a step for its probability. The dots ' +
+        'above the grid colour-code probability groups: inside a group a step only gets ' +
+        'its chance if the previous step in that group actually sounded.';
+
       /**
        * Shared metre-aware step grid: one lane for melody/bass/arp, three
-       * (Low/Mid/High) for percussion. Per step: on/off, velocity band
-       * (vertical drag on the cell), probability (mini-bar under the cell).
-       * Cells form a roving-tabindex ARIA grid; all three values are
-       * keyboard-adjustable and announced via aria-label + aria-valuetext.
+       * (High/Mid/Low, high at the top) for percussion. Per step: on/off,
+       * velocity band (vertical drag, fat top handle), probability (mini-bar
+       * under the cell), tie (sideways drag) and probability group (dot row).
+       * A track may own SEVERAL sequencers (v14 Markov chain): the tab strip
+       * picks which one this grid edits, "+" copies the current one, and each
+       * carries a weight — how likely the others are to hand over to it at
+       * loop end. Cells form a roving-tabindex ARIA grid; every value is
+       * keyboard-adjustable and announced via aria-label.
        */
       function buildSequencer(container, track) {
         const label = TRACK_LABELS[track];
@@ -1772,10 +2518,10 @@ const VOICES: Record<string, [string, string][]> = {
           track === 'percussion'
             ? PERC_LANES.map(([key, laneLabel]) => ({ key, label: laneLabel }))
             : [{ key: null, label: null }];
-        const laneSteps = (lane) =>
-          lane.key
-            ? settings.tracks[track].sequencer.steps[lane.key]
-            : settings.tracks[track].sequencer.steps;
+        const list = () => settings.tracks[track].sequencers;
+        let active = 0;
+        const current = () => list()[Math.min(active, list().length - 1)];
+        const laneSteps = (lane) => (lane.key ? current().steps[lane.key] : current().steps);
 
         const root = document.createElement('div');
         root.className = 'seq';
@@ -1783,31 +2529,67 @@ const VOICES: Record<string, [string, string][]> = {
 
         const head = document.createElement('div');
         head.className = 'seq-head';
+        const titleBox = document.createElement('span');
+        titleBox.className = 'seq-title';
         const title = document.createElement('span');
         title.className = 'panel-label';
         title.textContent = 'Step sequencer';
+        titleBox.append(title);
+        infoButton(titleBox, 'the step sequencer', SEQ_LEGEND);
         const modeGroup = document.createElement('div');
         modeGroup.className = 'segmented';
         modeGroup.setAttribute('role', 'radiogroup');
         modeGroup.setAttribute('aria-label', `${label} sequencer mode`);
+        const modeRadios = [];
         for (const m of ['auto', 'manual']) {
           const input = document.createElement('input');
           input.type = 'radio';
           input.name = `seq-mode-${track}`;
           input.id = `seq-mode-${track}-${m}`;
           input.value = m;
-          input.checked = settings.tracks[track].sequencer.mode === m;
+          input.checked = current().mode === m;
           const lab = document.createElement('label');
           lab.htmlFor = input.id;
           lab.textContent = m === 'auto' ? 'Auto' : 'Manual';
           input.addEventListener('change', () => {
             if (!input.checked) return;
-            settings.tracks[track].sequencer.mode = m;
+            current().mode = m;
             commitSequencer(track);
           });
           modeGroup.append(input, lab);
+          modeRadios.push(input);
         }
-        head.append(title, modeGroup);
+        head.append(titleBox, modeGroup);
+
+        // -- v14 multi-sequencer tab strip + per-sequencer weight -----------
+        const tabsRow = document.createElement('div');
+        tabsRow.className = 'seq-tabs';
+        const tabs = document.createElement('div');
+        tabs.className = 'segmented seq-tab-strip';
+        tabs.setAttribute('role', 'tablist');
+        tabs.setAttribute('aria-label', `${label} sequencers`);
+        const addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.className = 'secondary-button seq-add';
+        addButton.textContent = '+';
+        addButton.setAttribute('aria-label', 'Add a sequencer (copies the current one)');
+        const weightWrap = document.createElement('label');
+        weightWrap.className = 'seq-weight';
+        const weightLabel = document.createElement('span');
+        weightLabel.textContent = 'Weight';
+        const weightInput = document.createElement('input');
+        weightInput.type = 'number';
+        weightInput.min = '0';
+        weightInput.max = '100';
+        weightInput.step = '0.5';
+        weightInput.inputMode = 'decimal';
+        weightWrap.append(weightLabel, weightInput);
+        tabsRow.append(tabs, addButton, weightWrap);
+        describe(
+          weightInput,
+          'How likely the other sequencers are to hand over to this one when a loop ends.'
+        );
+        describe(addButton, 'Add a sequencer — a copy of the one showing now.');
 
         const scroll = document.createElement('div');
         scroll.className = 'seq-scroll';
@@ -1820,29 +2602,25 @@ const VOICES: Record<string, [string, string][]> = {
         gridEl.setAttribute('aria-label', `${label} step sequencer`);
         scroll.append(beatsEl, gridEl);
 
-        const legend = document.createElement('p');
-        legend.className = 'hint seq-legend';
-        legend.textContent =
-          'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
-          'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability, Shift+[ / Shift+] ' +
-          '(or Shift+, / Shift+.) narrows/widens a drifting probability range. Pointer: drag ' +
-          'a cell vertically for the velocity band; drag the thin bar under a step for its ' +
-          'probability (a drifting range shifts with it, keeping its width).';
+        root.append(head, tabsRow, scroll);
 
-        root.append(head, scroll, legend);
-
-        let cellRefs = []; // [lane][step] -> { cell, band, probFill }
+        let cellRefs = []; // [lane][step] -> { cell, band, bandTop, probFill, dot }
         let focusPos = { lane: 0, step: 0 };
+        let playhead = -1;
 
         function stepText(lane, i, s) {
           const lanePart = lane.label ? `${lane.label} lane, ` : '';
           const probPart = isPlainObject(s.prob)
             ? `probability ${Math.round(s.prob.min * 100)} to ${Math.round(s.prob.max * 100)}%, drifting`
             : `probability ${Math.round(s.prob * 100)}%`;
+          const tiePart = s.tie === true ? ', tied to the next step' : '';
+          const groupPart = Number.isFinite(s.group) ? `, group ${s.group + 1}` : '';
           return (
             `${lanePart}step ${i + 1}: ${s.on ? 'on' : 'off'}, ` +
             `velocity ${Math.round(s.vmin * 100)} to ${Math.round(s.vmax * 100)}%, ` +
-            probPart
+            probPart +
+            tiePart +
+            groupPart
           );
         }
 
@@ -1851,6 +2629,7 @@ const VOICES: Record<string, [string, string][]> = {
           const s = laneSteps(lane)[i];
           const ref = cellRefs[li][i];
           ref.cell.classList.toggle('seq-cell-on', s.on);
+          ref.cell.classList.toggle('seq-cell-tie', s.tie === true);
           // role=gridcell + a label stating on/off/velocity/probability is
           // the valid pattern here: aria-selected implies row/grid
           // *selection* (not toggle state) and aria-pressed is only valid
@@ -1861,6 +2640,9 @@ const VOICES: Record<string, [string, string][]> = {
           ref.cell.setAttribute('aria-label', text);
           ref.band.style.bottom = `${s.vmin * 100}%`;
           ref.band.style.height = `${Math.max(0, s.vmax - s.vmin) * 100}%`;
+          // The fat grab handle rides the band's loud edge; ≥10 px tall (CSS)
+          // so the velocity top is reachable without pixel-hunting.
+          ref.bandTop.style.bottom = `${s.vmax * 100}%`;
           // A plain prob fills from 0 to the value (matches the on/off
           // cell's velocity band read); a ranged prob instead shows the
           // drifting window itself (left edge at min, width = max-min).
@@ -1873,6 +2655,17 @@ const VOICES: Record<string, [string, string][]> = {
             ref.probFill.style.width = `${s.prob * 100}%`;
             ref.probFill.classList.remove('seq-prob-fill-range');
           }
+          const grouped = Number.isFinite(s.group);
+          ref.dot.classList.toggle('seq-dot-on', grouped);
+          ref.dot.style.background = grouped
+            ? GROUP_COLOURS[s.group % GROUP_COLOURS.length]
+            : '';
+          ref.dot.setAttribute(
+            'aria-label',
+            grouped
+              ? `Step ${i + 1} is in probability group ${s.group + 1}. Press to leave it.`
+              : `Step ${i + 1} is ungrouped. Press to join the group above it, or start one.`
+          );
         }
 
         function setFocus(li, i, focus = true) {
@@ -1887,12 +2680,61 @@ const VOICES: Record<string, [string, string][]> = {
           if (focus) ref.cell.focus();
         }
 
-        function wireCell(li, i, cell, probEl) {
+        /** Join the group above, or start a new one; a grouped step leaves. */
+        function toggleGroup(li, i) {
+          const lane = laneSteps(lanes[li]);
+          const s = lane[i];
+          if (Number.isFinite(s.group)) {
+            delete s.group;
+          } else {
+            const prev = i > 0 ? lane[i - 1] : null;
+            s.group = prev && Number.isFinite(prev.group)
+              ? prev.group
+              : nextGroupId(lane, stepsPerBarFor(track));
+          }
+          updateCell(li, i);
+          commitSequencer(track);
+        }
+
+        function wireCell(li, i, cell, probEl, bandTop, dot) {
           const getStep = () => laneSteps(lanes[li])[i];
           const commit = () => {
             updateCell(li, i);
             commitSequencer(track);
           };
+
+          dot.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleGroup(li, i);
+          });
+
+          // Fat handle: drags the band's TOP (loudest) edge on its own.
+          bandTop.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setFocus(li, i);
+            const rect = cell.getBoundingClientRect();
+            const vAt = (clientY) => clamp(1 - (clientY - rect.top) / rect.height, 0, 1);
+            const onMove = (ev) => {
+              const s = getStep();
+              s.on = true;
+              s.vmax = Math.max(s.vmin, vAt(ev.clientY));
+              updateCell(li, i);
+            };
+            const onUp = () => {
+              bandTop.removeEventListener('pointermove', onMove);
+              bandTop.removeEventListener('pointerup', onUp);
+              bandTop.removeEventListener('pointercancel', onUp);
+              commitSequencer(track);
+            };
+            try {
+              bandTop.setPointerCapture(e.pointerId);
+            } catch {}
+            bandTop.addEventListener('pointermove', onMove);
+            bandTop.addEventListener('pointerup', onUp);
+            bandTop.addEventListener('pointercancel', onUp);
+          });
 
           cell.addEventListener('pointerdown', (e) => {
             if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -1901,10 +2743,41 @@ const VOICES: Record<string, [string, string][]> = {
             const rect = cell.getBoundingClientRect();
             const vAt = (clientY) => clamp(1 - (clientY - rect.top) / rect.height, 0, 1);
             const v0 = vAt(e.clientY);
-            let dragging = false;
+            const slots = stepsPerBarFor(track);
+            const columnWidth = rect.width + 3; // grid gap
+            let gesture = null; // 'band' | 'tie'
+            let tieEnd = i;
+
+            /** Sideways drag merges the crossed steps into one tied note. */
+            const applyTie = (end) => {
+              const lane = laneSteps(lanes[li]);
+              const last = clamp(end, i, slots - 1);
+              for (let k = i; k <= last; k++) {
+                lane[k].on = true;
+                if (k < last) lane[k].tie = true;
+                else delete lane[k].tie;
+                updateCell(li, k);
+              }
+              // Dragging back shortens the run: the steps beyond it lose the
+              // tie they picked up on the way out.
+              for (let k = last + 1; k <= tieEnd && k < slots; k++) {
+                delete lane[k].tie;
+                updateCell(li, k);
+              }
+              tieEnd = last;
+            };
+
             const onMove = (ev) => {
-              if (!dragging && Math.abs(ev.clientY - e.clientY) < 4) return;
-              dragging = true;
+              const dx = ev.clientX - e.clientX;
+              const dy = ev.clientY - e.clientY;
+              if (!gesture) {
+                if (Math.abs(dx) < 6 && Math.abs(dy) < 4) return;
+                gesture = Math.abs(dx) > Math.abs(dy) ? 'tie' : 'band';
+              }
+              if (gesture === 'tie') {
+                applyTie(i + Math.round(dx / Math.max(1, columnWidth)));
+                return;
+              }
               const v1 = vAt(ev.clientY);
               const s = getStep();
               s.on = true; // shaping a band implies the step should sound
@@ -1912,11 +2785,11 @@ const VOICES: Record<string, [string, string][]> = {
               s.vmax = Math.max(v0, v1);
               updateCell(li, i);
             };
-            const finish = (toggleOnTap) => (ev) => {
+            const finish = (toggleOnTap) => () => {
               cell.removeEventListener('pointermove', onMove);
               cell.removeEventListener('pointerup', up);
               cell.removeEventListener('pointercancel', cancel);
-              if (!dragging && toggleOnTap) {
+              if (!gesture && toggleOnTap) {
                 const s = getStep();
                 s.on = !s.on;
                 updateCell(li, i);
@@ -1970,6 +2843,15 @@ const VOICES: Record<string, [string, string][]> = {
               e.preventDefault();
               s.on = !s.on;
               commit();
+            } else if (e.key === 't' || e.key === 'T') {
+              // Keyboard equivalent of the sideways tie drag.
+              e.preventDefault();
+              if (s.tie === true) delete s.tie;
+              else if (i < stepsPerBarFor(track) - 1) s.tie = true;
+              commit();
+            } else if (e.key === 'g' || e.key === 'G') {
+              e.preventDefault();
+              toggleGroup(li, i);
             } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
               const d = e.key === 'ArrowUp' ? nudge : -nudge;
               if (e.shiftKey) {
@@ -2034,6 +2916,55 @@ const VOICES: Record<string, [string, string][]> = {
           });
         }
 
+        function renderTabs() {
+          const seqs = list();
+          tabs.innerHTML = '';
+          // A single sequencer needs no chooser and no transition weight —
+          // the strip only earns its space once there's something to pick
+          // between. "+" stays, so a second one is always one click away.
+          tabsRow.classList.toggle('seq-tabs-single', seqs.length < 2);
+          seqs.forEach((unused, index) => {
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = `seq-pick-${track}`;
+            input.id = `seq-pick-${track}-${index}`;
+            input.value = String(index);
+            input.checked = index === active;
+            const lab = document.createElement('label');
+            lab.htmlFor = input.id;
+            lab.textContent = String(index + 1);
+            input.addEventListener('change', () => {
+              if (!input.checked) return;
+              active = index;
+              render();
+            });
+            tabs.append(input, lab);
+          });
+          addButton.disabled = seqs.length >= SEQ_MAX;
+          weightInput.value = String(seqs[0].weights[active] ?? 1);
+          weightInput.setAttribute('aria-label', `Sequencer ${active + 1} weight`);
+        }
+
+        addButton.addEventListener('click', () => {
+          const seqs = list();
+          if (seqs.length >= SEQ_MAX) return;
+          seqs.push(structuredClone(current()));
+          normaliseSequencerList(settings.tracks[track], track);
+          active = list().length - 1;
+          render();
+          commitSequencer(track);
+        });
+
+        weightInput.addEventListener('input', () => {
+          const parsed = parseFloat(weightInput.value);
+          if (!Number.isFinite(parsed)) return; // mid-edit blank keeps the stored value
+          const w = clamp(parsed, 0, 100);
+          // One number per sequencer: "how likely everyone is to hand over to
+          // this one", written into every sequencer's transition row.
+          for (const seq of list()) seq.weights[active] = w;
+          commitSequencer(track);
+        });
+
         function render() {
           const n = stepsPerBarFor(track);
           const pulseStarts = pulseStartsFor(track, n);
@@ -2042,6 +2973,8 @@ const VOICES: Record<string, [string, string][]> = {
           beatsEl.innerHTML = '';
           gridEl.innerHTML = '';
           cellRefs = lanes.map(() => []);
+          for (const radio of modeRadios) radio.checked = radio.value === current().mode;
+          renderTabs();
           for (let i = 0; i < n; i++) {
             const b = document.createElement('span');
             const pulseIndex = pulseStarts.indexOf(i);
@@ -2052,6 +2985,13 @@ const VOICES: Record<string, [string, string][]> = {
             beatsEl.append(b);
           }
           lanes.forEach((lane, li) => {
+            // Probability-group dots sit ABOVE the lane's cells, one per
+            // step, as their own grid row — row > gridcell > button, the
+            // standard "gridcell owning a widget" shape, so the buttons stay
+            // legitimate children of role="grid".
+            const dotRow = document.createElement('div');
+            dotRow.className = 'seq-lane seq-dot-row';
+            dotRow.setAttribute('role', 'row');
             const row = document.createElement('div');
             row.className = 'seq-lane';
             row.setAttribute('role', 'row');
@@ -2071,6 +3011,14 @@ const VOICES: Record<string, [string, string][]> = {
             probRow.className = 'seq-lane seq-prob-row';
             probRow.setAttribute('role', 'row');
             for (let i = 0; i < n; i++) {
+              const dotCell = document.createElement('div');
+              dotCell.className = 'seq-dot-cell';
+              dotCell.setAttribute('role', 'gridcell');
+              const dot = document.createElement('button');
+              dot.type = 'button';
+              dot.className = 'seq-dot';
+              dotCell.append(dot);
+              dotRow.append(dotCell);
               const cell = document.createElement('div');
               cell.className = 'seq-cell';
               cell.setAttribute('role', 'gridcell');
@@ -2078,7 +3026,9 @@ const VOICES: Record<string, [string, string][]> = {
               cell.tabIndex = -1;
               const band = document.createElement('span');
               band.className = 'seq-band';
-              cell.append(band);
+              const bandTop = document.createElement('span');
+              bandTop.className = 'seq-band-top';
+              cell.append(band, bandTop);
               const prob = document.createElement('span');
               prob.className = 'seq-prob';
               prob.setAttribute('aria-hidden', 'true');
@@ -2086,11 +3036,11 @@ const VOICES: Record<string, [string, string][]> = {
               probFill.className = 'seq-prob-fill';
               prob.append(probFill);
               probRow.append(prob);
-              cellRefs[li][i] = { cell, band, probFill };
-              wireCell(li, i, cell, prob);
+              cellRefs[li][i] = { cell, band, bandTop, probFill, dot };
+              wireCell(li, i, cell, prob, bandTop, dot);
               row.append(cell);
             }
-            gridEl.append(row, probRow);
+            gridEl.append(dotRow, row, probRow);
           });
           for (let li = 0; li < lanes.length; li++) {
             for (let i = 0; i < n; i++) updateCell(li, i);
@@ -2100,10 +3050,30 @@ const VOICES: Record<string, [string, string][]> = {
             step: Math.min(focusPos.step, n - 1),
           };
           cellRefs[focusPos.lane][focusPos.step].cell.tabIndex = 0;
+          setPlayhead(playhead);
+        }
+
+        /**
+         * v14 playhead: the sounding step lights white. Driven from bar/note
+         * events at step rate (see schedulePlayhead) — a class swap on two
+         * DOM nodes, never a rAF loop.
+         */
+        function setPlayhead(index) {
+          const n = stepsPerBarFor(track);
+          for (let li = 0; li < cellRefs.length; li++) {
+            const prev = cellRefs[li][playhead];
+            if (prev) prev.cell.classList.remove('seq-cell-playing');
+          }
+          playhead = index >= 0 && index < n ? index : -1;
+          if (playhead < 0) return;
+          for (let li = 0; li < cellRefs.length; li++) {
+            const ref = cellRefs[li][playhead];
+            if (ref) ref.cell.classList.add('seq-cell-playing');
+          }
         }
 
         render();
-        return { refresh: render };
+        return { refresh: render, setPlayhead };
       }
 
       // ---- v6: arpeggiator section (lives in the Arp track's Edit panel) --
@@ -2274,6 +3244,7 @@ const VOICES: Record<string, [string, string][]> = {
         const ed = openEditors.get(track);
         if (!ed) return;
         unregisterExtras(track, ed.extras);
+        stateControls.delete(track);
         if (track === 'arp') arpUI = null;
         if (ed.scope) {
           if (ed.scope.debounce !== null) clearTimeout(ed.scope.debounce);
@@ -2315,7 +3286,10 @@ const VOICES: Record<string, [string, string][]> = {
         if (!ed || !ed.scope) return;
         const s = ed.scope;
         let analyser = null;
-        if (engine.running && typeof engine.getAnalysers === 'function') {
+        // A power tier that withholds the live scope (eco) falls back to the
+        // cheap static trace — no rAF loop attaches at all.
+        const scopeAllowed = powerBudget ? powerBudget.scopeEnabled !== false : true;
+        if (scopeAllowed && engine.running && typeof engine.getAnalysers === 'function') {
           try {
             analyser = (engine.getAnalysers() || {})[track] || null;
           } catch {
@@ -3069,9 +4043,16 @@ const VOICES: Record<string, [string, string][]> = {
         }
       }
 
-      async function renderVoiceEditor(track) {
+      /**
+       * `opts.voiceId` overrides which voice the dial set edits — used when
+       * the engine's voice wander has moved this track onto a different
+       * voice (v14 "editor follows the sounding voice"). The row's <select>
+       * is untouched: it keeps showing the user's own choice, because the
+       * wander is ephemeral and getParams still reports the chosen voice.
+       */
+      async function renderVoiceEditor(track, opts = {}) {
         const container = document.getElementById(`voice-editor-${track}`);
-        const voiceId = settings.tracks[track].voice;
+        const voiceId = opts.voiceId || settings.tracks[track].voice;
 
         // Claim the editor slot BEFORE the await, not after: a quick row
         // switch closes this container (hiding it, tearing down whatever
@@ -3106,19 +4087,29 @@ const VOICES: Record<string, [string, string][]> = {
           persistSettings();
         }
 
-        // v6 header: track name + the Random/Hold/Randomness mirror.
+        // v14 header: track name + "sounding" note, the Off/Auto/On state
+        // control (moved out of the single-line row), the dice re-roll and
+        // the Randomness mirror.
+        container.classList.add(`track-color-${track}`);
         const header = document.createElement('div');
         header.className = 've-header';
         const headerTitle = document.createElement('span');
-        headerTitle.className = 'panel-label';
+        headerTitle.className = 'panel-label ve-title';
         headerTitle.textContent = TRACK_LABELS[track];
+        const sounding = document.createElement('span');
+        sounding.className = 'value-readout ve-sounding';
+        sounding.hidden = true;
         const extrasBox = document.createElement('div');
         extrasBox.className = 'track-extras ve-extras';
-        header.append(headerTitle, extrasBox);
+        header.append(headerTitle, sounding, extrasBox);
         container.append(header);
-        ed.extras = buildTrackExtras(extrasBox, track, { knobs: ed.knobs });
+        buildStateControl(extrasBox, track);
+        ed.extras = buildTrackExtras(extrasBox, track, { knobs: ed.knobs, withDice: true });
+        ed.sounding = sounding;
+        ed.voiceId = voiceId;
         registerExtras(track, ed.extras);
         buildVaryRow(container, track, ed.knobs);
+        buildDissonanceControl(container, track, ed.knobs);
 
         // v6 step sequencer at the top of the pulsed tracks' panels. Arp
         // always shows it (on/off degrades to the legacy boolean mask);
@@ -3199,6 +4190,12 @@ const VOICES: Record<string, [string, string][]> = {
       // paths funnel through the same open/close pair so they can never
       // fight each other, and both compose with teardownEditor (scope
       // destroy, knob destroy, extras unregister).
+      // v13: closing an editor with the Edit toggle disarms focus-driven
+      // reopening for that track until Edit is pressed again — otherwise the
+      // next Tab into the row instantly undoes the close the user just asked
+      // for. Only the Edit toggle re-arms it.
+      const focusOpenDisarmed = new Set();
+
       function closeTrackEditor(id) {
         const editor = document.getElementById(`voice-editor-${id}`);
         const toggle = document.getElementById(`voice-edit-toggle-${id}`);
@@ -3235,6 +4232,12 @@ const VOICES: Record<string, [string, string][]> = {
         return !!(el && el.closest && el.closest('.voice-edit-toggle'));
       }
 
+      // v14: a lamp/state click is a MUSICAL action, never a navigation one —
+      // turning a track off must not expand (or keep open) its editor.
+      function isStateControl(el) {
+        return !!(el && el.closest && el.closest('.track-lamp'));
+      }
+
       for (const id of TRACK_IDS) {
         const toggle = document.getElementById(`voice-edit-toggle-${id}`);
         const editor = document.getElementById(`voice-editor-${id}`);
@@ -3242,32 +4245,52 @@ const VOICES: Record<string, [string, string][]> = {
 
         // Edit button: explicit, secondary affordance — still routes through
         // the same accordion open/close so it can never desync from focus-
-        // driven opens.
+        // driven opens. It is also the ONLY thing that re-arms focus-opening
+        // after an explicit close.
         toggle.addEventListener('click', () => {
-          if (editor.hidden) openTrackEditor(id, { restoreScroll: true });
-          else closeTrackEditor(id);
+          if (editor.hidden) {
+            focusOpenDisarmed.delete(id);
+            openTrackEditor(id, { restoreScroll: true });
+          } else {
+            focusOpenDisarmed.add(id);
+            closeTrackEditor(id);
+          }
         });
 
         // Row focus/selection: click or keyboard-focus anywhere in the row
-        // (state pills, voice select, level knob, extras) opens it, EXCEPT
-        // the Edit button itself (handled above) to avoid a focusin-then-
-        // click race that would open-then-instantly-close it.
+        // (voice select, level knob, randomness knob) opens it, EXCEPT the
+        // Edit button itself (handled above, to avoid a focusin-then-click
+        // race that would open-then-instantly-close it) and the lamp.
         if (row) {
           row.addEventListener('click', (event) => {
-            if (isEditToggle(event.target)) return;
+            if (isEditToggle(event.target) || isStateControl(event.target)) return;
+            if (focusOpenDisarmed.has(id)) return;
             openTrackEditor(id, { restoreScroll: true });
           });
           row.addEventListener('focusin', (event) => {
-            if (isEditToggle(event.target)) return;
+            if (isEditToggle(event.target) || isStateControl(event.target)) return;
+            if (focusOpenDisarmed.has(id)) return;
             openTrackEditor(id);
           });
         }
       }
 
-      // Tracks-panel row instances of the Random/Hold/Randomness cluster.
+      // Tracks-panel row instance of the Randomness knob (no dice: that lives
+      // in the Edit panel header only).
       for (const id of TRACK_IDS) {
         const box = document.getElementById(`track-extras-${id}`);
         registerExtras(id, buildTrackExtras(box, id));
+      }
+
+      // The two busiest generative tracks; the power governor's
+      // textureDensityScale is applied to what the engine is SENT for these
+      // (see applyPowerBudget), never to the user's stored Level.
+      const DENSITY_TRACKS = ['texture', 'arp'];
+
+      function scaledLevel(track, value) {
+        const scale = powerBudget ? powerBudget.textureDensityScale : 1;
+        if (scale >= 1 || !DENSITY_TRACKS.includes(track)) return value;
+        return mapRV(value, (v) => clamp(v * scale, 0, 1));
       }
 
       // ---- v8: per-track Level knob (RangeValue: number | {min,max}) -----
@@ -3280,7 +4303,7 @@ const VOICES: Record<string, [string, string][]> = {
       function buildLevelControl(container, track) {
         const commitLevel = (value) => {
           settings.tracks[track].level = value;
-          engine.setParams({ tracks: { [track]: { level: value } } });
+          engine.setParams({ tracks: { [track]: { level: scaledLevel(track, value) } } });
           persistSettings();
         };
         const readMid = (v) => (typeof v === 'number' ? v : (v.min + v.max) / 2);
@@ -3330,6 +4353,234 @@ const VOICES: Record<string, [string, string][]> = {
       for (const id of TRACK_IDS) {
         const box = document.getElementById(`track-level-${id}`);
         if (box && engineCaps.level[id]) levelControls.set(id, buildLevelControl(box, id));
+      }
+
+      // ---- v9/v14 power governor + Processor dial --------------------------
+      // The dial reads Eco / Low / Med / Full / Auto; power.js owns the tier
+      // budgets and the auto sensing, the page applies the parts of the
+      // budget that live up here (live scope on/off, texture/arp density).
+      const PROCESSOR_TIERS = ['eco', 'low', 'med', 'full', 'auto'];
+      const PROCESSOR_LABELS = ['Eco', 'Low', 'Med', 'Full', 'Auto'];
+      const processorReadout = document.getElementById('processor-readout');
+
+      function applyPowerBudget(budget) {
+        powerBudget = budget;
+        if (processorReadout) {
+          const requested = governor ? governor.getTier() : settings.ui.processor;
+          const auto = requested === 'auto' ? ` (${budget.tier})` : '';
+          processorReadout.textContent =
+            `${PROCESSOR_LABELS[PROCESSOR_TIERS.indexOf(requested)] || 'Auto'}${auto}` +
+            ` · ${budget.maxNotes === Infinity ? 'no note cap' : `${budget.maxNotes} notes`}` +
+            ` · ${budget.visualFps} fps`;
+        }
+        // scopeEnabled: the page owns the live scope, so this one is applied
+        // directly — updateAllScopeModes falls back to the cheap static
+        // trace whenever the budget withholds it.
+        updateAllScopeModes();
+        // textureDensityScale: the engine has no density hook, so this is
+        // applied as a LEVEL scale on the two busiest tracks (texture, arp).
+        // It trims how present they are at a low tier; it does NOT reduce
+        // node count — the real CPU lever is maxNotes, which power.js hands
+        // to engine.setPowerBudget() itself. The user's own Level values are
+        // never overwritten: only what we send the engine is scaled.
+        applyDensityScale();
+        // visualFps: visualiser.js and scope.js expose no fps setter (they
+        // self-cap at 30 fps, 2 fps hidden). Feature-detected below so the
+        // budget lands the day either grows one; until then the figure is
+        // reported in the readout only.
+        try {
+          visualiserHandle?.setFps?.(budget.visualFps);
+        } catch {}
+      }
+
+      function applyDensityScale() {
+        const tracks = {};
+        for (const id of DENSITY_TRACKS) {
+          if (!engineCaps.level[id]) continue;
+          tracks[id] = { level: scaledLevel(id, settings.tracks[id].level) };
+        }
+        if (Object.keys(tracks).length) engine.setParams({ tracks });
+      }
+
+      function setProcessorTier(tier) {
+        settings.ui.processor = tier;
+        persistSettings();
+        if (governor) governor.setTier(tier);
+        else if (powerBudget) applyPowerBudget(powerBudget);
+      }
+
+      try {
+        const { createGovernor } = await import('../scripts/power.js');
+        if (typeof createGovernor === 'function') {
+          governor = createGovernor({ engine, onTierChange: applyPowerBudget });
+        }
+      } catch {
+        // No governor module: everything below simply never runs.
+      }
+
+      if (governor) {
+        const tierIndex = Math.max(0, PROCESSOR_TIERS.indexOf(settings.ui.processor));
+        processorDial = buildSimpleDial(
+          'processor-dial',
+          {
+            id: 'processor',
+            label: 'Processor',
+            min: 0,
+            max: 4,
+            step: 1,
+            marks: [0, 1, 2, 3, 4],
+            value: tierIndex,
+            format: (v) => PROCESSOR_LABELS[clamp(Math.round(v), 0, 4)],
+            defaultValue: 4,
+          },
+          (v) => setProcessorTier(PROCESSOR_TIERS[clamp(Math.round(v), 0, 4)])
+        );
+        describe(
+          processorDial.el,
+          'How hard the generator may work. Auto watches CPU pressure and frame times and picks for you; Eco is the coolest, Full the busiest.'
+        );
+        setProcessorTier(settings.ui.processor);
+      } else {
+        document.querySelector('.processor-row')?.remove();
+      }
+
+      // ---- v14 sequencer playhead ----------------------------------------
+      // The sounding step lights white. One 'bar' event schedules that bar's
+      // step changes as plain timeouts (≤20 per bar, and only while an editor
+      // with a grid is open) — a DOM class swap at step rate, never a rAF
+      // loop and nothing at all while the grids are closed.
+      let playheadTimers = [];
+
+      function clearPlayheadTimers() {
+        for (const timer of playheadTimers) clearTimeout(timer);
+        playheadTimers = [];
+      }
+
+      function clearPlayhead() {
+        clearPlayheadTimers();
+        for (const ed of openEditors.values()) ed.seq?.setPlayhead(-1);
+      }
+
+      function schedulePlayhead(barTime, beatsPerBar) {
+        clearPlayheadTimers();
+        const barSeconds = (beatsPerBar || 4) * (60 / clamp(settings.bpm, 40, 120));
+        for (const [track, ed] of openEditors) {
+          if (!ed.seq) continue;
+          const n = stepsPerBarFor(track);
+          const stepSeconds = barSeconds / n;
+          for (let i = 0; i < n; i++) {
+            const delayMs = (barTime + i * stepSeconds - engine.now()) * 1000;
+            if (delayMs < -stepSeconds * 1000) continue; // already past
+            playheadTimers.push(
+              setTimeout(() => {
+                try {
+                  ed.seq?.setPlayhead(i);
+                } catch {}
+              }, Math.max(0, delayMs))
+            );
+          }
+        }
+      }
+
+      // ---- v9 per-track cost meters --------------------------------------
+      // A thin bar in each row, tinted by that track's own colour, fed from
+      // engine.getStats() at 1 Hz while running (and once on stop, to empty
+      // them). Nothing polls while the engine is idle.
+      const COST_METER_FULL = 12; // active notes that read as a full bar
+      let costTimer = null;
+
+      function updateCostMeters() {
+        let stats = null;
+        try {
+          stats = engine.getStats();
+        } catch {}
+        const perTrack = stats && isPlainObject(stats.perTrack) ? stats.perTrack : null;
+        for (const id of TRACK_IDS) {
+          const meter = document.getElementById(`cost-meter-${id}`);
+          if (!meter) continue;
+          const entry = perTrack ? perTrack[id] : null;
+          const share = entry ? clamp(entry.activeNotes / COST_METER_FULL, 0, 1) : 0;
+          meter.hidden = !perTrack;
+          meter.firstElementChild.style.width = `${Math.round(share * 100)}%`;
+          meter.setAttribute(
+            'aria-label',
+            `${TRACK_LABELS[id]} load: ${entry ? entry.activeNotes : 0} notes sounding`
+          );
+        }
+      }
+
+      function setCostPolling(on) {
+        if (!engineCaps.getStats) return;
+        if (on) {
+          if (costTimer === null) costTimer = setInterval(updateCostMeters, 1000);
+          updateCostMeters();
+        } else if (costTimer !== null) {
+          clearInterval(costTimer);
+          costTimer = null;
+          updateCostMeters();
+        }
+      }
+
+      // ---- v14 live readouts (resolved / drifting values) -----------------
+      // engine.getResolved() reports what is ACTUALLY being played right now:
+      // every RangeValue resolved through its walk, and the voice that is
+      // really sounding (voice wander included). Polled at 4 Hz while
+      // running; the numbers land as secondary text beside the row's dials,
+      // and a wander to a different voice re-renders the open editor so the
+      // dial set follows the voice you can hear.
+      let resolvedTimer = null;
+
+      function applyResolved(resolved) {
+        const tracks = resolved && isPlainObject(resolved.tracks) ? resolved.tracks : null;
+        for (const id of TRACK_IDS) {
+          const readout = document.getElementById(`resolved-${id}`);
+          if (!readout) continue;
+          const entry = tracks ? tracks[id] : null;
+          if (!entry) {
+            readout.textContent = '';
+            continue;
+          }
+          const bits = [`level ${pctFormat(entry.level ?? 0)}`];
+          bits.push(entry.held ? 'held' : `random ${pctFormat(entry.randomness ?? 0)}`);
+          readout.textContent = bits.join(' · ');
+        }
+        // The editor follows the SOUNDING voice: the row's <select> keeps
+        // showing the user's choice (wander is ephemeral, per the contract),
+        // the editor header says what is actually sounding, and the dial set
+        // re-renders when that changes.
+        // Snapshot the entries: a wander re-render replaces this track's
+        // openEditors entry mid-loop, which a live Map iteration would trip
+        // over.
+        for (const [track, ed] of Array.from(openEditors)) {
+          const entry = tracks ? tracks[track] : null;
+          const voice = entry ? entry.voice : null;
+          if (!voice || !ed.sounding) continue;
+          const chosen = settings.tracks[track].voice;
+          ed.sounding.hidden = voice === chosen;
+          ed.sounding.textContent = voice === chosen ? '' : `sounding: ${voiceLabel(track, voice)}`;
+          if (voice !== ed.voiceId) renderVoiceEditor(track, { voiceId: voice });
+        }
+      }
+
+      function setResolvedPolling(on) {
+        if (!engineCaps.getResolved) return;
+        if (on) {
+          if (resolvedTimer === null) {
+            resolvedTimer = setInterval(() => {
+              try {
+                applyResolved(engine.getResolved());
+              } catch {}
+            }, 250);
+          }
+        } else if (resolvedTimer !== null) {
+          clearInterval(resolvedTimer);
+          resolvedTimer = null;
+        }
+      }
+
+      function voiceLabel(track, voiceId) {
+        const found = VOICE_LABELS[track]?.[voiceId];
+        return found || voiceId;
       }
 
       // ---- structure + custom structure builder -------------------------
@@ -3497,7 +4748,16 @@ const VOICES: Record<string, [string, string][]> = {
           playLabel.textContent = running ? 'Finish' : 'Play';
           toggleButton.disabled = false;
         }
-        stopNowButton.hidden = !running && !finishing;
+        // v15: ▶ before "Play"; the final-barline 𝄂 after "Finish".
+        playGlyph.hidden = running || finishing;
+        finishGlyph.hidden = !(running || finishing);
+        // v15: Stop is a permanent button in the strip (was a "Stop now"
+        // link that only appeared mid-playback), disabled when idle.
+        stopNowButton.disabled = !running && !finishing;
+        setCostPolling(running);
+        setResolvedPolling(running);
+        refreshRecordAvailability();
+        if (!running) clearPlayhead();
         try {
           if ('mediaSession' in navigator) {
             navigator.mediaSession.playbackState = running ? 'playing' : 'paused';
@@ -3589,6 +4849,116 @@ const VOICES: Record<string, [string, string][]> = {
         setTransportUI();
       });
 
+      // ---- v15 record ------------------------------------------------------
+      // MediaRecorder over the engine's own mixed output. The engine keeps
+      // that MediaStream private (it lives on an internal <audio> element and
+      // is not on the public API), so the page can only record once the
+      // engine exposes it — every plausible accessor is probed here, and the
+      // button ships disabled with an explanation when none answers. Summing
+      // the per-track analysers would "work", but they tap pre-mix, pre-
+      // effects and pre-master, so the file would not be what the listener
+      // heard: a wrong recording is worse than none.
+      function engineOutputStream() {
+        for (const name of ['getOutputStream', 'getMediaStream', 'getStream']) {
+          try {
+            const stream = typeof engine[name] === 'function' ? engine[name]() : null;
+            if (stream && typeof stream.getAudioTracks === 'function') return stream;
+          } catch {}
+        }
+        try {
+          const el = typeof engine.getOutputElement === 'function' ? engine.getOutputElement() : null;
+          if (el && el.srcObject && typeof el.srcObject.getAudioTracks === 'function') {
+            return el.srcObject;
+          }
+        } catch {}
+        return null;
+      }
+
+      const canRecord = typeof window.MediaRecorder === 'function';
+      let recorder = null;
+      let recordChunks = [];
+      let recordStartedAt = 0;
+      let recordTimer = null;
+
+      function updateRecordStatus() {
+        if (!recorder) {
+          recordStatus.hidden = true;
+          recordStatus.textContent = '';
+          return;
+        }
+        recordStatus.hidden = false;
+        recordStatus.textContent = `Recording ${formatCountdown(Date.now() - recordStartedAt)}`;
+      }
+
+      function stopRecording() {
+        if (!recorder) return;
+        try {
+          recorder.stop();
+        } catch {
+          recorder = null;
+        }
+      }
+
+      function startRecording() {
+        const stream = engineOutputStream();
+        if (!stream) return;
+        try {
+          recorder = new MediaRecorder(stream);
+        } catch {
+          recorder = null;
+          return;
+        }
+        recordChunks = [];
+        recorder.addEventListener('dataavailable', (event) => {
+          if (event.data && event.data.size) recordChunks.push(event.data);
+        });
+        recorder.addEventListener('stop', () => {
+          const blob = new Blob(recordChunks, { type: recorder.mimeType || 'audio/webm' });
+          recordChunks = [];
+          recorder = null;
+          if (recordTimer !== null) {
+            clearInterval(recordTimer);
+            recordTimer = null;
+          }
+          recordButton.setAttribute('aria-pressed', 'false');
+          recordButton.classList.remove('recording');
+          updateRecordStatus();
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `ambi4-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 10000);
+        });
+        recorder.start();
+        recordStartedAt = Date.now();
+        recordButton.setAttribute('aria-pressed', 'true');
+        recordButton.classList.add('recording');
+        recordTimer = setInterval(updateRecordStatus, 1000);
+        updateRecordStatus();
+      }
+
+      function refreshRecordAvailability() {
+        if (recorder) return;
+        const ready = canRecord && !!engineOutputStream();
+        recordButton.disabled = !ready;
+      }
+
+      recordButton.disabled = true;
+      describe(
+        recordButton,
+        canRecord
+          ? 'Records the mix to a .webm file on this device. Needs the engine to publish its output stream — arriving with the next engine update.'
+          : 'This browser has no MediaRecorder, so recording is unavailable here.'
+      );
+      if (canRecord) {
+        recordButton.addEventListener('click', () => {
+          if (recorder) stopRecording();
+          else startRecording();
+        });
+        refreshRecordAvailability();
+      }
+
       if (typeof engine.on === 'function') {
         engine.on('state', ({ running }) => {
           if (!running) finishing = false;
@@ -3600,6 +4970,9 @@ const VOICES: Record<string, [string, string][]> = {
             }
           }
           setTransportUI();
+        });
+        engine.on('bar', ({ time, beatsPerBar }) => {
+          schedulePlayhead(time, beatsPerBar);
         });
       }
 
@@ -3999,25 +5372,59 @@ const VOICES: Record<string, [string, string][]> = {
         refreshPresetSelect(name);
       });
 
-      presetLoad.addEventListener('change', () => {
-        const index = parseInt(presetLoad.value, 10);
-        const preset = presets[index];
-        if (!preset) return;
+      /**
+       * Load a params snapshot (user preset or factory preset) as the live
+       * settings. Same migration/normalisation order as the init load path: a
+       * pre-v6 snapshot needs its arp mask mapped to a sequencer BEFORE the
+       * deepMerge, and every lane needs padding to SEQ_SLOTS right after —
+       * skipping either step leaves laneSteps()[i] undefined and throws
+       * inside the un-awaited renderVoiceEditor triggered by syncUIFromSettings.
+       */
+      function loadParamsSnapshot(params) {
         const ui = settings.ui;
-        // Same migration/normalisation order as the init load path: a
-        // pre-v6 preset needs its arp mask mapped to a sequencer BEFORE the
-        // deepMerge, and every lane needs padding to SEQ_SLOTS right after —
-        // skipping either step leaves laneSteps()[i] undefined and throws
-        // inside the un-awaited renderVoiceEditor triggered by syncUIFromSettings.
-        migrateLegacyArpSteps(preset.params);
-        settings = deepMerge(DEFAULTS, preset.params);
+        const clone = structuredClone(params);
+        migrateLegacyArpSteps(clone);
+        settings = deepMerge(DEFAULTS, clone);
         normaliseV6Tracks(settings);
         settings.ui = ui;
         engine.setParams(engineParamsFrom(settings));
         syncUIFromSettings();
-        presetName.value = preset.name;
+        applyDensityScale();
         persistSettings();
+      }
+
+      presetLoad.addEventListener('change', () => {
+        const index = parseInt(presetLoad.value, 10);
+        const preset = presets[index];
+        if (!preset) return;
+        loadParamsSnapshot(preset.params);
+        presetName.value = preset.name;
       });
+
+      // ---- factory preset gallery ----------------------------------------
+      // A loaded factory preset is ordinary settings from that moment on:
+      // every dial, track and editor behaves exactly as if the user had
+      // dialled it in by hand.
+      const factoryRow = document.getElementById('factory-preset-row');
+      if (factoryRow) {
+        for (const preset of FACTORY_PRESETS) {
+          const card = document.createElement('button');
+          card.type = 'button';
+          card.className = 'secondary-button factory-preset';
+          const name = document.createElement('span');
+          name.className = 'factory-preset-name';
+          name.textContent = preset.name;
+          const blurb = document.createElement('span');
+          blurb.className = 'factory-preset-blurb';
+          blurb.textContent = preset.blurb;
+          card.append(name, blurb);
+          card.addEventListener('click', () => {
+            loadParamsSnapshot(preset.params);
+            presetName.value = preset.name;
+          });
+          factoryRow.append(card);
+        }
+      }
 
       presetDelete.addEventListener('click', () => {
         const index = parseInt(presetLoad.value, 10);
@@ -4052,15 +5459,112 @@ const VOICES: Record<string, [string, string][]> = {
         }, 2000);
       });
 
+      // ---- v13 tutorial panel (right-docked, stepped, no library) ---------
+      // Each step names the control it is talking about; opening a step
+      // switches to the tab that control lives on and rings it. Open state
+      // and position persist through prefs like every other UI preference.
+      const TUTORIAL_STEPS = [
+        {
+          tab: 'simple',
+          target: '#toggle-play',
+          text: 'Press Play. Sound starts within a second or so; the button becomes Finish, which ends the piece musically instead of cutting it off. Stop is the hard stop.',
+        },
+        {
+          tab: 'simple',
+          target: '.sliders-module',
+          text: 'These five dials are the whole instrument for most people. Drag up and down, or click the number under a dial to type one. Double-click any dial to put it back to its default.',
+        },
+        {
+          tab: 'simple',
+          target: '#randomness-dial',
+          text: 'Randomness at zero means hold: the generator keeps looping exactly what it is playing now. Turn it up and it re-rolls its material more and more often.',
+        },
+        {
+          tab: 'advanced',
+          target: '.track-rows',
+          text: 'Six tracks, one line each. The coloured lamp beside the name cycles off, auto and on. The two dials are that track\'s level and its own randomness.',
+        },
+        {
+          tab: 'advanced',
+          target: '#voice-edit-toggle-percussion',
+          text: 'Edit opens a track\'s panel: its step sequencer at the top, then the dials that build its sound. Drag sideways across sequencer cells to tie them into one long note.',
+        },
+        {
+          tab: 'advanced',
+          target: '.factory-presets',
+          text: 'Factory presets are starting points, not presets in the locked sense — load one and change anything. Save your own just below.',
+        },
+        {
+          tab: 'simple',
+          target: '.processor-row',
+          text: 'Processor decides how hard this runs. Auto watches the machine and backs off when it gets warm; Eco is the coolest setting.',
+        },
+      ];
+
+      const tutorialPanel = document.getElementById('tutorial-panel');
+      const tutorialToggle = document.getElementById('tutorial-toggle');
+      const tutorialText = document.getElementById('tutorial-step-text');
+      const tutorialProgress = document.getElementById('tutorial-progress');
+      let tutorialHighlighted = null;
+
+      function highlightTutorialTarget(selector) {
+        if (tutorialHighlighted) tutorialHighlighted.classList.remove('tutorial-highlight');
+        tutorialHighlighted = selector ? document.querySelector(selector) : null;
+        if (tutorialHighlighted) tutorialHighlighted.classList.add('tutorial-highlight');
+      }
+
+      function renderTutorial() {
+        const index = clamp(settings.ui.tutorialStep | 0, 0, TUTORIAL_STEPS.length - 1);
+        settings.ui.tutorialStep = index;
+        const step = TUTORIAL_STEPS[index];
+        tutorialText.textContent = step.text;
+        tutorialProgress.textContent = `${index + 1} / ${TUTORIAL_STEPS.length}`;
+        document.getElementById('tutorial-prev').disabled = index === 0;
+        document.getElementById('tutorial-next').disabled = index === TUTORIAL_STEPS.length - 1;
+        if (step.tab) activateTab(step.tab);
+        highlightTutorialTarget(step.target);
+      }
+
+      function setTutorialOpen(open) {
+        settings.ui.tutorialOpen = open;
+        tutorialPanel.hidden = !open;
+        tutorialToggle.setAttribute('aria-expanded', String(open));
+        if (open) renderTutorial();
+        else highlightTutorialTarget(null);
+        persistSettings();
+      }
+
+      tutorialToggle.addEventListener('click', () => setTutorialOpen(tutorialPanel.hidden));
+      document.getElementById('tutorial-close').addEventListener('click', () => {
+        setTutorialOpen(false);
+        tutorialToggle.focus();
+      });
+      document.getElementById('tutorial-prev').addEventListener('click', () => {
+        settings.ui.tutorialStep -= 1;
+        renderTutorial();
+        persistSettings();
+      });
+      document.getElementById('tutorial-next').addEventListener('click', () => {
+        settings.ui.tutorialStep += 1;
+        renderTutorial();
+        persistSettings();
+      });
+      tutorialPanel.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        setTutorialOpen(false);
+        tutorialToggle.focus();
+      });
+
       // ---- initial sync ---------------------------------------------------
 
       function syncUIFromSettings() {
         bpmInput.value = String(settings.bpm);
-        bpmValue.textContent = String(settings.bpm);
+        bpmTypable?.refresh();
         speedDial?.set(speedTFromBpm(settings.bpm));
         repetitionDial?.set(settings.repetition);
         volumeDial?.set(settings.volume);
-        randomnessDial?.set(meanRandomness());
+        randomnessDial?.set(fusedRandomnessValue());
+        swingDial?.set(settings.swing);
         rootSelect.value = settings.root;
         modeSelect.value = settings.mode;
         timeSignatureSelect.value = settings.timeSignature;
@@ -4081,8 +5585,10 @@ const VOICES: Record<string, [string, string][]> = {
       refreshPresetSelect();
       engine.setParams(engineParamsFrom(settings));
       activateTab(settings.ui.activeTab, { persist: false });
+      applyDensityScale();
       setTransportUI();
       updateTimerUI();
+      if (settings.ui.tutorialOpen) setTutorialOpen(true);
 
       app.hidden = false;
     }
@@ -4119,11 +5625,40 @@ const VOICES: Record<string, [string, string][]> = {
       margin-bottom: 8px;
     }
 
-    .play-toggle {
-      display: block;
-      width: 100%;
-      padding: 16px;
+    /* -- v15 transport strip: [▶ Play/Finish] [■ Stop] [● Record] ... and,
+          far right, the sleep + schedule icons stacked at half height -- */
+
+    .transport-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
       margin-bottom: 8px;
+    }
+
+    .transport-main {
+      display: flex;
+      align-items: stretch;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .transport-buttons {
+      display: flex;
+      flex: 1 1 auto;
+      flex-wrap: wrap;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .play-toggle {
+      display: inline-flex;
+      flex: 2 1 160px;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 56px;
+      padding: 16px;
       font-size: 18px;
       font-weight: 700;
       color: var(--bg);
@@ -4131,6 +5666,81 @@ const VOICES: Record<string, [string, string][]> = {
       border: none;
       border-radius: var(--radius);
       cursor: pointer;
+    }
+
+    .transport-glyph {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .transport-button {
+      display: inline-flex;
+      flex: 1 1 96px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 56px;
+      padding: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .transport-button:focus-visible,
+    .round-button:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    .transport-button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .record-button .record-dot {
+      color: #c8302f;
+    }
+
+    .record-button:disabled .record-dot {
+      color: var(--secondary);
+    }
+
+    .record-button.recording {
+      border-color: #c8302f;
+      box-shadow: inset 0 0 0 1px #c8302f;
+    }
+
+    .record-status {
+      color: #c8302f;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    /* Small round utility button: the "?" tour opener, the ⓘ info buttons
+       and the per-track dice re-roll. */
+    .round-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: var(--label-font, inherit);
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .round-button:hover {
+      border-color: var(--accent-warm, var(--link));
     }
 
     .play-toggle:hover {
@@ -4186,10 +5796,19 @@ const VOICES: Record<string, [string, string][]> = {
 
     /* -- transport icon buttons + sleep/alarm popovers (v6) -- */
 
+    /* Far right of the strip: the two popover icons stacked, each about half
+       the Play button's height. Width is generous so the pair still offers
+       comfortable targets at half height. */
     .transport-icons {
       display: flex;
-      gap: 10px;
-      margin-top: 8px;
+      flex: 0 0 auto;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .transport-icons .icon-button {
+      width: 78px;
+      height: 26px;
     }
 
     .popover-anchor {
@@ -4202,6 +5821,7 @@ const VOICES: Record<string, [string, string][]> = {
       justify-content: center;
       width: 44px;
       height: 44px;
+      min-width: 44px;
       padding: 0;
       color: var(--text);
       background: linear-gradient(rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.03)), var(--panel);
@@ -4339,18 +5959,67 @@ const VOICES: Record<string, [string, string][]> = {
       font-weight: 700;
     }
 
-    .end-label,
     .value-readout {
       color: var(--secondary);
       font-size: 14px;
     }
 
-    .tri-label {
+    /* v14 single labelling: knob.js draws each dial's name under its face, so
+       the markup label row is hidden once a knob builds (the .dial-knob
+       class) and the end-marks sit at the tick extremes instead of a second
+       label row above. The slider fallback (.dial-fallback) keeps the label
+       row and lays the end-marks out as an ordinary row beneath. */
+    .dial-ends {
       display: flex;
       justify-content: space-between;
-      margin-top: 2px;
       color: var(--secondary);
-      font-size: 14px;
+      font-size: 11px;
+      font-family: var(--label-font, inherit);
+      letter-spacing: 0.04em;
+      pointer-events: none;
+    }
+
+    .dial-knob .dial-slot {
+      position: relative;
+    }
+
+    .dial-knob .dial-ends {
+      position: absolute;
+      left: 50%;
+      top: calc(var(--knob-size, 96px) * 0.74);
+      width: calc(var(--knob-size, 96px) + 52px);
+      transform: translateX(-50%);
+    }
+
+    /* Centre mark ("Evolving") sits at the top of the sweep — 50% on a 270°
+       dial is straight up, so it belongs above the face, not in the ends row
+       (whose bottom-centre is the dial's dead zone). */
+    .dial-knob .dial-mid {
+      position: absolute;
+      top: -4px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: var(--secondary);
+      font-size: 11px;
+      font-family: var(--label-font, inherit);
+      letter-spacing: 0.04em;
+      pointer-events: none;
+    }
+
+    .dial-fallback .dial-slot {
+      flex-wrap: wrap;
+    }
+
+    .dial-fallback .dial-mid {
+      width: 100%;
+      text-align: center;
+      color: var(--secondary);
+      font-size: 11px;
+    }
+
+    .dial-fallback .dial-ends {
+      width: 100%;
+      margin-top: 2px;
     }
 
     /* v12: Simple tab — five music-box dials in a row (knob.js path), each
@@ -4376,12 +6045,92 @@ const VOICES: Record<string, [string, string][]> = {
       justify-content: center;
     }
 
-    .tri-label span:nth-child(2) {
-      text-align: center;
+    /* -- processor dial (transport panel) -- */
+
+    .processor-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      --knob-size: 64px;
     }
 
-    .tri-label span:last-child {
-      text-align: right;
+    .processor-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    /* -- v13 tooltips + ⓘ info boxes -- */
+
+    .ui-tooltip {
+      position: absolute;
+      z-index: 40;
+      max-width: 260px;
+      padding: 6px 9px;
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--text);
+      background: var(--panel, var(--bg));
+      border: 1px solid var(--panel-edge, var(--border));
+      border-radius: var(--radius);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+      pointer-events: none;
+    }
+
+    .info-anchor {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .info-button {
+      width: 22px;
+      height: 22px;
+      font-size: 12px;
+      font-style: italic;
+    }
+
+    .info-box {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 30;
+      width: max-content;
+      max-width: min(360px, calc(100vw - 32px));
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text);
+      background: var(--panel, var(--bg));
+      border: 1px solid var(--panel-edge, var(--border));
+      border-radius: var(--radius);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+
+    /* -- v13 click-to-type readouts -- */
+
+    .typable {
+      padding: 1px 4px;
+      font: inherit;
+      color: inherit;
+      background: none;
+      border: 1px dashed transparent;
+      border-radius: 4px;
+      cursor: text;
+    }
+
+    .typable:hover,
+    .typable:focus-visible {
+      border-color: var(--border);
+    }
+
+    .typable-input {
+      width: 5em;
+      padding: 1px 4px;
+      font: inherit;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--link);
+      border-radius: 4px;
     }
 
     .control input[type='range'] {
@@ -4521,11 +6270,52 @@ const VOICES: Record<string, [string, string][]> = {
       gap: 12px;
     }
 
+    /* v14: ONE line per track — lamp+name, voice, Level, Randomness, Edit —
+       with the track's own colour as a left accent bar. */
     .track-row {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 10px;
+      padding-left: 8px;
+      border-left: 3px solid var(--track-accent, var(--border));
+    }
+
+    /* v9 cost meter: a thin bar showing how many notes this track has
+       sounding, tinted with the track colour. Populated at 1 Hz while the
+       engine runs, hidden when there are no stats to show. */
+    .cost-meter {
+      display: block;
+      width: 100%;
+      height: 3px;
+      margin-top: 2px;
+      background: var(--panel-inset, var(--border));
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .cost-meter-fill {
+      display: block;
+      width: 0;
+      height: 100%;
+      background: var(--track-accent, var(--link));
+      transition: width 0.4s linear;
+    }
+
+    /* Status strip under the row's controls: what the engine is actually
+       resolving to right now, plus the cost meter. */
+    .track-foot {
+      display: block;
+      flex-basis: 100%;
+    }
+
+    .resolved-readout {
+      display: block;
+      color: var(--secondary);
+      font-size: 12px;
+      font-family: var(--label-font, inherit);
+      letter-spacing: 0.04em;
+      min-height: 14px;
     }
 
     .track-name {
@@ -4562,22 +6352,20 @@ const VOICES: Record<string, [string, string][]> = {
       outline-offset: 2px;
     }
 
-    .lamp-dot {
-      width: 10px;
-      height: 10px;
-      flex-shrink: 0;
-      border-radius: 50%;
-      border: 1px solid var(--panel-edge, var(--border));
+    /* The lamp dot is the shared .track-chip, so it carries the track's own
+       identity colour; state modulates how lit it reads. */
+    .track-row[data-track-state='off'] .lamp-dot {
       background: var(--knob-face);
+      opacity: 0.5;
     }
 
     .track-row[data-track-state='auto'] .lamp-dot {
-      background: var(--tick);
+      opacity: 0.65;
     }
 
     .track-row[data-track-state='on'] .lamp-dot {
-      background: var(--knob-pointer);
-      box-shadow: 0 0 4px var(--knob-pointer);
+      opacity: 1;
+      box-shadow: 0 0 5px var(--track-accent, var(--knob-pointer));
     }
 
     /* v8: melody/bass ship state 'off' — a textual cue (not colour alone)
@@ -4889,9 +6677,84 @@ const VOICES: Record<string, [string, string][]> = {
       color: var(--secondary);
     }
 
+    /* v14 multi-sequencer strip: tab per sequencer, "+" copies the current
+       one, and one weight number ("how likely the others hand over to me"). */
+    .seq-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .seq-tabs-single .seq-tab-strip,
+    .seq-tabs-single .seq-weight {
+      display: none;
+    }
+
+    .seq-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .seq-add {
+      padding: 4px 12px;
+      line-height: 1;
+    }
+
+    .seq-weight {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--secondary);
+    }
+
+    .seq-weight input {
+      width: 68px;
+      padding: 4px 6px;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    /* v14 probability groups: a dot per step above its lane, coloured by
+       group. Inside a group a step only gets its chance if the group's
+       previous step actually sounded. */
+    .seq-dot-row {
+      margin-bottom: 2px;
+    }
+
+    .seq-dot-cell {
+      display: flex;
+      justify-content: center;
+    }
+
+    .seq-dot {
+      width: 10px;
+      height: 10px;
+      padding: 0;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .seq-dot-on {
+      border-color: transparent;
+    }
+
+    .seq-dot:focus-visible {
+      outline: 2px solid var(--link);
+      outline-offset: 2px;
+    }
+
     .seq-cell {
       position: relative;
-      min-height: 40px;
+      min-height: 48px;
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 4px;
@@ -4929,6 +6792,56 @@ const VOICES: Record<string, [string, string][]> = {
       opacity: 0.85;
     }
 
+    /* Fat grab handle riding the band's loud edge — ≥10 px tall so the
+       velocity top is grabbable without pixel-hunting (v13 correction). */
+    .seq-band-top {
+      position: absolute;
+      display: block;
+      left: 0;
+      right: 0;
+      height: 12px;
+      margin-bottom: -6px;
+      cursor: ns-resize;
+      touch-action: none;
+    }
+
+    .seq-band-top::after {
+      content: '';
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      top: 5px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--knob-pointer, var(--text));
+      opacity: 0.7;
+    }
+
+    /* A tied step bridges visually into the next one: one long note. */
+    .seq-cell-tie {
+      border-right-color: transparent;
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+
+    .seq-cell-tie::after {
+      content: '';
+      position: absolute;
+      right: -4px;
+      top: 45%;
+      width: 5px;
+      height: 3px;
+      background: var(--accent-warm, var(--link));
+    }
+
+    /* v14 playhead: the sounding step lights up. The cream --knob-pointer
+       reads as the asked-for white on the dark theme; --text carries the
+       mark on the light theme, where a literal white would vanish. */
+    .seq-cell-playing {
+      border-color: var(--text);
+      box-shadow: inset 0 0 0 2px var(--knob-pointer);
+    }
+
     .seq-prob {
       position: relative;
       display: block;
@@ -4957,8 +6870,98 @@ const VOICES: Record<string, [string, string][]> = {
       opacity: 0.85;
     }
 
-    .seq-legend {
-      margin-top: 8px;
+    /* -- v14: dissonance dial, factory presets, tutorial panel -- */
+
+    .dissonance-row {
+      display: flex;
+      align-items: flex-end;
+      margin-bottom: 16px;
+    }
+
+    .dissonance-knob {
+      width: 84px;
+    }
+
+    .factory-presets {
+      margin-bottom: 20px;
+    }
+
+    .factory-presets > .panel-label {
+      display: block;
+      margin-bottom: 10px;
+    }
+
+    .factory-preset-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 8px;
+    }
+
+    .factory-preset {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      align-items: flex-start;
+      text-align: left;
+    }
+
+    .factory-preset-name {
+      font-weight: 700;
+    }
+
+    .factory-preset-blurb {
+      font-weight: 400;
+      font-size: 13px;
+      color: var(--secondary);
+    }
+
+    /* Docked right of the main column on a wide screen; a plain block
+       beneath it on a narrow one. */
+    .tutorial-panel {
+      position: fixed;
+      top: 96px;
+      right: 16px;
+      z-index: 25;
+      width: 280px;
+      max-height: calc(100vh - 128px);
+      overflow-y: auto;
+    }
+
+    .tutorial-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .tutorial-step-text {
+      margin: 0 0 12px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .tutorial-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .tutorial-highlight {
+      outline: 3px solid var(--accent-warm, var(--link));
+      outline-offset: 4px;
+      border-radius: var(--radius);
+    }
+
+    @media (max-width: 1100px) {
+      .tutorial-panel {
+        position: static;
+        width: auto;
+        max-width: 640px;
+        max-height: none;
+        margin-bottom: 20px;
+      }
     }
 
     /* -- custom structure builder -- */

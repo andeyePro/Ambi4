@@ -7,7 +7,6 @@ services:
   deezer: null
   soundcloud: null
   apple: 'ambi4-work-ambient-eno/pl.u-oZyl4BYtRpW092'
-thumbnail: '/img/EnoSynths.jpg'
 ---
 
 The three genre-defining albums & more from [Brian Eno](https://en.wikipedia.org/wiki/Brian_Eno).
