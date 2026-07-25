@@ -133,11 +133,26 @@ const VOICES: Record<string, [string, string][]> = {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="8" y="4" width="2" height="16" /><rect x="13" y="4" width="5" height="16" /></svg>
             </span>
           </button>
+          <button id="pause-toggle" type="button" class="transport-button pause-button" data-transport="pause" aria-pressed="false" disabled>
+            <span class="transport-glyph pause-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="7" y="5" width="4" height="14" rx="1" /><rect x="13" y="5" width="4" height="14" rx="1" /></svg>
+            </span>
+            <span class="transport-glyph resume-glyph" aria-hidden="true" hidden>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M7 4.5 19 12 7 19.5Z" /></svg>
+            </span>
+            <span class="pause-label">Pause</span>
+          </button>
           <button id="stop-now" type="button" class="transport-button stop-button" data-transport="stop" disabled>
             <span class="transport-glyph" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
             </span>
             <span>Stop</span>
+          </button>
+          <button id="fast-forward" type="button" class="transport-button forward-button" data-transport="fastforward">
+            <span class="transport-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M4 5.5 13 12 4 18.5Z" /><path d="M12 5.5 21 12 12 18.5Z" /></svg>
+            </span>
+            <span>Next</span>
           </button>
           <button id="record-toggle" type="button" class="transport-button record-button" data-transport="record" aria-pressed="false">
             <span class="transport-glyph record-dot" aria-hidden="true">
@@ -219,6 +234,35 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
         <div class="processor-row">
           <div class="dial-slot dial-label-external" id="processor-dial"></div>
+        </div>
+      </div>
+
+      <!-- v26 genre transport: the genre picker sits directly UNDER the
+           Play/Finish button, because picking a genre is the second thing a
+           listener does. Its list is built by the page script (the twelve
+           genre files are a build-time glob import), and the favourites
+           editor beside it is the same anchored-popover pattern the sleep and
+           alarm dialogs use. -->
+      <div class="genre-row popover-anchor">
+        <label class="visually-hidden" for="genre-select">Genre</label>
+        <select id="genre-select" class="genre-select"></select>
+        <div
+          id="genre-favourites"
+          class="popover module-panel genre-favourites"
+          role="dialog"
+          aria-labelledby="genre-favourites-title"
+          hidden
+        >
+          <span class="panel-label popover-title" id="genre-favourites-title">Favourite genres</span>
+          <p class="hint">Tick the ones you come back to. Each mood you favourite also gets its own entry in the genre list.</p>
+          <div id="genre-favourites-list" class="genre-fav-list"></div>
+          <label class="genre-fav-hide">
+            <input type="checkbox" id="genre-hide-others" />
+            Hide the rest of the genres from the list
+          </label>
+          <div class="genre-fav-actions">
+            <button type="button" id="genre-favourites-done" class="secondary-button">Done</button>
+          </div>
         </div>
       </div>
 
@@ -888,6 +932,95 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     function factoryPresetBySlug(slug) {
       return FACTORY_PRESETS.find((preset) => preset.slug === slug) || null;
+    }
+
+    // ---- v26 genre transport ---------------------------------------------
+
+    /**
+     * The twelve genre files, resolved at BUILD time — Vite expands the glob,
+     * so the data is in the page bundle: there is no fetch to fail, and the
+     * list the dropdown shows is by construction the list `setGenreTable()`
+     * registers with the engine.
+     *
+     * A genre is RULES, not a preset: `compileGenre(genre, { rng })` draws one
+     * setup out of it (metre, mode, tempo, swing, chord grammar, kit, voices),
+     * so the same genre twice is two different pieces. That is what the
+     * fast-forward button spends, and what the fresh-load pick uses to stop
+     * every first visit sounding identical.
+     */
+    const GENRES = Object.values(
+      import.meta.glob('../data/genres/*.json', { eager: true, import: 'default' })
+    )
+      .filter((genre) => genre && typeof genre.slug === 'string')
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+    const GENRE_BY_SLUG = new Map(GENRES.map((genre) => [genre.slug, genre]));
+
+    /**
+     * Favourites group by MOOD, and the genre files' own `cluster` — the three
+     * groups the music director wrote to — is the only grouping the data
+     * carries. The LABELS are a UI decision, so they live here rather than in
+     * the files; a cluster with no entry falls into "Other" instead of
+     * vanishing from the list.
+     */
+    const MOODS = [
+      { id: 'calm', label: 'Calm', cluster: 1 },
+      { id: 'groove', label: 'Groove', cluster: 2 },
+      { id: 'drive', label: 'Drive', cluster: 3 },
+    ];
+    const OTHER_MOOD = { id: 'other', label: 'Other', cluster: null };
+
+    function moodOf(genre) {
+      return MOODS.find((mood) => mood.cluster === genre.cluster) || OTHER_MOOD;
+    }
+
+    /**
+     * The genres a FRESH visit may open on, and the weight a favourite carries
+     * inside that pool. Not every genre is a good thing to arrive to unasked —
+     * peak-time techno and a neon synthwave chase are choices, not defaults —
+     * so the opening draw is made from the work-music end of the set. A
+     * favourite that is also in this pool is drawn ten times as often as a
+     * genre the listener has never marked.
+     */
+    const BACKGROUND_GENRES = [
+      'ambient',
+      'cinematic',
+      'downtempo',
+      'lofi-beats',
+      'minimalism',
+      'new-age',
+    ];
+    const FAVOURITE_WEIGHT = 10;
+
+    /**
+     * mulberry32: the compiler takes an `rng`, and a seed the page holds is
+     * what makes one setup reproducible — fast-forward is nothing more than
+     * the same genre with the next seed.
+     */
+    function makeRng(seed) {
+      let a = seed >>> 0;
+      return function rng() {
+        a = (a + 0x6d2b79f5) >>> 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function randomSeed() {
+      return Math.floor(Math.random() * 0x100000000) >>> 0;
+    }
+
+    /** One weighted draw from a [{ value, weight }] pool; null when it's empty. */
+    function weightedDraw(pool) {
+      const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
+      if (!(total > 0)) return null;
+      let roll = Math.random() * total;
+      for (const entry of pool) {
+        roll -= entry.weight;
+        if (roll <= 0) return entry.value;
+      }
+      return pool[pool.length - 1].value;
     }
 
     // v12 mono/legato, mirroring the engine's own DEFAULT_TRACK_MONO/GLIDE:
@@ -1851,6 +1984,83 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       const { prefs, consentPrompt } = await loadPrefsModule();
 
+      // ---- v26 genre compiler + registry --------------------------------
+      // The compiler runs PAGE-side (contract § v26 genre compiler): it turns
+      // one genre file into a full params object the engine takes through its
+      // ordinary setParams, so the engine ships no genre data and no genre
+      // behaviour. Loaded like every other optional module — a build without
+      // it simply has no genre picker, rather than no page.
+      let genreCompiler = null;
+      if (GENRES.length) {
+        try {
+          const mod = await import('../scripts/genre-compiler.js');
+          if (typeof mod.compileGenre === 'function') genreCompiler = mod;
+        } catch {
+          // no compiler → the genre row hides itself below
+        }
+        // The engine's table is the page's list: with it registered, a slug
+        // arriving from a share link is checked against the genres that
+        // actually exist rather than kept as an opaque tag.
+        if (typeof engine.setGenreTable === 'function') {
+          try {
+            engine.setGenreTable(GENRES);
+          } catch {}
+        }
+      }
+
+      /**
+       * Favourites, their hide-the-rest toggle, and whether the listener has
+       * been through the picker once (which is what turns "Choose favourites…"
+       * into "Edit favourites…"). Persisted through prefs like the presets
+       * list, so it survives a reload only where consent was granted.
+       */
+      let genrePrefs = { favourites: [], hideOthers: false, picked: false };
+      try {
+        const stored = prefs.get('genre');
+        if (isPlainObject(stored)) {
+          genrePrefs = {
+            favourites: (Array.isArray(stored.favourites) ? stored.favourites : []).filter(
+              (slug) => GENRE_BY_SLUG.has(slug)
+            ),
+            hideOthers: stored.hideOthers === true,
+            picked: stored.picked === true,
+          };
+        }
+      } catch {}
+
+      /** The genres a fresh visit may open on, weighted (see BACKGROUND_GENRES). */
+      function openingGenrePool() {
+        const favourites = genrePrefs.favourites;
+        const background = BACKGROUND_GENRES.map((slug) => GENRE_BY_SLUG.get(slug)).filter(Boolean);
+        // Hide-non-favourites prunes the opening draw too — a listener who
+        // asked not to see the rest of the set should not be opened on one.
+        const pool = genrePrefs.hideOthers && favourites.length
+          ? background.filter((genre) => favourites.includes(genre.slug))
+          : background;
+        // …unless that leaves nothing (every favourite is outside the
+        // background list), in which case the favourites themselves are the
+        // honest answer, and the background list is the last resort.
+        const source = pool.length
+          ? pool
+          : genrePrefs.hideOthers && favourites.length
+            ? favourites.map((slug) => GENRE_BY_SLUG.get(slug)).filter(Boolean)
+            : background;
+        return source.map((genre) => ({
+          value: genre,
+          weight: favourites.includes(genre.slug) ? FAVOURITE_WEIGHT : 1,
+        }));
+      }
+
+      /** One compiled setup from a genre, or null if the compiler refuses it. */
+      function compileGenreParams(genre, seed) {
+        if (!genreCompiler || !genre) return null;
+        try {
+          return genreCompiler.compileGenre(genre, { rng: makeRng(seed) });
+        } catch {
+          return null;
+        }
+      }
+
       // ---- settings load + legacy migration -----------------------------
 
       let settings;
@@ -1916,6 +2126,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           } catch {
             sharedParams = null;
             routePreset = null;
+          }
+        } else if (!saved && genreCompiler) {
+          // v26: a visit with NOTHING to restore opens on a genre rather than
+          // on the bare defaults — the listener's own finding was that every
+          // fresh load sounded the same piece. The draw is weighted (see
+          // openingGenrePool) and seeded fresh, so two first visits an hour
+          // apart are two different pieces even on the same genre. Not
+          // persisted: touching any control saves the whole settings object,
+          // which is the point at which this becomes the listener's setup.
+          const genre = weightedDraw(openingGenrePool());
+          const compiled = compileGenreParams(genre, randomSeed());
+          if (compiled) {
+            const ui = settings.ui;
+            settings = deepMerge(DEFAULTS, settingsFromGenre(compiled, genre.slug));
+            normaliseV6Tracks(settings);
+            settings.ui = ui;
           }
         }
       }
@@ -2016,6 +2242,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const playGlyph = toggleButton.querySelector('.play-glyph');
       const finishGlyph = toggleButton.querySelector('.finish-glyph');
       const stopNowButton = document.getElementById('stop-now');
+      const pauseButton = document.getElementById('pause-toggle');
+      const pauseLabel = pauseButton.querySelector('.pause-label');
+      const pauseGlyph = pauseButton.querySelector('.pause-glyph');
+      const resumeGlyph = pauseButton.querySelector('.resume-glyph');
+      const forwardButton = document.getElementById('fast-forward');
+      const genreRow = document.getElementById('genre-select').closest('.genre-row');
+      const genreSelect = document.getElementById('genre-select');
       const recordButton = document.getElementById('record-toggle');
       const recordStatus = document.getElementById('record-status');
       const transportStatus = document.getElementById('transport-status');
@@ -2023,11 +2256,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // v15: a transport control can be demoted to Advanced-only by adding
       // its data-transport id to SIMPLE_HIDDEN — nothing else changes.
       // Pre-launch: HIDDEN_UNTIL_LAUNCH wins over both tabs.
+      // v26: UNAVAILABLE_TRANSPORT is the capability tier — a button this
+      // engine build cannot serve at all (filled in by the probes below) is
+      // not rendered on either tab, and stays unrendered across tab switches.
+      const UNAVAILABLE_TRANSPORT = new Set();
+
       function applyTransportVisibility(tabName) {
         for (const el of document.querySelectorAll('[data-transport]')) {
           const owner = el.closest('.popover-anchor') || el;
           const id = el.dataset.transport;
           owner.hidden =
+            UNAVAILABLE_TRANSPORT.has(id) ||
             (PAID_FEATURES_HIDDEN && HIDDEN_UNTIL_LAUNCH.has(id)) ||
             (tabName === 'simple' && SIMPLE_HIDDEN.has(id));
         }
@@ -2077,6 +2316,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const p = structuredClone(s);
         delete p.ui;
         p.speed = 1; // deprecated at UI level; back-compat pin
+        // v26: the genre tag is stated on EVERY push. The sanitiser keeps the
+        // stored tag when the key is missing and only an explicit null clears
+        // it, so a settings object with no genre (a factory preset, a share
+        // link made before genres existed) has to say so out loud or the old
+        // tag rides along under a piece that is no longer that genre.
+        p.genre = typeof p.genre === 'string' ? p.genre : null;
         // The stored tail is the USER's ask; the engine only ever sees it
         // through the governor's tier cap (same policy as the density scale
         // on track levels — never overwrite what the user chose).
@@ -7919,29 +8164,51 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       let finishing = false;
       let playNotice = '';
 
+      // v26 pause. `engine.pause()` holds the piece where it stands and
+      // `engine.resume()` picks it up at that exact position; without it the
+      // page can only stop and start again, which loses the position and
+      // rebuilds the piece. Both are real pauses to the listener, so the
+      // button ships either way — what the probe decides is which one runs
+      // (and what the button's own explanation says it will do).
+      const exactPause = typeof engine.pause === 'function';
+      let paused = false;
+
+      function clearPaused() {
+        paused = false;
+      }
+
       function setTransportUI() {
         const running = !!engine.running;
-        toggleButton.setAttribute('aria-pressed', String(running));
+        // A paused piece is still a piece: the main key stays on Finish and
+        // Stop stays live, whether or not this engine keeps `running` true
+        // while it holds.
+        const active = running || paused;
+        toggleButton.setAttribute('aria-pressed', String(active));
         if (finishing) {
           playLabel.textContent = 'Finishing…';
           toggleButton.disabled = true;
         } else {
-          playLabel.textContent = running ? 'Finish' : 'Play';
+          playLabel.textContent = active ? 'Finish' : 'Play';
           toggleButton.disabled = false;
         }
         // v15: ▶ before "Play"; the final-barline 𝄂 after "Finish".
-        playGlyph.hidden = running || finishing;
-        finishGlyph.hidden = !(running || finishing);
+        playGlyph.hidden = active || finishing;
+        finishGlyph.hidden = !(active || finishing);
         // v15: Stop is a permanent button in the strip (was a "Stop now"
         // link that only appeared mid-playback), disabled when idle.
-        stopNowButton.disabled = !running && !finishing;
+        stopNowButton.disabled = !active && !finishing;
+        pauseButton.disabled = !active || finishing;
+        pauseButton.setAttribute('aria-pressed', String(paused));
+        pauseLabel.textContent = paused ? 'Resume' : 'Pause';
+        pauseGlyph.hidden = paused;
+        resumeGlyph.hidden = !paused;
         setCostPolling(running);
         setResolvedPolling(running);
         refreshRecordAvailability();
         if (!running) clearPlayhead();
         try {
           if ('mediaSession' in navigator) {
-            navigator.mediaSession.playbackState = running ? 'playing' : 'paused';
+            navigator.mediaSession.playbackState = running && !paused ? 'playing' : 'paused';
           }
         } catch {}
         // Every transport change re-evaluates open editors' scopes
@@ -7962,12 +8229,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             artist: 'Ambi4',
           });
           navigator.mediaSession.setActionHandler('play', () => {
-            if (!engine.running) engine.start().catch(() => {});
+            // A lock-screen play on a HELD piece resumes it; otherwise it is
+            // an ordinary start.
+            if (paused) pauseButton.click();
+            else if (!engine.running) engine.start().catch(() => {});
           });
           navigator.mediaSession.setActionHandler('pause', () => {
-            engine.stop();
+            // v26: the hardware pause key holds the piece where a real pause
+            // exists, and stops it where one does not — which is what the
+            // page's own Pause button does either way.
+            if (engine.running && !paused) pauseButton.click();
+            else engine.stop();
           });
           navigator.mediaSession.setActionHandler('stop', () => {
+            clearPaused();
             engine.stop();
           });
           mediaSessionReady = true;
@@ -7975,6 +8250,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       async function finishOrStop() {
+        // A held piece has no bar left to play its outro in — ending it here
+        // is the honest reading of Finish while paused.
+        if (paused) {
+          clearPaused();
+          engine.stop();
+          setTransportUI();
+          return;
+        }
         // Feature-detect finish() — an older engine only has stop().
         if (typeof engine.finish !== 'function') {
           engine.stop();
@@ -7994,13 +8277,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
-      toggleButton.addEventListener('click', async () => {
-        if (finishing) return;
-        if (engine.running) {
-          await finishOrStop();
-          return;
-        }
+      /**
+       * The Play path, shared with the fallback resume (which is a start by
+       * definition — no engine.pause() means no position to pick up).
+       */
+      async function startPlayback() {
         if (alarmTarget !== null) cancelAlarm(); // starting now supersedes it
+        clearPaused();
         toggleButton.disabled = true;
         playNotice = '';
         updateTimerUI();
@@ -8022,13 +8305,330 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           updateTimerUI();
         }
         setTransportUI();
+      }
+
+      toggleButton.addEventListener('click', async () => {
+        if (finishing) return;
+        if (engine.running || paused) {
+          await finishOrStop();
+          return;
+        }
+        await startPlayback();
       });
 
       stopNowButton.addEventListener('click', () => {
+        clearPaused();
         engine.stop();
         finishing = false;
         setTransportUI();
       });
+
+      pauseButton.addEventListener('click', async () => {
+        if (finishing) return;
+        if (paused) {
+          paused = false;
+          if (exactPause) {
+            setTransportUI();
+            try {
+              await engine.resume();
+            } catch {}
+            setTransportUI();
+          } else {
+            await startPlayback();
+          }
+          return;
+        }
+        if (!engine.running) return;
+        paused = true;
+        if (exactPause) {
+          try {
+            engine.pause();
+          } catch {
+            paused = false;
+          }
+        } else {
+          // No exact pause: hold by stopping. The resume above starts a fresh
+          // build rather than pretending to pick up where this left off.
+          engine.stop();
+        }
+        setTransportUI();
+      });
+
+      describe(
+        pauseButton,
+        exactPause
+          ? 'Hold the piece where it is. Resume picks it up at the same point.'
+          : 'Hold the piece. This engine can’t resume mid-bar, so Resume starts it building again.'
+      );
+
+      // ---- v26 genre transport (picker, favourites, fast-forward) ---------
+      // A genre is compiled into ordinary params and loaded like any other
+      // snapshot, so everything stays editable afterwards and the piece is
+      // shareable without the compiler being present to read it back. The
+      // `genre` field is only a TAG saying where the params came from.
+
+      /**
+       * Compiled genre params as a settings object. Two carve-outs, both
+       * deliberate: the tempo is rounded, because the page's tempo control is
+       * whole bpm and a stored 71.903 would show as one, and the master volume
+       * is the LISTENER's — a genre is a piece of music, not a listening
+       * level, and having the volume jump on every pick is the kind of thing
+       * that makes someone stop pressing the button.
+       */
+      function settingsFromGenre(compiled, slug) {
+        const next = structuredClone(compiled);
+        next.genre = typeof slug === 'string' ? slug : null;
+        if (typeof next.bpm === 'number') next.bpm = Math.round(clamp(next.bpm, 20, 220));
+        if (typeof settings?.volume === 'number') next.volume = settings.volume;
+        // No genre declares a kit LANE LIST — the one in a compiled object is
+        // only there because the compiler sanitises through the engine, and it
+        // carries the engine's own low→high `order`, which this page renders
+        // top-down (high first). Dropping it keeps the kit rows the right way
+        // up; the genre's actual patterns are the sequencer steps, keyed by
+        // lane id, and they are untouched.
+        if (isPlainObject(next.tracks) && isPlainObject(next.tracks.percussion)) {
+          delete next.tracks.percussion.lanes;
+        }
+        return next;
+      }
+
+      /** The genre the current params were compiled from, or null. */
+      function currentGenre() {
+        return typeof settings.genre === 'string'
+          ? GENRE_BY_SLUG.get(settings.genre) || null
+          : null;
+      }
+
+      /**
+       * Compile `genre` at `seed` and load it as the live settings — the same
+       * path a preset takes, so the dials, the editors and the persistence all
+       * behave exactly as they do for any other load. setParams is bar-
+       * quantised engine-side, so a pick while playing lands on the next bar
+       * rather than cutting the current one off.
+       */
+      function applyGenre(genre, seed = randomSeed()) {
+        const compiled = compileGenreParams(genre, seed);
+        if (!compiled) return false;
+        loadParamsSnapshot(settingsFromGenre(compiled, genre.slug));
+        return true;
+      }
+
+      function clearGenreTag() {
+        settings.genre = null;
+        engine.setParams({ genre: null });
+        persistSettings();
+        syncGenreUI();
+      }
+
+      /** The genres the list offers: favourites only where the listener asked. */
+      function listedGenres() {
+        const favourites = genrePrefs.favourites;
+        if (!genrePrefs.hideOthers || !favourites.length) return GENRES;
+        const current = settings.genre;
+        // The genre in play is always listed, favourite or not — a select
+        // cannot show a value it has no option for.
+        return GENRES.filter(
+          (genre) => favourites.includes(genre.slug) || genre.slug === current
+        );
+      }
+
+      /** Favourites grouped by mood, in MOODS order, empty groups dropped. */
+      function favouriteMoodGroups() {
+        const groups = [];
+        for (const mood of [...MOODS, OTHER_MOOD]) {
+          const members = GENRES.filter(
+            (genre) => genrePrefs.favourites.includes(genre.slug) && moodOf(genre).id === mood.id
+          );
+          if (members.length) groups.push({ mood, members });
+        }
+        return groups;
+      }
+
+      /** A random genre from `pool`, never the one already playing. */
+      function drawGenre(pool) {
+        const choices = pool.filter((genre) => genre.slug !== settings.genre);
+        const source = choices.length ? choices : pool;
+        return source.length ? source[Math.floor(Math.random() * source.length)] : null;
+      }
+
+      function genreOption(value, label) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        return option;
+      }
+
+      function renderGenreSelect() {
+        genreSelect.innerHTML = '';
+        genreSelect.append(genreOption('', 'No genre'));
+
+        const genres = document.createElement('optgroup');
+        genres.label = 'Genres';
+        for (const genre of listedGenres()) {
+          genres.append(genreOption(`g:${genre.slug}`, genre.name));
+        }
+        genreSelect.append(genres);
+
+        const groups = favouriteMoodGroups();
+        if (groups.length) {
+          const moods = document.createElement('optgroup');
+          moods.label = 'Favourite moods';
+          for (const { mood, members } of groups) {
+            moods.append(genreOption(`mood:${mood.id}`, `${mood.label} (${members.length})`));
+          }
+          genreSelect.append(moods);
+        }
+
+        const extras = document.createElement('optgroup');
+        extras.label = 'More';
+        extras.append(genreOption('surprise', 'Surprise me'));
+        extras.append(
+          genreOption('favourites', genrePrefs.picked ? 'Edit favourites…' : 'Favourites…')
+        );
+        genreSelect.append(extras);
+
+        genreSelect.value = settings.genre ? `g:${settings.genre}` : '';
+      }
+
+      function syncGenreUI() {
+        // Nothing to sync where the row is hidden: a build with no compiler
+        // has no genre to offer, and a list of entries that cannot act is
+        // worse than no list.
+        if (genreRow.hidden) return;
+        renderGenreSelect();
+      }
+
+      genreSelect.addEventListener('change', () => {
+        const value = genreSelect.value;
+        if (value === 'favourites') {
+          syncGenreUI(); // the entry is an action, not a selection
+          openFavourites();
+          return;
+        }
+        if (value === 'surprise') {
+          const genre = drawGenre(listedGenres());
+          if (!genre || !applyGenre(genre)) syncGenreUI();
+          return;
+        }
+        if (value.startsWith('mood:')) {
+          const group = favouriteMoodGroups().find(
+            (entry) => entry.mood.id === value.slice('mood:'.length)
+          );
+          const genre = group ? drawGenre(group.members) : null;
+          if (!genre || !applyGenre(genre)) syncGenreUI();
+          return;
+        }
+        if (value.startsWith('g:')) {
+          const genre = GENRE_BY_SLUG.get(value.slice(2));
+          if (!genre || !applyGenre(genre)) syncGenreUI();
+          return;
+        }
+        clearGenreTag();
+      });
+
+      describe(
+        genreSelect,
+        'Pick a genre and the whole setup is drawn from its rules — a different piece each time. ' +
+          'Loading a factory preset clears the genre, because a preset is a fixed snapshot.'
+      );
+
+      // ---- favourites editor ----------------------------------------------
+
+      const favouritesPopover = setupPopover(null, 'genre-favourites', {
+        focusReturn: genreSelect,
+      });
+      const favouritesList = document.getElementById('genre-favourites-list');
+      const hideOthersToggle = document.getElementById('genre-hide-others');
+
+      function persistGenrePrefs() {
+        persistKey('genre', genrePrefs);
+      }
+
+      function renderFavourites() {
+        favouritesList.innerHTML = '';
+        for (const mood of [...MOODS, OTHER_MOOD]) {
+          const members = GENRES.filter((genre) => moodOf(genre).id === mood.id);
+          if (!members.length) continue;
+          const group = document.createElement('div');
+          group.className = 'genre-fav-group';
+          const heading = document.createElement('span');
+          heading.className = 'panel-label';
+          heading.textContent = mood.label;
+          group.append(heading);
+          for (const genre of members) {
+            const row = document.createElement('label');
+            row.className = 'genre-fav-item';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.value = genre.slug;
+            box.checked = genrePrefs.favourites.includes(genre.slug);
+            box.addEventListener('change', () => {
+              const favourites = genrePrefs.favourites.filter((slug) => slug !== genre.slug);
+              if (box.checked) favourites.push(genre.slug);
+              genrePrefs.favourites = favourites;
+              persistGenrePrefs();
+              syncGenreUI();
+            });
+            const name = document.createElement('span');
+            name.textContent = genre.name;
+            row.append(box, name);
+            group.append(row);
+          }
+          favouritesList.append(group);
+        }
+        hideOthersToggle.checked = genrePrefs.hideOthers;
+      }
+
+      hideOthersToggle.addEventListener('change', () => {
+        genrePrefs.hideOthers = hideOthersToggle.checked;
+        persistGenrePrefs();
+        syncGenreUI();
+      });
+
+      document.getElementById('genre-favourites-done').addEventListener('click', () => {
+        favouritesPopover.close();
+      });
+
+      function openFavourites() {
+        // First use is what "picked" records: from here on the entry reads
+        // "Edit favourites…" rather than offering the choice again.
+        genrePrefs.picked = true;
+        persistGenrePrefs();
+        renderFavourites();
+        favouritesPopover.open();
+        syncGenreUI();
+      }
+
+      // ---- fast-forward -----------------------------------------------------
+      // "Something else, now." With a genre in play that is the same genre
+      // compiled at a fresh seed — a genuinely different setup (metre, mode,
+      // tempo, chord loop, kit), still recognisably the genre. With no genre
+      // there is nothing to recompile, so it re-rolls the material the current
+      // params describe: the engine's randomise() drops every track's frozen
+      // plan, hook and groove, and the next bar is built afresh.
+      if (!genreCompiler && !engineCaps.randomise) UNAVAILABLE_TRANSPORT.add('fastforward');
+
+      function reseedCurrentParams() {
+        if (!engineCaps.randomise) return;
+        try {
+          engine.randomise();
+        } catch {}
+      }
+
+      forwardButton.addEventListener('click', () => {
+        const genre = currentGenre();
+        if (genre && genreCompiler && applyGenre(genre)) return;
+        reseedCurrentParams();
+      });
+
+      describe(
+        forwardButton,
+        'Skip to a completely different setup — the same genre rebuilt from scratch, ' +
+          'or a fresh roll of the current one with no genre set.'
+      );
+
+      // The picker's own list is built by the first syncUIFromSettings below.
+      genreRow.hidden = !genreCompiler || !GENRES.length;
 
       // ---- v15 record ------------------------------------------------------
       // MediaRecorder over the engine's own mixed output. The engine keeps
@@ -8146,8 +8746,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       if (typeof engine.on === 'function') {
-        engine.on('state', ({ running }) => {
-          if (!running) finishing = false;
+        engine.on('state', ({ running, paused: enginePaused }) => {
+          if (!running) {
+            finishing = false;
+            // Where the engine really pauses, a stop is a stop and the hold is
+            // over. In the stop-and-rebuild fallback the engine IS stopped
+            // while held, so the page's own flag is the only record of it and
+            // clearing it here would lose the Resume affordance.
+            if (exactPause) clearPaused();
+          } else if (typeof enginePaused === 'boolean') {
+            paused = enginePaused;
+          }
           if (running) {
             setupMediaSession();
             if (playNotice) {
@@ -8178,10 +8787,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // ---- v6: sleep/alarm popovers (anchored, keyboard-operable dialogs) -
       // Esc and outside-click close; focus moves into the panel on open and
       // back to its button on close; Tab wraps within the panel while open.
-      function setupPopover(toggleId, popoverId) {
-        const toggle = document.getElementById(toggleId);
+      // v26: `toggleId` may be null for a dialog with no button of its own
+      // (the genre favourites editor is opened from an entry in the genre
+      // list), in which case `focusReturn` says where focus goes on close.
+      function setupPopover(toggleId, popoverId, { focusReturn = null } = {}) {
+        const toggle = toggleId ? document.getElementById(toggleId) : null;
         const popover = document.getElementById(popoverId);
-        const anchor = toggle.closest('.popover-anchor') || toggle.parentElement;
+        const anchor =
+          (toggle && toggle.closest('.popover-anchor')) ||
+          popover.closest('.popover-anchor') ||
+          (toggle ? toggle.parentElement : popover.parentElement);
 
         function focusables() {
           return Array.from(
@@ -8194,7 +8809,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         function open() {
           if (!popover.hidden) return;
           popover.hidden = false;
-          toggle.setAttribute('aria-expanded', 'true');
+          toggle?.setAttribute('aria-expanded', 'true');
           const first = focusables()[0];
           try {
             (first || popover).focus();
@@ -8204,11 +8819,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         function close({ refocus = true } = {}) {
           if (popover.hidden) return;
           popover.hidden = true;
-          toggle.setAttribute('aria-expanded', 'false');
-          if (refocus) toggle.focus();
+          toggle?.setAttribute('aria-expanded', 'false');
+          if (refocus) (toggle || focusReturn)?.focus();
         }
 
-        toggle.addEventListener('click', () => {
+        toggle?.addEventListener('click', () => {
           if (popover.hidden) open();
           else close();
         });
@@ -8385,6 +9000,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           alarmTarget = null;
           releaseWakeLock();
           if (!engine.running) {
+            clearPaused(); // an alarm start is a new piece, never a resume
             engine
               .start()
               .then(() => {
@@ -8474,7 +9090,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // Timers may have been clamped while hidden — re-check immediately.
         if (sleepTarget !== null || alarmTarget !== null) tick();
         if (alarmTarget !== null) acquireWakeLock();
-        if (engine.running) {
+        // v26: never while PAUSED — resume() is also the un-pause call, so an
+        // unattended context-poke would restart a piece the listener held.
+        if (engine.running && !paused) {
           // Recovers iOS 'interrupted' contexts once the engine ships
           // resume() — which can rebuildContext() (fresh analyser nodes)
           // without emitting a 'state' event, so re-evaluate any open
@@ -8486,7 +9104,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       });
 
       window.addEventListener('focus', () => {
-        if (engine.running) {
+        if (engine.running && !paused) {
           try {
             Promise.resolve(engine.resume?.()).then(updateAllScopeModes).catch(() => {});
           } catch {}
@@ -8503,6 +9121,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       window.addEventListener('pageshow', (event) => {
         // Restored from bfcache with the audio graph gone — show stopped UI.
         if (event.persisted) {
+          clearPaused();
           finishing = false;
           setTransportUI();
         }
@@ -8628,7 +9247,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           card.append(name, blurb);
           // v16: the rationale — WHY this preset is shaped the way it is — is
           // the card's tooltip rather than more text on the card itself.
-          if (preset.rationale) describe(card, preset.rationale);
+          // v26: and the genre consequence, because a preset is a fixed
+          // params snapshot — loading one leaves the params it carries, so
+          // the genre tag it did not come from is cleared rather than left
+          // claiming a piece it no longer describes.
+          const rationale = [preset.rationale, 'Loading a preset clears the genre.']
+            .filter(Boolean)
+            .join(' ');
+          describe(card, rationale);
           card.addEventListener('click', () => {
             loadParamsSnapshot(preset.params);
             presetName.value = preset.name;
@@ -8840,6 +9466,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         rootSelect.value = settings.root;
         modeSelect.value = settings.mode;
         timeSignatureSelect.value = settings.timeSignature;
+        syncGenreUI();
         if (engineCaps.harmonyRhythm) chordLengthSelect.value = String(settings.harmony.rhythm);
         syncStructureUI();
         syncArpUI();
@@ -9074,6 +9701,78 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .transport-button:disabled {
       opacity: 0.45;
       cursor: not-allowed;
+    }
+
+    /* -- v26 genre row: directly under the Play key, full width -- */
+
+    /* The picker is the second control on the panel, so it gets the whole
+       line rather than competing for space in the button strip. 44px is the
+       touch-target floor; the select carries its own font-size 16 so iOS
+       does not zoom the page when it opens. */
+    .genre-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .genre-select {
+      flex: 1 1 auto;
+      min-height: 44px;
+      padding: 8px 10px;
+      font-size: 16px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .genre-select:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    /* The favourites editor hangs off the row itself, not off a button of its
+       own — the genre list is where it is opened from. */
+    .genre-favourites {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: min(320px, 88vw);
+    }
+
+    .genre-fav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 46vh;
+      overflow-y: auto;
+    }
+
+    .genre-fav-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .genre-fav-item,
+    .genre-fav-hide {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .genre-fav-hide {
+      min-height: 44px;
+      border-top: 1px solid var(--border);
+    }
+
+    .genre-fav-actions {
+      display: flex;
+      justify-content: flex-end;
     }
 
     .record-button .record-dot {

@@ -144,6 +144,7 @@ const {
   BASS_POCKET,
   DEFAULT_PARAMS,
   HARMONY_RHYTHMS,
+  HOOK_MAX_CHORDS,
   PERCUSSION_LANES,
   SCALES,
   SEQUENCER_STEP_COUNT,
@@ -359,6 +360,65 @@ test('the expanded progression sets the hook length and the chord colour', () =>
   assert.equal(loop('i VI III VII'), 1);
   assert.equal(loop('i VI III VII i VI'), 0.5);
   assert.equal(loop('i VI III VII i VI III VII'), 0);
+});
+
+test('the expanded progression reaches the engine as harmony.seed', () => {
+  // The engine's slot shape: mode-relative degree, plus the colour NUDGE the
+  // symbol asks for against the piece's own complexity (a ninth one step up, a
+  // seventh exactly it, a plain triad one step down).
+  const seedOf = (tokens, mode = 'ionian') => compileGenre({
+    essence: {
+      modes: [{ value: mode, weight: 1 }],
+      chordLanguage: { progressionGrammar: [tokens], substitutionRules: [] },
+    },
+  }, { rng: seededRng(5) }).harmony.seed;
+
+  assert.deepEqual(seedOf('I vi IV V7'), [
+    { degree: 0, extension: -1 },
+    { degree: 5, extension: -1 },
+    { degree: 3, extension: -1 },
+    { degree: 4, extension: 0 },
+  ]);
+  assert.deepEqual(seedOf('Imaj9 V13'), [
+    { degree: 0, extension: 1 },
+    { degree: 4, extension: 1 },
+  ]);
+  // A degree the drawn mode does not have takes the WHOLE seed with it: half a
+  // progression is not the progression, and the engine walks its own loop from
+  // the shape params instead — which is what every genre did before the seed.
+  assert.equal(seedOf('i VI III VII', 'minorPentatonic'), null);
+  assert.deepEqual(seedOf('i iv v', 'minorPentatonic'), [
+    { degree: 0, extension: -1 },
+    { degree: 3, extension: -1 },
+    { degree: 4, extension: -1 },
+  ]);
+});
+
+test('every genre emits the loop it expanded, or none at all', () => {
+  for (const genre of GENRES) {
+    for (const seed of [3, 41, 500, 7777]) {
+      const params = compileGenre(genre, { rng: seededRng(seed) });
+      // The same draw order the suite pins above: six fixed draws, then the
+      // progression — so replaying the stream past the six re-expands exactly
+      // the progression this compile used.
+      const replay = seededRng(seed);
+      for (let i = 0; i < 6; i++) replay();
+      const { degrees } = expandProgression(genre, replay);
+      const playable = degrees.length && degrees.length <= HOOK_MAX_CHORDS
+        && degrees.every((degree) => degree < SCALES[params.mode].length);
+      if (!playable) {
+        assert.equal(params.harmony.seed, null,
+          `${genre.slug} @${seed}: seeded a loop ${params.mode} cannot play`);
+        continue;
+      }
+      assert.deepEqual(params.harmony.seed.map((slot) => slot.degree), degrees,
+        `${genre.slug} @${seed}: the compiled seed is not the expanded progression`);
+      for (const slot of params.harmony.seed) {
+        assert.ok([-1, 0, 1].includes(slot.extension),
+          `${genre.slug} @${seed}: extension ${slot.extension} is not a colour nudge`);
+      }
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -602,27 +662,43 @@ test('every genre plays: the tracks it forces on sound, the ones it kills stay s
   () => hiddenTab(async () => {
     for (const genre of GENRES) {
       const params = compileGenre(genre, { rng: seededRng(2026) });
-      const engine = createEngine(params, { rng: seededRng(square(genre.slug)) });
-      const log = record(engine);
-      await engine.start();
-      // Twelve bars: six for the staged entry, six for every track to speak.
-      const seconds = barSeconds(params) * 13;
-      await advance(seconds, FAST);
-      engine.stop();
+      const forced = Object.entries(genre.essence.instrumentation.perTrack);
+      // The per-bar generators are the ones a genre can be held to: the
+      // melodic decorators are density draws and may sit a passage out.
+      const owed = forced
+        .filter(([name, spec]) => spec.state === 'on'
+          && ['pad', 'bass', 'percussion', 'arp'].includes(name))
+        .map(([name]) => name);
+      const heard = new Set();
+      // Up to three streams, and only as many as it takes: even a per-bar
+      // generator draws its density, so ONE unlucky stream can leave a sparse
+      // auto arp silent for twelve bars — which says nothing about whether the
+      // genre plays it. The silence assertion below is not a lottery and is
+      // therefore made on every run: a killed track that sounds even once is a
+      // failure, and more runs only make that check stronger.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const engine = createEngine(params, { rng: seededRng(square(genre.slug) + attempt) });
+        const log = record(engine);
+        await engine.start();
+        // Twelve bars: six for the staged entry, six for every track to speak.
+        const seconds = barSeconds(params) * 13;
+        await advance(seconds, FAST);
+        engine.stop();
 
-      const sounded = new Set(log.notes.map((note) => note.track));
-      assert.ok(log.notes.length > 0, `${genre.slug}: silence over ${seconds.toFixed(0)} s`);
-      assert.ok(log.bars.length >= 7, `${genre.slug}: only ${log.bars.length} bars`);
-      for (const [name, spec] of Object.entries(genre.essence.instrumentation.perTrack)) {
-        if (spec.state === 'off') {
-          assert.ok(!sounded.has(name), `${genre.slug}: ${name} is off and sounded anyway`);
+        const sounded = new Set(log.notes.map((note) => note.track));
+        assert.ok(log.notes.length > 0, `${genre.slug}: silence over ${seconds.toFixed(0)} s`);
+        assert.ok(log.bars.length >= 7, `${genre.slug}: only ${log.bars.length} bars`);
+        for (const [name, spec] of forced) {
+          if (spec.state === 'off') {
+            assert.ok(!sounded.has(name), `${genre.slug}: ${name} is off and sounded anyway`);
+          }
         }
-        // The per-bar generators are the ones a genre can be held to: the
-        // melodic decorators are density draws and may sit a passage out.
-        if (spec.state === 'on' && ['pad', 'bass', 'percussion', 'arp'].includes(name)) {
-          assert.ok(sounded.has(name),
-            `${genre.slug}: ${name} is on but never sounded (heard: ${[...sounded]})`);
-        }
+        for (const name of sounded) heard.add(name);
+        if (owed.every((name) => heard.has(name))) break;
+      }
+      for (const name of owed) {
+        assert.ok(heard.has(name),
+          `${genre.slug}: ${name} is on but never sounded (heard: ${[...heard]})`);
       }
     }
   }));

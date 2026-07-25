@@ -62,6 +62,15 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   tuned/sequenced sets derived from it. Nothing else exercises that branch, so
   a fallback that has drifted from the registry would otherwise sit there
   silently waiting to boot the wrong six tracks.
+- v26 genre transport — the genre picker under the Play key holds every file in
+  `src/data/genres/` plus "Surprise me" and the favourites entry; a fresh boot
+  (which is exactly what this harness is) opens ON a genre, with params inside
+  that genre's declared ranges rather than at the engine defaults; picking a
+  genre compiles it into the live params; loading a factory preset clears the
+  tag; the favourites editor covers the whole set, a favourite adds its mood
+  group to the list and the hide toggle prunes it; and the Pause button's
+  explanation is matched against whether the engine build really ships
+  `pause()` — the same probe-gated discipline as the v21 bullet above.
 - Fresh install — this harness boots with empty storage and no consent, which is
   every first-time visitor: nothing is persisted before consent is granted, every
   track row builds a randomness control, and no dial read-out comes up NaN
@@ -648,3 +657,85 @@ Oscilloscope options (in the overlay, while playing)
       `getAnalysers()`) — that is the engine's next pass, owed from here.
 - [ ] Neither toggle shows on a build whose scope module has no `setSpread` /
       `setTotalVisible`, for the same reason.
+
+## v26 delta — genre transport (picker, favourites, Pause, Next)
+
+Fresh load opens on a genre (private window, or clear this site's data first)
+- [ ] Open `/` with nothing stored: the genre picker under the Play button
+      already names a genre, and the tempo/scale/tracks are that genre's, not
+      the old defaults. Close the window and open a fresh one two or three
+      times — a different genre or at least a different piece each time. (The
+      opening draw is from the quieter, work-music end of the set: Ambient,
+      Cinematic, Downtempo, Lofi Beats, Minimalism, New Age. Arriving straight
+      into peak-time techno is not the intended first impression.)
+- [ ] A reload of a session where you HAVE changed something restores your own
+      setup instead — the opening draw only ever runs when there is nothing
+      stored, no share link and no preset route.
+
+The genre picker (directly under Play/Finish)
+- [ ] Twelve genres, then "Surprise me", then the favourites entry. Keyboard
+      only: tab to it, open with the keyboard, arrow through it, choose with
+      Enter.
+- [ ] Choosing a genre while STOPPED loads its setup — tempo, scale, metre,
+      structure, which tracks play, the kit. Press Play: it sounds like that
+      genre.
+- [ ] Choosing a genre while PLAYING switches on a bar line rather than
+      cutting a bar off.
+- [ ] The same genre chosen twice is a different piece both times (different
+      tempo/chord loop within the genre's own rules) — genres are rules, not
+      presets.
+- [ ] Your master Volume does NOT jump when you change genre. Everything else
+      is allowed to.
+- [ ] "Surprise me" never lands on the genre already playing.
+- [ ] "No genre" clears the tag and leaves the music alone (the params are
+      still whatever the genre compiled — clearing the tag is not an undo).
+- [ ] Loading a factory preset clears the genre back to "No genre", and the
+      preset card's tooltip says so. Presets are fixed snapshots.
+- [ ] Reload: the genre you chose is still named in the picker.
+
+Favourites
+- [ ] The first time you choose the favourites entry it reads "Favourites…"
+      and opens a checkbox list of all twelve, grouped by mood (Calm, Groove,
+      Drive). After that the entry reads "Edit favourites…".
+- [ ] Tick two genres in different moods: both mood groups appear in the
+      picker under "Favourite moods", each showing how many favourites it
+      holds. Choosing one plays a random favourite from that mood.
+- [ ] "Hide the rest of the genres from the list" prunes the main list to your
+      favourites (the genre currently playing stays listed either way, or the
+      picker could not show its own value). Surprise me and the favourites
+      entry never get pruned.
+- [ ] With the hide toggle on, a fresh load opens on one of your favourites.
+- [ ] Esc closes the editor and focus returns to the picker; clicking outside
+      closes it too. Favourites survive a reload (consent granted).
+
+Pause
+- [ ] Play, then Pause: the sound stops immediately and the button reads
+      Resume. Stop stays available; the main key still reads Finish, because
+      the piece has not ended.
+- [ ] Resume: the piece continues from where it was — the same bar, the same
+      chord loop, not a fresh build. (On an engine without a real pause the
+      button says so in its tooltip and Resume starts it building again; that
+      is the fallback, not the shipped behaviour.)
+- [ ] Pause, then leave the tab for a minute and come back: it is still
+      paused, not quietly resumed.
+- [ ] Pause then Stop: stopped, and the button reads Pause again.
+- [ ] Headphone/lock-screen pause key does the same thing as the button.
+
+Next (fast-forward)
+- [ ] With a genre set, Next skips to a completely different setup inside that
+      genre — different tempo/chords/kit, same genre in the picker.
+- [ ] With no genre, Next re-rolls the material of the current setup: the
+      dials do not move, but the music changes within a bar or two.
+- [ ] Next while playing does not click, drop out or restart the piece from
+      silence.
+
+Automated: the page-boot gate additions
+- [ ] `npm run build && node tests/page-boot.mjs` asserts the picker holds
+      every genre FILE plus Surprise me and the favourites entry (a glob that
+      resolved to nothing, or a new genre file the page never picked up, fails
+      here); that a fresh boot opened on a genre whose compiled params are
+      inside that genre's own declared ranges and are not the engine defaults;
+      that picking a genre lands inside its declared bpm/scale; that a factory
+      preset clears the tag; that favouriting adds a mood group and the hide
+      toggle prunes the list; and that the Pause button's own explanation
+      matches whether this engine build actually ships `pause()`.

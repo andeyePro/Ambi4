@@ -634,7 +634,8 @@ export const DEFAULT_PARAMS = Object.freeze({
   // baked, so a params object that never mentions it sounds unchanged.
   reverbTail: 4,
   padBreath: DEFAULT_PAD_BREATH,
-  harmony: Object.freeze({ rhythm: 'auto' }),
+  // v26 seed: the chord loop the hook establishes from, or null to walk one.
+  harmony: Object.freeze({ rhythm: 'auto', seed: null }),
   structure: 'auto',
   customStructure: Object.freeze(defaultCustomStructure().map(Object.freeze)),
   arp: Object.freeze({ ...defaultArp(), steps: Object.freeze(new Array(ARP_STEP_COUNT).fill(true)) }),
@@ -729,11 +730,76 @@ function harmonyRhythm(value) {
   return HARMONY_RHYTHMS.includes(num) ? num : null;
 }
 
-function sanitiseHarmony(value, base) {
+/**
+ * v26 hook seed. `harmony.seed` is a chord loop supplied from OUTSIDE the
+ * engine — the genre compiler's expanded progression, a UI, a share link — in
+ * the same mode-relative degrees everything else here speaks: degree 0 is the
+ * tonic, and the mode decides whether it is major or minor. A slot arrives
+ * either already parsed (`{ degree, extension }`) or as a roman-numeral string
+ * in the compiler's grammar: an ordinal numeral, case a colour hint the mode
+ * overrules, an optional suffix, and no accidentals.
+ *
+ * The suffix becomes the slot's extension NUDGE rather than an absolute
+ * colour, because `complexity` already carries the loop's average colour: a
+ * ninth asks for one step more than the piece is playing, a seventh for
+ * exactly it, and a plain triad for one step less. That is what makes a
+ * written symbol sound like the symbol it is at any complexity.
+ */
+const SEED_NUMERALS = Object.freeze({ i: 0, ii: 1, iii: 2, iv: 3, v: 4, vi: 5, vii: 6 });
+const SEED_TOKEN = /^([ivIV]+)(.*)$/;
+
+function seedExtension(suffix) {
+  if (/(?:9|11|13)/.test(suffix)) return 1;
+  return /7/.test(suffix) ? 0 : -1;
+}
+
+/** One seed slot, in either accepted form; null for anything this mode cannot play. */
+function seedSlot(value, scaleLength) {
+  if (typeof value === 'string') {
+    const match = SEED_TOKEN.exec(value.trim());
+    const degree = match ? SEED_NUMERALS[match[1].toLowerCase()] : undefined;
+    if (degree === undefined || degree >= scaleLength) return null;
+    return { degree, extension: seedExtension(match[2]) };
+  }
+  if (!value || typeof value !== 'object') return null;
+  const degree = typeof value.degree === 'number' ? value.degree : Number(value.degree);
+  if (!Number.isInteger(degree) || degree < 0 || degree >= scaleLength) return null;
+  const extension = typeof value.extension === 'number' ? value.extension : Number(value.extension);
+  return {
+    degree,
+    extension: Number.isFinite(extension) ? clamp(Math.round(extension), -1, 1) : 0,
+  };
+}
+
+/**
+ * A whole seed or nothing: one to HOOK_MAX_CHORDS slots, every one of them a
+ * degree the CURRENT mode actually has. A partly-usable seed is refused rather
+ * than repaired — half a progression is not the progression the caller asked
+ * for, and the walk the engine would fill the rest with is nobody's.
+ */
+function sanitiseHookSeed(value, mode) {
+  if (!Array.isArray(value) || !value.length || value.length > HOOK_MAX_CHORDS) return undefined;
+  const scaleLength = (SCALES[mode] ?? SCALES[DEFAULT_PARAMS.mode]).length;
+  const slots = [];
+  for (const entry of value) {
+    const slot = seedSlot(entry, scaleLength);
+    if (!slot) return undefined;
+    slots.push(slot);
+  }
+  return slots;
+}
+
+function sanitiseHarmony(value, base, mode) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.harmony;
   const v = value && typeof value === 'object' ? value : null;
   const sent = v && 'rhythm' in v ? harmonyRhythm(v.rhythm) : null;
-  return { rhythm: sent ?? harmonyRhythm(from.rhythm) ?? 'auto' };
+  // Seed law, as for the genre tag: an explicit null releases it, an unusable
+  // value keeps the stored one, and the stored one is re-filtered against the
+  // mode so a seed written for a seven-note mode cannot ride into a pentatonic.
+  const seed = v && 'seed' in v && v.seed === null ? null
+    : (v && 'seed' in v ? sanitiseHookSeed(v.seed, mode) : undefined)
+      ?? sanitiseHookSeed(from.seed, mode) ?? null;
+  return { rhythm: sent ?? harmonyRhythm(from.rhythm) ?? 'auto', seed };
 }
 
 /** 16 booleans; short arrays are padded with `true`, long ones truncated. */
@@ -1364,7 +1430,7 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   // an unrelated edit can never silently strip a piece's genre.
   out.genre = at('genre') === null ? null
     : genreSlug(at('genre')) ?? genreSlug(from.genre) ?? null;
-  out.harmony = sanitiseHarmony(at('harmony'), from.harmony);
+  out.harmony = sanitiseHarmony(at('harmony'), from.harmony, out.mode);
   out.structure = oneOf(at('structure'), STRUCTURES, oneOf(from.structure, STRUCTURES, 'auto'));
   out.customStructure = sanitiseCustomStructure(at('customStructure'), from.customStructure);
   out.arp = sanitiseArp(at('arp'), from.arp);
@@ -1435,11 +1501,16 @@ function copyTrack(track) {
   return out;
 }
 
+const copyHarmony = (harmony) => ({
+  ...harmony,
+  seed: harmony.seed ? harmony.seed.map((slot) => ({ ...slot })) : null,
+});
+
 /** Deep copy of a sanitised params object — what getParams() hands out. */
 function copyParams(params, order = TRACK_ORDER) {
   return {
     ...params,
-    harmony: { ...params.harmony },
+    harmony: copyHarmony(params.harmony),
     customStructure: params.customStructure.map((block) => ({ ...block })),
     arp: { ...params.arp, steps: params.arp.steps.slice() },
     tracks: Object.fromEntries(order.map((name) => [name, copyTrack(params.tracks[name])])),
@@ -1606,10 +1677,25 @@ const MELODY_BAND = 14;           // semitones either side of the octave-4 root 
  * it is in the mode whatever the mode is. Repetition sets the loop LENGTH: a
  * listener asking for repetition gets the tightest four-chord loop, one asking
  * for wander gets eight chords before anything comes round again.
+ *
+ * v26: a `seed` (harmony.seed — a genre's expanded progression, a UI's own
+ * loop) IS the establishment. Its degrees and their colour are taken as given
+ * and its length replaces the repetition draw, but the voicing stays the
+ * engine's, exactly as it is for a walked loop — which is what leaves
+ * mutation, banking and recall to treat a seeded hook as ordinary material
+ * rather than as a frozen one.
  */
 export function buildHook({
-  scaleLength = 5, complexity = 0.5, repetition = 0.5, rng = Math.random,
+  scaleLength = 5, complexity = 0.5, repetition = 0.5, seed = null, rng = Math.random,
 } = {}) {
+  if (Array.isArray(seed) && seed.length) {
+    const slots = seed.slice(0, HOOK_MAX_CHORDS);
+    return {
+      degrees: slots.map((slot) => ((slot.degree % scaleLength) + scaleLength) % scaleLength),
+      inversions: slots.map(() => 0),
+      extensions: slots.map((slot) => clamp(Math.round(slot.extension ?? 0), -1, 1)),
+    };
+  }
   const span = HOOK_MAX_CHORDS - HOOK_MIN_CHORDS;
   const length = clamp(
     Math.round(HOOK_MIN_CHORDS + (1 - clamp(repetition, 0, 1)) * span),
@@ -2761,6 +2847,15 @@ function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.ran
   // The compressor's output route (ctx.destination, or a media element via a
   // MediaStreamDestination on iOS) is wired by the engine, not here.
 
+  // v26 master tap — what the scope's white "total" trace reads. It hangs off
+  // the COMPRESSOR, so it hears exactly what leaves the engine whichever
+  // output route is wired, and it is a dead end: an analyser passes nothing
+  // on, so tapping the master costs the mix nothing.
+  const masterAnalyser = ctx.createAnalyser();
+  masterAnalyser.fftSize = 1024;
+  masterAnalyser.smoothingTimeConstant = 0.75;
+  compressor.connect(masterAnalyser);
+
   // v21: the track sends feed a BUS rather than the convolver itself, so a
   // reverbTail rebuild can crossfade to a second convolver without touching —
   // or momentarily silencing — a single send.
@@ -2828,7 +2923,7 @@ function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.ran
   // `convolver`, `reverbReturn` and `reverbSeconds` are the LIVE tail: a swap
   // replaces all three, which is why nothing else holds a reference to them.
   return {
-    master, compressor, reverbBus, convolver, reverbReturn,
+    master, compressor, masterAnalyser, reverbBus, convolver, reverbReturn,
     reverbSeconds: DEFAULT_PARAMS.reverbTail, delay, feedback, tracks: nodes,
   };
 }
@@ -2879,6 +2974,7 @@ export function createEngine(initialParams, options = {}) {
   let suspendTimer = null;
   let ctxSampleRate = 0;       // hardware rate at context creation (iOS can change it)
   let idleSuspended = false;   // the engine suspended the context itself to save power
+  let paused = false;          // v26: held mid-piece — the clock is suspended, nothing cleared
   let output = null;           // { mode: 'element', streamDest, el } | { mode: 'direct' }
   const liveNotes = new Set(); // { handle, end } cancel handles for sounding notes
 
@@ -2932,6 +3028,7 @@ export function createEngine(initialParams, options = {}) {
   let hookRecallAt = 0;        // the pass at which the next recall is due
   const hookBank = createVariantBank({ size: HOOK_BANK_SIZE, clone: cloneHook });
   let hookSectionPending = false; // a section changed: re-pick a variant at the next pass
+  let hookSeedKey = '';        // the harmony.seed the sounding loop was established from
   let chordDegree = 0;
   let chordInversion = 0;
   let chordExtension = 0;
@@ -4088,14 +4185,21 @@ export function createEngine(initialParams, options = {}) {
 
   // -- harmony: the hook -----------------------------------------------------
 
+  /** A seed's identity, so a changed one can be spotted at a pass boundary. */
+  const seedKey = (seed) => (seed
+    ? seed.map((slot) => `${slot.degree}.${slot.extension}`).join('|')
+    : '');
+
   /** Establish the loop and arm the first recall cycle. */
   function establishHook() {
     hook = buildHook({
       scaleLength: scale().length,
       complexity: params.complexity,
       repetition: params.repetition,
+      seed: params.harmony.seed,
       rng,
     });
+    hookSeedKey = seedKey(params.harmony.seed);
     hookIndex = 0;
     hookFresh = true;
     hookPass = 0;
@@ -4164,6 +4268,15 @@ export function createEngine(initialParams, options = {}) {
    * At most one of those happens, so the loop never changes twice at once.
    */
   function completeHookPass(intensity) {
+    // v26: a new harmony.seed is new material, and it lands on a pass boundary
+    // — never mid-loop, where half of one progression would play into half of
+    // another. The bank goes with it: the ear-worms banked off the old seed
+    // belong to the progression that has just been replaced.
+    if (seedKey(params.harmony.seed) !== hookSeedKey) {
+      establishHook();
+      hookFresh = false; // slot 0 of the new loop is being published right now
+      return;
+    }
     hookPass += 1;
     bankHook(intensity);
     if (hookSectionPending && recallHook(intensity)) {
@@ -5755,8 +5868,9 @@ export function createEngine(initialParams, options = {}) {
     if (!finishRequest || !ctx || !outroStarted) return;
     if (ctx.currentTime < finishDeadline) return;
     isRunning = false;
+    paused = false;
     stopScheduler();
-    emit('state', { running: false, finished: true });
+    emit('state', { running: false, finished: true, paused: false });
     settleFinish();
     applyLevels(0.2);
     scheduleSuspend(FADE_OUT + 0.2);
@@ -5823,7 +5937,9 @@ export function createEngine(initialParams, options = {}) {
    * sit silent forever with running=true.
    */
   function handleStateChange() {
-    if (!ctx || !isRunning || ctx.state === 'running') return;
+    // A pause suspends the context deliberately; waking it here would unfreeze
+    // the clock the pause exists to stop.
+    if (!ctx || !isRunning || paused || ctx.state === 'running') return;
     try {
       const resumed = ctx.resume();
       if (resumed && typeof resumed.catch === 'function') resumed.catch(() => {});
@@ -5945,9 +6061,46 @@ export function createEngine(initialParams, options = {}) {
       await resumeWithTimeout();
     }
     if (!ctx) return;
+    if (paused) {
+      // Unpausing is the ticker starting again and nothing else: the clock
+      // stopped where the scheduler left it, so the piece continues from its
+      // own next pulse rather than from a re-anchored one. Never a rebuild —
+      // that re-anchors, which is precisely what a pause exists to avoid.
+      paused = false;
+      if (isRunning) {
+        startScheduler();
+        tick();
+      }
+      emit('state', { running: isRunning, paused: false });
+      return;
+    }
     if (isRunning && (ctx.state !== 'running' || ctx.sampleRate !== ctxSampleRate)) {
       rebuildContext();
     }
+  }
+
+  /**
+   * v26 pause: hold the piece exactly where it is. The ticker stops and the
+   * context suspends, which freezes the audio clock — so notes already
+   * scheduled stay scheduled and unsounded, the bar the scheduler is in stays
+   * that bar, and resume() picks the piece up at the position it left. Nothing
+   * is cleared: a pause is not a stop, and only a stop starts a piece over.
+   */
+  function pause() {
+    if (!isRunning || paused) return;
+    paused = true;
+    stopScheduler();
+    // Nothing may suspend-for-idle underneath a pause: that path cancels the
+    // sounding notes a pause is holding.
+    clearSuspend();
+    if (ctx && ctx.state === 'running') {
+      const suspended = ctx.suspend();
+      if (suspended && typeof suspended.catch === 'function') suspended.catch(() => {});
+    }
+    if (output && output.mode === 'element') {
+      try { output.el.pause(); } catch { /* an unplayable sink can't pause */ }
+    }
+    emit('state', { running: true, paused: true });
   }
 
   async function start() {
@@ -5959,6 +6112,12 @@ export function createEngine(initialParams, options = {}) {
       isRunning = false;
       stopScheduler();
       cancelLiveNotes();
+    }
+    // Play on a paused engine is unpause: the piece is still there, and
+    // starting it over is what stop() is for.
+    if (paused) {
+      await resume();
+      return;
     }
     // `starting` closes the re-entrancy window the awaits below open: without
     // it, a concurrent start() (alarm timer + human) installs two tickers and
@@ -6057,7 +6216,7 @@ export function createEngine(initialParams, options = {}) {
       applyLevels(FADE_IN);
       startScheduler();
       tick();
-      emit('state', { running: true });
+      emit('state', { running: true, paused: false });
     } finally {
       starting = false;
     }
@@ -6088,6 +6247,8 @@ export function createEngine(initialParams, options = {}) {
 
   function stop() {
     stopScheduler();
+    // A stop ends the piece a pause was holding: the next start() is a new one.
+    paused = false;
     // A stop during an ending cuts the outro short but still keeps its promise.
     settleFinish();
     // Cancel every sounding note (each voice's ~50 ms cancel fade is
@@ -6098,7 +6259,7 @@ export function createEngine(initialParams, options = {}) {
     wanderedVoice.clear();
     if (!isRunning) return;
     isRunning = false;
-    emit('state', { running: false });
+    emit('state', { running: false, paused: false });
     if (!ctx || !graph) return;
     applyLevels(FADE_OUT);
     scheduleSuspend(FADE_OUT + 0.2);
@@ -6194,10 +6355,23 @@ export function createEngine(initialParams, options = {}) {
     };
   }
 
+  /**
+   * One analyser per track, plus v26's `total` — the post-compressor master
+   * tap the scope draws its white trace from. Every entry is null before
+   * start(), because the graph they belong to does not exist yet.
+   */
   function getAnalysers() {
-    return Object.fromEntries(
-      trackOrder().map((name) => [name, graph ? graph.tracks[name].analyser : null]),
-    );
+    return {
+      ...Object.fromEntries(
+        trackOrder().map((name) => [name, graph ? graph.tracks[name].analyser : null]),
+      ),
+      total: graph ? graph.masterAnalyser : null,
+    };
+  }
+
+  /** The master tap on its own — the same node getAnalysers() files as 'total'. */
+  function getMasterAnalyser() {
+    return graph ? graph.masterAnalyser : null;
   }
 
   function now() {
@@ -6274,7 +6448,7 @@ export function createEngine(initialParams, options = {}) {
   // hidden timer fire. Firing on return-to-visible is harmless.
   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', () => {
-      if (isRunning && ctx && !outroScheduled) tick();
+      if (isRunning && ctx && !outroScheduled && !paused) tick();
     });
   }
 
@@ -6283,9 +6457,15 @@ export function createEngine(initialParams, options = {}) {
     start,
     finish,
     stop,
+    pause,
     resume,
     get running() {
       return isRunning;
+    },
+    // v26: running AND held. A paused engine has not stopped — its position,
+    // its bar count and its scheduled notes are all still there.
+    get paused() {
+      return paused;
     },
     randomise,
     setLoopRegion,
@@ -6295,6 +6475,7 @@ export function createEngine(initialParams, options = {}) {
     getResolved,
     getTracks: trackViews,
     getAnalysers,
+    getMasterAnalyser,
     getStats,
     setPowerBudget,
     setReverbSeconds,

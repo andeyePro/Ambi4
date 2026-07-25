@@ -16,9 +16,9 @@
 - [ ] Transport buttons: review which (if any) demote to Advanced-only (one-line gate ready)
 
 ### Next build queue (engine gaps from v26)
-- [ ] Master/total analyser (engine) so the scope's white Total trace can ship
-- [ ] Hook-seed param so genre chord DEGREES reach the audio (compiler currently maps only length/colour/rhythm/mode)
-- [ ] Genre UI: dropdown + surprise-me + favourites (mood groups, hide-non-favourites), Pause, Fast-forward, weighted initial-load genre pick
+- [x] Master/total analyser (engine) so the scope's white Total trace can ship — `getAnalysers().total` / `getMasterAnalyser()`, tapped off the compressor so both output routes feed it
+- [x] Hook-seed param so genre chord DEGREES reach the audio — `harmony.seed`, emitted by compileGenre from its expanded progression
+- [ ] Genre UI: dropdown + surprise-me + favourites (mood groups, hide-non-favourites), Pause, Fast-forward, weighted initial-load genre pick — engine side of Pause is in (`engine.pause()` / `resume()`, `state` events carry `paused`)
 
 ### Next build queue
 - [ ] Playlists rebuild: verified PD/CC0 artwork, broader instrumental artists, Ambi4-made playlist categories
