@@ -816,7 +816,7 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
   collapse identically; discrete/stepped dials excluded).
 - Piano roll: simultaneous notes in one lane get vertical offset slots
   (alternating high/low, up to 4 positions) so chord blips never overlap.
-- Block editor v1 (src/scripts/blocks.js, own module): Scratch-style block
+- Block editor v1 (src/scripts/blocks.js, own module): snap-together block
   surface for PATTERNS (not arbitrary code): palette of step/tie/group/
   probability/velocity-band/lane blocks; drag to arrange; "tie to beat N [of
   lane L]" blocks link beats (compiles to sequencer step.tie + group chains);
@@ -867,3 +867,10 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
   user edits (≠ voice defaults), display "custom [engine]" where engine is the
   voice's synthesis class — voices export engineType per voice
   ('subtractive'|'fm'|'noise'|'physical'|'hybrid') beside label/defaults/controls.
+
+## v18 hardware-panel rule (binding, user-stated)
+Like a classic hardware synth faceplate: NO control ever moves or resizes because of a state
+or text change. Every button/label zone is sized to its WIDEST state at build
+time (Play/Finish/Finishing…, armed countdowns, processor status, record
+elapsed); dynamic text changes swap content inside fixed boxes. Any layout
+shift caused by state text is a defect.
