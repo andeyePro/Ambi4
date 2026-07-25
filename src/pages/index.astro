@@ -65,11 +65,16 @@ const VOICES: Record<string, [string, string][]> = {
     ['glass', 'Glass'],
     ['strings', 'Strings'],
     ['choir', 'Choir'],
+    ['polysaw', 'Poly saw'],
   ],
   bass: [
     ['sub', 'Sub'],
     ['round', 'Round'],
     ['breath', 'Breath'],
+    ['fingered', 'Fingered'],
+    ['sawbass', 'Saw bass'],
+    ['acid', 'Squelch'],
+    ['upright', 'Upright'],
   ],
   melody: [
     ['pluck', 'Pluck'],
@@ -77,6 +82,10 @@ const VOICES: Record<string, [string, string][]> = {
     ['flute', 'Flute'],
     ['keys', 'Keys'],
     ['call', 'Call'],
+    ['tines', 'Tines'],
+    ['nylon', 'Nylon guitar'],
+    ['tape', 'Worn keys'],
+    ['stab', 'Organ stab'],
   ],
   texture: [
     ['sparkle', 'Sparkle'],
@@ -91,11 +100,13 @@ const VOICES: Record<string, [string, string][]> = {
     ['softPluck', 'Soft pluck'],
     ['crystal', 'Crystal'],
     ['marimba', 'Marimba'],
+    ['muted', 'Muted comp'],
   ],
   percussion: [
     ['soft', 'Soft kit'],
     ['hand', 'Hand drum'],
     ['tick', 'Ticks'],
+    ['dust', 'Worn kit'],
   ],
 };
 ---
@@ -686,10 +697,10 @@ const VOICES: Record<string, [string, string][]> = {
     // Voice ids → display names, mirroring the frontmatter's <option> labels
     // (the page never imports engine-voices.js just for names).
     const VOICE_LABELS = {
-      pad: { warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir' },
-      arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba' },
-      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call' },
-      bass: { sub: 'Sub', round: 'Round', breath: 'Breath' },
+      pad: { warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir', polysaw: 'Poly saw' },
+      arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba', muted: 'Muted comp' },
+      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call', tines: 'Tines', nylon: 'Nylon guitar', tape: 'Worn keys', stab: 'Organ stab' },
+      bass: { sub: 'Sub', round: 'Round', breath: 'Breath', fingered: 'Fingered', sawbass: 'Saw bass', acid: 'Squelch', upright: 'Upright' },
       texture: {
         sparkle: 'Sparkle',
         grains: 'Grains',
@@ -699,7 +710,7 @@ const VOICES: Record<string, [string, string][]> = {
         cloud: 'Grain cloud',
         call: 'Call',
       },
-      percussion: { soft: 'Soft kit', hand: 'Hand drum', tick: 'Ticks' },
+      percussion: { soft: 'Soft kit', hand: 'Hand drum', tick: 'Ticks', dust: 'Worn kit' },
     };
 
     // Transport controls hidden on the Simple tab. Deliberately EMPTY for this

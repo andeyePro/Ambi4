@@ -52,7 +52,7 @@
         "pad": { "state": "on", "voice": "strings", "level": 0.6, "randomness": 0.15 },
         "arp": { "state": "off", "voice": "softPluck", "level": 0.35, "randomness": 0.2 },
         "melody": { "state": "auto", "voice": "flute", "level": 0.3, "randomness": { "min": 0.2, "max": 0.4 } },
-        "bass": { "state": "on", "voice": "sub", "level": 0.5, "randomness": 0.1 },
+        "bass": { "state": "on", "voice": "sub", "level": 0.55, "randomness": 0.1 },
         "texture": { "state": "on", "voice": "wash", "level": { "min": 0.2, "max": 0.38 }, "randomness": 0.3 },
         "percussion": { "state": "auto", "voice": "hand", "level": 0.4, "randomness": 0.2 }
       },

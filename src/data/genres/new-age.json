@@ -54,7 +54,7 @@
         "pad": { "state": "on", "voice": "choir", "level": 0.7, "randomness": 0.2 },
         "arp": { "state": "on", "voice": "crystal", "level": 0.55, "randomness": 0.2 },
         "melody": { "state": "auto", "voice": "flute", "level": 0.5, "randomness": 0.35 },
-        "bass": { "state": "auto", "voice": "round", "level": 0.5, "randomness": 0.1 },
+        "bass": { "state": "auto", "voice": "round", "level": 0.55, "randomness": 0.1 },
         "texture": { "state": "auto", "voice": "chimes", "level": { "min": 0.2, "max": 0.4 }, "randomness": 0.3 },
         "percussion": { "state": "off", "voice": "hand", "level": 0.3, "randomness": 0.2 }
       },

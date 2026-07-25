@@ -56,7 +56,7 @@
         "pad": { "state": "auto", "voice": "glass", "level": 0.45, "randomness": 0.15 },
         "arp": { "state": "on", "voice": "marimba", "level": 0.62, "randomness": 0.1 },
         "melody": { "state": "auto", "voice": "keys", "level": 0.5, "randomness": 0.2 },
-        "bass": { "state": "auto", "voice": "sub", "level": 0.55, "randomness": 0.1 },
+        "bass": { "state": "auto", "voice": "sub", "level": 0.58, "randomness": 0.1 },
         "texture": { "state": "off", "voice": "sparkle", "level": 0.3, "randomness": 0.2 },
         "percussion": { "state": "auto", "voice": "tick", "level": 0.35, "randomness": 0.1 }
       },

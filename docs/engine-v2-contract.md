@@ -1571,3 +1571,77 @@ Every shipped grammar seed is one to four chords, so all twelve genres
 currently compile `repetition: 1` — the tightest four-chord hook. That is the
 law working, not a bug: it only starts to differentiate when a genre ships a
 five-chord-or-longer seed.
+
+---
+
+# v27 addendum — signature voices (the "every genre sounds the same" verdict)
+
+The owner's blind-test complaint: twelve genres, one palette. Every genre's
+`instrumentation.perTrack` reached for the same four voices (warm pad, round
+bass, keys melody, soft kit), so what changed between genres was tempo, chord
+grammar and groove — never the instruments. This wave adds the missing
+instruments and gives each genre a front line an ear can name in one bar.
+
+## Eleven voices added to `VOICES`
+
+| track | id | label | what it is |
+| --- | --- | --- | --- |
+| pad | `polysaw` | Poly saw | six detuned saws, chorus taps, ~1 s attack |
+| bass | `fingered` | Fingered | saw/triangle, resonant cutoff shut in 90 ms, finger click, 0.14 s release |
+| bass | `sawbass` | Saw bass | two detuned saws over a sine sub-octave |
+| bass | `acid` | Squelch | one saw through a Q 9 lowpass whose envelope IS the voice; slides on mono legato |
+| bass | `upright` | Upright | sine + triangle, struck (sustain 0), thumb thump |
+| melody | `tines` | Tines | keys' FM pair at 4× the index and a third of the decay — the bark — plus tremolo |
+| melody | `nylon` | Nylon guitar | triangle-led pluck, fast cutoff fall, 192 Hz body resonance |
+| melody | `tape` | Worn keys | two detuned layers, fixed muffle, independent slow wow per layer |
+| melody | `stab` | Organ stab | six drawbar partials (1,2,3,4,6,8) with a key click; sustained, peak-trimmed |
+| arp | `muted` | Muted comp | saw + square at Q 5, shut in 60 ms — the damped sixteenth chop |
+| percussion | `dust` | Worn kit | short thumpy kick, snare as a noise puff over a small body, dark quiet hats |
+
+House rules are unchanged and each new voice obeys them: dry into
+`destination`, exponential ramps only, peak per note under ~0.25, published
+`defaults` / `controls` / `engineType`, and `fold` declared by exactly the
+voices whose oscillator layers sum where a folder can sit (every `source: true`
+stack, plus the single-tone `bass.breath` and `bass.acid`).
+
+`bass.fingered` and `bass.acid` close half of v24's "known ceiling": a 0.14 s
+and a 0.12 s release respectively, so a staccato line stops between notes
+rather than slurring. `bass.upright` is the first struck bass — sustain 0, no
+legato pathway, which is what a plucked string actually does.
+
+## Genre voicing (all twelve), and bass restraint
+
+pad / arp / melody / bass / texture / percussion, then bass level:
+
+- acid-jazz — warm, muted, tines, fingered, wash, soft — 0.66
+- ambient — warm, softPluck, bell, breath (off), wash, soft — 0.55
+- bossa — warm, softPluck, nylon, upright, sparkle, tick — 0.60
+- cinematic — strings, softPluck, flute, sub, wash, hand — 0.55
+- deep-house — warm, softPluck, stab, round, colour, soft — 0.68
+- downtempo — warm, softPluck, tines, round, grains, soft — 0.60
+- lofi-beats — warm, softPluck, tape, sub, grains, dust — 0.62
+- minimalism — glass, marimba, keys, sub, sparkle, tick — 0.58
+- new-age — choir, crystal, flute, round, chimes, hand — 0.55
+- soul-groove — strings, muted, tines, fingered, wash, soft — 0.64
+- synthwave — polysaw, crystal, keys, sawbass, cloud, soft — 0.68
+- techno-tools — glass, crystal, pluck (off), acid, colour, tick — 0.66
+
+Binding rules, and `tests/genre-smoke.mjs` holds all three:
+
+- no two genres may share the same (pad, bass, melody) triple;
+- every voice a genre names must exist in `VOICES`, patch-bank keys included;
+- bass `level` sits in 0.55–0.68 and bass `randomness` in 0.1–0.3 everywhere —
+  the owner's "distracting at best" verdict, turned into a bound. The four
+  genres whose bass IS the hook (acid-jazz, deep-house, synthwave,
+  techno-tools) sit at the top of the level band.
+
+Re-keyed with the voices they follow: synthwave's pad patch (`warm` →
+`polysaw`) and bass patch (`round` → `sawbass`), techno-tools' bass patch
+(`sub` → `acid`), and the two `source.fold` defiance dials that point at them.
+
+## UI follow-up (owner: `src/pages/index.astro`)
+
+The page hardcodes the voice `<select>` options and a label map from this
+contract's table rather than importing `engine-voices.js`. Both need the eleven
+ids/labels above, or a listener who picks one of the new genres sees a selector
+that cannot show the voice they are hearing.

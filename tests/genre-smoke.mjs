@@ -568,6 +568,69 @@ test('instrumentation passes through: state, voice, level, randomness, patches',
   }
 });
 
+/**
+ * v27 — the voicing rules the owner's blind-test complaint turned into
+ * acceptance criteria: every genre names voices that exist, no two genres wear
+ * the same front line, and no genre's bass is loud or loose enough to wander
+ * over the bar.
+ */
+const { VOICES } = await import('../src/scripts/engine-voices.js');
+
+test('v27: every voice a genre names exists in the library', () => {
+  for (const genre of GENRES) {
+    for (const [name, spec] of Object.entries(genre.essence.instrumentation.perTrack)) {
+      assert.ok(VOICES[name] && VOICES[name][spec.voice],
+        `${genre.slug}: ${name} names a voice the library does not have (${spec.voice})`);
+    }
+    const patches = genre.essence.instrumentation.patches;
+    if (!patches) continue;
+    for (const [track, bank] of Object.entries(patches)) {
+      for (const voice of Object.keys(bank)) {
+        assert.ok(VOICES[track] && VOICES[track][voice],
+          `${genre.slug}: a patch is keyed to a voice that does not exist (${track}/${voice})`);
+      }
+    }
+  }
+});
+
+test('v27: no two genres share the same pad/bass/melody line-up', () => {
+  const seen = new Map();
+  for (const genre of GENRES) {
+    const t = genre.essence.instrumentation.perTrack;
+    const key = [t.pad.voice, t.bass.voice, t.melody.voice].join('/');
+    assert.ok(!seen.has(key),
+      `${genre.slug} and ${seen.get(key)} both voice ${key} — a blind listener cannot tell them apart`);
+    seen.set(key, genre.slug);
+  }
+});
+
+test('v27: the bass is held back everywhere — level 0.55–0.68, randomness under 0.3', () => {
+  for (const genre of GENRES) {
+    const bass = genre.essence.instrumentation.perTrack.bass;
+    const levels = typeof bass.level === 'number' ? [bass.level] : [bass.level.min, bass.level.max];
+    for (const level of levels) {
+      assert.ok(level >= 0.55 && level <= 0.68,
+        `${genre.slug}: bass level ${level} is outside the 0.55–0.68 band`);
+    }
+    const rand = typeof bass.randomness === 'number'
+      ? [bass.randomness]
+      : [bass.randomness.min, bass.randomness.max];
+    for (const value of rand) {
+      assert.ok(value >= 0.1 && value <= 0.3,
+        `${genre.slug}: bass randomness ${value} lets the riff wander`);
+    }
+  }
+});
+
+test('v27: the genres whose bass IS the hook compile that bass on and audible', () => {
+  for (const slug of ['acid-jazz', 'deep-house', 'synthwave', 'techno-tools']) {
+    const params = compileGenre(bySlug(slug), { rng: seededRng(7) });
+    assert.equal(params.tracks.bass.state, 'on', `${slug}: its signature bass is not forced on`);
+    assert.ok(params.tracks.bass.level >= 0.66,
+      `${slug}: a signature bass at ${params.tracks.bass.level} is not the hook`);
+  }
+});
+
 test('ambient compiles its bass off and its percussion beatless', () => {
   const params = compileGenre(bySlug('ambient'), { rng: seededRng(13) });
   assert.equal(params.tracks.bass.state, 'off', 'ambient ships bass off — the user ruling');
@@ -646,12 +709,12 @@ test('the defiance overlay lands last, clamps its positions and ignores stranger
 test('a patch-path dial reaches into the genre\'s own patch bank', () => {
   const genre = bySlug('techno-tools');
   const dirty = compileGenre(genre, {
-    rng: seededRng(5), defiance: { 'patches.bass.sub.source.fold': 1 },
+    rng: seededRng(5), defiance: { 'patches.bass.acid.source.fold': 1 },
   });
-  assert.equal(dirty.patches.bass.sub.source.fold, 0.7);
+  assert.equal(dirty.patches.bass.acid.source.fold, 0.7);
   // The rest of the patch survives the overlay untouched.
-  assert.equal(dirty.patches.bass.sub.filter.cutoff, 300);
-  assert.equal(dirty.patches.bass.sub.adsr.decay, 0.12);
+  assert.equal(dirty.patches.bass.acid.filter.cutoff, 520);
+  assert.equal(dirty.patches.bass.acid.adsr.decay, 0.12);
 });
 
 // ---------------------------------------------------------------------------
