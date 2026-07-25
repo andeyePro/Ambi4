@@ -3747,7 +3747,8 @@ const VOICES: Record<string, [string, string][]> = {
         const source = controlsSectionVisible(sourceSpec) ? knobSection('Source') : null;
         if (source && allowed(sourceSpec, 'shape1')) {
           addKnob(source, {
-            label: 'Shape 1',
+            label: 'OSC 1',
+            glyphOnly: true,
             min: 0,
             max: 3,
             value: readShape(patch.source, 1) ?? 0,
@@ -3779,7 +3780,8 @@ const VOICES: Record<string, [string, string][]> = {
           source.append(osc2Cell);
 
           const shape2Knob = addKnob(source, {
-            label: 'Shape 2',
+            label: 'OSC 2',
+            glyphOnly: true,
             min: 0,
             max: 3,
             value: lastShape2 ?? 0,

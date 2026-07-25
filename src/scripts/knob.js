@@ -402,6 +402,10 @@ export function createKnob(container, options) {
   // fractional morph) — the glyph node carries no text, so el.children[2]
   // .textContent stays exactly `fmt(...)`, same as the no-glyph path.
   const glyphFn = typeof opts.glyph === 'function' ? opts.glyph : null;
+  // v14.1: glyphOnly hides the text portion visually (the glyph IS the
+  // readout); the text survives in a visually-hidden span so click-to-type
+  // and AT labelling keep working, and aria-valuetext is unaffected.
+  const glyphOnly = glyphFn && opts.glyphOnly === true;
   function setValueText(text) {
     if (!glyphFn) {
       valueEl.textContent = text;
@@ -420,7 +424,14 @@ export function createKnob(container, options) {
       g.innerHTML = markup;
       valueEl.appendChild(g);
     }
-    valueEl.appendChild(document.createTextNode(text));
+    if (glyphOnly && markup) {
+      const t = document.createElement('span');
+      t.className = 'visually-hidden';
+      t.textContent = text;
+      valueEl.appendChild(t);
+    } else {
+      valueEl.appendChild(document.createTextNode(text));
+    }
   }
 
   function updateView() {
