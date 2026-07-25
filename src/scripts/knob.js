@@ -40,13 +40,19 @@
  * directly regardless of zone (unchanged from v7); Shift remains a secondary
  * alias that forces max — kept for wheel/arrow-key parity (still plain=min,
  * Shift=max there) and as the fallback when getBoundingClientRect is
- * unavailable (bare-DOM tests). The moving thumb clamps at the other. The
- * knob stays ONE tab stop: PgUp/PgDn/Home/End act on the last-edited thumb
- * (default min) and aria-valuetext reads "min X, max Y, drifting". onInput
- * emits a number in single mode and {min,max} in range mode; set() accepts
- * both and switches mode to match silently; `rangeDefault` starts a plain
- * numeric value split (min=max=value); double-click restores the INITIAL
- * value AND mode.
+ * unavailable (bare-DOM tests). v16: the moving thumb PUSHES the other along
+ * instead of clamping against it — dragging/keying/typing min past the
+ * current max carries max up with it (the range collapses to zero width,
+ * then both move together); max past min carries min down likewise. Only
+ * the knob's own [min,max] bounds ever stop a thumb. The knob stays ONE tab
+ * stop: PgUp/PgDn/Home/End act on the last-edited thumb (default min) and
+ * aria-valuetext reads "min X, max Y, drifting" — except when the thumbs
+ * have collapsed onto each other (value === valueMax), which reads
+ * "X (range collapsed)" instead, since "min X, max X, drifting" describes a
+ * spread that no longer exists. onInput emits a number in single mode and
+ * {min,max} in range mode; set() accepts both and switches mode to match
+ * silently; `rangeDefault` starts a plain numeric value split (min=max=value);
+ * double-click restores the INITIAL value AND mode.
  *
  * v14 click-to-type: the value readout is itself a focusable <button>
  * (separate DOM node from the face, so its click never collides with the
@@ -57,9 +63,11 @@
  * without committing. Parse grammar: "a-b" or "a to b" sets both thumbs
  * (range mode only, order-independent); a lone number sets the ACTIVE thumb
  * only in range mode (the last-edited one — same target as
- * PgUp/PgDn/Home/End) or the whole value in single mode. Unparsable text is
- * discarded silently, leaving the value unchanged. The input is keyboard
- * reachable with no pointer required.
+ * PgUp/PgDn/Home/End) or the whole value in single mode — through the same
+ * push-through commit/commitMax path as drag/wheel/keys, so a typed min
+ * greater than the current max PUSHES max along (never swaps the two).
+ * Unparsable text is discarded silently, leaving the value unchanged. The
+ * input is keyboard reachable with no pointer required.
  *
  * The value scale is strictly linear between min and max. Log-feel (e.g. a
  * filter-cutoff dial) is the CALLER's job: pass a mapped domain (such as
@@ -447,7 +455,15 @@ export function createKnob(container, options) {
       rangeArc.setAttribute('d', `M ${a.x} ${a.y} A ${RING_R} ${RING_R} 0 ${largeArc} 1 ${b.x} ${b.y}`);
       rangeArc.style.display = '';
       root.setAttribute('aria-valuenow', String(value));
-      root.setAttribute('aria-valuetext', `min ${fmt(value)}, max ${fmt(valueMax)}, drifting`);
+      // v16: a collapsed range (both thumbs pushed onto the same value) has
+      // no spread left to describe — "min X, max X, drifting" would read as
+      // a range that doesn't exist, so it collapses to a single-value form.
+      root.setAttribute(
+        'aria-valuetext',
+        value === valueMax
+          ? `${fmt(value)} (range collapsed)`
+          : `min ${fmt(value)}, max ${fmt(valueMax)}, drifting`
+      );
       setValueText(`${fmt(value)} – ${fmt(valueMax)}`);
     } else {
       maxPointerGroup.style.display = 'none';
@@ -467,19 +483,31 @@ export function createKnob(container, options) {
     }
   }
 
+  // v16 push-through: the moving thumb is bounded only by the knob's own
+  // [min,max] — never by the other thumb. If moving one thumb would cross
+  // the other, the other is PUSHED along with it (range width collapses to
+  // 0, then both move together) rather than the mover being clamped.
   function commit(v, fireInput) {
-    let next = quantise(v);
-    if (mode === 'range' && next > valueMax) next = valueMax;
-    if (next === value) return;
+    const next = quantise(v);
+    let maxPushed = false;
+    if (mode === 'range' && next > valueMax) {
+      valueMax = next;
+      maxPushed = true;
+    }
+    if (next === value && !maxPushed) return;
     value = next;
     updateView();
     if (fireInput) emit();
   }
 
   function commitMax(v, fireInput) {
-    let next = quantise(v);
-    if (next < value) next = value;
-    if (next === valueMax) return;
+    const next = quantise(v);
+    let minPushed = false;
+    if (next < value) {
+      value = next;
+      minPushed = true;
+    }
+    if (next === valueMax && !minPushed) return;
     valueMax = next;
     updateView();
     if (fireInput) emit();
@@ -743,10 +771,11 @@ export function createKnob(container, options) {
     // In range mode Shift selects the max thumb instead of fine control.
     const fine = mode !== 'range' && e.shiftKey ? 0.1 : 1;
     dragRaw += dy * (range / DRAG_RANGE_PX) * fine;
-    const lo = mode === 'range' && dragThumb === 'max' ? value : min;
-    const hi = mode === 'range' && dragThumb === 'min' ? valueMax : max;
-    if (dragRaw < lo) dragRaw = lo;
-    else if (dragRaw > hi) dragRaw = hi;
+    // v16: bounded only by the knob's own [min,max] — push-through (inside
+    // commit/commitMax) handles carrying the other thumb along, so a drag
+    // is never capped at the opposite thumb's current position.
+    if (dragRaw < min) dragRaw = min;
+    else if (dragRaw > max) dragRaw = max;
     if (mode === 'range') {
       activeThumb = dragThumb;
       if (dragThumb === 'max') {

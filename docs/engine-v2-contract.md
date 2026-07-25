@@ -824,3 +824,19 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
   round-trip; page hosts it behind the code-block icon on sequencer panels
   (v13 entry: block icon → blocks; >_ stays reserved for the future JS editor).
   Fully keyboard operable; no external libs.
+
+---
+
+# v17 addendum (share registry + naming + launch gating)
+
+- PAID_FEATURES_HIDDEN flag (page): all tier-gated UI (JS-editor icon, Record,
+  future upgrade buttons) renders NOTHING while true; one-line launch flip.
+- Slug grammar: factory two words; assigned free names three words (from the
+  vetted wordlist); registered tiers add username prefixes (business rules
+  live outside this repo). Slugs kebab-case, dictionary words only.
+- Registry architecture: public slug→params registry as repo data → static
+  JSON shards at build time (free static reads at any scale); Worker + D1/KV
+  write path only (register/claim/submit); accounts/PII in D1, never the repo.
+- Wordlist: src/data/wordlist.json — multi-agent vetted (profanity, innuendo,
+  brand/artist collisions incl. dictionary-word acts, cross-language offence,
+  homophones), adjudicated in-doubt-leave-out; versioned with review notes.

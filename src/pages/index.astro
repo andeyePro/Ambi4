@@ -1,5 +1,15 @@
 ---
 import Base from '../layouts/Base.astro';
+import { resolveFactoryPresets } from '../data/factory-presets-fallback.js';
+
+// v16: the curated presets live in src/data/factory-presets.json when that file
+// exists, and in the fallback module until it does — resolved at BUILD time so
+// the gallery below and the /[slug] routes are always the same set. The list
+// reaches the page script as a JSON payload element rather than a `define:vars`
+// script, because define:vars forces an inline script and this page's one
+// module script must stay bundled (dynamic imports, and the boot gate).
+const FACTORY_PRESETS = resolveFactoryPresets();
+const factoryPresetsJSON = JSON.stringify(FACTORY_PRESETS).replace(/</g, '\\u003c');
 
 const modes: [string, string][] = [
   ['majorPentatonic', 'Major pentatonic'],
@@ -267,6 +277,12 @@ const VOICES: Record<string, [string, string][]> = {
           </div>
         ))}
       </div>
+
+      <div class="module-panel factory-presets" id="factory-presets">
+        <span class="panel-label">Factory presets</span>
+        <div id="factory-preset-row" class="factory-preset-row"></div>
+        <p class="hint">Load one and change anything you like &mdash; nothing is locked.</p>
+      </div>
     </section>
 
     <section id="panel-advanced" role="tabpanel" aria-labelledby="tab-advanced" tabindex="0" hidden>
@@ -378,11 +394,10 @@ const VOICES: Record<string, [string, string][]> = {
         <p class="hint">Loops forever, in order. Up to 8 blocks.</p>
       </div>
 
-      <div class="module-panel factory-presets">
-        <span class="panel-label">Factory presets</span>
-        <div id="factory-preset-row" class="factory-preset-row"></div>
-        <p class="hint">Load one and change anything you like &mdash; nothing is locked.</p>
-      </div>
+      <p class="hint factory-presets-link">
+        Factory presets moved to the Simple tab &mdash;
+        <button type="button" id="factory-presets-jump" class="link-button">show them</button>.
+      </p>
 
       <fieldset class="presets-group">
         <legend>Your presets</legend>
@@ -447,6 +462,8 @@ const VOICES: Record<string, [string, string][]> = {
     available, or the audio engine failed to load). Try a recent version of
     Chrome, Firefox, Safari or Edge.
   </p>
+
+  <script id="factory-presets-data" type="application/json" is:inline set:html={factoryPresetsJSON}></script>
 
   <script>
     const app = document.getElementById('generator-app');
@@ -562,143 +579,34 @@ const VOICES: Record<string, [string, string][]> = {
     }
 
     /**
-     * v9/v14 factory presets: curated starting points, composed across the
+     * v9/v14/v16 factory presets: curated starting points, composed across the
      * whole param space (tempo, key/mode, metre, structure, swing, which
      * tracks play and with what voice/level/randomness/dissonance). Each is a
      * PARTIAL params object — deepMerge fills the rest from DEFAULTS — and
      * loading one is an ordinary settings load, so everything stays editable
      * afterwards. Nothing here is locked or re-applied behind the user.
+     *
+     * v16: the set itself is resolved at BUILD time (src/data/factory-presets
+     * .json, or the fallback module until it lands) and handed to the page in
+     * the #factory-presets-data JSON payload — the same list src/pages/
+     * [preset].astro built its routes from, so /[slug] can never name a preset
+     * this gallery doesn't have. { slug, name, oneLiner, rationale, params }.
      */
-    const FACTORY_PRESETS = [
-      {
-        name: 'Night Shift',
-        blurb: 'Slow, low and unhurried — for the small hours.',
-        params: {
-          bpm: 46, root: 'A', mode: 'aeolian', timeSignature: '4/4',
-          complexity: 0.28, repetition: 0.75, structure: 'drone', volume: 0.7,
-          tracks: {
-            pad: { state: 'on', voice: 'warm', level: 0.85, randomness: 0.2 },
-            arp: { state: 'off' },
-            melody: { state: 'off' },
-            bass: { state: 'auto', voice: 'sub', level: 0.7, randomness: 0.15 },
-            texture: { state: 'auto', voice: 'wash', level: 0.5, randomness: 0.3 },
-            percussion: { state: 'off' },
-          },
-        },
-      },
-      {
-        name: 'Glass Office',
-        blurb: 'Bright, clean and slightly restless. Daylight work.',
-        params: {
-          bpm: 68, root: 'C', mode: 'lydian', timeSignature: '4/4',
-          complexity: 0.48, repetition: 0.55, structure: 'waves',
-          tracks: {
-            pad: { state: 'on', voice: 'glass', level: 0.75 },
-            arp: { state: 'auto', voice: 'crystal', level: 0.6, randomness: 0.4 },
-            melody: { state: 'off' },
-            bass: { state: 'off' },
-            texture: { state: 'auto', voice: 'chimes', level: 0.55 },
-            percussion: { state: 'off' },
-          },
-        },
-      },
-      {
-        name: 'Deep Focus',
-        blurb: 'Almost nothing happens, on purpose.',
-        params: {
-          bpm: 56, root: 'D', mode: 'dorian', timeSignature: '4/4',
-          complexity: 0.22, repetition: 0.9, structure: 'drone', volume: 0.72,
-          tracks: {
-            pad: { state: 'on', voice: 'strings', level: 0.8, randomness: 0.1 },
-            arp: { state: 'off' },
-            melody: { state: 'off' },
-            bass: { state: 'off' },
-            texture: { state: 'auto', voice: 'grains', level: 0.45, randomness: 0.15 },
-            percussion: { state: 'off' },
-          },
-        },
-      },
-      {
-        name: 'Morning Rain',
-        blurb: 'Soft ticking, a bell now and then, everything damp.',
-        params: {
-          bpm: 72, root: 'G', mode: 'majorPentatonic', timeSignature: '4/4',
-          complexity: 0.55, repetition: 0.5, structure: 'waves',
-          tracks: {
-            pad: { state: 'auto', voice: 'warm', level: 0.65 },
-            arp: { state: 'auto', voice: 'softPluck', level: 0.5 },
-            melody: { state: 'auto', voice: 'bell', level: 0.6, randomness: 0.6, dissonance: 0.15 },
-            bass: { state: 'off' },
-            texture: { state: 'auto', voice: 'sparkle', level: 0.5 },
-            percussion: { state: 'auto', voice: 'tick', level: 0.35 },
-          },
-        },
-      },
-      {
-        name: 'Slow Tide',
-        blurb: 'Long swells in six-eight. Choir underneath.',
-        params: {
-          bpm: 52, root: 'F', mode: 'minorPentatonic', timeSignature: '6/8',
-          complexity: 0.38, repetition: 0.65, structure: 'waves', volume: 0.78,
-          tracks: {
-            pad: { state: 'on', voice: 'choir', level: 0.8 },
-            arp: { state: 'off' },
-            melody: { state: 'off' },
-            bass: { state: 'auto', voice: 'round', level: 0.7 },
-            texture: { state: 'auto', voice: 'wash', level: 0.55 },
-            percussion: { state: 'off' },
-          },
-        },
-      },
-      {
-        name: 'Paper Lanterns',
-        blurb: 'Marimba, hand drum and a shuffle. Warm evening.',
-        params: {
-          bpm: 82, root: 'E', mode: 'majorPentatonic', timeSignature: '4/4',
-          complexity: 0.62, repetition: 0.45, structure: 'abab', swing: 0.4,
-          tracks: {
-            pad: { state: 'auto', voice: 'warm', level: 0.6 },
-            arp: { state: 'on', voice: 'marimba', level: 0.65, randomness: 0.55 },
-            melody: { state: 'auto', voice: 'keys', level: 0.6 },
-            bass: { state: 'auto', voice: 'round', level: 0.65 },
-            texture: { state: 'auto', voice: 'chimes', level: 0.4 },
-            percussion: { state: 'on', voice: 'hand', level: 0.55 },
-          },
-        },
-      },
-      {
-        name: 'Cold Start',
-        blurb: 'Whole-tone and wide awake. The busiest of the set.',
-        params: {
-          bpm: 96, root: 'A', mode: 'wholeTone', timeSignature: '7/8',
-          complexity: 0.78, repetition: 0.3, structure: 'journey', swing: 0.15,
-          tracks: {
-            pad: { state: 'auto', voice: 'glass', level: 0.55 },
-            arp: { state: 'on', voice: 'crystal', level: 0.6, randomness: 0.7 },
-            melody: { state: 'on', voice: 'flute', level: 0.6, randomness: 0.65, dissonance: 0.35 },
-            bass: { state: 'auto', voice: 'sub', level: 0.7 },
-            texture: { state: 'auto', voice: 'sparkle', level: 0.45 },
-            percussion: { state: 'on', voice: 'soft', level: 0.5 },
-          },
-        },
-      },
-      {
-        name: 'Long Corridor',
-        blurb: 'One chord, drifting filters, no hurry at all.',
-        params: {
-          bpm: 44, root: 'B', mode: 'aeolian', timeSignature: '3/4',
-          complexity: 0.2, repetition: 0.85, structure: 'drone', volume: 0.68,
-          tracks: {
-            pad: { state: 'on', voice: 'strings', level: { min: 0.55, max: 0.85 }, randomness: 0.12 },
-            arp: { state: 'off' },
-            melody: { state: 'off' },
-            bass: { state: 'off' },
-            texture: { state: 'auto', voice: 'grains', level: { min: 0.3, max: 0.55 }, randomness: 0.2 },
-            percussion: { state: 'off' },
-          },
-        },
-      },
-    ];
+    function readFactoryPresets() {
+      try {
+        const el = document.getElementById('factory-presets-data');
+        const parsed = el ? JSON.parse(el.textContent) : null;
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    const FACTORY_PRESETS = readFactoryPresets();
+
+    function factoryPresetBySlug(slug) {
+      return FACTORY_PRESETS.find((preset) => preset.slug === slug) || null;
+    }
 
     const DEFAULTS = {
       swing: 0,
@@ -1032,8 +940,10 @@ const VOICES: Record<string, [string, string][]> = {
         const vary = isPlainObject(t.vary) ? t.vary : {};
         t.vary = defaultVary();
         for (const [key] of VARY_KEYS) {
-          const v = vary[key];
-          if (typeof v === 'number' && Number.isFinite(v)) t.vary[key] = clamp(v, 0, 1);
+          // Rangeable since v7 (the engine resolves vary.* through the same
+          // per-bar walk as randomness), so a {min,max} must survive the load —
+          // null stays null, which is the "follow Randomness" detent.
+          t.vary[key] = sanitiseRangeValueIn(vary[key], 0, 1, null);
         }
       }
       for (const id of SEQ_TRACKS) normaliseSequencerList(s.tracks[id], id);
@@ -1236,6 +1146,27 @@ const VOICES: Record<string, [string, string][]> = {
       }
     }
 
+    // ---- v16 preset routes (/[slug]) -------------------------------------
+    // src/pages/[preset].astro is a static shell per factory-preset slug: it
+    // writes the slug into this sessionStorage key and location.replace('/')s
+    // here. Only the SLUG travels — the params are looked up in the list this
+    // page already holds, so the route can never carry a stale copy of a
+    // preset. Taking it CONSUMES it (a later reload of / is the user's own
+    // session, not the link's), and the lookup runs before any dial is built,
+    // exactly like the #p= path above.
+    const ROUTE_PRESET_KEY = 'ambi4:route-preset';
+
+    function takeRoutePreset() {
+      let slug = null;
+      try {
+        slug = sessionStorage.getItem(ROUTE_PRESET_KEY);
+        sessionStorage.removeItem(ROUTE_PRESET_KEY);
+      } catch {
+        return null;
+      }
+      return slug ? factoryPresetBySlug(slug) : null;
+    }
+
     async function loadPrefsModule() {
       try {
         const mod = await import('../scripts/prefs.js');
@@ -1325,6 +1256,7 @@ const VOICES: Record<string, [string, string][]> = {
 
       let settings;
       let sharedParams = null;
+      let routePreset = null;
       {
         let saved = null;
         try {
@@ -1363,12 +1295,17 @@ const VOICES: Record<string, [string, string][]> = {
         if (migratedFromLegacy && prefs.consent() === 'granted') {
           prefs.set('generator', settings);
         }
-        // A `#p=` share link wins over the stored settings for THIS visit, and
-        // takes the same migrate → merge → normalise path a preset load does
-        // (so a link made by an older build still lands). Applied here, before
-        // any dial is built, so the first render is already the shared preset.
-        // Nothing is persisted: the note tells the user to Save to keep it.
+        // A `#p=` share link (or a /[slug] factory-preset route, v16) wins over
+        // the stored settings for THIS visit, and takes the same migrate →
+        // merge → normalise path a preset load does (so a link made by an older
+        // build still lands). Applied here, before any dial is built, so the
+        // first render is already the shared preset. Nothing is persisted: the
+        // note tells the user to Save to keep it.
         sharedParams = takeSharedParams();
+        if (!sharedParams) {
+          routePreset = takeRoutePreset();
+          if (routePreset) sharedParams = routePreset.params;
+        }
         if (sharedParams) {
           const ui = settings.ui;
           try {
@@ -1379,6 +1316,7 @@ const VOICES: Record<string, [string, string][]> = {
             settings.ui = ui;
           } catch {
             sharedParams = null;
+            routePreset = null;
           }
         }
       }
@@ -2411,11 +2349,23 @@ const VOICES: Record<string, [string, string][]> = {
 
       // Vary knobs run on a 22-position scale: raw 0 is the Auto detent
       // (null — "follows Randomness"); raw 1–21 map to explicit 0–100%.
+      // v16: vary aspects are rangeable (v7 list; the engine walks vary.* per
+      // bar exactly as it walks randomness), so raw may arrive as {min,max}.
+      // The Auto detent is a SINGLE-value state only — a range always spans
+      // explicit percentages, so its min thumb floors at raw 1, and a range
+      // that collapses onto the detent reads as Auto again.
+      const varyPct = (raw) => clamp((Math.round(raw) - 1) / 20, 0, 1);
       const varyFormat = (raw) =>
-        Math.round(raw) <= 0 ? 'Auto (follows Randomness)' : pctFormat((Math.round(raw) - 1) / 20);
-      const varyRawFromValue = (v) => (v === null ? 0 : 1 + Math.round(clamp(v, 0, 1) * 20));
-      const varyValueFromRaw = (raw) =>
-        Math.round(raw) <= 0 ? null : clamp((Math.round(raw) - 1) / 20, 0, 1);
+        Math.round(raw) <= 0 ? 'Auto (follows Randomness)' : pctFormat(varyPct(raw));
+      const varyRawNumber = (v) => (v === null ? 0 : 1 + Math.round(clamp(v, 0, 1) * 20));
+      const varyRawFromValue = (v) => (isPlainObject(v) ? mapRV(v, varyRawNumber) : varyRawNumber(v));
+      const varyValueFromRaw = (raw) => {
+        if (isPlainObject(raw)) {
+          if (Math.round(raw.max) <= 0) return null;
+          return { min: varyPct(Math.max(1, raw.min)), max: varyPct(raw.max) };
+        }
+        return Math.round(raw) <= 0 ? null : varyPct(raw);
+      };
 
       function buildVaryRow(container, track, knobs) {
         if (!engineCaps.vary[track]) return;
@@ -2436,6 +2386,10 @@ const VOICES: Record<string, [string, string][]> = {
             persistSettings();
           };
           const raw = varyRawFromValue(settings.tracks[track].vary[key]);
+          // Which shape the value currently has, so the readout can tell the
+          // Auto detent (single mode, raw 0) from a range whose min thumb
+          // happens to be sitting at the bottom of the scale (0%).
+          let ranged = isPlainObject(settings.tracks[track].vary[key]);
           let built = false;
           if (knobApi) {
             const cell = document.createElement('div');
@@ -2449,11 +2403,16 @@ const VOICES: Record<string, [string, string][]> = {
                 step: 1,
                 value: raw,
                 marks: [0],
-                format: varyFormat,
+                format: (v) => (ranged ? pctFormat(varyPct(Math.max(1, v))) : varyFormat(v)),
+                allowRange: true,
                 // DEFAULTS.tracks[*].vary is all-null (the Auto detent, raw 0)
                 // for every track/key — dblclick returns to "follows Randomness".
                 defaultValue: 0,
-                onInput: (v) => commitVary(varyValueFromRaw(v)),
+                onInput: (v) => {
+                  const value = varyValueFromRaw(v);
+                  ranged = isPlainObject(value);
+                  commitVary(value);
+                },
               });
               describe(
                 handle.el,
@@ -2466,6 +2425,10 @@ const VOICES: Record<string, [string, string][]> = {
             }
           }
           if (!built) {
+            // Slider fallback (no knob.js): single-value only — it shows the
+            // midpoint of a loaded range and collapses it on the first edit,
+            // the same policy the Level/Randomness fallbacks follow.
+            const rawMid = Math.round(rangeMid(raw));
             const wrap = document.createElement('div');
             wrap.className = 'control vary-slider';
             const id = `vary-${track}-${key}`;
@@ -2476,7 +2439,7 @@ const VOICES: Record<string, [string, string][]> = {
             lab.textContent = label;
             const readout = document.createElement('span');
             readout.className = 'value-readout';
-            readout.textContent = varyFormat(raw);
+            readout.textContent = varyFormat(rawMid);
             lrow.append(lab, readout);
             const input = document.createElement('input');
             input.type = 'range';
@@ -2484,8 +2447,8 @@ const VOICES: Record<string, [string, string][]> = {
             input.min = '0';
             input.max = '21';
             input.step = '1';
-            input.value = String(raw);
-            input.setAttribute('aria-valuetext', varyFormat(raw));
+            input.value = String(rawMid);
+            input.setAttribute('aria-valuetext', varyFormat(rawMid));
             input.addEventListener('input', () => {
               const r = parseInt(input.value, 10) || 0;
               readout.textContent = varyFormat(r);
@@ -2665,6 +2628,46 @@ const VOICES: Record<string, [string, string][]> = {
         persistSettings();
       }
 
+      // ---- v16 block editor (src/scripts/blocks.js) -----------------------
+      // Optional module, and one this page must build WITHOUT: a bare
+      // `import('../scripts/blocks.js')` is resolved by the bundler, so it
+      // would fail the build outright while blocks.js is still being written.
+      // import.meta.glob is the feature detection — an unmatched glob is an
+      // empty object, and the icon simply never appears. When the module IS
+      // present the loader below runs once, on the first click, and caches the
+      // result (null once, never retried, if its export is missing).
+      const BLOCKS_MODULE = (() => {
+        try {
+          const loaders = Object.values(import.meta.glob('../scripts/blocks.js'));
+          return loaders.length ? loaders[0] : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      let blocksApi;
+
+      async function loadBlocksModule() {
+        if (blocksApi !== undefined) return blocksApi;
+        if (!BLOCKS_MODULE) {
+          blocksApi = null;
+          return null;
+        }
+        try {
+          const mod = await BLOCKS_MODULE();
+          blocksApi = mod && typeof mod.createBlockEditor === 'function' ? mod : null;
+        } catch {
+          blocksApi = null;
+        }
+        return blocksApi;
+      }
+
+      const BLOCKS_SVG =
+        '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">' +
+        '<rect x="3" y="4" width="18" height="6" rx="1.5"/>' +
+        '<rect x="3" y="14" width="12" height="6" rx="1.5"/>' +
+        '</svg>';
+
       /** Next free probability-group id in a lane (v14 conditional trigs). */
       function nextGroupId(lane, slots) {
         let top = -1;
@@ -2744,7 +2747,26 @@ const VOICES: Record<string, [string, string][]> = {
           modeGroup.append(input, lab);
           modeRadios.push(input);
         }
-        head.append(titleBox, modeGroup);
+
+        // -- v13/v16 editor entries: blocks now, JS later -------------------
+        const editors = document.createElement('div');
+        editors.className = 'seq-editors';
+        const blockButton = document.createElement('button');
+        blockButton.type = 'button';
+        blockButton.className = 'round-button seq-editor-button seq-blocks-button';
+        blockButton.innerHTML = BLOCKS_SVG;
+        blockButton.setAttribute('aria-label', `Edit ${label}'s pattern as blocks`);
+        blockButton.setAttribute('aria-expanded', 'false');
+        blockButton.hidden = !BLOCKS_MODULE;
+        const codeButton = document.createElement('button');
+        codeButton.type = 'button';
+        codeButton.className = 'round-button seq-editor-button seq-code-button';
+        codeButton.textContent = '>_';
+        codeButton.disabled = true;
+        codeButton.setAttribute('aria-label', 'JS editor');
+        describe(codeButton, 'JS editor coming.');
+        editors.append(blockButton, codeButton);
+        head.append(titleBox, modeGroup, editors);
 
         // -- v14 multi-sequencer tab strip + per-sequencer weight -----------
         const tabsRow = document.createElement('div');
@@ -2787,7 +2809,11 @@ const VOICES: Record<string, [string, string][]> = {
         gridEl.setAttribute('aria-label', `${label} step sequencer`);
         scroll.append(beatsEl, gridEl);
 
-        root.append(head, tabsRow, scroll);
+        const blocksHost = document.createElement('div');
+        blocksHost.className = 'seq-blocks';
+        blocksHost.hidden = true;
+
+        root.append(head, tabsRow, scroll, blocksHost);
 
         let cellRefs = []; // [lane][step] -> { cell, band, bandTop, probFill, dot }
         let focusPos = { lane: 0, step: 0 };
@@ -3257,8 +3283,102 @@ const VOICES: Record<string, [string, string][]> = {
           }
         }
 
+        // -- v16 block editor ----------------------------------------------
+        // A second EDITOR for the same data, not a second copy of it: the
+        // block surface compiles to this track's sequencer params and commits
+        // through commitSequencer, exactly as the grid does. It stands in
+        // place of the grid while open so the two can never show different
+        // patterns, and setValue() re-reads the live params every time it
+        // opens (the grid may have moved them meanwhile).
+        //
+        // It is handed the ACTIVE sequencer object, so blocks.js round-trips
+        // in its 'sequencer' form and hands back the same shape — the multi-
+        // sequencer list, and which of them is being edited, stay this page's
+        // business.
+        // Lane order: this page lists lanes TOP-DOWN (High first, the v14
+        // rule), blocks.js renders its list bottom-up. Handing it the reverse
+        // — the engine's own low→mid→high order — is what puts High at the top
+        // of both editors.
+        const laneIds = lanes.map((lane) => lane.key).filter(Boolean).reverse();
+        let blockEditor = null;
+
+        function blockParams() {
+          return structuredClone(current());
+        }
+
+        /**
+         * Take a compiled pattern back from the block editor. Accepts either a
+         * sequencer object or a { sequencer } wrapper, and only touches the
+         * keys it recognises; normaliseSequencerList then repairs anything
+         * malformed (lane padding, clamping) before the engine sees it, so a
+         * half-built compile can't corrupt the track.
+         */
+        function applyBlockParams(next) {
+          const incoming = isPlainObject(next) && isPlainObject(next.sequencer) ? next.sequencer : next;
+          if (!isPlainObject(incoming)) return;
+          const seq = current();
+          if (incoming.steps !== undefined) seq.steps = incoming.steps;
+          if (typeof incoming.mode === 'string') seq.mode = incoming.mode;
+          normaliseSequencerList(settings.tracks[track], track);
+          render();
+          commitSequencer(track);
+        }
+
+        function closeBlocks() {
+          blocksHost.hidden = true;
+          scroll.hidden = false;
+          blockButton.setAttribute('aria-expanded', 'false');
+        }
+
+        async function openBlocks() {
+          const api = await loadBlocksModule();
+          if (!api) {
+            // The module resolved but has no createBlockEditor (a build older
+            // than the page): retire the affordance rather than leave a button
+            // that does nothing.
+            blockButton.hidden = true;
+            return;
+          }
+          if (!blockEditor) {
+            try {
+              blockEditor = api.createBlockEditor(blocksHost, {
+                track,
+                timeSignature: settings.timeSignature,
+                // Percussion names its lanes; a single-lane track passes none
+                // and lets blocks.js infer its own lane id from the steps.
+                ...(laneIds.length ? { lanes: laneIds } : {}),
+                value: blockParams(),
+                onChange: applyBlockParams,
+              });
+            } catch {
+              blocksHost.innerHTML = '';
+              blockButton.hidden = true;
+              return;
+            }
+          }
+          try {
+            blockEditor.setValue?.(blockParams());
+          } catch {}
+          blocksHost.hidden = false;
+          scroll.hidden = true;
+          blockButton.setAttribute('aria-expanded', 'true');
+        }
+
+        blockButton.addEventListener('click', () => {
+          if (blocksHost.hidden) openBlocks();
+          else closeBlocks();
+        });
+        describe(blockButton, `Build ${label}'s pattern out of blocks instead of the grid.`);
+
+        function destroy() {
+          try {
+            blockEditor?.destroy?.();
+          } catch {}
+          blockEditor = null;
+        }
+
         render();
-        return { refresh: render, setPlayhead };
+        return { refresh: render, setPlayhead, destroy };
       }
 
       // ---- v6: arpeggiator section (lives in the Arp track's Edit panel) --
@@ -3445,6 +3565,7 @@ const VOICES: Record<string, [string, string][]> = {
             k.destroy?.();
           } catch {}
         }
+        ed.seq?.destroy?.();
         openEditors.delete(track);
       }
 
@@ -5985,8 +6106,11 @@ const VOICES: Record<string, [string, string][]> = {
           name.textContent = preset.name;
           const blurb = document.createElement('span');
           blurb.className = 'factory-preset-blurb';
-          blurb.textContent = preset.blurb;
+          blurb.textContent = preset.oneLiner ?? '';
           card.append(name, blurb);
+          // v16: the rationale — WHY this preset is shaped the way it is — is
+          // the card's tooltip rather than more text on the card itself.
+          if (preset.rationale) describe(card, preset.rationale);
           card.addEventListener('click', () => {
             loadParamsSnapshot(preset.params);
             presetName.value = preset.name;
@@ -5994,6 +6118,16 @@ const VOICES: Record<string, [string, string][]> = {
           factoryRow.append(card);
         }
       }
+
+      // Advanced keeps its way in: the gallery itself lives on Simple now
+      // (v16), so this jumps tabs and puts the focus on the first card.
+      document.getElementById('factory-presets-jump')?.addEventListener('click', () => {
+        activateTab('simple');
+        const panel = document.getElementById('factory-presets');
+        const first = factoryRow?.querySelector('.factory-preset');
+        (first || panel)?.focus?.();
+        panel?.scrollIntoView?.({ block: 'nearest' });
+      });
 
       presetDelete.addEventListener('click', () => {
         const index = parseInt(presetLoad.value, 10);
@@ -6093,9 +6227,9 @@ const VOICES: Record<string, [string, string][]> = {
           text: 'Edit opens a track\'s panel: its step sequencer at the top, then the dials that build its sound. Drag sideways across sequencer cells to tie them into one long note.',
         },
         {
-          tab: 'advanced',
+          tab: 'simple',
           target: '.factory-presets',
-          text: 'Factory presets are starting points, not presets in the locked sense — load one and change anything. Save your own just below.',
+          text: 'Factory presets are starting points, not presets in the locked sense — load one and change anything. Each has its own web address, so you can link straight to it. Save your own under Your presets on Advanced.',
         },
         {
           tab: 'simple',
@@ -6194,9 +6328,12 @@ const VOICES: Record<string, [string, string][]> = {
       updateTimerUI();
       if (settings.ui.tutorialOpen) setTutorialOpen(true);
       if (sharedParams && shareNote) {
-        shareNote.textContent = 'Loaded shared preset — Save to keep it.';
+        shareNote.textContent = routePreset
+          ? `Loaded the ${routePreset.name} preset — Save to keep it.`
+          : 'Loaded shared preset — Save to keep it.';
         shareNote.hidden = false;
       }
+      if (routePreset) presetName.value = routePreset.name;
 
       app.hidden = false;
     }
@@ -7439,6 +7576,25 @@ const VOICES: Record<string, [string, string][]> = {
       margin-bottom: 8px;
     }
 
+    .seq-editors {
+      display: flex;
+      gap: 6px;
+    }
+
+    .seq-editor-button {
+      font-size: 12px;
+      letter-spacing: 0;
+    }
+
+    .seq-editor-button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .seq-blocks {
+      margin-bottom: 8px;
+    }
+
     .seq-scroll {
       overflow-x: auto;
       padding-bottom: 4px;
@@ -7694,6 +7850,11 @@ const VOICES: Record<string, [string, string][]> = {
     .factory-presets > .panel-label {
       display: block;
       margin-bottom: 10px;
+    }
+
+    /* v16: the gallery itself lives on Simple; Advanced keeps a way in. */
+    .factory-presets-link {
+      margin-bottom: 20px;
     }
 
     .factory-preset-row {

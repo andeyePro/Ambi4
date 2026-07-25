@@ -22,20 +22,33 @@ const test = (name, fn) => tests.push([name, fn]);
 // context (not just method calls) so tests can assert e.g. 'shadowBlur' is
 // never touched during a normal frame. If `calls.texts` / `calls.fillStyles`
 // are pre-seeded to arrays, every fillText()/fillStyle assignment is also
-// recorded into them (opt-in, so unrelated tests pay no extra cost).
+// recorded into them (opt-in, so unrelated tests pay no extra cost). If
+// `calls.roundRects` is pre-seeded to an array, every filled rounded-rect
+// path (the note blips drawn via roundRectPath — recognised as a path with
+// exactly 4 arcTo() calls before its fill()) has its moveTo() point (the
+// blip's top-left corner) pushed to it, in draw order — used to inspect the
+// y position (and therefore de-overlap slot) the visualiser assigned notes.
 function makeCtx2d(calls, propWrites) {
   const record = (name) => { calls[name] = (calls[name] || 0) + 1; };
   let fillStyleValue = '';
+  let currentPath = null; // { moveTo: {x,y}|null, arcToCount } for the path since the last beginPath()
   const methods = {
     clearRect() { record('clearRect'); },
     fillRect() { record('fillRect'); },
-    beginPath() {},
-    moveTo() {},
+    beginPath() { currentPath = { moveTo: null, arcToCount: 0 }; },
+    moveTo(x, y) {
+      if (currentPath && currentPath.moveTo === null) currentPath.moveTo = { x, y };
+    },
     lineTo() {},
-    arcTo() {},
+    arcTo() { if (currentPath) currentPath.arcToCount += 1; },
     closePath() {},
     stroke() { record('stroke'); },
-    fill() { record('fill'); },
+    fill() {
+      record('fill');
+      if (calls.roundRects && currentPath && currentPath.arcToCount === 4 && currentPath.moveTo) {
+        calls.roundRects.push(currentPath.moveTo);
+      }
+    },
     arc() {},
     fillText(text) {
       record('fillText');
@@ -853,6 +866,110 @@ test('repeat brackets: malformed loop info on bar events is dropped, not thrown'
   engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0, loop: 'nonsense' });
   engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 1, loop: { startBar: 'x' } });
   engine.emit('bar', { bar: 2, beatsPerBar: 4, time: 2, loop: null }); // explicit "no active loop"
+  inst.destroy();
+});
+
+// --------------------------------------------------------------------------
+// v16: piano-roll de-overlap (vertical offset slots)
+// --------------------------------------------------------------------------
+
+test('overlapping pad chord notes get distinct y slots', () => {
+  const calls = {};
+  calls.roundRects = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+
+  // A close-voiced triad, same onset/duration/velocity so blip size is
+  // identical across all three — any y difference is purely the slot offset.
+  for (const midi of [60, 63, 67]) {
+    engine.emit('note', { track: 'pad', midi, velocity: 0.7, time: 0, duration: 0.4 });
+  }
+  engine.emit('state', { running: false }); // synchronous static render
+
+  assert.equal(calls.roundRects.length, 3, 'expected one blip per chord note');
+  const ys = calls.roundRects.map((p) => p.y);
+  assert.equal(new Set(ys).size, 3, `expected three distinct y positions, got: ${ys.join(', ')}`);
+
+  inst.destroy();
+});
+
+test('de-overlap slots are deterministic across frames (no jitter on re-render)', () => {
+  const calls = {};
+  calls.roundRects = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+
+  for (const midi of [60, 63, 67]) {
+    engine.emit('note', { track: 'pad', midi, velocity: 0.7, time: 0, duration: 0.4 });
+  }
+  engine.emit('state', { running: false });
+  const firstPass = calls.roundRects.map((p) => p.y);
+
+  calls.roundRects.length = 0;
+  engine.emit('state', { running: false }); // re-render without adding any notes
+  const secondPass = calls.roundRects.map((p) => p.y);
+
+  assert.deepEqual(secondPass, firstPass, 'the same notes must render at the same y across repeated frames');
+
+  inst.destroy();
+});
+
+test('non-overlapping notes are unaffected by de-overlap (each renders at its plain pitch-mapped y)', () => {
+  const soloCalls = {};
+  soloCalls.roundRects = [];
+  const soloEngine = makeEngine();
+  soloEngine.running = true;
+  const soloInst = initVisualiser(makeCanvas(soloCalls), soloEngine);
+  soloEngine.emit('state', { running: true });
+  soloEngine.emit('note', { track: 'pad', midi: 60, velocity: 0.7, time: 0, duration: 0.3 });
+  soloEngine.emit('state', { running: false });
+  const soloY = soloCalls.roundRects[0].y;
+  soloInst.destroy();
+
+  const calls = {};
+  calls.roundRects = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+  // Same pitch as the solo note above, but with an earlier same-pitch note
+  // whose interval doesn't overlap it — must not trigger any offset.
+  engine.emit('note', { track: 'pad', midi: 60, velocity: 0.7, time: -1, duration: 0.3 });
+  engine.emit('note', { track: 'pad', midi: 60, velocity: 0.7, time: 0, duration: 0.3 });
+  engine.emit('state', { running: false });
+
+  assert.equal(calls.roundRects.length, 2, 'expected both non-overlapping notes to be visible and drawn');
+  assert.equal(calls.roundRects[0].y, soloY, 'the earlier, non-overlapping note renders at its unmodified pitch-mapped y');
+  assert.equal(calls.roundRects[1].y, soloY, 'the later, non-overlapping note renders at its unmodified pitch-mapped y');
+
+  inst.destroy();
+});
+
+test('percussion lanes are unaffected by de-overlap: same-kind overlapping hits still share one y', () => {
+  const calls = {};
+  calls.roundRects = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+
+  for (let i = 0; i < 3; i++) {
+    engine.emit('note', { track: 'percussion', kind: 'mid', velocity: 0.7, time: 0, duration: 0.4 });
+  }
+  engine.emit('state', { running: false });
+
+  assert.equal(calls.roundRects.length, 3, 'expected one blip per percussion hit');
+  const ys = calls.roundRects.map((p) => p.y);
+  assert.equal(new Set(ys).size, 1, `percussion hits of the same kind must share one y (no de-overlap), got: ${ys.join(', ')}`);
+
   inst.destroy();
 });
 
