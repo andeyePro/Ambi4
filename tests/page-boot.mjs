@@ -1276,11 +1276,34 @@ try {
       failures.push('the fast-forward button is hidden against an engine that can re-seed');
     }
   }
+  // ---- v27 blank slate (fromMartin 25) --------------------------------------
+  // Clicking Blank slate must leave every track OFF — the "all you" state.
+  // Runs LAST: it rewrites the whole params object, so it must follow every
+  // boot-state and fresh-visit-genre assertion.
+  {
+    const button = doc.getElementById('blank-slate');
+    if (!button) {
+      failures.push('the Advanced tab has no #blank-slate button');
+    } else {
+      button.click();
+      const allOff = await waitUntil(
+        () =>
+          doc.querySelectorAll('.track-row').length > 0 &&
+          doc.querySelectorAll('.track-row:not([data-track-state="off"])').length === 0
+      );
+      if (!allOff) {
+        const on = doc.querySelectorAll('.track-row:not([data-track-state="off"])').length;
+        failures.push(`after Blank slate, ${on} track(s) are still not off`);
+      }
+    }
+  }
+
 } catch (err) {
   failures.push(`importing the built page script threw: ${err && err.stack ? err.stack : err}`);
 }
 
 console.error = realConsoleError;
+
 
 if (failures.length) {
   console.log('\npage-boot FAILED');
