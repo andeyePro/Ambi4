@@ -20,6 +20,15 @@
 - [ ] Preset URL routes (ambi4.work/[slug]) + presets below Simple dials
 - [ ] Knob push-through min/max; piano-roll chord de-overlap
 
+### Next build queue (schema gaps from the preset psychologist)
+- [ ] Per-track density param (masking presets need one dense track without global thickening)
+- [ ] Per-track swing override; per-step gate/length on melodic lanes
+- [ ] Harmonic-rhythm control (chords-per-bar / hold-this-chord)
+- [ ] Pad breathing locked to bar phase (Breathe preset premise)
+- [ ] RangeValue drift-rate param (slow walks for masking)
+- [ ] Per-preset reverb tail (decouple from governor tier)
+- [ ] Modes: ionian, mixolydian, phrygian
+
 ### Next build queue
 - [ ] Voice editor "ghost common" upgrade: knob-level ghost pointers (current: secondary readout + dot)
 - [ ] Extensible percussion kit: user-added lanes (toms, cymbals), editable lane names (tier-gated)
