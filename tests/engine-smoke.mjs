@@ -46,6 +46,7 @@ function makeNode(kind) {
   nodesCreated += 1;
   const node = {
     kind,
+    connections: [],
     gain: makeParam(1),
     frequency: makeParam(440),
     detune: makeParam(0),
@@ -72,7 +73,7 @@ function makeNode(kind) {
     getByteFrequencyData(array) { array.fill(0); },
     getFloatTimeDomainData(array) { array.fill(0); },
     setPeriodicWave() {},
-    connect() {},
+    connect(target) { this.connections.push(target); },
     disconnect() {},
     start(t = 0) {
       oscillatorsStarted += 1;
@@ -94,23 +95,31 @@ class MockAudioContext {
     this.currentTime = 0;
     this.sampleRate = 48000;
     this.state = 'running';
-    this.destination = makeNode('destination');
+    // Every node this context made, in creation order — how the send-gain test
+    // finds the engine's graph without the engine having to expose it.
+    this.nodes = [];
+    this.destination = this.track(makeNode('destination'));
   }
 
-  createGain() { return makeNode('gain'); }
-  createOscillator() { return makeNode('oscillator'); }
-  createBiquadFilter() { return makeNode('biquad'); }
-  createStereoPanner() { return makeNode('panner'); }
-  createPanner() { return makeNode('panner3d'); }
-  createConvolver() { return makeNode('convolver'); }
-  createDelay() { return makeNode('delay'); }
-  createDynamicsCompressor() { return makeNode('compressor'); }
-  createAnalyser() { return makeNode('analyser'); }
-  createBufferSource() { return makeNode('buffersource'); }
-  createConstantSource() { return makeNode('constantsource'); }
-  createWaveShaper() { return makeNode('waveshaper'); }
-  createChannelMerger() { return makeNode('merger'); }
-  createChannelSplitter() { return makeNode('splitter'); }
+  track(node) {
+    this.nodes.push(node);
+    return node;
+  }
+
+  createGain() { return this.track(makeNode('gain')); }
+  createOscillator() { return this.track(makeNode('oscillator')); }
+  createBiquadFilter() { return this.track(makeNode('biquad')); }
+  createStereoPanner() { return this.track(makeNode('panner')); }
+  createPanner() { return this.track(makeNode('panner3d')); }
+  createConvolver() { return this.track(makeNode('convolver')); }
+  createDelay() { return this.track(makeNode('delay')); }
+  createDynamicsCompressor() { return this.track(makeNode('compressor')); }
+  createAnalyser() { return this.track(makeNode('analyser')); }
+  createBufferSource() { return this.track(makeNode('buffersource')); }
+  createConstantSource() { return this.track(makeNode('constantsource')); }
+  createWaveShaper() { return this.track(makeNode('waveshaper')); }
+  createChannelMerger() { return this.track(makeNode('merger')); }
+  createChannelSplitter() { return this.track(makeNode('splitter')); }
   createPeriodicWave() { return { kind: 'periodicwave' }; }
 
   createBuffer(channels, length, sampleRate) {
@@ -156,6 +165,35 @@ const {
   ARP_PATTERNS,
   DEFAULT_PARAMS,
 } = await import('../src/scripts/ambient-engine.js');
+
+/**
+ * The voice bank the engine will actually use for `pad`. If engine-voices.js is
+ * missing or unloadable the engine falls back to its own voices, and so does
+ * this suite — either way the bank below is the object the engine plays from,
+ * which is what the patch pass-through test spies on.
+ */
+let padBank = FALLBACK_VOICES.pad;
+let voiceLib = null;
+try {
+  const mod = await import('../src/scripts/engine-voices.js');
+  if (mod && mod.VOICES && mod.VOICES.pad && Object.keys(mod.VOICES.pad).length) {
+    padBank = mod.VOICES.pad;
+    voiceLib = mod.VOICES;
+  }
+} catch {
+  // engine-voices.js is optional; the engine's fallback voices stand in.
+}
+
+/**
+ * The send level the engine should apply to an unpatched track: the current
+ * voice's published defaults.sends when the library is loaded, else the
+ * engine's own per-track mix default (`fallback`).
+ */
+function defaultSend(track, voiceId, key, fallback) {
+  const voice = voiceLib && voiceLib[track] ? voiceLib[track][voiceId] : null;
+  const sends = voice && voice.defaults ? voice.defaults.sends : null;
+  return sends && typeof sends[key] === 'number' ? sends[key] : fallback;
+}
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -678,7 +716,7 @@ test('sanitiseParams merges tracks deeply and rejects bad states', () => {
 
 test('engine exposes the documented API and defaults', () => {
   const engine = createEngine();
-  for (const key of ['start', 'stop', 'setParams', 'getParams', 'getAnalysers', 'on', 'now']) {
+  for (const key of ['arm', 'start', 'finish', 'stop', 'resume', 'setParams', 'getParams', 'getAnalysers', 'on', 'now']) {
     assert.equal(typeof engine[key], 'function', `missing ${key}()`);
   }
   assert.equal(engine.running, false);
@@ -916,12 +954,17 @@ test('arp honours the manual step mask', async () => {
   await advance(9, { step: 0.12, sleep: 16 });
   engine.stop();
 
-  // 1/4 in 4/4 = four steps a bar, so the single enabled step comes round once
-  // every four bars.
+  // The mask is bar-anchored: with only step 0 enabled, exactly one note per
+  // bar, on the barline (the final part-scheduled bar may lack its note).
   assert.ok(bars.length >= 8, `only ${bars.length} bars`);
-  assert.ok(notes.length >= 1, 'the enabled step never fired');
-  assert.ok(notes.length <= Math.ceil(bars.length / 4) + 1,
+  assert.ok(notes.length >= bars.length - 2, 'the enabled step must fire every bar');
+  assert.ok(notes.length <= bars.length,
     `mask ignored: ${notes.length} notes across ${bars.length} bars`);
+  for (const note of notes) {
+    const owner = [...bars].reverse().find((b) => b.time <= note.time + 1e-9);
+    assert.ok(Math.abs(note.time - owner.time) < 1e-6,
+      `masked arp fired ${note.time - owner.time}s after the barline`);
+  }
 });
 
 test('percussion stays sparse when it plays', async () => {
@@ -1012,6 +1055,689 @@ test('an unknown voice id falls back instead of going silent', async () => {
 });
 
 // --------------------------------------------------------------------------
+// v3 — arm(), finish() and per-voice patches
+// --------------------------------------------------------------------------
+
+test('arm() prepares audio silently and start() then needs no gesture', async () => {
+  const Base = globalThis.AudioContext;
+  let gesture = true;
+  let created = 0;
+  class GatedContext extends Base {
+    constructor() {
+      super();
+      created += 1;
+      this.state = 'suspended';   // what a browser hands you before a gesture
+      this.resumeCalls = 0;
+    }
+
+    resume() {
+      this.resumeCalls += 1;
+      if (!gesture) return Promise.reject(new Error('resume() outside a user gesture'));
+      this.state = 'running';
+      return Promise.resolve();
+    }
+  }
+  globalThis.AudioContext = GatedContext;
+  try {
+    const engine = createEngine({ bpm: 120, speed: 2, complexity: 0.8 });
+    const events = [];
+    engine.on('note', (e) => events.push(e));
+    engine.on('bar', (e) => events.push(e));
+    engine.on('state', (e) => events.push(e));
+
+    assert.equal(engine.arm(), true);
+    assert.equal(created, 1, 'arm() must create exactly one context');
+    const ctx = liveContexts[liveContexts.length - 1];
+    assert.equal(ctx.state, 'running', 'arm() must resume the context');
+    assert.equal(engine.running, false, 'arm() must not start the transport');
+    for (const name of TRACK_ORDER) {
+      assert.ok(engine.getAnalysers()[name], `${name} analyser must exist after arm()`);
+    }
+
+    engine.arm();
+    assert.equal(created, 1, 'arm() must be idempotent');
+    assert.equal(ctx.resumeCalls, 1, 'a second arm() must not resume again');
+
+    await advance(1.5, { step: 0.12, sleep: 16 });
+    assert.deepEqual(events, [], 'arm() must schedule nothing and emit nothing');
+
+    gesture = false;   // a sleep/alarm timer has no user gesture behind it
+    await engine.start();
+    assert.equal(engine.running, true);
+    assert.equal(ctx.resumeCalls, 1, 'start() after arm() must not need a resume');
+    await advance(3, { step: 0.12, sleep: 16 });
+    assert.ok(events.some((e) => e.track), 'start() after arm() played nothing');
+    engine.stop();
+  } finally {
+    globalThis.AudioContext = Base;
+  }
+});
+
+test('finish() ends on a tonic bar, fades out and resolves', async () => {
+  const engine = createEngine({
+    bpm: 120,
+    speed: 2,
+    complexity: 1,
+    repetition: 0,
+    root: 'D',
+    mode: 'dorian',
+    structure: 'custom',
+    customStructure: [{ label: 'D', bars: 4, intensity: 1 }],
+    tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: 'on' }])),
+  });
+  const notes = [];
+  const bars = [];
+  const states = [];
+  engine.on('note', (e) => notes.push(e));
+  engine.on('bar', (e) => bars.push(e));
+  engine.on('state', (e) => states.push(e));
+
+  await engine.start();
+  await advance(5, { step: 0.12, sleep: 16 });
+  assert.ok(notes.some((n) => ['melody', 'arp', 'percussion', 'texture'].includes(n.track)),
+    'nothing decorative was playing, so there is nothing to prove about the ending');
+
+  const barsBefore = bars.length;
+  const ending = engine.finish({ fadeSeconds: 3 });
+  assert.ok(await settleWithin(ending, 30), 'finish() never resolved');
+  assert.equal(engine.running, false, 'the engine must be stopped once the ending is silent');
+  assert.deepEqual(states[states.length - 1], { running: false, finished: true });
+  assert.equal(states.filter((s) => s.running === false).length, 1, 'one stop-class state event');
+
+  assert.equal(bars.length, barsBefore + 1, 'finish() adds exactly one closing bar');
+  const closing = bars[bars.length - 1];
+  const outro = notes.filter((n) => n.time >= closing.time - 1e-9);
+  assert.ok(outro.length > 0, 'the closing bar played nothing at all');
+  for (const note of outro) {
+    assert.ok(['pad', 'bass'].includes(note.track),
+      `${note.track} kept playing into the ending`);
+  }
+
+  const rootPc = pitchClass('D');
+  const padMidis = outro.filter((n) => n.track === 'pad').map((n) => n.midi).sort((a, b) => a - b);
+  const bassMidis = outro.filter((n) => n.track === 'bass').map((n) => n.midi);
+  assert.deepEqual(padMidis, [0, 2, 4].map((d) => scaleDegreeToMidi(d, SCALES.dorian, rootPc, 3)),
+    'the closing chord must be a root-position tonic triad');
+  assert.equal(padMidis[0] % 12, rootPc, 'the lowest closing pad note must be the tonic');
+  assert.deepEqual(bassMidis.map((m) => m % 12), [rootPc], 'the bass must land on the tonic, once');
+
+  const settled = notes.length;
+  await advance(4, { step: 0.12, sleep: 16 });
+  assert.equal(notes.length, settled, 'the engine kept generating after the ending');
+
+  // an ended engine is a fresh engine
+  await engine.start();
+  await advance(3, { step: 0.12, sleep: 16 });
+  assert.ok(notes.length > settled, 'the engine would not restart after an ending');
+  assert.deepEqual(states[states.length - 1], { running: true });
+  engine.stop();
+});
+
+test('finish() is idempotent, resolves when idle, and start() cancels an ending', async () => {
+  const engine = createEngine({ bpm: 120, speed: 2, complexity: 0.7 });
+  assert.ok(await settleWithin(engine.finish(), 1), 'finish() on an idle engine must resolve');
+  assert.equal(engine.running, false);
+
+  await engine.start();
+  await advance(1.5, { step: 0.12, sleep: 16 });
+  const ending = engine.finish({ fadeSeconds: 25 });
+  assert.equal(engine.finish(), ending, 'a second finish() must return the same promise');
+  assert.equal(engine.finish({ fadeSeconds: 2 }), ending, 'options cannot restart an ending');
+  assert.equal(engine.running, true, 'the engine plays on until the ending is silent');
+
+  const notes = [];
+  engine.on('note', (n) => notes.push(n));
+  await engine.start();   // play during an ending cancels it
+  assert.ok(await settleWithin(ending, 2), 'start() must settle the pending finish()');
+  assert.equal(engine.running, true);
+  await advance(3, { step: 0.12, sleep: 16 });
+  assert.ok(notes.length > 0, 'the engine stayed silent after a cancelled ending');
+  engine.stop();
+});
+
+test('finish() clamps its fade and defaults to 8 s', async () => {
+  const run = async (options, audioSeconds) => {
+    const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' });
+    await engine.start();
+    await advance(1, { step: 0.12, sleep: 16 });
+    const ending = engine.finish(options);
+    const settled = await settleWithin(ending, audioSeconds);
+    engine.stop();
+    return settled;
+  };
+
+  // clamped to 30 s: silent well after 20 s of audio, not after
+  assert.equal(await run({ fadeSeconds: 999 }, 20), false, 'a 999 s fade was not clamped down');
+  assert.equal(await run({ fadeSeconds: 999 }, 45), true, 'a clamped fade must still finish');
+  // no usable option → the 8 s default
+  assert.equal(await run(undefined, 4), false, 'the default fade is longer than 4 s');
+  assert.equal(await run('nonsense', 14), true, 'a junk options value must fall back to the default');
+  // clamped up to 1 s
+  assert.equal(await run({ fadeSeconds: 0 }, 8), true, 'a zero fade must clamp up, not hang');
+});
+
+test('stop() during an ending cancels the outro and still resolves', async () => {
+  const engine = createEngine({ bpm: 120, speed: 2, complexity: 0.8 });
+  const states = [];
+  const notes = [];
+  engine.on('state', (e) => states.push(e));
+  engine.on('note', (e) => notes.push(e));
+  await engine.start();
+  await advance(2, { step: 0.12, sleep: 16 });
+
+  const ending = engine.finish({ fadeSeconds: 30 });
+  await advance(1.5, { step: 0.12, sleep: 16 });   // let the closing bar begin
+  engine.stop();
+  assert.equal(engine.running, false);
+  assert.ok(await settleWithin(ending, 2), 'stop() must settle the pending finish()');
+  assert.deepEqual(states[states.length - 1], { running: false },
+    'a hard stop is not a finished ending');
+
+  const settled = notes.length;
+  await advance(3, { step: 0.12, sleep: 16 });
+  assert.equal(notes.length, settled, 'the scheduler survived a stop during an ending');
+  assert.ok(await settleWithin(engine.finish(), 1), 'finish() after a stop must resolve at once');
+});
+
+test('sanitiseParams sanitises patches sparsely and deeply', () => {
+  assert.deepEqual(sanitiseParams({}).patches, {});
+  assert.deepEqual(sanitiseParams({ patches: 'nope' }).patches, {});
+  assert.deepEqual(sanitiseParams({ patches: [] }).patches, {});
+  assert.deepEqual(sanitiseParams({ patches: { nonsense: { warm: { sends: { reverb: 1 } } } } }).patches, {},
+    'an unknown track name is dropped');
+  assert.deepEqual(sanitiseParams({ patches: { pad: { '   ': { sends: { reverb: 1 } } } } }).patches, {},
+    'a blank voice id is dropped');
+
+  const wild = sanitiseParams({
+    patches: {
+      pad: {
+        warm: {
+          source: { osc1: 'sawtooth', osc2: 'gong', mix: 5, detune: -9, octave: 2.4, wobble: 1 },
+          filter: { type: 'notch', cutoff: 99999, q: 0, envAmount: -1 },
+          adsr: { attack: 0, decay: 99, sustain: 0.4, release: 'nope' },
+          sends: { reverb: 0.3, delay: 2 },
+          nonsense: { x: 1 },
+        },
+      },
+    },
+  }).patches;
+  assert.deepEqual(wild, {
+    pad: {
+      warm: {
+        // a legacy osc1 string maps into the v5 shape1 morph field, and rides along
+        source: { osc1: 'sawtooth', shape1: 2, mix: 1, detune: 0, octave: 1 },
+        filter: { type: 'notch', cutoff: 12000, q: 0.1, envAmount: 0 },
+        adsr: { attack: 0.001, decay: 8, sustain: 0.4 },
+        sends: { reverb: 0.3, delay: 1 },
+      },
+    },
+  });
+
+  // an unusable patch is ignored rather than filled in with engine guesses
+  assert.deepEqual(sanitiseParams({ patches: { pad: { warm: 'nope' } } }).patches, {});
+  assert.deepEqual(sanitiseParams({ patches: { pad: { warm: [] } } }).patches, {});
+  assert.deepEqual(sanitiseParams({ patches: { pad: { warm: {} } } }).patches, {});
+  assert.deepEqual(sanitiseParams({ patches: { pad: { warm: { adsr: { attack: NaN } } } } }).patches, {});
+  assert.deepEqual(sanitiseParams({ patches: { pad: { warm: { filter: 'nope' } } } }).patches, {});
+
+  // osc2: null means "one oscillator", which is not the same as unset — and it
+  // maps through to shape2 the same way a string would
+  assert.deepEqual(sanitiseParams({ patches: { melody: { pluck: { source: { osc2: null } } } } }).patches,
+    { melody: { pluck: { source: { osc2: null, shape2: null } } } });
+
+  // v5 morph fields: fractional shapes survive, legacy strings map, ranges clamp
+  assert.deepEqual(
+    sanitiseParams({ patches: { pad: { warm: { source: { shape1: 1.5, shape2: 2.25 } } } } })
+      .patches.pad.warm.source,
+    { shape1: 1.5, shape2: 2.25 }, 'fractional morph positions must survive sanitising');
+  assert.deepEqual(
+    sanitiseParams({ patches: { pad: { warm: { source: { osc1: 'triangle', osc2: 'square' } } } } })
+      .patches.pad.warm.source,
+    { osc1: 'triangle', osc2: 'square', shape1: 1, shape2: 3 },
+    'legacy osc strings must map sine→0 triangle→1 sawtooth→2 square→3');
+  assert.deepEqual(
+    sanitiseParams({ patches: { pad: { warm: { source: { shape1: 9, shape2: -2 } } } } })
+      .patches.pad.warm.source,
+    { shape1: 3, shape2: 0 }, 'morph positions must clamp to 0–3');
+  assert.deepEqual(
+    sanitiseParams({ patches: { pad: { warm: { source: { shape2: null } } } } })
+      .patches.pad.warm.source,
+    { shape2: null }, 'shape2: null (single oscillator) is legal');
+  // an explicit shape wins over the legacy string it shadows
+  assert.deepEqual(
+    sanitiseParams({ patches: { pad: { warm: { source: { osc1: 'sine', shape1: 2.5 } } } } })
+      .patches.pad.warm.source,
+    { osc1: 'sine', shape1: 2.5 });
+  assert.deepEqual(sanitiseParams({ patches: { pad: { warm: { source: { shape1: 'nope' } } } } }).patches,
+    {}, 'a junk shape is dropped, not defaulted');
+  // strings from number inputs still count
+  assert.deepEqual(sanitiseParams({ patches: { bass: { sub: { sends: { delay: '0.25' } } } } }).patches,
+    { bass: { sub: { sends: { delay: 0.25 } } } });
+  assert.deepEqual(sanitiseParams({ patches: { bass: { sub: { sends: { delay: true } } } } }).patches, {},
+    'a boolean is not a send level');
+
+  // unknown voice ids survive — the library may load later
+  assert.deepEqual(sanitiseParams({ patches: { bass: { ghost: { sends: { delay: 0.2 } } } } }).patches,
+    { bass: { ghost: { sends: { delay: 0.2 } } } });
+
+  // deep merge, field by field
+  const base = sanitiseParams({
+    patches: { arp: { crystal: { adsr: { attack: 0.2, release: 3 }, sends: { reverb: 0.4 } } } },
+  });
+  assert.deepEqual(sanitiseParams({
+    patches: { arp: { crystal: { adsr: { release: 5 } }, marimba: { filter: { cutoff: 800 } } } },
+  }, base).patches, {
+    arp: {
+      crystal: { adsr: { attack: 0.2, release: 5 }, sends: { reverb: 0.4 } },
+      marimba: { filter: { cutoff: 800 } },
+    },
+  });
+  assert.deepEqual(sanitiseParams({ patches: { arp: { crystal: null } } }, base).patches, base.patches,
+    'an invalid incoming patch leaves the stored one alone');
+  assert.deepEqual(sanitiseParams({ bpm: 80 }, base).patches, base.patches,
+    'an unrelated update keeps the patches');
+
+  // getParams hands back a deep copy
+  const engine = createEngine({ patches: { pad: { warm: { sends: { reverb: 0.2 } } } } });
+  assert.deepEqual(engine.getParams().patches, { pad: { warm: { sends: { reverb: 0.2 } } } });
+  const snapshot = engine.getParams();
+  snapshot.patches.pad.warm.sends.reverb = 1;
+  assert.equal(engine.getParams().patches.pad.warm.sends.reverb, 0.2);
+});
+
+test('the current voice patch reaches play() as its fourth argument', async () => {
+  const calls = [];
+  const spy = (id) => ({
+    label: `Spy ${id}`,
+    play(ctx, destination, note, patch) {
+      calls.push({ id, note, patch, argc: arguments.length });
+    },
+  });
+  padBank.patchSpyA = spy('A');
+  padBank.patchSpyB = spy('B');
+  assert.ok(padBank.patchSpyA && padBank.patchSpyB, 'the pad voice bank must accept a spy voice');
+  try {
+    const engine = createEngine({
+      bpm: 120,
+      speed: 2,
+      structure: 'drone',
+      tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'pad' ? 'on' : 'off', voice: n === 'pad' ? 'patchSpyA' : undefined }])),
+      patches: { pad: { patchSpyA: { adsr: { attack: 0.5, release: 4 }, sends: { reverb: 0.9 } } } },
+    });
+    const expected = engine.getParams().patches.pad.patchSpyA;
+    await engine.start();
+    await advance(4, { step: 0.12, sleep: 16 });
+    assert.ok(calls.length > 0, 'the spy voice was never played');
+    for (const call of calls) {
+      assert.equal(call.id, 'A');
+      assert.equal(call.argc, 4, 'play() must be called with the patch as a fourth argument');
+      assert.deepEqual(call.patch, expected, 'the patch handed to play() must be the sanitised one');
+      assert.ok(Number.isFinite(call.note.when), 'the note itself must still be well formed');
+    }
+
+    // a voice with no patch of its own gets undefined, not someone else's patch
+    calls.length = 0;
+    engine.setParams({ tracks: { pad: { voice: 'patchSpyB' } } });
+    await advance(4, { step: 0.12, sleep: 16 });
+    engine.stop();
+    assert.ok(calls.length > 0, 'the unpatched spy voice was never played');
+    for (const call of calls) {
+      assert.equal(call.id, 'B');
+      assert.equal(call.patch, undefined, 'an unpatched voice must receive undefined');
+    }
+  } finally {
+    delete padBank.patchSpyA;
+    delete padBank.patchSpyB;
+  }
+});
+
+test('per-track sends follow the current voice patch', async () => {
+  const engine = createEngine({
+    bpm: 120,
+    speed: 2,
+    patches: {
+      pad: { warm: { sends: { reverb: 0.9, delay: 0.8 } } },
+      bass: { sub: { sends: { delay: 0.5 } } },
+    },
+  });
+  await engine.start();
+  const sends = sendGains(liveContexts[liveContexts.length - 1]);
+  assert.equal(sends.pad.reverb.gain.value, 0.9);
+  assert.equal(sends.pad.delay.gain.value, 0.8);
+  assert.equal(sends.bass.delay.gain.value, 0.5,
+    'a patch must be able to raise a send the mix defaults to zero');
+  // Unpatched tracks take the current voice's published defaults.sends when
+  // the library is loaded, else the engine's per-track mix defaults.
+  assert.equal(sends.melody.reverb.gain.value, defaultSend('melody', 'pluck', 'reverb', 0.5),
+    'an unpatched track keeps its default reverb send');
+  assert.equal(sends.melody.delay.gain.value, defaultSend('melody', 'pluck', 'delay', 0.28),
+    'an unpatched track keeps its default delay send');
+  if (voiceLib) {
+    assert.equal(typeof voiceLib.melody.pluck.defaults.sends.reverb, 'number',
+      'the voice library must publish defaults.sends for this test to bite');
+    assert.equal(sends.melody.reverb.gain.value, voiceLib.melody.pluck.defaults.sends.reverb,
+      'with the library loaded, an unpatched send must match the voice defaults');
+  }
+
+  engine.setParams({ patches: { pad: { warm: { sends: { reverb: 0.1 } } } } });
+  assert.equal(sends.pad.reverb.gain.value, 0.1, 'a live send edit must reach the graph');
+  assert.equal(sends.pad.delay.gain.value, 0.8, 'a partial patch edit keeps the other send');
+
+  engine.setParams({ tracks: { pad: { voice: 'glass' } } });
+  assert.equal(sends.pad.reverb.gain.value, defaultSend('pad', 'glass', 'reverb', 0.45),
+    'a voice with no patch returns to that voice\'s default send');
+  assert.equal(sends.pad.delay.gain.value, defaultSend('pad', 'glass', 'delay', 0.1));
+  engine.stop();
+});
+
+// --------------------------------------------------------------------------
+// v3 hardening — throttled timers, re-entrancy, bar-anchoring, invalidation
+// --------------------------------------------------------------------------
+
+/**
+ * Minimal stand-in for the engine's inline-blob ticker Worker. It cannot run
+ * the blob's script, so it implements the same tiny protocol directly: a
+ * posted number > 0 starts an interval that posts back, 0 stops it.
+ */
+class MockTickerWorker {
+  static live = new Set();
+
+  constructor() {
+    MockTickerWorker.live.add(this);
+    this.onmessage = null;
+    this.timer = null;
+  }
+
+  postMessage(ms) {
+    clearInterval(this.timer);
+    this.timer = null;
+    if (ms > 0) {
+      this.timer = setInterval(() => { if (this.onmessage) this.onmessage({ data: 0 }); }, ms);
+    }
+  }
+
+  terminate() {
+    clearInterval(this.timer);
+    this.timer = null;
+    MockTickerWorker.live.delete(this);
+  }
+}
+
+test('scheduler survives throttled 1 Hz timers and resumes mid-piece after a stall', async () => {
+  // A hidden tab: timers clamp to >=1 s. bpm 100 in 4/4 = 2.4 s bars, so the
+  // v2 failure mode (a resync minting a fresh bar on every tick) would emit a
+  // bar per second — 2.4× too many — with restarted structure accounting.
+  globalThis.document = { hidden: true, addEventListener() {} };
+  try {
+    const engine = createEngine({
+      bpm: 100, speed: 1, timeSignature: '4/4', structure: 'abab', complexity: 0.6,
+      tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'pad' ? 'on' : 'off' }])),
+    });
+    const bars = [];
+    const sections = [];
+    engine.on('bar', (e) => bars.push(e));
+    engine.on('section', (e) => sections.push(e));
+    await engine.start();
+    const ctx = liveContexts[liveContexts.length - 1];
+
+    const barSeconds = 4 * (60 / 100);
+    // 48 s of audio delivered in whole-second clock jumps, as a clamped
+    // setInterval would see them.
+    for (let s = 0; s < 48; s++) {
+      ctx.currentTime += 1;
+      await new Promise((resolve) => setTimeout(resolve, 35));
+    }
+
+    assert.ok(bars.length >= 17 && bars.length <= 22,
+      `expected ~20 bars in 48 s of 2.4 s bars, got ${bars.length} — the scheduler is minting bars per tick`);
+    bars.forEach((e, i) => {
+      assert.equal(e.bar, bars[0].bar + i, 'bar numbers must advance monotonically without restarts');
+      if (i > 0) {
+        assert.ok(Math.abs(e.time - bars[i - 1].time - barSeconds) < 1e-6,
+          `bars must stay ${barSeconds}s apart, got ${e.time - bars[i - 1].time}`);
+      }
+    });
+    // structure accounting must not race: abab changes section every 8 bars
+    assert.ok(sections.length >= 2, 'no section changes in 20 bars of abab');
+    for (let i = 1; i < sections.length; i++) {
+      assert.equal(sections[i].bar - sections[i - 1].bar, 8,
+        'abab sections must stay 8 bars apart under throttled timers');
+    }
+
+    // A genuine stall (system sleep — longer than the widened lookahead):
+    // the piece resumes with the counters advanced by the elapsed bars, not
+    // restarted and not incremented by just one.
+    const lastBar = bars[bars.length - 1];
+    const before = bars.length;
+    ctx.currentTime += 12;
+    for (let s = 0; s < 8; s++) {
+      ctx.currentTime += 1;
+      await new Promise((resolve) => setTimeout(resolve, 35));
+    }
+    engine.stop();
+    assert.ok(bars.length > before, 'the scheduler never recovered from the stall');
+    const resumed = bars[before];
+    const gap = resumed.bar - lastBar.bar;
+    assert.ok(gap >= 3 && gap <= 7,
+      `a ~10 s stall over 2.4 s bars must advance the bar counter by the elapsed bars, got gap ${gap}`);
+    for (let i = before + 1; i < bars.length; i++) {
+      assert.equal(bars[i].bar, bars[i - 1].bar + 1, 'counting must be consecutive again after the resync');
+    }
+  } finally {
+    delete globalThis.document;
+  }
+});
+
+test('concurrent start() leaves exactly one ticker and stop() clears it', async () => {
+  MockTickerWorker.live.clear();
+  globalThis.Worker = MockTickerWorker;
+  try {
+    const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' });
+    const bars = [];
+    engine.on('bar', (e) => bars.push(e));
+    // The alarm timer and the human hit Play in the same instant.
+    await Promise.all([engine.start(), engine.start(), engine.start()]);
+    assert.equal(engine.running, true);
+    assert.equal(MockTickerWorker.live.size, 1,
+      `concurrent start() installed ${MockTickerWorker.live.size} tickers`);
+    await advance(2, { step: 0.12, sleep: 16 });
+    assert.ok(bars.length > 0, 'the single ticker never ticked');
+    bars.forEach((e, i) => assert.equal(e.bar, i, 'double scheduling corrupts bar accounting'));
+
+    engine.stop();
+    assert.equal(MockTickerWorker.live.size, 0, 'stop() must terminate the ticker');
+    const after = bars.length;
+    await advance(1, { step: 0.12, sleep: 16 });
+    assert.equal(bars.length, after, 'a leaked ticker kept running after stop()');
+
+    // restart still works, and still holds the single-ticker invariant
+    await Promise.all([engine.start(), engine.start()]);
+    assert.equal(MockTickerWorker.live.size, 1);
+    engine.stop();
+    assert.equal(MockTickerWorker.live.size, 0);
+  } finally {
+    delete globalThis.Worker;
+  }
+
+  // Worker creation throwing (CSP) must fall back to setInterval, not silence.
+  globalThis.Worker = class { constructor() { throw new Error('blocked by CSP'); } };
+  try {
+    const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' });
+    const bars = [];
+    engine.on('bar', (e) => bars.push(e));
+    await engine.start();
+    await advance(2, { step: 0.12, sleep: 16 });
+    engine.stop();
+    assert.ok(bars.length > 0, 'the setInterval fallback never ran');
+    const after = bars.length;
+    await advance(1, { step: 0.12, sleep: 16 });
+    assert.equal(bars.length, after, 'the fallback interval leaked past stop()');
+  } finally {
+    delete globalThis.Worker;
+  }
+});
+
+test('stop() cancels sounding notes so tails cannot resurrect on restart', async () => {
+  const cancels = [];
+  const spy = {
+    label: 'Cancel spy',
+    play(ctx, destination, note) {
+      const handle = { cancelled: false, cancel() { this.cancelled = true; } };
+      cancels.push(handle);
+      return handle;
+    },
+  };
+  padBank.cancelSpy = spy;
+  try {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone',
+      tracks: Object.fromEntries(TRACK_ORDER.map((n) => [
+        n, { state: n === 'pad' ? 'on' : 'off', voice: n === 'pad' ? 'cancelSpy' : undefined },
+      ])),
+    });
+    await engine.start();
+    await advance(3, { step: 0.12, sleep: 16 });
+    assert.ok(cancels.length > 0, 'the spy voice was never played');
+    engine.stop();
+    assert.ok(cancels.every((h) => h.cancelled),
+      'stop() must call the cancel handle of every sounding note');
+
+    // and the fast-stop path of a cancelled ending does the same
+    cancels.length = 0;
+    await engine.start();
+    await advance(3, { step: 0.12, sleep: 16 });
+    engine.finish({ fadeSeconds: 30 });
+    await advance(1, { step: 0.12, sleep: 16 });
+    assert.ok(cancels.length > 0, 'nothing played before the ending');
+    const beforeRestart = cancels.length;
+    await engine.start();   // cancels the ending — and its sounding tails
+    assert.ok(cancels.slice(0, beforeRestart).every((h) => h.cancelled),
+      'the finish-cancel fast-stop must cancel the old tails before restarting');
+    await advance(1, { step: 0.12, sleep: 16 });
+    engine.stop();
+    assert.ok(cancels.every((h) => h.cancelled), 'a final stop() sweeps everything');
+  } finally {
+    delete padBank.cancelSpy;
+  }
+});
+
+test('arp step mask stays bar-anchored at 1/8T', async () => {
+  // 12 triplet-eighth steps per 4/4 bar do not divide the 16-step mask, so a
+  // mask phase carried across bars rotates a single enabled step through
+  // offsets 0, 12, 8, 4 (the v2 bug). Bar-anchored, it must hit the barline
+  // of every bar instead.
+  const steps = new Array(16).fill(false);
+  steps[0] = true;
+  const engine = createEngine({
+    bpm: 120,
+    speed: 2,
+    timeSignature: '4/4',
+    structure: 'drone',
+    arp: { mode: 'manual', rate: '1/8T', octaves: 2, gate: 0.6, steps },
+    tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'arp' ? 'on' : 'off' }])),
+  });
+  const bars = [];
+  const notes = [];
+  engine.on('bar', (e) => bars.push(e));
+  engine.on('note', (e) => notes.push(e));
+  await engine.start();
+  await advance(9, { step: 0.12, sleep: 16 });
+  engine.stop();
+
+  assert.ok(bars.length >= 6, `only ${bars.length} bars`);
+  assert.ok(notes.length >= bars.length - 2,
+    `enabled step 0 must fire every bar: ${notes.length} notes in ${bars.length} bars`);
+  assert.ok(notes.length <= bars.length, 'more notes than bars from a one-step mask');
+  for (const note of notes) {
+    const owner = [...bars].reverse().find((b) => b.time <= note.time + 1e-9);
+    assert.ok(Math.abs(note.time - owner.time) < 1e-6,
+      `mask phase drifted: a note landed ${note.time - owner.time}s into its bar`);
+  }
+});
+
+test('percussion bank is invalidated when the metre changes', async () => {
+  const engine = createEngine({
+    bpm: 120,
+    speed: 2,
+    complexity: 1,
+    repetition: 1,     // always replay the stored bank — the worst case
+    timeSignature: '5/4',
+    structure: 'custom',
+    customStructure: [{ label: 'D', bars: 4, intensity: 1 }],
+    tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'percussion' ? 'on' : 'off' }])),
+  });
+  const bars = [];
+  const notes = [];
+  engine.on('bar', (e) => bars.push(e));
+  engine.on('note', (e) => notes.push(e));
+  await engine.start();
+  await advance(4, { step: 0.12, sleep: 16 });
+  assert.ok(notes.length > 0, 'no percussion before the metre change');
+
+  const secPerBeat = 60 / 240;
+  const offsetIn = (note) => {
+    const owner = [...bars].reverse().find((b) => b.time <= note.time + 1e-9);
+    return (note.time - owner.time) / secPerBeat;
+  };
+  const preOffsets = notes.map(offsetIn);
+
+  engine.setParams({ timeSignature: '3/4' });
+  const preCount = notes.length;
+  await advance(6, { step: 0.12, sleep: 16 });
+  engine.stop();
+
+  const firstNewBar = bars.find((b) => b.beatsPerBar === 3);
+  assert.ok(firstNewBar, 'the metre change never reached the scheduler');
+  const post = notes.slice(preCount).filter((n) => n.time >= firstNewBar.time - 1e-9);
+  assert.ok(post.length > 0, 'percussion vanished after the metre change');
+  const postOffsets = post.map(offsetIn);
+  for (const offset of postOffsets) {
+    assert.ok(offset >= 0 && offset < 3, `a hit at beat ${offset} overran a 3/4 bar`);
+  }
+  // With repetition 1 a stale bank replays the same 5/4 pattern for ever, so
+  // every post-change offset would be one of the pre-change offsets. A cleared
+  // bank generates a fresh pattern whose random offsets cannot all coincide.
+  const fresh = postOffsets.some((o) => !preOffsets.some((p) => Math.abs(p - o) < 1e-6));
+  assert.ok(fresh, 'post-change percussion still replays the old metre\'s bank');
+});
+
+test('resume() and onstatechange recover a non-running context', async () => {
+  const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' });
+  await engine.resume();   // safe before any context exists
+  assert.equal(engine.running, false);
+
+  await engine.start();
+  const ctx = liveContexts[liveContexts.length - 1];
+  assert.equal(typeof ctx.onstatechange, 'function', 'the engine must watch context state');
+
+  // iOS interruption: the context leaves 'running' behind the engine's back
+  ctx.state = 'interrupted';
+  ctx.onstatechange();
+  assert.equal(ctx.state, 'running', 'a state change while running must auto-resume');
+
+  ctx.state = 'interrupted';
+  await engine.resume();
+  assert.equal(ctx.state, 'running', 'resume() must poke an interrupted context back');
+
+  // A sample-rate change under the context (iOS after an interruption) means
+  // the graph is corrupt: resume() must rebuild rather than play through it.
+  const contextsBefore = liveContexts.length;
+  ctx.state = 'suspended';
+  ctx.sampleRate = 96000;
+  await engine.resume();
+  assert.equal(liveContexts.length, contextsBefore + 1, 'a rate mismatch must rebuild the context');
+  assert.equal(engine.running, true, 'the rebuild must not stop the piece');
+  const bars = [];
+  engine.on('bar', (e) => bars.push(e));
+  await advance(2, { step: 0.12, sleep: 16 });
+  assert.ok(bars.length > 0, 'the piece never resumed on the rebuilt context');
+  for (const name of TRACK_ORDER) {
+    assert.ok(engine.getAnalysers()[name], `${name} analyser missing after rebuild`);
+  }
+  engine.stop();
+});
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 
@@ -1026,6 +1752,44 @@ async function advance(seconds, { step = 0.08, sleep = 15 } = {}) {
     for (const ctx of liveContexts) ctx.currentTime += step;
     await new Promise((resolve) => setTimeout(resolve, sleep));
   }
+}
+
+/**
+ * Advance the clock the same way, but stop the moment `promise` settles.
+ * Returns whether it settled inside the budget — an outro that never resolves
+ * must fail the test, not hang it.
+ */
+async function settleWithin(promise, seconds, { step = 0.12, sleep = 8 } = {}) {
+  let settled = false;
+  promise.then(() => { settled = true; }, () => { settled = true; });
+  const steps = Math.ceil(seconds / step);
+  for (let i = 0; i < steps && !settled; i++) {
+    for (const ctx of liveContexts) ctx.currentTime += step;
+    await new Promise((resolve) => setTimeout(resolve, sleep));
+  }
+  return settled;
+}
+
+/**
+ * The engine's per-track send gains, found through the mock's node graph: the
+ * gains feeding the convolver are the reverb sends (one per track, in track
+ * order), and each track's delay send is the other gain hanging off the same
+ * tone filter that feeds the delay line.
+ */
+function sendGains(ctx) {
+  const convolver = ctx.nodes.find((n) => n.kind === 'convolver');
+  const delayLine = ctx.nodes.find((n) => n.kind === 'delay');
+  assert.ok(convolver && delayLine, 'the engine graph has no reverb or delay');
+  const reverbs = ctx.nodes.filter((n) => n.kind === 'gain' && n.connections.includes(convolver));
+  assert.equal(reverbs.length, TRACK_ORDER.length, 'expected one reverb send per track');
+  return Object.fromEntries(TRACK_ORDER.map((name, i) => {
+    const reverb = reverbs[i];
+    const tone = ctx.nodes.find((n) => n.kind === 'biquad' && n.connections.includes(reverb));
+    assert.ok(tone, `${name} has no tone filter feeding its reverb send`);
+    const delay = tone.connections.find((n) => n.kind === 'gain' && n.connections.includes(delayLine));
+    assert.ok(delay, `${name} has no delay send`);
+    return [name, { reverb, delay }];
+  }));
 }
 
 const liveContexts = [];

@@ -43,22 +43,28 @@ const isCurrent = (href: string) => (href.replace(/\/+$/, '') || '/') === curren
 <style>
   .site-nav {
     display: flex;
-    gap: 16px;
-    margin-top: 6px;
-    font-size: 15px;
+    gap: 20px;
+    margin-top: 8px;
+    font-family: var(--label-font);
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   .site-nav a {
     color: var(--secondary);
     text-decoration: none;
+    padding-bottom: 3px;
+    border-bottom: 2px solid transparent;
   }
 
   .site-nav a:hover {
-    color: var(--link-hover);
+    color: var(--link);
   }
 
   .site-nav a[aria-current='page'] {
     color: var(--text);
     font-weight: 600;
+    border-bottom-color: var(--accent-warm);
   }
 </style>

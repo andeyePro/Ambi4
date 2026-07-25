@@ -100,6 +100,12 @@ function makeNode(kind) {
     loop: false,
     buffer: null,
     onended: null,
+    periodicWave: null,
+    setPeriodicWave(wave) {
+      assert.ok(wave && wave.isPeriodicWave, `${kind}.setPeriodicWave: not a PeriodicWave`);
+      this.periodicWave = wave;
+      this.type = 'custom';
+    },
     connect(target) {
       assert.ok(target, `${kind}.connect(undefined)`);
       this.outputs.push(target);
@@ -144,6 +150,17 @@ class MockAudioContext {
 
   createBufferSource() { return makeNode('bufferSource'); }
 
+  createPeriodicWave(real, imag) {
+    assert.ok(real instanceof Float32Array && imag instanceof Float32Array,
+      'createPeriodicWave: coefficients must be Float32Arrays');
+    assert.equal(real.length, imag.length, 'createPeriodicWave: array lengths differ');
+    assert.ok(imag.length >= 2, 'createPeriodicWave: too few coefficients');
+    for (const arr of [real, imag]) {
+      for (const v of arr) assert.ok(Number.isFinite(v), 'createPeriodicWave: non-finite coefficient');
+    }
+    return { isPeriodicWave: true, real: Float32Array.from(real), imag: Float32Array.from(imag) };
+  }
+
   createBuffer(channels, length, sampleRate) {
     this.buffersCreated += 1;
     assert.ok(length > 0 && sampleRate > 0, 'createBuffer: bad geometry');
@@ -157,7 +174,7 @@ class MockAudioContext {
   }
 }
 
-const { VOICES } = await import('../src/scripts/engine-voices.js');
+const { VOICES, shapeWave } = await import('../src/scripts/engine-voices.js');
 
 // --------------------------------------------------------------------------
 // Harness
@@ -213,14 +230,14 @@ function audibleGains(destination) {
  * Play one note and assert every structural guarantee the contract makes.
  * Returns the timing/level measurements so individual tests can go further.
  */
-function playAndCheck(label, patch, note, { cancelAfter = false } = {}) {
+function playAndCheck(label, voice, note, { cancelAfter = false, patch } = {}) {
   const ctx = new MockAudioContext();
   const destination = makeNode('gain');   // stands in for the engine's track bus
   created = [];
   startedSources = [];
   automation.length = 0;
 
-  const handle = patch.play(ctx, destination, note);
+  const handle = voice.play(ctx, destination, note, patch);
 
   assert.ok(startedSources.length >= 1, `${label}: no source was started`);
   assert.ok(created.length <= MAX_NODES, `${label}: ${created.length} nodes for one note`);
@@ -275,7 +292,7 @@ function playAndCheck(label, patch, note, { cancelAfter = false } = {}) {
   assert.equal(leaked.length, 0,
     `${label}: ${leaked.length} node(s) left connected (${leaked.map((n) => n.kind).join(', ')})`);
 
-  return { tail, sum, nodes: created.length, ctx };
+  return { tail, sum, nodes: created.length, ctx, events: automation.slice(), graph: created.slice() };
 }
 
 const PITCHED_NOTES = {
@@ -348,7 +365,7 @@ test('VOICES matches the contract exactly', () => {
       const voice = VOICES[track][id];
       assert.equal(voice.label, label, `${track}.${id}: label`);
       assert.equal(typeof voice.play, 'function', `${track}.${id}: play`);
-      assert.equal(Object.keys(voice).sort().join(','), 'label,play',
+      assert.equal(Object.keys(voice).sort().join(','), 'defaults,label,play',
         `${track}.${id}: unexpected keys`);
     }
   }
@@ -485,6 +502,490 @@ test('a long run leaves nothing connected and reuses the noise buffers', () => {
   assert.equal(live, 0, `${live} nodes survived their notes`);
   // White and pink, generated once each for the lifetime of the context.
   assert.ok(ctx.buffersCreated <= 2, `${ctx.buffersCreated} noise buffers built`);
+});
+
+// --------------------------------------------------------------------------
+// Patches (v3): defaults, honouring, and the promise that no patch is v2
+// --------------------------------------------------------------------------
+
+const OSCS = ['sine', 'triangle', 'sawtooth', 'square'];
+const FILTERS = ['lowpass', 'highpass', 'bandpass', 'notch'];
+
+/** The Patch schema from the v3 addendum plus the v5 morph fields. */
+const SCHEMA = {
+  source: {
+    osc1: { oneOf: OSCS },
+    osc2: { oneOf: [...OSCS, null] },
+    shape1: { range: [0, 3] },
+    shape2: { range: [0, 3], orNull: true },
+    mix: { range: [0, 1] },
+    detune: { range: [0, 50] },
+    octave: { oneOf: [-1, 0, 1] },
+  },
+  filter: {
+    type: { oneOf: FILTERS },
+    cutoff: { range: [40, 12000] },
+    q: { range: [0.1, 20] },
+    envAmount: { range: [0, 1] },
+  },
+  adsr: {
+    attack: { range: [0.001, 8] },
+    decay: { range: [0.001, 8] },
+    sustain: { range: [0, 1] },
+    release: { range: [0.01, 12] },
+  },
+  sends: {
+    reverb: { range: [0, 1] },
+    delay: { range: [0, 1] },
+  },
+};
+
+/** Every corner of the schema at once, plus the awkward ends of it. */
+const EXTREME = {
+  source: { osc1: 'square', osc2: 'sawtooth', mix: 1, detune: 50, octave: 1 },
+  filter: { type: 'lowpass', cutoff: 12000, q: 20, envAmount: 1 },
+  adsr: { attack: 8, decay: 8, sustain: 1, release: 12 },
+  sends: { reverb: 1, delay: 1 },
+};
+
+const EXTREMES = [
+  EXTREME,
+  {
+    source: { osc1: 'sine', osc2: null, mix: 0, detune: 0, octave: -1 },
+    filter: { type: 'highpass', cutoff: 40, q: 0.1, envAmount: 0 },
+    adsr: { attack: 0.001, decay: 0.001, sustain: 0, release: 0.01 },
+    sends: { reverb: 0, delay: 0 },
+  },
+  {
+    source: { osc1: 'triangle', osc2: 'square', mix: 0.5, detune: 25, octave: 0 },
+    filter: { type: 'bandpass', cutoff: 12000, q: 20, envAmount: 1 },
+    adsr: { attack: 0.001, decay: 8, sustain: 1, release: 12 },
+    sends: { reverb: 0.5, delay: 0.5 },
+  },
+  {
+    source: { osc1: 'sawtooth', osc2: 'sine', mix: 0, detune: 50, octave: 1 },
+    filter: { type: 'notch', cutoff: 40, q: 20, envAmount: 0.5 },
+    adsr: { attack: 8, decay: 0.001, sustain: 0.5, release: 0.01 },
+    sends: { reverb: 1, delay: 0 },
+  },
+];
+
+/** Only one field set — everything else has to come from the voice's defaults. */
+const PARTIALS = [
+  { adsr: { attack: 0.001 } },
+  { filter: { q: 20 } },
+  { source: { octave: -1 } },
+  { source: { shape1: 2.5 } },
+  { source: { shape1: 0.25, shape2: 2.75 } },
+  { sends: { reverb: 1 } },
+  {},
+];
+
+/** What a buggy caller looks like. The engine sanitises; the voice checks anyway. */
+const RUBBISH = [
+  null,
+  'lowpass',
+  42,
+  { source: 'nonsense', filter: null, adsr: undefined, sends: [] },
+  { source: { osc1: 'moog', osc2: 7, shape1: 'loud', shape2: Infinity, mix: NaN, detune: -20, octave: 4 },
+    filter: { type: '', cutoff: Infinity, q: -1, envAmount: 'a lot' },
+    adsr: { attack: null, decay: -5, sustain: 12, release: NaN },
+    sends: { reverb: 'wet', delay: null } },
+];
+
+function inRange(value, [lo, hi]) {
+  return Number.isFinite(value) && value >= lo && value <= hi;
+}
+
+/**
+ * Several voices make random choices — how many glints, how many grains, how
+ * far a partial is detuned — so two runs of the same note are not the same
+ * graph. Pin the stream and they are, which is the only way to attribute a
+ * difference between two renders to the patch rather than to the dice.
+ */
+function withSeed(seed, fn) {
+  const real = Math.random;
+  let state = seed >>> 0;
+  Math.random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+  try {
+    return fn();
+  } finally {
+    Math.random = real;
+  }
+}
+
+test('every voice publishes a complete, in-range default patch', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const { defaults } = VOICES[track][id];
+      const where = `${track}.${id} defaults`;
+      assert.ok(defaults && typeof defaults === 'object', `${where}: missing`);
+      assert.deepEqual(Object.keys(defaults).sort(), ['adsr', 'filter', 'sends', 'source'],
+        `${where}: wrong groups`);
+      for (const [group, fields] of Object.entries(SCHEMA)) {
+        assert.deepEqual(Object.keys(defaults[group]).sort(), Object.keys(fields).sort(),
+          `${where}.${group}: wrong fields`);
+        for (const [field, rule] of Object.entries(fields)) {
+          const value = defaults[group][field];
+          if (rule.oneOf) {
+            assert.ok(rule.oneOf.includes(value),
+              `${where}.${group}.${field}: ${JSON.stringify(value)} is not in the schema`);
+          } else if (!(rule.orNull && value === null)) {
+            assert.ok(inRange(value, rule.range),
+              `${where}.${group}.${field}: ${value} is outside ${rule.range.join('–')}`);
+          }
+        }
+      }
+      // A voice with no second oscillator must not claim a blend of one.
+      if (defaults.source.osc2 === null) {
+        assert.equal(defaults.source.mix, 0, `${where}: osc2 is null but mix is not 0`);
+      }
+      // The numeric shapes and the legacy strings must describe the same sound.
+      assert.equal(defaults.source.shape1, OSCS.indexOf(defaults.source.osc1),
+        `${where}: shape1 and osc1 disagree`);
+      assert.equal(defaults.source.shape2,
+        defaults.source.osc2 === null ? null : OSCS.indexOf(defaults.source.osc2),
+        `${where}: shape2 and osc2 disagree`);
+    }
+  }
+});
+
+test('defaults are frozen: the editor cannot corrupt the library', () => {
+  const { defaults } = VOICES.pad.warm;
+  assert.throws(() => { defaults.adsr.attack = 99; }, `pad.warm defaults are writable`);
+  assert.equal(VOICES.pad.warm.defaults.adsr.attack, defaults.adsr.attack);
+});
+
+/**
+ * Sends are the engine's to apply, not a voice's. No voice may quietly turn
+ * itself up because a patch asked for reverb.
+ */
+test('a sends-only patch changes nothing a voice renders', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const note = track === 'percussion'
+        ? { midi: null, freq: null, kind: 'mid', duration: 0.25, when: 0.5, velocity: 0.7, pan: 0 }
+        : { midi: 60, freq: null, kind: null, duration: 1.5, when: 0.5, velocity: 0.7, pan: 0 };
+      const plain = withSeed(9, () => playAndCheck(`${track}.${id} defaults`, VOICES[track][id],
+        note, { patch: VOICES[track][id].defaults }));
+      const wet = withSeed(9, () => playAndCheck(`${track}.${id} sends`, VOICES[track][id], note,
+        { patch: { ...VOICES[track][id].defaults, sends: { reverb: 1, delay: 1 } } }));
+      assert.equal(wet.nodes, plain.nodes, `${track}.${id}: sends changed the node graph`);
+      assert.ok(Math.abs(plain.sum - wet.sum) < 1e-12,
+        `${track}.${id}: sends changed the dry level (${plain.sum} vs ${wet.sum})`);
+    }
+  }
+});
+
+for (const [track, patches] of Object.entries(EXPECTED)) {
+  for (const id of Object.keys(patches)) {
+    test(`${track}.${id} survives every patch the schema allows`, () => {
+      const voice = VOICES[track][id];
+      const all = [undefined, voice.defaults, ...PARTIALS, ...EXTREMES, ...RUBBISH];
+      for (const note of notesFor(track)) {
+        for (const patch of all) {
+          playAndCheck(`${track}.${id} ${JSON.stringify(patch)}`, voice, note, { patch });
+        }
+      }
+    });
+
+    test(`${track}.${id} cancels cleanly mid-patch`, () => {
+      const voice = VOICES[track][id];
+      for (const patch of [EXTREME, PARTIALS[0], voice.defaults]) {
+        for (const note of notesFor(track)) {
+          playAndCheck(`${track}.${id} cancel`, voice, note, { patch, cancelAfter: true });
+        }
+      }
+    });
+  }
+}
+
+/** The amp envelope's rise: `set` to silence at the onset, ramp up to the top. */
+function attackRamps(events) {
+  return events
+    .filter((e) => e.name === 'gain.gain' && e.kind === 'exponential' && e.value > 2e-4)
+    .map((e) => e.time);
+}
+
+const rampAt = (events, time) => attackRamps(events).some((at) => Math.abs(at - time) < 1e-6);
+
+/**
+ * What each voice's own attack is for the note below — the v2 numbers, written
+ * out so that routing the unpatched path through the patch defaults by mistake
+ * shows up here rather than in someone's ears.
+ */
+const V2_ATTACK = {
+  pad: { warm: 3.2, glass: 2.8, strings: 2.6, choir: 3.5 },
+  bass: { sub: 0.12, round: 0.05, breath: 0.18 },
+  melody: { pluck: 0.006, bell: 0.005, flute: 0.09, keys: 0.004 },
+  texture: { sparkle: 0.02, grains: null, chimes: 0.008, wash: 3 },
+  arp: { softPluck: 0.006, crystal: 0.003, marimba: 0.003 },
+  percussion: { soft: 0.008, hand: 0.005, tick: 0.003 },
+};
+
+/** Long enough that every pad and wash hits the top of its own attack clamp. */
+function attackNote(track) {
+  if (track === 'percussion') {
+    return { midi: null, freq: null, kind: 'low', duration: 0.25, when: 0.5, velocity: 0.8, pan: 0 };
+  }
+  const duration = track === 'pad' || track === 'texture' ? 12 : 1;
+  return { midi: 60, freq: null, kind: null, duration, when: 0.5, velocity: 0.8, pan: 0 };
+}
+
+test('without a patch every voice keeps its own v2 envelope', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const expected = V2_ATTACK[track][id];
+      if (expected === null) continue;          // grains scatters; checked below
+      const note = attackNote(track);
+      const plain = playAndCheck(`${track}.${id} v2`, VOICES[track][id], note);
+      assert.ok(rampAt(plain.events, note.when + expected),
+        `${track}.${id}: no attack ramp at its own ${expected}s (saw ${attackRamps(plain.events)})`);
+      // And where the published default is far enough from the voice's own
+      // attack to be told apart from its other layers, the unpatched note must
+      // not have quietly used it instead.
+      const published = VOICES[track][id].defaults.adsr.attack;
+      if (Math.abs(published - expected) > 0.05) {
+        assert.ok(!rampAt(plain.events, note.when + published),
+          `${track}.${id}: unpatched note used the default attack ${published}s`);
+      }
+    }
+  }
+});
+
+test('grains leaves its cloud gain alone without a patch, and shapes it with one', () => {
+  const note = { midi: 79, freq: null, kind: null, duration: 3, when: 0.5, velocity: 0.8, pan: 0 };
+  const plain = playAndCheck('texture.grains v2', VOICES.texture.grains, note);
+  const flat = plain.graph.filter((n) => n.kind === 'gain' && n.gain.min === 1 && n.gain.max === 1);
+  assert.ok(flat.length >= 1, 'the cloud gain was enveloped without a patch');
+  const shaped = playAndCheck('texture.grains patched', VOICES.texture.grains, note,
+    { patch: { adsr: { attack: 0.001 } } });
+  assert.ok(rampAt(shaped.events, note.when + 0.001), 'the cloud contour ignored the patch attack');
+});
+
+test('a patch moves the attack, and a partial patch moves only the attack', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const note = attackNote(track);
+      for (const attack of [0.001, 4]) {
+        const run = playAndCheck(`${track}.${id} attack ${attack}`, VOICES[track][id], note,
+          { patch: { adsr: { attack } } });
+        assert.ok(rampAt(run.events, note.when + attack),
+          `${track}.${id}: attack ${attack}s did not move the ramp (saw ${attackRamps(run.events)})`);
+      }
+      // The rest of the patch came from the defaults, so the voice's own attack
+      // is gone — that is what "merged over the voice's own defaults" means.
+      const partial = playAndCheck(`${track}.${id} partial`, VOICES[track][id], note,
+        { patch: { adsr: { attack: 0.001 } } });
+      const own = V2_ATTACK[track][id];
+      if (own !== null && own > 0.01) {
+        assert.ok(!rampAt(partial.events, note.when + own),
+          `${track}.${id}: the patch attack did not replace the voice's own`);
+      }
+    }
+  }
+});
+
+test('release caps the tail, and sustain 0 ends the note at the decay', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const note = attackNote(track);
+      const short = playAndCheck(`${track}.${id} short release`, VOICES[track][id], note, {
+        patch: { adsr: { attack: 0.01, decay: 0.05, sustain: 0.5, release: 0.05 } },
+      });
+      const long = playAndCheck(`${track}.${id} long release`, VOICES[track][id], note, {
+        patch: { adsr: { attack: 0.01, decay: 0.05, sustain: 0.5, release: 8 } },
+      });
+      // Grains is the exception: its cloud is a scatter of one-shots, so the
+      // release can only hold an already-empty gain open.
+      if (!(track === 'texture' && id === 'grains')) {
+        assert.ok(long.tail > short.tail,
+          `${track}.${id}: release does not lengthen the tail (${short.tail} vs ${long.tail})`);
+      }
+      assert.ok(short.tail <= note.duration + 1.5,
+        `${track}.${id}: a 0.05s release still left a ${short.tail.toFixed(2)}s tail`);
+    }
+  }
+});
+
+test('a resonant patch is quieter, never louder, than a calm one', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const note = attackNote(track);
+      const calm = playAndCheck(`${track}.${id} q calm`, VOICES[track][id], note,
+        { patch: { filter: { q: 0.7 } } });
+      const rung = playAndCheck(`${track}.${id} q 20`, VOICES[track][id], note,
+        { patch: { filter: { q: 20 } } });
+      assert.ok(rung.sum <= calm.sum + 1e-9,
+        `${track}.${id}: Q 20 reaches the bus at ${rung.sum.toFixed(3)} vs ${calm.sum.toFixed(3)}`);
+    }
+  }
+});
+
+test('an octave patch really moves the pitch', () => {
+  for (const track of ['pad', 'bass', 'melody', 'texture', 'arp']) {
+    for (const id of Object.keys(EXPECTED[track])) {
+      const note = { midi: 60, freq: null, kind: null, duration: 1.5, when: 0.5, velocity: 0.8, pan: 0 };
+      const tops = [];
+      for (const octave of [-1, 0, 1]) {
+        const run = withSeed(21, () => playAndCheck(`${track}.${id} octave ${octave}`,
+          VOICES[track][id], note, { patch: { source: { octave } } }));
+        // Grains has no oscillator to transpose: its pitch lives in the centre
+        // frequency of the band each grain is filtered through. The patch's own
+        // filter sits at its published cutoff and is not one of those bands.
+        const oscs = run.graph.filter((n) => n.kind === 'oscillator');
+        const bands = run.graph.filter((n) => n.kind === 'biquad'
+          && n.frequency.max !== VOICES[track][id].defaults.filter.cutoff);
+        const pitched = oscs.length ? oscs : bands;
+        tops.push(Math.max(...pitched.map((n) => n.frequency.max)));
+      }
+      assert.ok(tops[0] < tops[1] && tops[1] < tops[2],
+        `${track}.${id}: octave did nothing (${tops.join(', ')})`);
+    }
+  }
+});
+
+test('an inapplicable source field never silences a voice', () => {
+  // The FM, partial and physical voices have no oscillator stack to re-type.
+  const ignoring = [
+    ['pad', 'glass'], ['melody', 'bell'], ['melody', 'flute'], ['melody', 'keys'],
+    ['texture', 'sparkle'], ['texture', 'grains'], ['texture', 'chimes'],
+    ['arp', 'crystal'], ['arp', 'marimba'],
+    ['percussion', 'soft'], ['percussion', 'hand'], ['percussion', 'tick'],
+  ];
+  for (const [track, id] of ignoring) {
+    const note = attackNote(track);
+    const plain = playAndCheck(`${track}.${id} plain`, VOICES[track][id], note);
+    for (const source of [{ osc1: 'square', osc2: 'sawtooth', mix: 1 }, { mix: 0 }, { osc2: null }]) {
+      const run = playAndCheck(`${track}.${id} ${JSON.stringify(source)}`, VOICES[track][id], note,
+        { patch: { source } });
+      assert.ok(run.sum > plain.sum * 0.25,
+        `${track}.${id}: an inapplicable source field gutted the voice`);
+    }
+  }
+});
+
+// --------------------------------------------------------------------------
+// Waveform morphing (v5): the continuous shape dial
+// --------------------------------------------------------------------------
+
+const MORPH_NOTE = {
+  midi: 60, freq: null, kind: null, duration: 1.5, when: 0.5, velocity: 0.8, pan: 0,
+};
+
+/** Every oscillator's effective waveform: a native type or its PeriodicWave. */
+const oscShapes = (run) => run.graph
+  .filter((n) => n.kind === 'oscillator')
+  .map((n) => n.periodicWave ?? n.type);
+
+const coeffsDiffer = (a, b) => {
+  if (a.length !== b.length) return true;
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(a[i] - b[i]) > 1e-6) return true;
+  }
+  return false;
+};
+
+test('a shape patch audibly changes the waveform: pad.warm sine vs saw', () => {
+  const sine = withSeed(33, () => playAndCheck('pad.warm shape 0', VOICES.pad.warm, MORPH_NOTE,
+    { patch: { source: { shape1: 0, shape2: 0 } } }));
+  const saw = withSeed(33, () => playAndCheck('pad.warm shape 2', VOICES.pad.warm, MORPH_NOTE,
+    { patch: { source: { shape1: 2, shape2: 2 } } }));
+  // Four saw layers at shape 2 and none at shape 0 — this is the regression
+  // this wave exists for: the dial MUST reach the scheduled sources.
+  const saws = (run) => oscShapes(run).filter((s) => s === 'sawtooth').length;
+  assert.ok(saws(saw) >= 4, `shape 2 built only ${saws(saw)} sawtooth oscillators`);
+  assert.equal(saws(sine), 0, 'shape 0 still built sawtooth oscillators');
+  assert.notDeepEqual(oscShapes(sine), oscShapes(saw),
+    'shape 0 and shape 2 scheduled identical oscillators');
+});
+
+test('integer shapes are the native types: 2.0 sounds like sawtooth', () => {
+  for (const [shape, type] of [[0, 'sine'], [1, 'triangle'], [2, 'sawtooth'], [3, 'square']]) {
+    const run = withSeed(33, () => playAndCheck(`pad.warm shape ${shape}`, VOICES.pad.warm,
+      MORPH_NOTE, { patch: { source: { shape1: shape, shape2: shape } } }));
+    assert.ok(oscShapes(run).filter((s) => s === type).length >= 4,
+      `shape ${shape} did not schedule native ${type} oscillators`);
+  }
+});
+
+test('a fractional shape is a PeriodicWave distinct from both neighbours', () => {
+  const run = withSeed(33, () => playAndCheck('pad.warm shape 1.5', VOICES.pad.warm, MORPH_NOTE,
+    { patch: { source: { shape1: 1.5, shape2: 1.5 } } }));
+  const morphed = run.graph.filter((n) => n.kind === 'oscillator' && n.periodicWave);
+  assert.ok(morphed.length >= 4, `only ${morphed.length} oscillators were morphed`);
+  const wave = morphed[0].periodicWave;
+  assert.equal(wave, shapeWave(run.ctx, 1.5), 'the scheduled wave is not the cached 1.5 wave');
+  for (const osc of morphed) {
+    assert.equal(osc.periodicWave, wave, 'layers of one shape rebuilt the wave');
+  }
+  assert.ok(coeffsDiffer(wave.imag, shapeWave(run.ctx, 1).imag), '1.5 collapsed to triangle');
+  assert.ok(coeffsDiffer(wave.imag, shapeWave(run.ctx, 2).imag), '1.5 collapsed to sawtooth');
+});
+
+test('the dial\'s integer stops match their canonical spectra', () => {
+  const ctx = new MockAudioContext();
+  const sine = shapeWave(ctx, 0).imag;
+  const tri = shapeWave(ctx, 1).imag;
+  const saw = shapeWave(ctx, 2).imag;
+  const square = shapeWave(ctx, 3).imag;
+  assert.ok(sine[1] > 0.999 && Math.abs(sine[2]) < 1e-6 && Math.abs(sine[3]) < 1e-6,
+    'shape 0 is not a pure sine');
+  assert.ok(Math.abs(tri[2]) < 1e-6 && Math.abs(tri[3] / tri[1] + 1 / 9) < 1e-6,
+    'shape 1 is not 1/n² odd alternating');
+  assert.ok(Math.abs(saw[2] / saw[1] - 1 / 2) < 1e-6 && Math.abs(saw[3] / saw[1] - 1 / 3) < 1e-6,
+    'shape 2 is not 1/n');
+  assert.ok(Math.abs(square[2]) < 1e-6 && Math.abs(square[3] / square[1] - 1 / 3) < 1e-6,
+    'shape 3 is not 1/n odd');
+});
+
+test('coefficient RMS stays level across the dial', () => {
+  const ctx = new MockAudioContext();
+  const rmsOf = (imag) => {
+    let sum = 0;
+    for (const v of imag) sum += v * v;
+    return Math.sqrt(sum / (imag.length - 1));
+  };
+  const values = [];
+  for (let s = 0; s <= 3.0001; s += 0.5) values.push(rmsOf(shapeWave(ctx, s).imag));
+  const hi = Math.max(...values);
+  const lo = Math.min(...values);
+  assert.ok(hi / lo < 1.02,
+    `coefficient RMS drifts across the dial (${values.map((v) => v.toFixed(4)).join(', ')})`);
+});
+
+test('morphed waves are cached per context and quantised to 1/16', () => {
+  const ctx = new MockAudioContext();
+  const wave = shapeWave(ctx, 1.5);
+  assert.equal(shapeWave(ctx, 1.5), wave, 'the same shape rebuilt its wave');
+  assert.equal(shapeWave(ctx, 1.51), wave, 'a sub-1/16 nudge is a different wave');
+  assert.notEqual(shapeWave(ctx, 1.5625), wave, 'the next 1/16 step reused the wrong wave');
+  assert.notEqual(shapeWave(new MockAudioContext(), 1.5), wave, 'waves leaked across contexts');
+});
+
+test('legacy osc strings still work, and an explicit shape number wins', () => {
+  const legacy = withSeed(33, () => playAndCheck('pad.warm legacy strings', VOICES.pad.warm,
+    MORPH_NOTE, { patch: { source: { osc1: 'sawtooth', osc2: 'sawtooth' } } }));
+  assert.ok(oscShapes(legacy).filter((s) => s === 'sawtooth').length >= 4,
+    "the legacy 'sawtooth' string no longer reaches the oscillators");
+  const wins = withSeed(33, () => playAndCheck('pad.warm shape beats string', VOICES.pad.warm,
+    MORPH_NOTE, { patch: { source: { osc1: 'sawtooth', shape1: 0, osc2: 'sawtooth', shape2: 0 } } }));
+  assert.equal(oscShapes(wins).filter((s) => s === 'sawtooth').length, 0,
+    'a legacy string overrode an explicit shape number');
+});
+
+test('shape2: null is the single-oscillator setting, even against an osc2 string', () => {
+  const plain = withSeed(33, () => playAndCheck('pad.warm plain', VOICES.pad.warm, MORPH_NOTE));
+  for (const source of [{ shape2: null, mix: 1 }, { shape2: null, osc2: 'triangle', mix: 1 }]) {
+    const run = withSeed(33, () => playAndCheck(`pad.warm ${JSON.stringify(source)}`,
+      VOICES.pad.warm, MORPH_NOTE, { patch: { source } }));
+    assert.ok(run.sum > plain.sum * 0.5, 'mix 1 with no second shape faded the voice');
+    assert.equal(oscShapes(run).filter((s) => s === 'triangle').length, 0,
+      'a null shape2 left second-oscillator layers behind');
+  }
 });
 
 // --------------------------------------------------------------------------

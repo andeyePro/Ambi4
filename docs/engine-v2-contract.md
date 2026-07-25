@@ -277,3 +277,125 @@ denied → memory-only for the session, never re-ask that session, re-ask next v
 - "Submit preset" button → opens `https://contact.andeye.com/?subject=<enc>&message=<enc JSON>`
   in a new tab AND offers a copy-to-clipboard of the JSON (the domain may not exist yet —
   the copy path is the reliable one; keep the URL in ONE const at the top of the page script).
+
+---
+
+# v5 addendum (dial aesthetic + wave morphing). Ownership:
+# voices-morph: engine-voices.js + tests/voices-smoke.mjs
+# knob-scope: src/scripts/knob.js, src/scripts/scope.js, tests/knobscope-smoke.mjs
+# page: src/pages/index.astro
+# theme: src/styles/global.css, src/layouts/Base.astro
+# (engine sanitiser change goes to the engine agent separately)
+
+## Patch source becomes continuous (morphable)
+
+`source.shape1`, `source.shape2`: number 0–3 or null (shape2 only) — 0 sine, 1 triangle,
+2 sawtooth, 3 square; fractional = Fourier-interpolated morph (PeriodicWave, ~64 cached
+steps per context, normalised so loudness doesn't jump across the dial). Legacy string
+`osc1`/`osc2` values remain accepted everywhere (map: sine→0 triangle→1 sawtooth→2
+square→3) and defaults now publish numeric shapes. mix/detune/octave unchanged.
+
+## Knob component — src/scripts/knob.js
+
+```js
+export function createKnob(container, { label, min, max, value, step?, marks?,
+  format?, onInput }) => { el, set(value), destroy() }
+```
+270° sweep (-135°..+135°), pointer vertical-drag + wheel + full keyboard (role="slider",
+arrows/PgUp/Home/End), double-click resets to initial value, tick ring + engraved pointer,
+all colours from the theme tokens below. No imports; import-safe in bare node.
+
+## Scope — src/scripts/scope.js
+
+```js
+export function renderPatchWave(canvas, patch, { freq = 220 }) // static trace: offline
+  // render ~2 cycles of shape1/shape2 mix (detune/octave applied) through the patch
+  // filter, NO adsr; normalised amplitude; draws phosphor-style trace on grid.
+export function attachLiveScope(canvas, analyser) => { destroy() } // rAF time-domain trace
+```
+OfflineAudioContext feature-detected (fallback: draw from a math model of the same mix —
+must still show blend/filter qualitatively). Debounce external calls; canvas dpr-aware.
+
+## Theme tokens (theme agent defines; page consumes — names are fixed)
+
+`--panel`, `--panel-edge`, `--panel-inset`, `--knob-face`, `--knob-ring`, `--knob-pointer`,
+`--tick`, `--tick-major`, `--scope-bg`, `--scope-grid`, `--scope-trace`, `--accent-warm`,
+`--label-font` (small-caps-ish retro label stack). Both light (cream/walnut) and dark
+(charcoal/walnut/amber) themes; AA contrast for labels/values; existing tokens unchanged.
+
+## Page (index.astro)
+
+Voice editor rebuilt on knobs: shape1 dial, shape2 dial (+off position), mix/detune/octave,
+filter cutoff (log)/Q/envAmount + type dial, ADSR knobs, send knobs — grouped in a 70s
+"module" panel per section with the scope canvas centre-top showing renderPatchWave of the
+live-edited patch (debounced ~80 ms), switching to attachLiveScope(track analyser) while
+the engine is running. Primary sliders/tabs stay (knob treatment optional there); tracks
+rows keep selects but pick up panel styling. All existing behaviour (consent, presets,
+interlinks, sleep/alarm, hardening) preserved.
+
+---
+
+# v6 addendum (random/hold, schedule UI, arp relocation, percussion sequencer)
+
+## Engine params/API (engine-v6 agent)
+
+- `tracks[track].randomness`: 0–1 (default 0.5) — scales that track's generative variation:
+  note-choice spread, velocity jitter, octave wander, timing humanisation (±≤20 ms),
+  pattern re-roll eagerness. 0 = deterministic/repetitive as possible, 1 = maximal variation.
+- `tracks[track].hold`: boolean (default false) — freeze the track's current material at the
+  next bar: melody loops its current phrase, arp freezes its mask+pattern, percussion its
+  pattern, pad/bass lock the chord progression loop (harmony keeps following the progression).
+  Hold wins over repetition/randomness re-rolls; releasing hold resumes normal generation.
+- `engine.randomise(track)` — re-roll that track's material (new phrase/pattern/voicing seed)
+  effective next bar; works while held (re-rolls the held material once); no-op when stopped
+  is fine but must not throw. Also `engine.randomise()` (no arg) = all tracks.
+- Percussion sequencer param:
+  `percussion: { mode: 'auto'|'manual', steps: { low: Step[20], mid: Step[20], high: Step[20] } }`
+  where `Step = { on: bool, vmin: 0–1, vmax: 0–1, prob: 0–1 }` (vmin ≤ vmax enforced).
+  Steps-per-bar by metre (first N slots used): 3/4→12, 4/4→16, 5/4→20, 6/8→12, 7/8→14.
+  In 'manual', each bar plays each lane's active steps: trigger iff random() < prob, velocity
+  uniform in [vmin, vmax], kind = lane. randomness adds timing/velocity jitter on top; hold
+  freezes the per-bar random outcomes (same trigger/velocity draw looping). 'auto' = current
+  generative behaviour (complexity/intensity-driven), unchanged.
+- Events: add 'perc-step' emission is NOT required; 'note' events already cover the visualiser.
+
+## UI (page-v6 agent)
+
+- Transport row: two icon buttons (inline SVG, aria-labelled, 44 px targets) next to
+  Play/Finish — clock icon → "Sleep timer" popover (existing sleep controls; REMOVE the
+  tab-open caveat here); alarm-clock icon → popover titled "Schedule start" (existing alarm
+  controls; KEEPS the tab-open/device-awake warning). Popovers: anchored panels (module
+  styling), Esc/outside-click close, focus-trapped while open, state preserved when closed.
+  Countdown chips appear beside the icons when armed.
+- Per-track controls (tracks panel rows AND mirrored in each voice editor): a "Random"
+  button (dice icon + text) → engine.randomise(track); a "Hold" toggle (aria-pressed) →
+  tracks[track].hold; a small Randomness knob (or slider fallback) → tracks[track].randomness.
+- Arpeggiator editor MOVES inside the Arp track's Edit panel, ABOVE the voice/source
+  sections (delete it from the Advanced tab body). Same controls, panel-labelled "Arpeggiator".
+- Percussion sequencer at the TOP of the Percussion track's Edit panel: three lanes
+  (Low/Mid/High) × metre-length steps (re-render on time-signature change; persist all 20
+  slots). Per step: on/off; velocity BAND (vertical drag on the cell sets vmin–vmax, shown
+  as a filled range); probability (per step — compact editable representation, e.g. a
+  mini-bar row under each lane or a per-step secondary drag axis; MUST be keyboard/AT
+  operable: cells are focusable with arrow navigation, Enter toggles, documented key pairs
+  adjust band and probability). Auto/Manual segmented control above (mode param); beat
+  numbers marked; all knob/panel styling from the v5 tokens.
+- All new engine features feature-detected (engine v6 may deploy later than the page).
+
+## v6 amendment — unified per-track step sequencers (supersedes the percussion-only shape)
+
+Generalise: pulsed tracks `melody`, `bass`, `arp`, `percussion` each get
+`tracks[track].sequencer = { mode: 'auto'|'manual', steps }`:
+- melody/bass/arp: `steps: Step[20]` single lane, `Step = { on, prob 0–1, vmin, vmax }`;
+  in 'manual' the step grid gates WHEN notes sound (metre-length prefix as v6 mapping);
+  PITCHES stay generative (scale/chord-aware — the engine picks them as now), so manual
+  sequencing stays musical. Trigger iff random() < prob; velocity uniform in band.
+- arp: this REPLACES the old boolean `arp.steps` mask as the source of truth (keep
+  accepting the legacy `arp.steps` booleans by mapping to {on, prob:1, band 0.5–0.9});
+  pattern/rate/octaves/gate stay in the `arp` param group.
+- percussion: three lanes as already specced (`steps: {low, mid, high}` of Step[20]).
+- 'auto' everywhere = current generative behaviour; hold/randomness compose as specced.
+- UI: ONE shared sequencer component pattern (per-step on/prob/velocity-band editing,
+  keyboard/AT operable) rendered at the top of each of those tracks' Edit panels —
+  visually identical treatment so users learn it once; percussion shows 3 lanes,
+  melodic tracks one lane.

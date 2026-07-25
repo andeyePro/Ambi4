@@ -1,21 +1,109 @@
+/*
+ * Ambi4 theme — 1970s audiophile hardware.
+ * Light: warm cream faceplates, walnut edges, brass/amber accents, near-black lettering.
+ * Dark: charcoal faceplates, deeper walnut, glowing amber pointer/trace.
+ * Scope trace is amber-green phosphor in both themes.
+ *
+ * The v5 token names (--panel … --label-font) are a FIXED contract
+ * (docs/engine-v2-contract.md, v5 addendum) — knob.js / scope.js and the
+ * generator page consume them. Do not rename.
+ *
+ * WCAG AA contrast pairs checked (WCAG 2.x relative-luminance ratio):
+ *   Light: --text #2b2620 on --bg #faf6ee 13.9:1 · on --panel #f2ead9 12.5:1
+ *          --secondary #6b5f4e on --bg 5.8:1 · on --panel 5.2:1
+ *          --link #8a4b08 on --bg 6.3:1 · on --panel 5.7:1 · --link-hover on --bg 8.6:1
+ *          --accent-warm #9d5407 on --bg 5.3:1 · on --panel 4.7:1
+ *          --bg (as text) on --link (checked segments/steps) 6.3:1
+ *          amber button text #221a09 on #e79a2f 7.4:1 (deep state on #c8831f 5.4:1)
+ *          --knob-pointer #f6e8ca on --knob-face #37302a 10.7:1
+ *          --tick-major on --panel 12.5:1 · --tick on --panel 3.7:1 (non-text, ≥3:1)
+ *          --scope-trace #c8e05a on --scope-bg #10140e 12.6:1
+ *   Dark:  --text #e6dfd1 on --bg #1e1b17 12.9:1 · on --panel #27231e 11.8:1
+ *          --secondary #b0a390 on --bg 6.9:1 · on --panel 6.3:1
+ *          --link #e8a743 on --bg 8.2:1 · on --panel 7.5:1 · --link-hover on --bg 10.2:1
+ *          --accent-warm #f0a942 on --bg 8.5:1 · on --panel 7.8:1
+ *          --bg (as text) on --link 8.2:1
+ *          --knob-pointer #ffb454 on --knob-face #302b25 8.0:1
+ *          --tick-major on --panel 11.8:1 · --tick on --panel 4.0:1 (non-text, ≥3:1)
+ *          --scope-trace on --scope-bg #0b0f0a 13.1:1
+ *   --panel-edge and --scope-grid are decorative (no text on them); the dark
+ *   walnut edge is intentionally dim against the dark faceplate.
+ */
+
 :root {
-  --bg: #fff;
-  --text: #2e2e33;
-  --secondary: #5a5a5f;
-  --border: #eee;
-  --link: #007bff;
-  --link-hover: #0056b3;
+  color-scheme: light;
+
+  /* existing tokens (values retuned, names unchanged — other components rely on these) */
+  --bg: #faf6ee;
+  --text: #2b2620;
+  --secondary: #6b5f4e;
+  --border: #e3dac6;
+  --link: #8a4b08;
+  --link-hover: #6d3a05;
   --radius: 8px;
+
+  /* v5 contract tokens */
+  --panel: #f2ead9;
+  --panel-edge: #7a5b3a;
+  --panel-inset: rgba(255, 255, 255, 0.65);
+  --knob-face: #37302a;
+  --knob-ring: #a87f42;
+  --knob-pointer: #f6e8ca;
+  --tick: #857659;
+  --tick-major: #2b2620;
+  --scope-bg: #10140e;
+  --scope-grid: #29331f;
+  --scope-trace: #c8e05a;
+  --accent-warm: #9d5407;
+  /* Spaced, uppercase-friendly retro label stack; pair with .panel-label for
+     the letter-spacing/size treatment. System fonts only. */
+  --label-font: 'Futura', 'Futura PT', 'Avenir Next', 'Century Gothic',
+    'Trebuchet MS', sans-serif;
+
+  /* theme internals (NOT part of the v5 contract) — amber button faces are
+     the same in both themes; on-amber text is dark by design (cream on amber
+     fails AA). */
+  --amber: #e79a2f;
+  --amber-hi: #f2ab45;
+  --amber-deep: #c8831f;
+  --amber-edge: #a86c15;
+  --on-amber: #221a09;
+  --pot-track: #ddd2bd;
+  --screw-hi: #d8cdb7;
+  --screw-mid: #8d8064;
+  --screw-lo: #55483a;
+
+  accent-color: var(--accent-warm);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1d1e20;
-    --text: #d8d8d9;
-    --secondary: #9b9b9d;
-    --border: #333;
-    --link: #6ea8fe;
-    --link-hover: #9ec5fe;
+    color-scheme: dark;
+
+    --bg: #1e1b17;
+    --text: #e6dfd1;
+    --secondary: #b0a390;
+    --border: #3c362c;
+    --link: #e8a743;
+    --link-hover: #f4bf6e;
+
+    --panel: #27231e;
+    --panel-edge: #503923;
+    --panel-inset: rgba(255, 255, 255, 0.07);
+    --knob-face: #302b25;
+    --knob-ring: #96703a;
+    --knob-pointer: #ffb454;
+    --tick: #8c7f6a;
+    --tick-major: #e6dfd1;
+    --scope-bg: #0b0f0a;
+    --scope-grid: #232b1c;
+    --scope-trace: #c8e05a;
+    --accent-warm: #f0a942;
+
+    --pot-track: #14110e;
+    --screw-hi: #9c9078;
+    --screw-mid: #5d5342;
+    --screw-lo: #2e2820;
   }
 }
 
@@ -31,6 +119,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
     Arial, sans-serif;
   line-height: 1.6;
+  /* brass strip along the top edge — the one full-bleed accent */
+  border-top: 3px solid var(--accent-warm);
 }
 
 .site-header,
@@ -43,12 +133,16 @@ main,
 
 .site-header {
   padding-top: 24px;
-  padding-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
 }
 
 .site-title {
+  font-family: var(--label-font);
   font-size: 24px;
   font-weight: 700;
+  letter-spacing: 0.03em;
   color: var(--text);
   text-decoration: none;
 }
@@ -123,4 +217,257 @@ main a:hover {
 
 .site-footer a {
   color: var(--secondary);
+}
+
+.site-footer a:hover {
+  color: var(--link);
+}
+
+/* ---- 70s module faceplate ------------------------------------------------
+ * .module-panel is the general-purpose faceplate the generator page wraps
+ * control groups in. position: relative so .screw corners can be absolutely
+ * positioned by the page. Brushed texture is a fine repeating gradient
+ * (no images / data URIs).
+ */
+
+.module-panel {
+  position: relative;
+  padding: 16px;
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.02)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.02) 0 1px,
+      transparent 1px 3px
+    ),
+    var(--panel);
+  box-shadow:
+    inset 0 1px 0 var(--panel-inset),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* Engraved-label treatment for headings inside a module panel. */
+.module-panel h2,
+.module-panel h3,
+.module-panel h4,
+.panel-label {
+  font-family: var(--label-font);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text);
+}
+
+.module-panel h2,
+.module-panel h3,
+.module-panel h4 {
+  margin: 0 0 12px;
+}
+
+.panel-label {
+  display: inline-block;
+}
+
+/* Decorative faceplate screw — pure CSS: slot line over a domed metal
+ * radial gradient. Aria-hidden decoration; page positions it. */
+.screw {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background:
+    linear-gradient(
+      115deg,
+      transparent 44%,
+      rgba(0, 0, 0, 0.55) 45% 55%,
+      transparent 56%
+    ),
+    radial-gradient(
+      circle at 35% 30%,
+      var(--screw-hi),
+      var(--screw-mid) 55%,
+      var(--screw-lo) 100%
+    );
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+    0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+/* ---- buttons: faceplate treatment ---------------------------------------
+ * The generator/playlists pages style these in Astro attribute-scoped CSS
+ * (specificity 0,2,0 per compound). The doubled class + `main` prefix here
+ * out-specifies those rules without !important, so the pages need no edits.
+ */
+
+/* primary transport — amber key, dark lettering (cream-on-amber fails AA) */
+main .play-toggle.play-toggle {
+  color: var(--on-amber);
+  background: linear-gradient(var(--amber-hi), var(--amber));
+  border: 1px solid var(--amber-edge);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+  font-family: var(--label-font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+main .play-toggle.play-toggle:hover {
+  background: linear-gradient(#f6b757, var(--amber-hi));
+}
+
+/* running → "Finish": pressed-in, deeper amber */
+main .play-toggle.play-toggle[aria-pressed='true'] {
+  background: linear-gradient(var(--amber-deep), var(--amber));
+  box-shadow:
+    inset 0 2px 3px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* secondary — cream (light) / charcoal (dark) faceplate key */
+main .secondary-button.secondary-button {
+  color: var(--text);
+  background: linear-gradient(rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.03)),
+    var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 var(--panel-inset);
+}
+
+main .secondary-button.secondary-button:hover {
+  border-color: var(--accent-warm);
+}
+
+main .secondary-button.secondary-button[aria-expanded='true'] {
+  color: var(--bg);
+  background: var(--link);
+  border-color: var(--link);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/* service pills on /playlists/ — same key treatment, amber when selected */
+main .service-pill.service-pill {
+  color: var(--text);
+  background: linear-gradient(rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.03)),
+    var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 var(--panel-inset);
+}
+
+main .service-pill.service-pill:hover {
+  border-color: var(--accent-warm);
+}
+
+main .service-pill.service-pill[aria-checked='true'] {
+  color: var(--on-amber);
+  background: linear-gradient(var(--amber-hi), var(--amber));
+  border-color: var(--amber-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* ---- range inputs: brushed slide-pots -----------------------------------
+ * Recessed groove + fader cap with a centre index line, matching the knob
+ * face/pointer tokens. WebKit and Gecko pseudo-elements can't share rules.
+ */
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 26px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.05) 0 2px,
+      transparent 2px 4px
+    ),
+    var(--pot-track);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 26px;
+  margin-top: -10px; /* (26 − 6) / 2, centres cap on the 6px track */
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  background: linear-gradient(
+    90deg,
+    var(--knob-face) 0 44%,
+    var(--knob-pointer) 44% 56%,
+    var(--knob-face) 56% 100%
+  );
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.05) 0 2px,
+      transparent 2px 4px
+    ),
+    var(--pot-track);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 26px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  background: linear-gradient(
+    90deg,
+    var(--knob-face) 0 44%,
+    var(--knob-pointer) 44% 56%,
+    var(--knob-face) 56% 100%
+  );
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+input[type='range']:focus-visible {
+  outline: 3px solid var(--link);
+  outline-offset: 2px;
+}
+
+/* ---- details / summary harmonised (no page currently uses them; keeps any
+ * future disclosure consistent with the faceplate language) */
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+summary::marker {
+  color: var(--accent-warm);
+}
+
+/* ---- print: drop the hardware chrome, keep the content ------------------ */
+
+@media print {
+  body {
+    border-top: none;
+    background: #fff;
+    color: #000;
+  }
+
+  .module-panel {
+    background: none;
+    box-shadow: none;
+  }
+
+  .screw {
+    display: none;
+  }
 }

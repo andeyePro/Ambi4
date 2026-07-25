@@ -91,18 +91,25 @@ const VOICES: Record<string, [string, string][]> = {
   <h1>Generator</h1>
 
   <div id="generator-app" hidden>
-    <button
-      id="toggle-play"
-      type="button"
-      class="play-toggle"
-      aria-pressed="false"
-    >
-      <span class="play-toggle-label">Play</span>
-    </button>
+    <div class="module-panel transport-module">
+      <span class="screw screw-tl" aria-hidden="true"></span>
+      <span class="screw screw-tr" aria-hidden="true"></span>
+      <span class="screw screw-bl" aria-hidden="true"></span>
+      <span class="screw screw-br" aria-hidden="true"></span>
+      <span class="panel-label transport-label" aria-hidden="true">Transport</span>
+      <button
+        id="toggle-play"
+        type="button"
+        class="play-toggle"
+        aria-pressed="false"
+      >
+        <span class="play-toggle-label">Play</span>
+      </button>
 
-    <div class="transport-row">
-      <p id="transport-status" class="timer-status" role="status"></p>
-      <button id="stop-now" type="button" class="link-button" hidden>Stop now</button>
+      <div class="transport-row">
+        <p id="transport-status" class="timer-status" role="status"></p>
+        <button id="stop-now" type="button" class="link-button" hidden>Stop now</button>
+      </div>
     </div>
 
     <p id="ios-silent-hint" class="hint" hidden>
@@ -122,39 +129,43 @@ const VOICES: Record<string, [string, string][]> = {
     </div>
 
     <section id="panel-simple" role="tabpanel" aria-labelledby="tab-simple" tabindex="0">
-      <div class="control">
-        <div class="control-label-row">
-          <label for="speed">Speed</label>
-          <span class="end-label">Slower &ndash; Faster</span>
+      <div class="module-panel sliders-module">
+        <span class="screw screw-tl" aria-hidden="true"></span>
+        <span class="screw screw-br" aria-hidden="true"></span>
+        <div class="control">
+          <div class="control-label-row">
+            <label for="speed" class="panel-label">Speed</label>
+            <span class="end-label">Slower &ndash; Faster</span>
+          </div>
+          <input type="range" id="speed" min="0" max="1" step="0.001" value="0.5" />
         </div>
-        <input type="range" id="speed" min="0" max="1" step="0.001" value="0.5" />
-      </div>
 
-      <div class="control">
-        <div class="control-label-row">
-          <label for="complexity">Complexity</label>
-          <span class="end-label">Calm &ndash; Complex</span>
+        <div class="control">
+          <div class="control-label-row">
+            <label for="complexity" class="panel-label">Complexity</label>
+            <span class="end-label">Calm &ndash; Complex</span>
+          </div>
+          <input type="range" id="complexity" min="0" max="1" step="0.01" value="0.5" />
         </div>
-        <input type="range" id="complexity" min="0" max="1" step="0.01" value="0.5" />
-      </div>
 
-      <div class="control">
-        <div class="control-label-row">
-          <label for="repetition">Repetition</label>
+        <div class="control">
+          <div class="control-label-row">
+            <label for="repetition" class="panel-label">Repetition</label>
+          </div>
+          <input type="range" id="repetition" min="0" max="1" step="0.01" value="0.5" />
+          <div class="tri-label" aria-hidden="true">
+            <span>Random</span>
+            <span>Evolving</span>
+            <span>Repetitive</span>
+          </div>
         </div>
-        <input type="range" id="repetition" min="0" max="1" step="0.01" value="0.5" />
-        <div class="tri-label" aria-hidden="true">
-          <span>Random</span>
-          <span>Evolving</span>
-          <span>Repetitive</span>
-        </div>
-      </div>
 
-      <div class="control">
-        <div class="control-label-row">
-          <label for="volume">Volume</label>
+        <div class="control">
+          <div class="control-label-row">
+            <label for="volume" class="panel-label">Volume</label>
+          </div>
+          <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" />
         </div>
-        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" />
       </div>
 
       <fieldset class="timer-group">
@@ -192,8 +203,12 @@ const VOICES: Record<string, [string, string][]> = {
     </section>
 
     <section id="panel-advanced" role="tabpanel" aria-labelledby="tab-advanced" tabindex="0" hidden>
-      <div class="tracks-section">
-        <h2 class="tracks-heading">Tracks</h2>
+      <div class="tracks-section module-panel">
+        <span class="screw screw-tl" aria-hidden="true"></span>
+        <span class="screw screw-tr" aria-hidden="true"></span>
+        <span class="screw screw-bl" aria-hidden="true"></span>
+        <span class="screw screw-br" aria-hidden="true"></span>
+        <h2 class="tracks-heading panel-label">Tracks</h2>
         <div class="track-rows">
           {TRACKS.map(([id, label]) => (
             <div class="track-item">
@@ -218,7 +233,7 @@ const VOICES: Record<string, [string, string][]> = {
                   aria-controls={`voice-editor-${id}`}
                 >Edit</button>
               </div>
-              <div class="voice-editor" id={`voice-editor-${id}`} hidden></div>
+              <div class="voice-editor module-panel" id={`voice-editor-${id}`} hidden></div>
             </div>
           ))}
         </div>
@@ -260,15 +275,18 @@ const VOICES: Record<string, [string, string][]> = {
         </select>
       </div>
 
-      <div id="custom-structure-builder" class="custom-structure" hidden>
+      <div id="custom-structure-builder" class="custom-structure module-panel" hidden>
+        <span class="panel-label">Structure blocks</span>
         <div id="structure-blocks" class="structure-blocks"></div>
         <button type="button" id="add-structure-block" class="secondary-button">Add block</button>
         <p class="hint">Loops forever, in order. Up to 8 blocks.</p>
       </div>
 
-      <div class="control arp-control">
+      <div class="control arp-control module-panel">
+        <span class="screw screw-tl" aria-hidden="true"></span>
+        <span class="screw screw-br" aria-hidden="true"></span>
         <div class="control-label-row">
-          <span class="control-heading">Arpeggiator</span>
+          <span class="control-heading panel-label">Arpeggiator</span>
         </div>
         <div class="segmented" role="radiogroup" aria-label="Arpeggiator mode">
           <input type="radio" name="arp-mode" id="arp-mode-auto" value="auto" checked />
@@ -309,7 +327,7 @@ const VOICES: Record<string, [string, string][]> = {
           </div>
 
           <div class="control">
-            <span class="control-heading">Steps</span>
+            <span class="control-heading panel-label">Steps</span>
             <div id="arp-steps" class="step-grid" role="group" aria-label="Arpeggiator step pattern"></div>
           </div>
         </div>
@@ -451,6 +469,39 @@ const VOICES: Record<string, [string, string][]> = {
 
     function clamp(v, lo, hi) {
       return Math.min(hi, Math.max(lo, v));
+    }
+
+    // ---- oscillator shape model (v5 morph) ------------------------------
+    // shape: 0 sine, 1 triangle, 2 sawtooth, 3 square; fractional = morph.
+    // Legacy persisted patches (and older voice defaults) store strings in
+    // osc1/osc2 — map them onto the dial.
+    const SHAPE_NAMES = ['sine', 'triangle', 'sawtooth', 'square'];
+    const SHAPE_LABELS = ['Sine', 'Tri', 'Saw', 'Sq'];
+    const SHAPE_FROM_STRING = { sine: 0, triangle: 1, sawtooth: 2, square: 3 };
+
+    function readShape(source, n) {
+      const shape = source[`shape${n}`];
+      if (typeof shape === 'number' && Number.isFinite(shape)) return clamp(shape, 0, 3);
+      if (typeof shape === 'string' && shape in SHAPE_FROM_STRING) {
+        return SHAPE_FROM_STRING[shape];
+      }
+      const osc = source[`osc${n}`];
+      if (typeof osc === 'string' && osc in SHAPE_FROM_STRING) return SHAPE_FROM_STRING[osc];
+      return null;
+    }
+
+    // Write both key families: shape1/shape2 numbers are authoritative for a
+    // v5 engine/voices build; nearest-string osc1/osc2 keeps an older build
+    // (or a not-yet-updated sanitiser) honouring the edit.
+    function writeShape(source, n, value) {
+      if (value === null) {
+        source[`shape${n}`] = null;
+        source[`osc${n}`] = null;
+        return;
+      }
+      const v = clamp(value, 0, 3);
+      source[`shape${n}`] = v;
+      source[`osc${n}`] = SHAPE_NAMES[Math.round(v)];
     }
 
     async function loadPrefsModule() {
@@ -849,7 +900,7 @@ const VOICES: Record<string, [string, string][]> = {
         });
       }
 
-      // ---- voice editors (v3 patch model) -------------------------------
+      // ---- voice editors (v3 patch model, v5 module look) ---------------
 
       let voicesModulePromise = null;
       function getVoicesTable() {
@@ -863,6 +914,117 @@ const VOICES: Record<string, [string, string][]> = {
 
       function sendPatch(track, voiceId, patch) {
         engine.setParams({ patches: { [track]: { [voiceId]: structuredClone(patch) } } });
+      }
+
+      // Optional v5 modules. Either can be absent or broken — the editor
+      // then degrades: no knob.js → the slider/select controls below; no
+      // scope.js → no scope head, knobs still work.
+      let knobApi = null;
+      let scopeApi = null;
+      try {
+        const m = await import('../scripts/knob.js');
+        if (m && typeof m.createKnob === 'function') knobApi = m;
+      } catch {}
+      try {
+        const m = await import('../scripts/scope.js');
+        if (m && typeof m.renderPatchWave === 'function') scopeApi = m;
+      } catch {}
+
+      // Representative pitch for the static scope trace, per track register.
+      const SCOPE_FREQ = { pad: 220, bass: 55, melody: 330, texture: 440, arp: 330, percussion: 220 };
+
+      // Per-open-editor scope + knob handles, so re-renders, close and
+      // engine state changes can tear down rAF loops and swap OFFLINE/LIVE.
+      const openEditors = new Map(); // track -> { scope|null, knobs: [] }
+
+      function teardownEditor(track) {
+        const ed = openEditors.get(track);
+        if (!ed) return;
+        if (ed.scope) {
+          if (ed.scope.debounce !== null) clearTimeout(ed.scope.debounce);
+          if (ed.scope.live) {
+            try {
+              ed.scope.live.destroy();
+            } catch {}
+          }
+        }
+        for (const k of ed.knobs) {
+          try {
+            k.destroy?.();
+          } catch {}
+        }
+        openEditors.delete(track);
+      }
+
+      function scheduleScopeRender(track, immediate = false) {
+        const ed = openEditors.get(track);
+        if (!ed || !ed.scope || ed.scope.live) return;
+        const s = ed.scope;
+        if (s.debounce !== null) clearTimeout(s.debounce);
+        s.debounce = setTimeout(
+          () => {
+            s.debounce = null;
+            try {
+              scopeApi.renderPatchWave(s.canvas, s.getPatch(), {
+                freq: SCOPE_FREQ[track] || 220,
+              });
+            } catch {}
+          },
+          immediate ? 0 : 80
+        );
+      }
+
+      function updateScopeMode(track) {
+        const ed = openEditors.get(track);
+        if (!ed || !ed.scope) return;
+        const s = ed.scope;
+        let analyser = null;
+        if (engine.running && typeof engine.getAnalysers === 'function') {
+          try {
+            analyser = (engine.getAnalysers() || {})[track] || null;
+          } catch {
+            analyser = null;
+          }
+        }
+        if (analyser && typeof scopeApi.attachLiveScope === 'function') {
+          if (s.live) return;
+          if (s.debounce !== null) {
+            clearTimeout(s.debounce);
+            s.debounce = null;
+          }
+          try {
+            s.live = scopeApi.attachLiveScope(s.canvas, analyser);
+          } catch {
+            s.live = null;
+          }
+          if (s.live) {
+            s.indicator.textContent = 'LIVE';
+            s.indicator.classList.add('scope-mode-live');
+            return;
+          }
+        }
+        if (s.live) {
+          try {
+            s.live.destroy();
+          } catch {}
+          s.live = null;
+        }
+        s.indicator.textContent = 'OFFLINE';
+        s.indicator.classList.remove('scope-mode-live');
+        scheduleScopeRender(track, true);
+      }
+
+      function updateAllScopeModes() {
+        for (const track of openEditors.keys()) updateScopeMode(track);
+      }
+
+      function addScrews(el, corners = ['tl', 'tr', 'bl', 'br']) {
+        for (const corner of corners) {
+          const screw = document.createElement('span');
+          screw.className = `screw screw-${corner}`;
+          screw.setAttribute('aria-hidden', 'true');
+          el.append(screw);
+        }
       }
 
       let veControlId = 0;
@@ -953,42 +1115,38 @@ const VOICES: Record<string, [string, string][]> = {
 
       const hzFormat = (v) => `${Math.round(v)} Hz`;
       const secFormat = (v) => (v < 0.1 ? `${Math.round(v * 1000)} ms` : `${Math.round(v * 100) / 100} s`);
+      const plainFormat = (v) => String(Math.round(v * 100) / 100);
 
-      async function renderVoiceEditor(track) {
-        const container = document.getElementById(`voice-editor-${track}`);
-        const voiceId = settings.tracks[track].voice;
-        const voices = await getVoicesTable();
-        // Feature-detect .defaults — absent on an older engine-voices build.
-        const defaults =
-          voices && voices[track] && voices[track][voiceId] && voices[track][voiceId].defaults
-            ? voices[track][voiceId].defaults
-            : null;
-        const base = deepMerge(FALLBACK_PATCH, defaults || {});
-        const patch = deepMerge(base, (settings.patches[track] || {})[voiceId] || {});
+      const FILTER_ORDER = ['lowpass', 'highpass', 'bandpass', 'notch'];
+      const FILTER_DIAL_LABELS = ['LP', 'HP', 'BP', 'Notch'];
+      // knob.js marks are numeric tick positions; the shape/type names show
+      // in the knob's value readout via `format`.
+      const SHAPE_MARKS = [0, 1, 2, 3];
+      const shapeFormat = (v) => {
+        const r = Math.round(clamp(v, 0, 3));
+        if (Math.abs(v - r) < 0.05) return SHAPE_LABELS[r];
+        return `${SHAPE_LABELS[Math.floor(v)]}~${SHAPE_LABELS[Math.ceil(v)]}`;
+      };
 
-        function commit() {
-          if (!settings.patches[track]) settings.patches[track] = {};
-          settings.patches[track][voiceId] = patch;
-          sendPatch(track, voiceId, patch);
-          persistSettings();
-        }
-
-        container.innerHTML = '';
-
+      // Fallback editor: the pre-v5 slider/select controls — the path when
+      // knob.js is missing or its API throws. Writes the same
+      // shape-normalised patch the knob editor writes.
+      function buildSliderEditor(container, patch, commit) {
         const source = veSection(container, 'Source');
         veSelect(source, 'Osc 1', {
           options: OSC_TYPES,
-          value: patch.source.osc1,
+          value: SHAPE_NAMES[Math.round(readShape(patch.source, 1) ?? 0)],
           onChange: (v) => {
-            patch.source.osc1 = v;
+            writeShape(patch.source, 1, SHAPE_FROM_STRING[v]);
             commit();
           },
         });
+        const initialShape2 = readShape(patch.source, 2);
         veSelect(source, 'Osc 2', {
           options: [['none', 'None'], ...OSC_TYPES],
-          value: patch.source.osc2 === null ? 'none' : patch.source.osc2,
+          value: initialShape2 === null ? 'none' : SHAPE_NAMES[Math.round(initialShape2)],
           onChange: (v) => {
-            patch.source.osc2 = v === 'none' ? null : v;
+            writeShape(patch.source, 2, v === 'none' ? null : SHAPE_FROM_STRING[v]);
             commit();
           },
         });
@@ -1133,6 +1291,310 @@ const VOICES: Record<string, [string, string][]> = {
             commit();
           },
         });
+      }
+
+      // Knob-based editor (v5 module look). Throws only if createKnob does —
+      // the caller catches and falls back to buildSliderEditor.
+      function buildKnobEditor(container, patch, commit, knobs) {
+        const sections = document.createElement('div');
+        sections.className = 'knob-sections';
+        container.append(sections);
+
+        function knobSection(heading) {
+          const s = document.createElement('div');
+          s.className = 'knob-section';
+          const h = document.createElement('span');
+          h.className = 'panel-label';
+          h.textContent = heading;
+          const row = document.createElement('div');
+          row.className = 'knob-row';
+          s.append(h, row);
+          sections.append(s);
+          return row;
+        }
+
+        function addKnob(row, options) {
+          const cell = document.createElement('div');
+          cell.className = 'knob-cell';
+          row.append(cell);
+          const handle = knobApi.createKnob(cell, options);
+          knobs.push(handle);
+          return { cell, handle };
+        }
+
+        // The page owns the log transforms: the knob itself is linear, its
+        // 0–1 position mapped onto the unit's range in format/onInput.
+        function addLogKnob(row, label, min, max, value, format, onValue) {
+          return addKnob(row, {
+            label,
+            min: 0,
+            max: 1,
+            value: valueToLog(clamp(value, min, max), min, max),
+            format: (t) => format(logToValue(clamp(t, 0, 1), min, max)),
+            onInput: (t) => onValue(logToValue(clamp(t, 0, 1), min, max)),
+          });
+        }
+
+        // -- source --
+        const source = knobSection('Source');
+        addKnob(source, {
+          label: 'Shape 1',
+          min: 0,
+          max: 3,
+          value: readShape(patch.source, 1) ?? 0,
+          marks: SHAPE_MARKS,
+          format: shapeFormat,
+          onInput: (v) => {
+            writeShape(patch.source, 1, v);
+            commit();
+          },
+        });
+
+        // Osc 2's "off" affordance: a toggle beside its dial (shape2 null).
+        let lastShape2 = readShape(patch.source, 2);
+        const osc2Cell = document.createElement('div');
+        osc2Cell.className = 'knob-cell knob-cell-toggle';
+        const osc2Toggle = document.createElement('button');
+        osc2Toggle.type = 'button';
+        osc2Toggle.className = 'secondary-button osc2-toggle';
+        osc2Toggle.textContent = 'Osc 2';
+        osc2Toggle.setAttribute('aria-pressed', String(lastShape2 !== null));
+        osc2Toggle.setAttribute('aria-label', 'Oscillator 2 on');
+        osc2Cell.append(osc2Toggle);
+        source.append(osc2Cell);
+
+        const shape2Knob = addKnob(source, {
+          label: 'Shape 2',
+          min: 0,
+          max: 3,
+          value: lastShape2 ?? 0,
+          marks: SHAPE_MARKS,
+          format: shapeFormat,
+          onInput: (v) => {
+            lastShape2 = clamp(v, 0, 3);
+            writeShape(patch.source, 2, lastShape2);
+            commit();
+          },
+        });
+        shape2Knob.cell.hidden = lastShape2 === null;
+
+        osc2Toggle.addEventListener('click', () => {
+          const on = osc2Toggle.getAttribute('aria-pressed') !== 'true';
+          osc2Toggle.setAttribute('aria-pressed', String(on));
+          shape2Knob.cell.hidden = !on;
+          if (on) {
+            if (lastShape2 === null) lastShape2 = 0;
+            writeShape(patch.source, 2, lastShape2);
+            try {
+              shape2Knob.handle.set?.(lastShape2);
+            } catch {}
+          } else {
+            writeShape(patch.source, 2, null);
+          }
+          commit();
+        });
+
+        addKnob(source, {
+          label: 'Mix',
+          min: 0,
+          max: 1,
+          value: clamp(patch.source.mix, 0, 1),
+          format: plainFormat,
+          onInput: (v) => {
+            patch.source.mix = clamp(v, 0, 1);
+            commit();
+          },
+        });
+        addKnob(source, {
+          label: 'Detune',
+          min: 0,
+          max: 50,
+          step: 1,
+          value: clamp(patch.source.detune, 0, 50),
+          format: (v) => `${Math.round(v)} ct`,
+          onInput: (v) => {
+            patch.source.detune = Math.round(clamp(v, 0, 50));
+            commit();
+          },
+        });
+        addKnob(source, {
+          label: 'Octave',
+          min: -1,
+          max: 1,
+          step: 1,
+          value: clamp(patch.source.octave, -1, 1),
+          marks: [-1, 0, 1],
+          format: (v) => (v > 0 ? `+${Math.round(v)}` : String(Math.round(v))),
+          onInput: (v) => {
+            patch.source.octave = Math.round(clamp(v, -1, 1));
+            commit();
+          },
+        });
+
+        // -- filter --
+        const filter = knobSection('Filter');
+        addKnob(filter, {
+          label: 'Type',
+          min: 0,
+          max: 3,
+          step: 1,
+          value: Math.max(0, FILTER_ORDER.indexOf(patch.filter.type)),
+          marks: [0, 1, 2, 3],
+          format: (v) => FILTER_DIAL_LABELS[Math.round(clamp(v, 0, 3))],
+          onInput: (v) => {
+            patch.filter.type = FILTER_ORDER[Math.round(clamp(v, 0, 3))];
+            commit();
+          },
+        });
+        addLogKnob(filter, 'Cutoff', 40, 12000, patch.filter.cutoff, hzFormat, (v) => {
+          patch.filter.cutoff = Math.round(v);
+          commit();
+        });
+        addKnob(filter, {
+          label: 'Resonance',
+          min: 0.1,
+          max: 20,
+          step: 0.1,
+          value: clamp(patch.filter.q, 0.1, 20),
+          format: plainFormat,
+          onInput: (v) => {
+            patch.filter.q = clamp(v, 0.1, 20);
+            commit();
+          },
+        });
+        addKnob(filter, {
+          label: 'Env amount',
+          min: 0,
+          max: 1,
+          value: clamp(patch.filter.envAmount, 0, 1),
+          format: plainFormat,
+          onInput: (v) => {
+            patch.filter.envAmount = clamp(v, 0, 1);
+            commit();
+          },
+        });
+
+        // -- envelope --
+        const env = knobSection('Envelope');
+        addLogKnob(env, 'Attack', 0.001, 8, patch.adsr.attack, secFormat, (v) => {
+          patch.adsr.attack = v;
+          commit();
+        });
+        addLogKnob(env, 'Decay', 0.001, 8, patch.adsr.decay, secFormat, (v) => {
+          patch.adsr.decay = v;
+          commit();
+        });
+        addKnob(env, {
+          label: 'Sustain',
+          min: 0,
+          max: 1,
+          value: clamp(patch.adsr.sustain, 0, 1),
+          format: plainFormat,
+          onInput: (v) => {
+            patch.adsr.sustain = clamp(v, 0, 1);
+            commit();
+          },
+        });
+        addLogKnob(env, 'Release', 0.01, 12, patch.adsr.release, secFormat, (v) => {
+          patch.adsr.release = v;
+          commit();
+        });
+
+        // -- sends --
+        const sends = knobSection('Sends');
+        addKnob(sends, {
+          label: 'Reverb',
+          min: 0,
+          max: 1,
+          value: clamp(patch.sends.reverb, 0, 1),
+          format: plainFormat,
+          onInput: (v) => {
+            patch.sends.reverb = clamp(v, 0, 1);
+            commit();
+          },
+        });
+        addKnob(sends, {
+          label: 'Delay',
+          min: 0,
+          max: 1,
+          value: clamp(patch.sends.delay, 0, 1),
+          format: plainFormat,
+          onInput: (v) => {
+            patch.sends.delay = clamp(v, 0, 1);
+            commit();
+          },
+        });
+      }
+
+      async function renderVoiceEditor(track) {
+        const container = document.getElementById(`voice-editor-${track}`);
+        const voiceId = settings.tracks[track].voice;
+        const voices = await getVoicesTable();
+        // Feature-detect .defaults — absent on an older engine-voices build.
+        const defaults =
+          voices && voices[track] && voices[track][voiceId] && voices[track][voiceId].defaults
+            ? voices[track][voiceId].defaults
+            : null;
+        const base = deepMerge(FALLBACK_PATCH, defaults || {});
+        const patch = deepMerge(base, (settings.patches[track] || {})[voiceId] || {});
+        // Normalise once so the dials and the scope always see numeric
+        // shapes, whatever vintage the stored patch or voice defaults were.
+        writeShape(patch.source, 1, readShape(patch.source, 1) ?? 0);
+        writeShape(patch.source, 2, readShape(patch.source, 2));
+
+        function commit() {
+          if (!settings.patches[track]) settings.patches[track] = {};
+          settings.patches[track][voiceId] = patch;
+          sendPatch(track, voiceId, patch);
+          scheduleScopeRender(track);
+          persistSettings();
+        }
+
+        teardownEditor(track);
+        container.innerHTML = '';
+        addScrews(container);
+
+        const ed = { scope: null, knobs: [] };
+        openEditors.set(track, ed);
+
+        if (scopeApi) {
+          const head = document.createElement('div');
+          head.className = 'scope-head';
+          const scopeCanvas = document.createElement('canvas');
+          scopeCanvas.className = 'patch-scope';
+          scopeCanvas.setAttribute('aria-label', `${track} voice waveform preview`);
+          const indicator = document.createElement('span');
+          indicator.className = 'scope-mode';
+          indicator.textContent = 'OFFLINE';
+          head.append(scopeCanvas, indicator);
+          container.append(head);
+          ed.scope = {
+            canvas: scopeCanvas,
+            indicator,
+            live: null,
+            debounce: null,
+            getPatch: () => patch,
+          };
+          updateScopeMode(track); // draws the static trace or attaches live
+        }
+
+        let knobsBuilt = false;
+        if (knobApi) {
+          try {
+            buildKnobEditor(container, patch, commit, ed.knobs);
+            knobsBuilt = true;
+          } catch {
+            for (const k of ed.knobs) {
+              try {
+                k.destroy?.();
+              } catch {}
+            }
+            ed.knobs = [];
+            const partial = container.querySelector('.knob-sections');
+            if (partial) partial.remove();
+          }
+        }
+        if (!knobsBuilt) buildSliderEditor(container, patch, commit);
 
         const resetButton = document.createElement('button');
         resetButton.type = 'button';
@@ -1162,6 +1624,7 @@ const VOICES: Record<string, [string, string][]> = {
           editor.hidden = !opening;
           toggle.setAttribute('aria-expanded', String(opening));
           if (opening) renderVoiceEditor(id);
+          else teardownEditor(id);
         });
       }
 
@@ -1409,6 +1872,9 @@ const VOICES: Record<string, [string, string][]> = {
             navigator.mediaSession.playbackState = running ? 'playing' : 'paused';
           }
         } catch {}
+        // Every transport change re-evaluates open editors' scopes
+        // (OFFLINE static trace ↔ LIVE analyser trace).
+        updateAllScopeModes();
       }
 
       // Lock-screen / hardware-key transport. Full lock-screen support also
@@ -1882,9 +2348,57 @@ const VOICES: Record<string, [string, string][]> = {
     init();
   </script>
 
-  <style>
+  <!-- Global on purpose: most of these controls are built by the page
+       script, so Astro's scoped-style attribute would never reach them.
+       Class names are page-unique (checked against the other pages). -->
+  <style is:global>
     #generator-app {
       max-width: 640px;
+    }
+
+    /* -- 70s module furniture (theme owns the .module-panel / .panel-label /
+          .screw appearance and tokens; this positions the page's fittings) -- */
+
+    .module-panel {
+      position: relative;
+    }
+
+    .screw-tl {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+    }
+
+    .screw-tr {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+    }
+
+    .screw-bl {
+      position: absolute;
+      bottom: 8px;
+      left: 8px;
+    }
+
+    .screw-br {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+    }
+
+    .transport-module,
+    .sliders-module {
+      margin-bottom: 20px;
+    }
+
+    .transport-module .transport-row {
+      margin-bottom: 0;
+    }
+
+    .transport-label {
+      display: block;
+      margin-bottom: 8px;
     }
 
     .play-toggle {
@@ -2223,13 +2737,76 @@ const VOICES: Record<string, [string, string][]> = {
       border-color: var(--link);
     }
 
-    /* -- voice editor -- */
+    /* -- voice editor module (faceplate look comes from .module-panel) -- */
 
     .voice-editor {
       margin-top: 10px;
-      padding: 12px;
-      border: 1px solid var(--border);
+    }
+
+    .scope-head {
+      position: relative;
+      max-width: 420px;
+      margin: 0 auto 16px;
+    }
+
+    .patch-scope {
+      display: block;
+      width: 100%;
+      height: 130px;
+      background: var(--scope-bg, #10140f);
+      border: 1px solid var(--panel-edge, var(--border));
       border-radius: var(--radius);
+    }
+
+    .scope-mode {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      font-family: var(--label-font, inherit);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      color: var(--secondary);
+    }
+
+    .scope-mode-live {
+      color: var(--accent-warm, #d98324);
+    }
+
+    .knob-sections {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .knob-section > .panel-label {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    /* Knobs wrap into a grid; still usable at 360 px viewport width. */
+    .knob-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+      gap: 12px 8px;
+      align-items: end;
+      justify-items: center;
+    }
+
+    .knob-cell {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .knob-cell-toggle {
+      align-self: center;
+    }
+
+    .osc2-toggle[aria-pressed='true'] {
+      background: var(--link);
+      color: var(--bg);
+      border-color: var(--link);
     }
 
     .voice-editor .ve-section {
