@@ -5,6 +5,13 @@ interface Props {
 }
 const { title, description = 'Customisable endless music generated just for you, to help you work.' } = Astro.props;
 import '../styles/global.css';
+
+const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
+const navLinks = [
+  { href: '/', label: 'Generator' },
+  { href: '/playlists/', label: 'Playlists' },
+];
+const isCurrent = (href: string) => (href.replace(/\/+$/, '') || '/') === currentPath;
 ---
 <html lang="en-gb">
   <head>
@@ -17,6 +24,11 @@ import '../styles/global.css';
   <body>
     <header class="site-header">
       <a class="site-title" href="/">Ambi4: Ambience for Work</a>
+      <nav class="site-nav" aria-label="Site">
+        {navLinks.map((link) => (
+          <a href={link.href} aria-current={isCurrent(link.href) ? 'page' : undefined}>{link.label}</a>
+        ))}
+      </nav>
     </header>
     <main>
       <slot />
@@ -27,3 +39,26 @@ import '../styles/global.css';
     </footer>
   </body>
 </html>
+
+<style>
+  .site-nav {
+    display: flex;
+    gap: 16px;
+    margin-top: 6px;
+    font-size: 15px;
+  }
+
+  .site-nav a {
+    color: var(--secondary);
+    text-decoration: none;
+  }
+
+  .site-nav a:hover {
+    color: var(--link-hover);
+  }
+
+  .site-nav a[aria-current='page'] {
+    color: var(--text);
+    font-weight: 600;
+  }
+</style>

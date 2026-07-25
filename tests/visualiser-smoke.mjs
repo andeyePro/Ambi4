@@ -183,6 +183,49 @@ test('runs with no window/document/ResizeObserver at all (bare Node)', () => {
   assert.ok(calls.clearRect >= 1, 'expected at least one render pass');
 });
 
+test('re-resizes when devicePixelRatio changes between frames', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  const prevWindow = globalThis.window;
+  globalThis.window = { devicePixelRatio: 1 };
+  try {
+    const inst = initVisualiser(canvas, engine);
+    assert.equal(canvas.width, 600, 'expected 1:1 backing store at dpr 1');
+
+    // Zoom / different-DPI screen: dpr changes without a CSS-box resize.
+    globalThis.window.devicePixelRatio = 2;
+    engine.emit('state', { running: false }); // forces a static renderFrame()
+    assert.equal(canvas.width, 1200, 'expected backing store rescaled on dpr change');
+    assert.equal(canvas.height, 600);
+
+    inst.destroy();
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+});
+
+test('observes device-pixel-content-box, falling back to plain observe', () => {
+  const observeCalls = [];
+  const prevRO = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    observe(_target, opts) {
+      observeCalls.push(opts);
+      if (opts) throw new TypeError('box option not supported');
+    }
+    disconnect() {}
+  };
+  try {
+    const inst = initVisualiser(makeCanvas({}), makeEngine());
+    inst.destroy();
+  } finally {
+    if (prevRO === undefined) delete globalThis.ResizeObserver;
+    else globalThis.ResizeObserver = prevRO;
+  }
+  assert.deepEqual(observeCalls, [{ box: 'device-pixel-content-box' }, undefined]);
+});
+
 // --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------

@@ -1,0 +1,118 @@
+---
+import { SERVICES, type ServiceId } from './services';
+
+interface Props {
+  service: ServiceId;
+  playlist: string;
+  title: string;
+  /** Playlist thumbnail shown on the facade; absent → neutral panel. */
+  thumbnail?: string;
+}
+const { service, playlist, title, thumbnail } = Astro.props;
+
+const meta = SERVICES[service];
+const embedUrl = meta.embedUrl(playlist);
+const openUrl = meta.openUrl(playlist);
+---
+{/*
+  Privacy facade: no third-party iframe exists in the served HTML. The real
+  player iframe is only created (in the <script> below) when the user clicks
+  the per-embed Load button, so no streaming service can set cookies/storage
+  until then.
+*/}
+<div
+  class="embed-slot"
+  data-embed-facade
+  data-embed-src={embedUrl}
+  data-embed-height={meta.height}
+  data-embed-allow={meta.allow}
+  data-embed-title={`${meta.label} playlist: ${title}`}
+  style={`--embed-height:${meta.height}px;`}
+>
+  {thumbnail && <img class="facade-thumb" src={thumbnail} alt="" loading="lazy" />}
+  <span class="facade-label">{meta.label}</span>
+  <button type="button" class="facade-load">Load {meta.label} player</button>
+</div>
+<p class="embed-fallback">
+  <a href={openUrl} rel="noopener noreferrer" target="_blank">Open this playlist in {meta.label}</a>.
+</p>
+
+<style>
+  .embed-slot {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: var(--embed-height, 380px);
+    max-width: 720px;
+    margin: 20px 0 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  .embed-slot.loaded {
+    display: block;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+  }
+
+  .facade-thumb {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.35;
+  }
+
+  .facade-label {
+    position: relative;
+    color: var(--secondary);
+    font-size: 14px;
+  }
+
+  .facade-load {
+    position: relative;
+    font: inherit;
+    font-size: 15px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--link);
+    border-radius: 999px;
+    padding: 8px 18px;
+    cursor: pointer;
+  }
+
+  .facade-load:hover,
+  .facade-load:focus-visible {
+    background: var(--link);
+    border-color: var(--link);
+    color: var(--bg);
+  }
+</style>
+
+<script>
+  for (const slot of document.querySelectorAll<HTMLElement>('[data-embed-facade]')) {
+    const button = slot.querySelector<HTMLButtonElement>('.facade-load');
+    button?.addEventListener('click', () => {
+      if (slot.querySelector('iframe')) return;
+      const iframe = document.createElement('iframe');
+      iframe.src = slot.dataset.embedSrc ?? '';
+      iframe.loading = 'lazy';
+      iframe.allow = slot.dataset.embedAllow ?? '';
+      iframe.height = slot.dataset.embedHeight ?? '';
+      iframe.title = slot.dataset.embedTitle ?? '';
+      iframe.style.cssText =
+        'display:block;width:100%;max-width:720px;overflow:hidden;border-radius:10px;border:0;';
+      slot.classList.add('loaded');
+      slot.replaceChildren(iframe);
+      iframe.focus();
+    });
+  }
+</script>

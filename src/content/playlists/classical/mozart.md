@@ -1,7 +1,12 @@
 ---
 title: 'Mozart'
 date: 2024-01-27T16:24:26Z
-playlist: 'ambi4-work-classical-mozart/pl.u-2aoqrbvFNa6LgM'
+services:
+  youtube: null
+  spotify: null
+  deezer: null
+  soundcloud: null
+  apple: 'ambi4-work-classical-mozart/pl.u-2aoqrbvFNa6LgM'
 thumbnail: '/img/MozartFlute.jpg'
 ---
 

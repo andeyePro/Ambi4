@@ -1,0 +1,252 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import ServiceEmbed from '../components/ServiceEmbed.astro';
+import { SERVICE_ORDER, SERVICES, type ServiceId } from '../components/services';
+
+const entries = await getCollection('playlists');
+const genres = [...new Set(entries.map((e) => e.id.split('/')[0]))].sort();
+const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// Default = first service (contract order) for which ANY playlist has an id, else youtube.
+const defaultService: ServiceId =
+  SERVICE_ORDER.find((id) => entries.some((e) => e.data.services[id])) ?? 'youtube';
+
+const groups = await Promise.all(
+  genres.map(async (genre) => ({
+    genre,
+    items: await Promise.all(
+      entries
+        .filter((e) => e.id.split('/')[0] === genre)
+        .sort((a, b) => a.data.date.valueOf() - b.data.date.valueOf())
+        .map(async (entry) => ({ entry, Content: (await render(entry)).Content })),
+    ),
+  })),
+);
+---
+<Base title="Playlists" description="Work-optimised music playlists from Ambi4, on your streaming service of choice.">
+  <h1>Playlists</h1>
+  <p>A growing list of work-optimised music playlists.</p>
+
+  <div class="service-picker">
+    <div class="service-pills" role="radiogroup" aria-label="Streaming service" data-service-group data-default={defaultService}>
+      {SERVICE_ORDER.map((id) => (
+        <button
+          type="button"
+          class="service-pill"
+          role="radio"
+          data-service={id}
+          aria-checked={id === defaultService ? 'true' : 'false'}
+          tabindex={id === defaultService ? 0 : -1}
+        >{SERVICES[id].label}</button>
+      ))}
+    </div>
+    <p class="service-note">
+      Apple Music playlists need an active subscription (ours lapsed — currently unavailable);
+      the other services are being rebuilt, so most playlists show “not on … yet” for now.
+    </p>
+    <p class="service-note">
+      Embedded players are loaded only when you click them; the streaming service may set its
+      own cookies once you do.
+    </p>
+    <div data-consent-slot></div>
+  </div>
+
+  {groups.map(({ genre, items }) => (
+    <section>
+      <h2>{titleCase(genre)}</h2>
+      {items.map(({ entry, Content }) => (
+        <article class="playlist">
+          <h3>{entry.data.title}</h3>
+          {entry.data.thumbnail && (
+            <img src={entry.data.thumbnail} alt={entry.data.title} class="thumbnail" />
+          )}
+          <div class="post-content"><Content /></div>
+          <div class="playlist-embeds">
+            {SERVICE_ORDER.map((id) => {
+              const playlistId = entry.data.services[id];
+              return (
+                <div class="service-slot" data-service={id} hidden={id !== defaultService}>
+                  {playlistId ? (
+                    <ServiceEmbed
+                      service={id}
+                      playlist={playlistId}
+                      title={entry.data.title}
+                      thumbnail={entry.data.thumbnail}
+                    />
+                  ) : (
+                    <p class="service-missing">Not on {SERVICES[id].label} yet</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </article>
+      ))}
+    </section>
+  ))}
+</Base>
+
+<style>
+  .service-picker {
+    margin: 20px 0 8px;
+  }
+
+  .service-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .service-pill {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.4;
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+
+  .service-pill:hover {
+    border-color: var(--link);
+  }
+
+  .service-pill[aria-checked='true'] {
+    background: var(--link);
+    border-color: var(--link);
+    color: var(--bg);
+  }
+
+  .service-note {
+    margin-top: 10px;
+    color: var(--secondary);
+    font-size: 14px;
+  }
+
+  .playlist .post-content {
+    margin-bottom: 4px;
+  }
+
+  .service-missing {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 24px 16px;
+    margin: 20px 0 8px;
+    max-width: 720px;
+    color: var(--secondary);
+  }
+
+  .playlist :global(.embed-fallback) {
+    color: var(--secondary);
+    font-size: 14px;
+  }
+</style>
+
+<script>
+  const group = document.querySelector<HTMLElement>('[data-service-group]');
+  const pills = Array.from(document.querySelectorAll<HTMLButtonElement>('.service-pill'));
+  const slots = Array.from(document.querySelectorAll<HTMLElement>('.service-slot'));
+  const consentSlot = document.querySelector<HTMLElement>('[data-consent-slot]');
+  const ORDER = pills.map((pill) => pill.dataset.service ?? '');
+
+  let current = group?.dataset.default ?? 'youtube';
+  let askedThisLoad = false;
+
+  // prefs.js is owned by a parallel workstream — import dynamically, feature-detect,
+  // and degrade to per-page-load selection if it is absent or incomplete.
+  interface Prefs {
+    consent(): 'granted' | 'denied' | null;
+    get(key: string): unknown;
+    set(key: string, value: unknown): boolean;
+  }
+  let prefs: Prefs | null = null;
+  let consentPrompt: ((container: HTMLElement, message: string) => Promise<boolean>) | null = null;
+
+  const prefsReady = (async () => {
+    try {
+      const mod: Record<string, unknown> = await import('../scripts/prefs.js');
+      const candidate = mod.prefs as Prefs | undefined;
+      if (
+        candidate &&
+        typeof candidate.consent === 'function' &&
+        typeof candidate.get === 'function' &&
+        typeof candidate.set === 'function'
+      ) {
+        prefs = candidate;
+      }
+      if (typeof mod.consentPrompt === 'function') {
+        consentPrompt = mod.consentPrompt as typeof consentPrompt;
+      }
+    } catch {
+      // prefs module missing or broken — service choice just won't persist.
+    }
+  })();
+
+  function activate(id: string) {
+    if (!ORDER.includes(id)) return;
+    current = id;
+    for (const pill of pills) {
+      const on = pill.dataset.service === id;
+      pill.setAttribute('aria-checked', String(on));
+      pill.tabIndex = on ? 0 : -1;
+    }
+    // Slots only show/hide: no iframe ever loads here. Each embed is a facade
+    // that creates its iframe on the per-embed Load click (ServiceEmbed script);
+    // already-loaded iframes for other services just hide, they don't unload.
+    for (const slot of slots) {
+      slot.hidden = slot.dataset.service !== id;
+    }
+  }
+
+  async function persist(id: string) {
+    await prefsReady;
+    if (!prefs) return;
+    try {
+      prefs.set('service', id);
+      if (prefs.consent() === null && consentPrompt && consentSlot && !askedThisLoad) {
+        askedThisLoad = true;
+        const granted = await consentPrompt(consentSlot, 'Remember your service choice on this device?');
+        if (granted) prefs.set('service', current);
+      }
+    } catch {
+      // Persistence is best-effort; the visible selection already changed.
+    }
+  }
+
+  function choose(id: string, focus = false) {
+    activate(id);
+    if (focus) pills.find((pill) => pill.dataset.service === id)?.focus();
+    void persist(id);
+  }
+
+  for (const pill of pills) {
+    pill.addEventListener('click', () => choose(pill.dataset.service ?? ''));
+  }
+
+  group?.addEventListener('keydown', (event) => {
+    const deltas: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+    const delta = deltas[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const index = ORDER.indexOf(current);
+    choose(ORDER[(index + delta + ORDER.length) % ORDER.length], true);
+  });
+
+  void (async () => {
+    await prefsReady;
+    if (!prefs) return;
+    try {
+      if (prefs.consent() === 'granted') {
+        const saved = prefs.get('service');
+        if (typeof saved === 'string' && ORDER.includes(saved) && saved !== current) {
+          activate(saved);
+        }
+      }
+    } catch {
+      // Ignore restore failures; the build-time default stays selected.
+    }
+  })();
+</script>

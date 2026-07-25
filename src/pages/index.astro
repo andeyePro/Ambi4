@@ -1,43 +1,2402 @@
 ---
-import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
 
-const entries = await getCollection('playlists');
-const sections = [...new Set(entries.map((e) => e.id.split('/')[0]))].sort();
+const modes: [string, string][] = [
+  ['majorPentatonic', 'Major pentatonic'],
+  ['minorPentatonic', 'Minor pentatonic'],
+  ['dorian', 'Dorian'],
+  ['lydian', 'Lydian'],
+  ['aeolian', 'Aeolian'],
+  ['wholeTone', 'Whole tone'],
+];
 
-const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-// Plain-text summary: body without markdown link syntax.
-const summary = (body: string | undefined) =>
-  (body ?? '').trim().split('\n\n')[0].replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+const roots = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+const timeSignatures = ['3/4', '4/4', '5/4', '6/8', '7/8'];
+
+const structures: [string, string][] = [
+  ['auto', 'Auto'],
+  ['drone', 'Drone'],
+  ['waves', 'Waves'],
+  ['build', 'Build'],
+  ['abab', 'ABAB'],
+  ['journey', 'Journey'],
+  ['custom', 'Custom'],
+];
+
+const arpPatterns: [string, string][] = [
+  ['up', 'Up'],
+  ['down', 'Down'],
+  ['updown', 'Up-down'],
+  ['random', 'Random'],
+];
+
+const arpRates: [string, string][] = [
+  ['1/4', '1/4'],
+  ['1/8', '1/8'],
+  ['1/16', '1/16'],
+  ['1/8T', '1/8 triplet'],
+];
+
+// Hardcoded from the engine v2 contract's VOICES table. The UI never imports
+// engine-voices.js into frontmatter — the voice implementations aren't
+// relevant here, only the ids/labels the <select> options need. (The page
+// script lazily dynamic-imports engine-voices.js for patch defaults only.)
+const TRACKS: [string, string][] = [
+  ['pad', 'Pad'],
+  ['bass', 'Bass'],
+  ['melody', 'Melody'],
+  ['texture', 'Texture'],
+  ['arp', 'Arp'],
+  ['percussion', 'Percussion'],
+];
+
+const VOICES: Record<string, [string, string][]> = {
+  pad: [
+    ['warm', 'Warm'],
+    ['glass', 'Glass'],
+    ['strings', 'Strings'],
+    ['choir', 'Choir'],
+  ],
+  bass: [
+    ['sub', 'Sub'],
+    ['round', 'Round'],
+    ['breath', 'Breath'],
+  ],
+  melody: [
+    ['pluck', 'Pluck'],
+    ['bell', 'Bell'],
+    ['flute', 'Flute'],
+    ['keys', 'Keys'],
+  ],
+  texture: [
+    ['sparkle', 'Sparkle'],
+    ['grains', 'Grains'],
+    ['chimes', 'Chimes'],
+    ['wash', 'Wash'],
+  ],
+  arp: [
+    ['softPluck', 'Soft pluck'],
+    ['crystal', 'Crystal'],
+    ['marimba', 'Marimba'],
+  ],
+  percussion: [
+    ['soft', 'Soft kit'],
+    ['hand', 'Hand drum'],
+    ['tick', 'Ticks'],
+  ],
+};
 ---
-<Base title="Ambi4: Ambience for Work">
-  {sections.map((section) => (
-    <>
-      <h2>{titleCase(section)}</h2>
-      {entries
-        .filter((e) => e.id.split('/')[0] === section)
-        .sort((a, b) => a.data.date.valueOf() - b.data.date.valueOf())
-        .map((e) => (
-          <>
-            <h3 class="link-title"><a href={`/${e.id}/`}>{e.data.title}</a></h3>
-            {e.data.thumbnail && (
-              <a href={`/${e.id}/`}>
-                <img src={e.data.thumbnail} alt={e.data.title} class="thumbnail" />
-              </a>
-            )}
-            <p>{summary(e.body)}</p>
-          </>
-        ))}
-    </>
-  ))}
-  <div class="additional-text">
-    <h2>Generator (beta)</h2>
-    <p>Customisable endless music to help you work.  Generated live in your browser, just for you.
-    <a href="/generator/">Try the generator</a>.</p>
+<Base title="Ambi4: Ambience for Work" description="An endless ambient music generator that runs entirely in your browser.">
+  <h1>Generator</h1>
 
-    <h2>Available now</h2>
-    <p>A (soon to be growing) list of work-optimised music playlists.
-    Apple Music now, Spotify and perhaps others to follow.
-    Click one of the links above to launch a playlist:</p>
+  <div id="generator-app" hidden>
+    <button
+      id="toggle-play"
+      type="button"
+      class="play-toggle"
+      aria-pressed="false"
+    >
+      <span class="play-toggle-label">Play</span>
+    </button>
+
+    <div class="transport-row">
+      <p id="transport-status" class="timer-status" role="status"></p>
+      <button id="stop-now" type="button" class="link-button" hidden>Stop now</button>
+    </div>
+
+    <p id="ios-silent-hint" class="hint" hidden>
+      iPhone/iPad: if you hear nothing, check the silent switch.
+    </p>
+
+    <canvas
+      id="track-visualiser"
+      aria-label="Live visualisation of each track's activity"
+    ></canvas>
+
+    <div id="consent-slot"></div>
+
+    <div class="tabs" role="tablist" aria-label="Generator controls">
+      <button type="button" role="tab" id="tab-simple" aria-selected="true" aria-controls="panel-simple">Simple</button>
+      <button type="button" role="tab" id="tab-advanced" aria-selected="false" aria-controls="panel-advanced" tabindex="-1">Advanced</button>
+    </div>
+
+    <section id="panel-simple" role="tabpanel" aria-labelledby="tab-simple" tabindex="0">
+      <div class="control">
+        <div class="control-label-row">
+          <label for="speed">Speed</label>
+          <span class="end-label">Slower &ndash; Faster</span>
+        </div>
+        <input type="range" id="speed" min="0" max="1" step="0.001" value="0.5" />
+      </div>
+
+      <div class="control">
+        <div class="control-label-row">
+          <label for="complexity">Complexity</label>
+          <span class="end-label">Calm &ndash; Complex</span>
+        </div>
+        <input type="range" id="complexity" min="0" max="1" step="0.01" value="0.5" />
+      </div>
+
+      <div class="control">
+        <div class="control-label-row">
+          <label for="repetition">Repetition</label>
+        </div>
+        <input type="range" id="repetition" min="0" max="1" step="0.01" value="0.5" />
+        <div class="tri-label" aria-hidden="true">
+          <span>Random</span>
+          <span>Evolving</span>
+          <span>Repetitive</span>
+        </div>
+      </div>
+
+      <div class="control">
+        <div class="control-label-row">
+          <label for="volume">Volume</label>
+        </div>
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" />
+      </div>
+
+      <fieldset class="timer-group">
+        <legend>Sleep timer</legend>
+        <div id="sleep-idle" class="timer-row">
+          <button type="button" class="secondary-button sleep-preset" data-minutes="15">15 min</button>
+          <button type="button" class="secondary-button sleep-preset" data-minutes="30">30 min</button>
+          <button type="button" class="secondary-button sleep-preset" data-minutes="60">1 h</button>
+          <button type="button" class="secondary-button sleep-preset" data-minutes="120">2 h</button>
+          <span class="timer-custom">
+            <label for="sleep-custom" class="visually-hidden">Custom sleep timer minutes</label>
+            <input id="sleep-custom" type="number" min="1" max="720" inputmode="numeric" placeholder="min" />
+            <button type="button" id="sleep-start" class="secondary-button">Start</button>
+          </span>
+        </div>
+        <div id="sleep-active" class="timer-row" hidden>
+          <span id="sleep-countdown" class="timer-status"></span>
+          <button type="button" id="sleep-cancel" class="link-button">Cancel</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="timer-group">
+        <legend>Alarm</legend>
+        <div id="alarm-idle" class="timer-row">
+          <label for="alarm-time" class="visually-hidden">Alarm time</label>
+          <input id="alarm-time" type="time" />
+          <button type="button" id="alarm-set" class="secondary-button">Set alarm</button>
+        </div>
+        <div id="alarm-active" class="timer-row" hidden>
+          <span id="alarm-countdown" class="timer-status"></span>
+          <button type="button" id="alarm-cancel" class="link-button">Cancel</button>
+        </div>
+        <p class="hint">The sleep timer and alarm only work while this tab stays open and the device is awake.</p>
+      </fieldset>
+    </section>
+
+    <section id="panel-advanced" role="tabpanel" aria-labelledby="tab-advanced" tabindex="0" hidden>
+      <div class="tracks-section">
+        <h2 class="tracks-heading">Tracks</h2>
+        <div class="track-rows">
+          {TRACKS.map(([id, label]) => (
+            <div class="track-item">
+              <div class="track-row" data-track={id}>
+                <span class="track-name">{label}</span>
+                <div class="segmented track-state" role="radiogroup" aria-label={`${label} state`}>
+                  <input type="radio" name={`track-state-${id}`} id={`track-${id}-off`} value="off" />
+                  <label for={`track-${id}-off`}>Off</label>
+                  <input type="radio" name={`track-state-${id}`} id={`track-${id}-auto`} value="auto" checked />
+                  <label for={`track-${id}-auto`}>Auto</label>
+                  <input type="radio" name={`track-state-${id}`} id={`track-${id}-on`} value="on" />
+                  <label for={`track-${id}-on`}>On</label>
+                </div>
+                <select id={`track-voice-${id}`} class="track-voice" aria-label={`${label} voice`}>
+                  {VOICES[id].map(([value, voiceLabel]) => <option value={value}>{voiceLabel}</option>)}
+                </select>
+                <button
+                  type="button"
+                  class="secondary-button voice-edit-toggle"
+                  id={`voice-edit-toggle-${id}`}
+                  aria-expanded="false"
+                  aria-controls={`voice-editor-${id}`}
+                >Edit</button>
+              </div>
+              <div class="voice-editor" id={`voice-editor-${id}`} hidden></div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="root">Root</label>
+        <select id="root">
+          {roots.map((r) => <option value={r}>{r}</option>)}
+        </select>
+      </div>
+
+      <div class="control">
+        <label for="mode">Scale</label>
+        <select id="mode">
+          {modes.map(([value, label]) => <option value={value}>{label}</option>)}
+        </select>
+      </div>
+
+      <div class="control">
+        <label for="timeSignature">Time signature</label>
+        <select id="timeSignature">
+          {timeSignatures.map((t) => <option value={t}>{t}</option>)}
+        </select>
+      </div>
+
+      <div class="control">
+        <div class="control-label-row">
+          <label for="bpm">BPM</label>
+          <span class="value-readout"><output for="bpm" id="bpm-value">60</output></span>
+        </div>
+        <input type="range" id="bpm" min="40" max="120" step="1" value="60" />
+      </div>
+
+      <div class="control">
+        <label for="structure">Structure</label>
+        <select id="structure">
+          {structures.map(([value, label]) => <option value={value}>{label}</option>)}
+        </select>
+      </div>
+
+      <div id="custom-structure-builder" class="custom-structure" hidden>
+        <div id="structure-blocks" class="structure-blocks"></div>
+        <button type="button" id="add-structure-block" class="secondary-button">Add block</button>
+        <p class="hint">Loops forever, in order. Up to 8 blocks.</p>
+      </div>
+
+      <div class="control arp-control">
+        <div class="control-label-row">
+          <span class="control-heading">Arpeggiator</span>
+        </div>
+        <div class="segmented" role="radiogroup" aria-label="Arpeggiator mode">
+          <input type="radio" name="arp-mode" id="arp-mode-auto" value="auto" checked />
+          <label for="arp-mode-auto">Auto</label>
+          <input type="radio" name="arp-mode" id="arp-mode-manual" value="manual" />
+          <label for="arp-mode-manual">Manual</label>
+        </div>
+
+        <div id="arp-manual-controls" hidden>
+          <div class="control">
+            <label for="arp-pattern">Pattern</label>
+            <select id="arp-pattern">
+              {arpPatterns.map(([value, label]) => <option value={value}>{label}</option>)}
+            </select>
+          </div>
+
+          <div class="control">
+            <label for="arp-rate">Rate</label>
+            <select id="arp-rate">
+              {arpRates.map(([value, label]) => <option value={value}>{label}</option>)}
+            </select>
+          </div>
+
+          <div class="control">
+            <div class="control-label-row">
+              <label for="arp-octaves">Octaves</label>
+              <span class="value-readout"><output for="arp-octaves" id="arp-octaves-value">2</output></span>
+            </div>
+            <input type="range" id="arp-octaves" min="1" max="3" step="1" value="2" />
+          </div>
+
+          <div class="control">
+            <div class="control-label-row">
+              <label for="arp-gate">Gate</label>
+              <span class="value-readout"><output for="arp-gate" id="arp-gate-value">0.6</output></span>
+            </div>
+            <input type="range" id="arp-gate" min="0.1" max="1" step="0.01" value="0.6" />
+          </div>
+
+          <div class="control">
+            <span class="control-heading">Steps</span>
+            <div id="arp-steps" class="step-grid" role="group" aria-label="Arpeggiator step pattern"></div>
+          </div>
+        </div>
+      </div>
+
+      <fieldset class="presets-group">
+        <legend>Presets</legend>
+        <div class="preset-row">
+          <label for="preset-name" class="visually-hidden">Preset name</label>
+          <input id="preset-name" type="text" placeholder="Preset name" />
+          <button type="button" id="preset-save" class="secondary-button">Save</button>
+        </div>
+        <div class="preset-row">
+          <label for="preset-load" class="visually-hidden">Load preset</label>
+          <select id="preset-load">
+            <option value="">Load preset&hellip;</option>
+          </select>
+          <button type="button" id="preset-delete" class="secondary-button">Delete</button>
+        </div>
+        <div class="preset-row">
+          <button type="button" id="preset-submit" class="secondary-button">Submit preset</button>
+          <button type="button" id="preset-copy" class="secondary-button">Copy JSON</button>
+        </div>
+        <p class="hint">Submitting opens our contact form prefilled with the preset; if that doesn&rsquo;t load, copy the JSON and send it however suits.</p>
+      </fieldset>
+    </section>
   </div>
+
+  <p id="generator-unavailable" hidden>
+    Sorry &mdash; this browser can&rsquo;t run the generator (Web Audio isn&rsquo;t
+    available, or the audio engine failed to load). Try a recent version of
+    Chrome, Firefox, Safari or Edge.
+  </p>
+
+  <script>
+    const app = document.getElementById('generator-app');
+    const unavailable = document.getElementById('generator-unavailable');
+
+    // ONE place for the preset-submission target (the domain may not exist
+    // yet — the copy-JSON path is the reliable one).
+    const CONTACT_URL = 'https://contact.andeye.com/';
+
+    const LEGACY_STORAGE_KEY = 'ambi4-generator-settings-v2';
+
+    const TRACK_IDS = ['pad', 'bass', 'melody', 'texture', 'arp', 'percussion'];
+
+    const DEFAULTS = {
+      complexity: 0.5,
+      repetition: 0.5,
+      volume: 0.8,
+      root: 'C',
+      mode: 'majorPentatonic',
+      timeSignature: '4/4',
+      bpm: 60,
+      structure: 'auto',
+      customStructure: [
+        { label: 'A', bars: 8, intensity: 0.4 },
+        { label: 'B', bars: 8, intensity: 0.7 },
+      ],
+      arp: {
+        mode: 'auto',
+        pattern: 'up',
+        rate: '1/8',
+        octaves: 2,
+        gate: 0.6,
+        steps: new Array(16).fill(true),
+      },
+      tracks: {
+        pad: { state: 'auto', voice: 'warm' },
+        bass: { state: 'auto', voice: 'sub' },
+        melody: { state: 'auto', voice: 'pluck' },
+        texture: { state: 'auto', voice: 'sparkle' },
+        arp: { state: 'auto', voice: 'softPluck' },
+        percussion: { state: 'auto', voice: 'soft' },
+      },
+      patches: {},
+      ui: { activeTab: 'simple' },
+    };
+
+    // Used only when a voice doesn't export .defaults (older engine-voices).
+    const FALLBACK_PATCH = {
+      source: { osc1: 'sine', osc2: null, mix: 0.5, detune: 4, octave: 0 },
+      filter: { type: 'lowpass', cutoff: 2000, q: 0.7, envAmount: 0.3 },
+      adsr: { attack: 0.01, decay: 0.2, sustain: 0.7, release: 0.5 },
+      sends: { reverb: 0.3, delay: 0.15 },
+    };
+
+    function isPlainObject(value) {
+      return value !== null && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    /**
+     * Deep-merge `saved` over `defaults`; arrays are replaced wholesale.
+     * Keys present only in `saved` are kept (needed for the sparse `patches`
+     * map, whose keys aren't in DEFAULTS).
+     */
+    function deepMerge(defaults, saved) {
+      if (Array.isArray(defaults)) {
+        return Array.isArray(saved) ? saved : defaults;
+      }
+      if (isPlainObject(defaults)) {
+        if (!isPlainObject(saved)) return structuredClone(defaults);
+        const out = {};
+        for (const key of Object.keys(defaults)) {
+          out[key] = deepMerge(defaults[key], saved[key]);
+        }
+        for (const key of Object.keys(saved)) {
+          if (!(key in out)) out[key] = structuredClone(saved[key]);
+        }
+        return out;
+      }
+      return saved === undefined ? defaults : saved;
+    }
+
+    // ---- tempo mapping (one tempo, two views) ---------------------------
+    // The Simple "Speed" slider position t (0–1) is a log-mapped view of
+    // bpm 40–120 with 60 bpm at the slider centre, using two log segments:
+    //   t <= 0.5:  bpm = 40 * (60/40)^(t/0.5)
+    //   t >  0.5:  bpm = 60 * (120/60)^((t-0.5)/0.5)
+    // The engine always receives { bpm, speed: 1 } — `speed` is deprecated
+    // at the UI level per the v3 contract addendum.
+    function bpmFromSpeedT(t) {
+      return t <= 0.5
+        ? 40 * Math.pow(1.5, t / 0.5)
+        : 60 * Math.pow(2, (t - 0.5) / 0.5);
+    }
+    function speedTFromBpm(bpm) {
+      return bpm <= 60
+        ? 0.5 * (Math.log(bpm / 40) / Math.log(1.5))
+        : 0.5 + 0.5 * (Math.log(bpm / 60) / Math.log(2));
+    }
+
+    function logToValue(t, min, max) {
+      return min * Math.pow(max / min, t);
+    }
+    function valueToLog(v, min, max) {
+      return Math.log(v / min) / Math.log(max / min);
+    }
+
+    function clamp(v, lo, hi) {
+      return Math.min(hi, Math.max(lo, v));
+    }
+
+    async function loadPrefsModule() {
+      try {
+        const mod = await import('../scripts/prefs.js');
+        if (mod && mod.prefs && typeof mod.prefs.get === 'function') {
+          return { prefs: mod.prefs, consentPrompt: mod.consentPrompt };
+        }
+      } catch {
+        // fall through to the session-memory shim
+      }
+      // prefs.js missing or broken: degrade to session-memory settings.
+      const mem = new Map();
+      return {
+        prefs: {
+          consent: () => 'denied',
+          setConsent: () => {},
+          get: (k) => (mem.has(k) ? structuredClone(mem.get(k)) : null),
+          set: (k, v) => {
+            mem.set(k, structuredClone(v));
+            return false;
+          },
+          remove: (k) => {
+            mem.delete(k);
+          },
+        },
+        consentPrompt: async () => false,
+      };
+    }
+
+    async function init() {
+      if (typeof window.AudioContext === 'undefined' && typeof window.webkitAudioContext === 'undefined') {
+        unavailable.hidden = false;
+        return;
+      }
+
+      let createEngine;
+      try {
+        ({ createEngine } = await import('../scripts/ambient-engine.js'));
+      } catch {
+        unavailable.hidden = false;
+        return;
+      }
+
+      const engine = createEngine();
+      const { prefs, consentPrompt } = await loadPrefsModule();
+
+      // ---- settings load + legacy migration -----------------------------
+
+      let settings;
+      {
+        let saved = null;
+        try {
+          saved = prefs.get('generator');
+        } catch {
+          saved = null;
+        }
+        let migratedFromLegacy = false;
+        if (!saved) {
+          try {
+            const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+            if (raw) {
+              saved = JSON.parse(raw);
+              // v2 had independent speed (0.25–2) and bpm; v3 has one tempo.
+              // Fold the old multiplier into bpm on migration.
+              if (typeof saved.speed === 'number' && typeof saved.bpm === 'number') {
+                saved.bpm = Math.round(clamp(saved.bpm * saved.speed, 40, 120));
+              }
+              delete saved.speed;
+              migratedFromLegacy = true;
+            }
+          } catch {
+            saved = null;
+          }
+        }
+        if (migratedFromLegacy) {
+          // The data is in memory now — drop the stale key unconditionally
+          // so later loads can never re-migrate over newer settings.
+          try {
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
+          } catch {}
+        }
+        settings = deepMerge(DEFAULTS, saved || {});
+        if (migratedFromLegacy && prefs.consent() === 'granted') {
+          prefs.set('generator', settings);
+        }
+      }
+
+      // ---- consent-gated persistence ------------------------------------
+
+      const consentSlot = document.getElementById('consent-slot');
+      let deniedThisSession = false;
+      let consentAsking = null;
+
+      function ensureConsent() {
+        const c = prefs.consent();
+        if (c === 'granted') return Promise.resolve(true);
+        if (c === 'denied' || deniedThisSession) return Promise.resolve(false);
+        if (!consentAsking) {
+          consentAsking = Promise.resolve(
+            consentPrompt(consentSlot, 'Remember your settings and presets on this device?')
+          )
+            .then((granted) => {
+              if (!granted) deniedThisSession = true;
+              consentAsking = null;
+              return granted;
+            })
+            .catch(() => {
+              deniedThisSession = true;
+              consentAsking = null;
+              return false;
+            });
+        }
+        return consentAsking;
+      }
+
+      function persistKey(key, value) {
+        // prefs.set without consent writes to session memory and returns
+        // false — so the value survives in-session either way.
+        prefs.set(key, value);
+        if (prefs.consent() === 'granted') {
+          try {
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
+          } catch {}
+          return;
+        }
+        if (prefs.consent() === null && !deniedThisSession) {
+          ensureConsent().then((granted) => {
+            if (granted) {
+              prefs.set(key, value);
+              try {
+                localStorage.removeItem(LEGACY_STORAGE_KEY);
+              } catch {}
+            }
+          });
+        }
+      }
+
+      // Sliders fire an input event per pixel of drag; debounce the storage
+      // write. pagehide flushes any pending write (see lifecycle handlers).
+      let persistTimer = null;
+      function persistSettings() {
+        if (persistTimer !== null) clearTimeout(persistTimer);
+        persistTimer = setTimeout(() => {
+          persistTimer = null;
+          persistKey('generator', settings);
+        }, 250);
+      }
+      function flushPersistSettings() {
+        if (persistTimer !== null) {
+          clearTimeout(persistTimer);
+          persistTimer = null;
+          persistKey('generator', settings);
+        }
+      }
+
+      // ---- visualiser (optional decoration) -----------------------------
+
+      const canvas = document.getElementById('track-visualiser');
+      try {
+        const { initVisualiser } = await import('../scripts/visualiser.js');
+        initVisualiser(canvas, engine);
+      } catch {
+        // The generator works without it.
+      }
+
+      // ---- element handles ----------------------------------------------
+
+      const toggleButton = document.getElementById('toggle-play');
+      const playLabel = toggleButton.querySelector('.play-toggle-label');
+      const stopNowButton = document.getElementById('stop-now');
+      const transportStatus = document.getElementById('transport-status');
+
+      // iOS routes Web Audio through the ringer channel, so the hardware
+      // silent switch mutes it — surface a hint only where it applies.
+      const isIOS =
+        /iP(hone|ad|od)/.test(navigator.platform || '') ||
+        (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform || ''));
+      if (isIOS) document.getElementById('ios-silent-hint').hidden = false;
+
+      const speedInput = document.getElementById('speed');
+      const complexityInput = document.getElementById('complexity');
+      const repetitionInput = document.getElementById('repetition');
+      const volumeInput = document.getElementById('volume');
+      const rootSelect = document.getElementById('root');
+      const modeSelect = document.getElementById('mode');
+      const timeSignatureSelect = document.getElementById('timeSignature');
+      const bpmInput = document.getElementById('bpm');
+      const bpmValue = document.getElementById('bpm-value');
+      const structureSelect = document.getElementById('structure');
+
+      function engineParamsFrom(s) {
+        const p = structuredClone(s);
+        delete p.ui;
+        p.speed = 1; // deprecated at UI level; back-compat pin
+        return p;
+      }
+
+      // ---- combined-complexity estimate (display only) ------------------
+      // When the user hand-sets advanced choices, the complexity slider
+      // becomes a read-out of a derived "combined complexity" estimate. It
+      // moves ONLY the slider thumb — never engine params, never the stored
+      // complexity, never the advanced choices. Components (each 0–1,
+      // included only when hand-set):
+      //   structure != auto → mean section intensity of the chosen preset:
+      //     drone 0.35, waves 0.50, build 0.55, abab 0.55, journey 0.55,
+      //     custom = mean of the custom blocks' intensities
+      //   arp manual → (enabled-step fraction) × rate weight
+      //     (1/4 → 0.4, 1/8 → 0.6, 1/8T → 0.7, 1/16 → 0.9)
+      //   any track forced on → (tracks with state 'on') / 6
+      // estimate = arithmetic mean of the included components. With nothing
+      // hand-set the slider shows the stored complexity.
+      const STRUCTURE_MEAN_INTENSITY = {
+        drone: 0.35,
+        waves: 0.5,
+        build: 0.55,
+        abab: 0.55,
+        journey: 0.55,
+      };
+      const ARP_RATE_WEIGHT = { '1/4': 0.4, '1/8': 0.6, '1/8T': 0.7, '1/16': 0.9 };
+
+      function updateComplexityDisplay() {
+        const parts = [];
+        if (settings.structure !== 'auto') {
+          if (settings.structure === 'custom' && settings.customStructure.length) {
+            parts.push(
+              settings.customStructure.reduce((s, b) => s + b.intensity, 0) /
+                settings.customStructure.length
+            );
+          } else {
+            parts.push(STRUCTURE_MEAN_INTENSITY[settings.structure] ?? 0.5);
+          }
+        }
+        if (settings.arp.mode === 'manual') {
+          const frac =
+            settings.arp.steps.filter(Boolean).length / settings.arp.steps.length;
+          parts.push(frac * (ARP_RATE_WEIGHT[settings.arp.rate] ?? 0.6));
+        }
+        const forcedOn = TRACK_IDS.filter((id) => settings.tracks[id].state === 'on').length;
+        if (forcedOn > 0) parts.push(forcedOn / TRACK_IDS.length);
+        const shown = parts.length
+          ? parts.reduce((s, p) => s + p, 0) / parts.length
+          : settings.complexity;
+        complexityInput.value = String(clamp(shown, 0, 1));
+      }
+
+      // ---- tempo (one value, two views) ---------------------------------
+
+      function setTempo(bpm, { skipSpeedThumb = false } = {}) {
+        bpm = Math.round(clamp(bpm, 40, 120));
+        settings.bpm = bpm;
+        bpmInput.value = String(bpm);
+        bpmValue.textContent = String(bpm);
+        if (!skipSpeedThumb) speedInput.value = String(speedTFromBpm(bpm));
+        engine.setParams({ bpm, speed: 1 });
+        persistSettings();
+      }
+
+      speedInput.addEventListener('input', () => {
+        // Don't rewrite the thumb the user is dragging.
+        setTempo(bpmFromSpeedT(parseFloat(speedInput.value)), { skipSpeedThumb: true });
+      });
+
+      bpmInput.addEventListener('input', () => {
+        setTempo(parseInt(bpmInput.value, 10));
+      });
+
+      // ---- simple sliders -----------------------------------------------
+
+      complexityInput.addEventListener('input', () => {
+        // Moving the complexity slider is an explicit "let the engine
+        // decide" gesture: structure, arp mode and every track state return
+        // to Auto, then the new complexity is sent.
+        const value = parseFloat(complexityInput.value);
+        settings.complexity = value;
+        settings.structure = 'auto';
+        settings.arp.mode = 'auto';
+        for (const id of TRACK_IDS) settings.tracks[id].state = 'auto';
+        syncStructureUI();
+        syncArpUI();
+        syncTrackStateUI();
+        const trackStates = {};
+        for (const id of TRACK_IDS) trackStates[id] = { state: 'auto' };
+        engine.setParams({
+          complexity: value,
+          structure: 'auto',
+          arp: { mode: 'auto' },
+          tracks: trackStates,
+        });
+        persistSettings();
+      });
+
+      repetitionInput.addEventListener('input', () => {
+        const value = parseFloat(repetitionInput.value);
+        settings.repetition = value;
+        engine.setParams({ repetition: value });
+        persistSettings();
+      });
+
+      volumeInput.addEventListener('input', () => {
+        const value = parseFloat(volumeInput.value);
+        settings.volume = value;
+        engine.setParams({ volume: value });
+        persistSettings();
+      });
+
+      for (const [select, key] of [
+        [rootSelect, 'root'],
+        [modeSelect, 'mode'],
+        [timeSignatureSelect, 'timeSignature'],
+      ]) {
+        select.addEventListener('change', () => {
+          settings[key] = select.value;
+          engine.setParams({ [key]: select.value });
+          persistSettings();
+        });
+      }
+
+      // ---- tabs ----------------------------------------------------------
+
+      const tabButtons = [
+        document.getElementById('tab-simple'),
+        document.getElementById('tab-advanced'),
+      ];
+      const tabPanels = {
+        simple: document.getElementById('panel-simple'),
+        advanced: document.getElementById('panel-advanced'),
+      };
+      const tabNames = ['simple', 'advanced'];
+
+      function activateTab(name, { focus = false, persist = true } = {}) {
+        if (!tabNames.includes(name)) name = 'simple';
+        tabButtons.forEach((button, i) => {
+          const active = tabNames[i] === name;
+          button.setAttribute('aria-selected', String(active));
+          button.tabIndex = active ? 0 : -1;
+          tabPanels[tabNames[i]].hidden = !active;
+          if (active && focus) button.focus();
+        });
+        if (settings.ui.activeTab !== name) {
+          settings.ui.activeTab = name;
+          if (persist) persistSettings();
+        }
+      }
+
+      tabButtons.forEach((button, i) => {
+        button.addEventListener('click', () => activateTab(tabNames[i]));
+        button.addEventListener('keydown', (event) => {
+          let target = null;
+          if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+            target = (i + 1) % tabNames.length;
+          } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+            target = (i - 1 + tabNames.length) % tabNames.length;
+          } else if (event.key === 'Home') {
+            target = 0;
+          } else if (event.key === 'End') {
+            target = tabNames.length - 1;
+          }
+          if (target !== null) {
+            event.preventDefault();
+            activateTab(tabNames[target], { focus: true });
+          }
+        });
+      });
+
+      // ---- tracks section ------------------------------------------------
+
+      function syncTrackStateUI() {
+        for (const id of TRACK_IDS) {
+          const radio = document.getElementById(`track-${id}-${settings.tracks[id].state}`);
+          if (radio) radio.checked = true;
+        }
+        updateComplexityDisplay();
+      }
+
+      for (const id of TRACK_IDS) {
+        const stateRadios = document.querySelectorAll(`input[name="track-state-${id}"]`);
+        const voiceSelect = document.getElementById(`track-voice-${id}`);
+
+        for (const radio of stateRadios) {
+          radio.addEventListener('change', () => {
+            if (!radio.checked) return;
+            settings.tracks[id].state = radio.value;
+            engine.setParams({ tracks: { [id]: { state: radio.value } } });
+            updateComplexityDisplay();
+            persistSettings();
+          });
+        }
+
+        voiceSelect.addEventListener('change', () => {
+          settings.tracks[id].voice = voiceSelect.value;
+          engine.setParams({ tracks: { [id]: { voice: voiceSelect.value } } });
+          persistSettings();
+          const editor = document.getElementById(`voice-editor-${id}`);
+          if (!editor.hidden) renderVoiceEditor(id);
+        });
+      }
+
+      // ---- voice editors (v3 patch model) -------------------------------
+
+      let voicesModulePromise = null;
+      function getVoicesTable() {
+        if (!voicesModulePromise) {
+          voicesModulePromise = import('../scripts/engine-voices.js')
+            .then((m) => m.VOICES || null)
+            .catch(() => null);
+        }
+        return voicesModulePromise;
+      }
+
+      function sendPatch(track, voiceId, patch) {
+        engine.setParams({ patches: { [track]: { [voiceId]: structuredClone(patch) } } });
+      }
+
+      let veControlId = 0;
+
+      function veSection(parent, heading) {
+        const section = document.createElement('div');
+        section.className = 've-section';
+        const h = document.createElement('span');
+        h.className = 've-heading';
+        h.textContent = heading;
+        section.append(h);
+        parent.append(section);
+        return section;
+      }
+
+      function veRange(parent, labelText, { min, max, step, value, log = false, format, onChange }) {
+        const wrap = document.createElement('div');
+        wrap.className = 'control ve-control';
+        const id = `ve-control-${++veControlId}`;
+        const row = document.createElement('div');
+        row.className = 'control-label-row';
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = labelText;
+        const readout = document.createElement('span');
+        readout.className = 'value-readout';
+        row.append(label, readout);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.id = id;
+        if (log) {
+          input.min = '0';
+          input.max = '1';
+          input.step = '0.001';
+          input.value = String(valueToLog(clamp(value, min, max), min, max));
+        } else {
+          input.min = String(min);
+          input.max = String(max);
+          input.step = String(step);
+          input.value = String(clamp(value, min, max));
+        }
+        const fmt = format || ((v) => String(Math.round(v * 100) / 100));
+        const current = () =>
+          log ? logToValue(parseFloat(input.value), min, max) : parseFloat(input.value);
+        readout.textContent = fmt(clamp(value, min, max));
+        input.addEventListener('input', () => {
+          const v = clamp(current(), min, max);
+          readout.textContent = fmt(v);
+          onChange(v);
+        });
+        wrap.append(row, input);
+        parent.append(wrap);
+      }
+
+      function veSelect(parent, labelText, { options, value, onChange }) {
+        const wrap = document.createElement('div');
+        wrap.className = 'control ve-control';
+        const id = `ve-control-${++veControlId}`;
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = labelText;
+        const select = document.createElement('select');
+        select.id = id;
+        for (const [v, text] of options) {
+          const opt = document.createElement('option');
+          opt.value = v;
+          opt.textContent = text;
+          if (v === String(value)) opt.selected = true;
+          select.append(opt);
+        }
+        select.addEventListener('change', () => onChange(select.value));
+        wrap.append(label, select);
+        parent.append(wrap);
+      }
+
+      const OSC_TYPES = [
+        ['sine', 'Sine'],
+        ['triangle', 'Triangle'],
+        ['sawtooth', 'Sawtooth'],
+        ['square', 'Square'],
+      ];
+      const FILTER_TYPES = [
+        ['lowpass', 'Low-pass'],
+        ['highpass', 'High-pass'],
+        ['bandpass', 'Band-pass'],
+        ['notch', 'Notch'],
+      ];
+
+      const hzFormat = (v) => `${Math.round(v)} Hz`;
+      const secFormat = (v) => (v < 0.1 ? `${Math.round(v * 1000)} ms` : `${Math.round(v * 100) / 100} s`);
+
+      async function renderVoiceEditor(track) {
+        const container = document.getElementById(`voice-editor-${track}`);
+        const voiceId = settings.tracks[track].voice;
+        const voices = await getVoicesTable();
+        // Feature-detect .defaults — absent on an older engine-voices build.
+        const defaults =
+          voices && voices[track] && voices[track][voiceId] && voices[track][voiceId].defaults
+            ? voices[track][voiceId].defaults
+            : null;
+        const base = deepMerge(FALLBACK_PATCH, defaults || {});
+        const patch = deepMerge(base, (settings.patches[track] || {})[voiceId] || {});
+
+        function commit() {
+          if (!settings.patches[track]) settings.patches[track] = {};
+          settings.patches[track][voiceId] = patch;
+          sendPatch(track, voiceId, patch);
+          persistSettings();
+        }
+
+        container.innerHTML = '';
+
+        const source = veSection(container, 'Source');
+        veSelect(source, 'Osc 1', {
+          options: OSC_TYPES,
+          value: patch.source.osc1,
+          onChange: (v) => {
+            patch.source.osc1 = v;
+            commit();
+          },
+        });
+        veSelect(source, 'Osc 2', {
+          options: [['none', 'None'], ...OSC_TYPES],
+          value: patch.source.osc2 === null ? 'none' : patch.source.osc2,
+          onChange: (v) => {
+            patch.source.osc2 = v === 'none' ? null : v;
+            commit();
+          },
+        });
+        veRange(source, 'Mix', {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: patch.source.mix,
+          onChange: (v) => {
+            patch.source.mix = v;
+            commit();
+          },
+        });
+        veRange(source, 'Detune', {
+          min: 0,
+          max: 50,
+          step: 1,
+          value: patch.source.detune,
+          format: (v) => `${Math.round(v)} ct`,
+          onChange: (v) => {
+            patch.source.detune = Math.round(v);
+            commit();
+          },
+        });
+        veSelect(source, 'Octave', {
+          options: [
+            ['-1', '-1'],
+            ['0', '0'],
+            ['1', '+1'],
+          ],
+          value: String(patch.source.octave),
+          onChange: (v) => {
+            patch.source.octave = parseInt(v, 10);
+            commit();
+          },
+        });
+
+        const filter = veSection(container, 'Filter');
+        veSelect(filter, 'Type', {
+          options: FILTER_TYPES,
+          value: patch.filter.type,
+          onChange: (v) => {
+            patch.filter.type = v;
+            commit();
+          },
+        });
+        veRange(filter, 'Cutoff', {
+          min: 40,
+          max: 12000,
+          log: true,
+          value: patch.filter.cutoff,
+          format: hzFormat,
+          onChange: (v) => {
+            patch.filter.cutoff = Math.round(v);
+            commit();
+          },
+        });
+        veRange(filter, 'Resonance', {
+          min: 0.1,
+          max: 20,
+          step: 0.1,
+          value: patch.filter.q,
+          onChange: (v) => {
+            patch.filter.q = v;
+            commit();
+          },
+        });
+        veRange(filter, 'Env amount', {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: patch.filter.envAmount,
+          onChange: (v) => {
+            patch.filter.envAmount = v;
+            commit();
+          },
+        });
+
+        const adsr = veSection(container, 'Envelope');
+        veRange(adsr, 'Attack', {
+          min: 0.001,
+          max: 8,
+          log: true,
+          value: patch.adsr.attack,
+          format: secFormat,
+          onChange: (v) => {
+            patch.adsr.attack = v;
+            commit();
+          },
+        });
+        veRange(adsr, 'Decay', {
+          min: 0.001,
+          max: 8,
+          log: true,
+          value: patch.adsr.decay,
+          format: secFormat,
+          onChange: (v) => {
+            patch.adsr.decay = v;
+            commit();
+          },
+        });
+        veRange(adsr, 'Sustain', {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: patch.adsr.sustain,
+          onChange: (v) => {
+            patch.adsr.sustain = v;
+            commit();
+          },
+        });
+        veRange(adsr, 'Release', {
+          min: 0.01,
+          max: 12,
+          log: true,
+          value: patch.adsr.release,
+          format: secFormat,
+          onChange: (v) => {
+            patch.adsr.release = v;
+            commit();
+          },
+        });
+
+        const sends = veSection(container, 'Sends');
+        veRange(sends, 'Reverb', {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: patch.sends.reverb,
+          onChange: (v) => {
+            patch.sends.reverb = v;
+            commit();
+          },
+        });
+        veRange(sends, 'Delay', {
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: patch.sends.delay,
+          onChange: (v) => {
+            patch.sends.delay = v;
+            commit();
+          },
+        });
+
+        const resetButton = document.createElement('button');
+        resetButton.type = 'button';
+        resetButton.className = 'secondary-button';
+        resetButton.textContent = 'Reset to default';
+        resetButton.addEventListener('click', () => {
+          if (settings.patches[track]) {
+            delete settings.patches[track][voiceId];
+            if (Object.keys(settings.patches[track]).length === 0) {
+              delete settings.patches[track];
+            }
+          }
+          // An empty patch merges over the voice defaults engine-side; when
+          // the defaults are known, send them explicitly for robustness.
+          sendPatch(track, voiceId, defaults ? structuredClone(defaults) : {});
+          persistSettings();
+          renderVoiceEditor(track);
+        });
+        container.append(resetButton);
+      }
+
+      for (const id of TRACK_IDS) {
+        const toggle = document.getElementById(`voice-edit-toggle-${id}`);
+        const editor = document.getElementById(`voice-editor-${id}`);
+        toggle.addEventListener('click', () => {
+          const opening = editor.hidden;
+          editor.hidden = !opening;
+          toggle.setAttribute('aria-expanded', String(opening));
+          if (opening) renderVoiceEditor(id);
+        });
+      }
+
+      // ---- structure + custom structure builder -------------------------
+
+      const customBuilder = document.getElementById('custom-structure-builder');
+      const structureBlocks = document.getElementById('structure-blocks');
+      const addBlockButton = document.getElementById('add-structure-block');
+      const blockLabels = ['A', 'B', 'C', 'D'];
+
+      function renderStructureBlocks() {
+        structureBlocks.innerHTML = '';
+        settings.customStructure.forEach((block, index) => {
+          const row = document.createElement('div');
+          row.className = 'structure-block';
+
+          const labelSelect = document.createElement('select');
+          labelSelect.setAttribute('aria-label', `Block ${index + 1} label`);
+          for (const l of blockLabels) {
+            const opt = document.createElement('option');
+            opt.value = l;
+            opt.textContent = l;
+            if (l === block.label) opt.selected = true;
+            labelSelect.append(opt);
+          }
+          labelSelect.addEventListener('change', () => {
+            settings.customStructure[index].label = labelSelect.value;
+            commitCustomStructure();
+          });
+
+          const barsInput = document.createElement('input');
+          barsInput.type = 'number';
+          barsInput.min = '1';
+          barsInput.max = '32';
+          barsInput.value = String(block.bars);
+          barsInput.setAttribute('aria-label', `Block ${index + 1} bars`);
+          barsInput.addEventListener('input', () => {
+            const parsed = parseInt(barsInput.value, 10);
+            if (!Number.isFinite(parsed)) return; // mid-edit blank; keep stored value
+            const bars = Math.round(clamp(parsed, 1, 32));
+            settings.customStructure[index].bars = bars;
+            // Reflect the clamp so UI, stored state and engine can't diverge.
+            if (barsInput.value !== String(bars)) barsInput.value = String(bars);
+            commitCustomStructure();
+          });
+
+          const intensityInput = document.createElement('input');
+          intensityInput.type = 'range';
+          intensityInput.min = '0';
+          intensityInput.max = '1';
+          intensityInput.step = '0.01';
+          intensityInput.value = String(block.intensity);
+          intensityInput.setAttribute('aria-label', `Block ${index + 1} intensity`);
+          intensityInput.addEventListener('input', () => {
+            settings.customStructure[index].intensity = parseFloat(intensityInput.value);
+            commitCustomStructure();
+          });
+
+          const upButton = document.createElement('button');
+          upButton.type = 'button';
+          upButton.className = 'block-move';
+          upButton.textContent = '↑';
+          upButton.setAttribute('aria-label', `Move block ${index + 1} up`);
+          upButton.disabled = index === 0;
+          upButton.addEventListener('click', () => {
+            if (index === 0) return;
+            const blocks = settings.customStructure;
+            [blocks[index - 1], blocks[index]] = [blocks[index], blocks[index - 1]];
+            commitCustomStructure();
+            renderStructureBlocks();
+          });
+
+          const downButton = document.createElement('button');
+          downButton.type = 'button';
+          downButton.className = 'block-move';
+          downButton.textContent = '↓';
+          downButton.setAttribute('aria-label', `Move block ${index + 1} down`);
+          downButton.disabled = index === settings.customStructure.length - 1;
+          downButton.addEventListener('click', () => {
+            const blocks = settings.customStructure;
+            if (index === blocks.length - 1) return;
+            [blocks[index + 1], blocks[index]] = [blocks[index], blocks[index + 1]];
+            commitCustomStructure();
+            renderStructureBlocks();
+          });
+
+          const removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.className = 'block-remove';
+          removeButton.textContent = 'Remove';
+          removeButton.setAttribute('aria-label', `Remove block ${index + 1}`);
+          removeButton.disabled = settings.customStructure.length <= 1;
+          removeButton.addEventListener('click', () => {
+            if (settings.customStructure.length <= 1) return;
+            settings.customStructure.splice(index, 1);
+            commitCustomStructure();
+            renderStructureBlocks();
+          });
+
+          row.append(labelSelect, barsInput, intensityInput, upButton, downButton, removeButton);
+          structureBlocks.append(row);
+        });
+
+        addBlockButton.disabled = settings.customStructure.length >= 8;
+      }
+
+      function commitCustomStructure() {
+        engine.setParams({ customStructure: settings.customStructure });
+        updateComplexityDisplay();
+        persistSettings();
+      }
+
+      addBlockButton.addEventListener('click', () => {
+        if (settings.customStructure.length >= 8) return;
+        settings.customStructure.push({ label: 'A', bars: 8, intensity: 0.4 });
+        commitCustomStructure();
+        renderStructureBlocks();
+      });
+
+      function syncStructureUI() {
+        structureSelect.value = settings.structure;
+        customBuilder.hidden = settings.structure !== 'custom';
+        renderStructureBlocks();
+        updateComplexityDisplay();
+      }
+
+      structureSelect.addEventListener('change', () => {
+        settings.structure = structureSelect.value;
+        customBuilder.hidden = settings.structure !== 'custom';
+        const partial = { structure: settings.structure };
+        if (settings.structure === 'custom') partial.customStructure = settings.customStructure;
+        engine.setParams(partial);
+        updateComplexityDisplay();
+        persistSettings();
+      });
+
+      // ---- arpeggiator editor -------------------------------------------
+
+      const arpModeRadios = document.querySelectorAll('input[name="arp-mode"]');
+      const arpManualControls = document.getElementById('arp-manual-controls');
+      const arpPattern = document.getElementById('arp-pattern');
+      const arpRate = document.getElementById('arp-rate');
+      const arpOctaves = document.getElementById('arp-octaves');
+      const arpOctavesValue = document.getElementById('arp-octaves-value');
+      const arpGate = document.getElementById('arp-gate');
+      const arpGateValue = document.getElementById('arp-gate-value');
+      const arpSteps = document.getElementById('arp-steps');
+
+      function syncArpUI() {
+        for (const radio of arpModeRadios) {
+          radio.checked = radio.value === settings.arp.mode;
+        }
+        arpManualControls.hidden = settings.arp.mode !== 'manual';
+        arpPattern.value = settings.arp.pattern;
+        arpRate.value = settings.arp.rate;
+        arpOctaves.value = String(settings.arp.octaves);
+        arpOctavesValue.textContent = String(settings.arp.octaves);
+        arpGate.value = String(settings.arp.gate);
+        arpGateValue.textContent = String(settings.arp.gate);
+        renderArpSteps();
+        updateComplexityDisplay();
+      }
+
+      for (const radio of arpModeRadios) {
+        radio.addEventListener('change', () => {
+          if (!radio.checked) return;
+          settings.arp.mode = radio.value;
+          arpManualControls.hidden = settings.arp.mode !== 'manual';
+          engine.setParams({ arp: { mode: radio.value } });
+          updateComplexityDisplay();
+          persistSettings();
+        });
+      }
+
+      arpPattern.addEventListener('change', () => {
+        settings.arp.pattern = arpPattern.value;
+        engine.setParams({ arp: { pattern: arpPattern.value } });
+        persistSettings();
+      });
+
+      arpRate.addEventListener('change', () => {
+        settings.arp.rate = arpRate.value;
+        engine.setParams({ arp: { rate: arpRate.value } });
+        updateComplexityDisplay();
+        persistSettings();
+      });
+
+      arpOctaves.addEventListener('input', () => {
+        const value = parseInt(arpOctaves.value, 10);
+        settings.arp.octaves = value;
+        arpOctavesValue.textContent = String(value);
+        engine.setParams({ arp: { octaves: value } });
+        persistSettings();
+      });
+
+      arpGate.addEventListener('input', () => {
+        const value = parseFloat(arpGate.value);
+        settings.arp.gate = value;
+        arpGateValue.textContent = String(value);
+        engine.setParams({ arp: { gate: value } });
+        persistSettings();
+      });
+
+      function renderArpSteps() {
+        arpSteps.innerHTML = '';
+        settings.arp.steps.forEach((on, index) => {
+          const step = document.createElement('button');
+          step.type = 'button';
+          step.className = 'step-cell';
+          const stepNumber = index + 1;
+          step.textContent = stepNumber % 4 === 1 ? String(stepNumber) : '•';
+          step.setAttribute('aria-label', `Step ${stepNumber}`);
+          step.setAttribute('aria-pressed', String(on));
+          if (stepNumber % 4 === 1) step.classList.add('step-cell-marked');
+          step.addEventListener('click', () => {
+            const next = !settings.arp.steps[index];
+            settings.arp.steps[index] = next;
+            step.setAttribute('aria-pressed', String(next));
+            engine.setParams({ arp: { steps: settings.arp.steps } });
+            updateComplexityDisplay();
+            persistSettings();
+          });
+          arpSteps.append(step);
+        });
+      }
+
+      // ---- transport (Play / Finish / Stop now) -------------------------
+
+      let finishing = false;
+      let playNotice = '';
+
+      function setTransportUI() {
+        const running = !!engine.running;
+        toggleButton.setAttribute('aria-pressed', String(running));
+        if (finishing) {
+          playLabel.textContent = 'Finishing…';
+          toggleButton.disabled = true;
+        } else {
+          playLabel.textContent = running ? 'Finish' : 'Play';
+          toggleButton.disabled = false;
+        }
+        stopNowButton.hidden = !running && !finishing;
+        try {
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = running ? 'playing' : 'paused';
+          }
+        } catch {}
+      }
+
+      // Lock-screen / hardware-key transport. Full lock-screen support also
+      // needs the engine's media-element routing; the handlers are correct
+      // without it.
+      let mediaSessionReady = false;
+      function setupMediaSession() {
+        if (mediaSessionReady) return;
+        try {
+          if (!('mediaSession' in navigator) || typeof MediaMetadata !== 'function') return;
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: 'Ambi4 generator',
+            artist: 'Ambi4',
+          });
+          navigator.mediaSession.setActionHandler('play', () => {
+            if (!engine.running) engine.start().catch(() => {});
+          });
+          navigator.mediaSession.setActionHandler('pause', () => {
+            engine.stop();
+          });
+          navigator.mediaSession.setActionHandler('stop', () => {
+            engine.stop();
+          });
+          mediaSessionReady = true;
+        } catch {}
+      }
+
+      async function finishOrStop() {
+        // Feature-detect finish() — an older engine only has stop().
+        if (typeof engine.finish !== 'function') {
+          engine.stop();
+          setTransportUI();
+          return;
+        }
+        if (finishing) return;
+        finishing = true;
+        setTransportUI();
+        try {
+          await engine.finish();
+        } catch {
+          engine.stop();
+        } finally {
+          finishing = false;
+          setTransportUI();
+        }
+      }
+
+      toggleButton.addEventListener('click', async () => {
+        if (finishing) return;
+        if (engine.running) {
+          await finishOrStop();
+          return;
+        }
+        if (alarmTarget !== null) cancelAlarm(); // starting now supersedes it
+        toggleButton.disabled = true;
+        playNotice = '';
+        updateTimerUI();
+        // start() can wedge (a context stuck pending resume never resolves);
+        // don't leave the button dead — give the UI back after 3 s. A late
+        // resolve still syncs the UI via the engine 'state' event.
+        const outcome = await Promise.race([
+          engine.start().then(
+            () => 'started',
+            () => 'failed'
+          ),
+          new Promise((resolve) => setTimeout(() => resolve('timeout'), 3000)),
+        ]);
+        toggleButton.disabled = false;
+        if (outcome === 'started') {
+          setupMediaSession();
+        } else if (outcome === 'failed' || (outcome === 'timeout' && !engine.running)) {
+          playNotice = 'Audio didn’t start — tap Play again.';
+          updateTimerUI();
+        }
+        setTransportUI();
+      });
+
+      stopNowButton.addEventListener('click', () => {
+        engine.stop();
+        finishing = false;
+        setTransportUI();
+      });
+
+      if (typeof engine.on === 'function') {
+        engine.on('state', ({ running }) => {
+          if (!running) finishing = false;
+          if (running) {
+            setupMediaSession();
+            if (playNotice) {
+              playNotice = '';
+              updateTimerUI();
+            }
+          }
+          setTransportUI();
+        });
+      }
+
+      // ---- sleep timer + alarm (wall-clock re-check, drift-proof) -------
+
+      const sleepIdle = document.getElementById('sleep-idle');
+      const sleepActive = document.getElementById('sleep-active');
+      const sleepCountdown = document.getElementById('sleep-countdown');
+      const sleepCustom = document.getElementById('sleep-custom');
+      const alarmIdle = document.getElementById('alarm-idle');
+      const alarmActive = document.getElementById('alarm-active');
+      const alarmCountdown = document.getElementById('alarm-countdown');
+      const alarmTimeInput = document.getElementById('alarm-time');
+
+      let sleepTarget = null; // epoch ms
+      let alarmTarget = null; // epoch ms
+      let tickHandle = null;
+      let alarmNotice = '';
+
+      function formatCountdown(ms) {
+        const total = Math.max(0, Math.round(ms / 1000));
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        const pad = (n) => String(n).padStart(2, '0');
+        return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+      }
+
+      function updateTimerUI() {
+        const now = Date.now();
+        sleepIdle.hidden = sleepTarget !== null;
+        sleepActive.hidden = sleepTarget === null;
+        alarmIdle.hidden = alarmTarget !== null;
+        alarmActive.hidden = alarmTarget === null;
+        const bits = [];
+        if (sleepTarget !== null) {
+          const text = `Fades out in ${formatCountdown(sleepTarget - now)}`;
+          sleepCountdown.textContent = text;
+          bits.push(`Sleep: ${formatCountdown(sleepTarget - now)}`);
+        }
+        if (alarmTarget !== null) {
+          const at = new Date(alarmTarget);
+          const pad = (n) => String(n).padStart(2, '0');
+          const hhmm = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+          alarmCountdown.textContent = `Starts at ${hhmm} (in ${formatCountdown(alarmTarget - now)})`;
+          bits.push(`Alarm: ${hhmm}`);
+        }
+        if (alarmNotice) bits.push(alarmNotice);
+        if (playNotice) bits.push(playNotice);
+        transportStatus.textContent = bits.join(' · ');
+      }
+
+      // Re-check the wall clock every second rather than one long
+      // setTimeout, so laptop sleep can't silently skip the target. The tick
+      // runs in an inline-blob Web Worker: hidden silent tabs get main-thread
+      // timers clamped to once a minute (Chrome intensive throttling), which
+      // would fire the alarm up to a minute late — worker timers aren't
+      // clamped that hard. Falls back to setInterval where workers fail.
+      let tickWorkerURL = null;
+
+      function ensureTicker() {
+        if (sleepTarget === null && alarmTarget === null) return;
+        if (tickHandle !== null) return;
+        try {
+          tickWorkerURL = URL.createObjectURL(
+            new Blob(['setInterval(function () { postMessage(0); }, 1000);'], {
+              type: 'text/javascript',
+            })
+          );
+          const worker = new Worker(tickWorkerURL);
+          worker.onmessage = () => tick();
+          tickHandle = { worker };
+        } catch {
+          if (tickWorkerURL !== null) {
+            URL.revokeObjectURL(tickWorkerURL);
+            tickWorkerURL = null;
+          }
+          tickHandle = { interval: setInterval(tick, 1000) };
+        }
+      }
+
+      function idleTickerIfDone() {
+        if (tickHandle === null || sleepTarget !== null || alarmTarget !== null) return;
+        if (tickHandle.worker) tickHandle.worker.terminate();
+        if (tickHandle.interval) clearInterval(tickHandle.interval);
+        tickHandle = null;
+        if (tickWorkerURL !== null) {
+          URL.revokeObjectURL(tickWorkerURL);
+          tickWorkerURL = null;
+        }
+      }
+
+      // Keep the screen on ONLY while an alarm is armed — a sleeping device
+      // can't fire it. Ordinary playback takes no lock.
+      let wakeLock = null;
+
+      function acquireWakeLock() {
+        if (alarmTarget === null || wakeLock !== null) return;
+        if (!('wakeLock' in navigator) || typeof navigator.wakeLock.request !== 'function') return;
+        navigator.wakeLock
+          .request('screen')
+          .then((lock) => {
+            if (alarmTarget === null) {
+              Promise.resolve(lock.release()).catch(() => {});
+              return;
+            }
+            wakeLock = lock;
+            // The OS can revoke it (tab hidden); we re-request on visible.
+            lock.addEventListener('release', () => {
+              if (wakeLock === lock) wakeLock = null;
+            });
+          })
+          .catch(() => {});
+      }
+
+      function releaseWakeLock() {
+        if (wakeLock === null) return;
+        Promise.resolve(wakeLock.release()).catch(() => {});
+        wakeLock = null;
+      }
+
+      function tick() {
+        const now = Date.now();
+        if (sleepTarget !== null && now >= sleepTarget) {
+          sleepTarget = null;
+          if (engine.running) finishOrStop();
+        }
+        if (alarmTarget !== null && now >= alarmTarget) {
+          alarmTarget = null;
+          releaseWakeLock();
+          if (!engine.running) {
+            engine
+              .start()
+              .then(() => {
+                alarmNotice = '';
+                setTransportUI();
+                updateTimerUI();
+                setupMediaSession();
+                // A start() in a throttled background tab can resolve with
+                // the context still effectively suspended; poke it once it
+                // should be audible. resume() is an idempotent context-poke.
+                setTimeout(() => {
+                  if (engine.running && typeof engine.resume === 'function') {
+                    try {
+                      engine.resume();
+                    } catch {}
+                  }
+                }, 1500);
+              })
+              .catch(() => {
+                alarmNotice = 'Couldn’t start automatically — press Play.';
+                updateTimerUI();
+              });
+          }
+        }
+        updateTimerUI();
+        idleTickerIfDone();
+      }
+
+      function startSleepTimer(minutes) {
+        if (!Number.isFinite(minutes) || minutes <= 0) return;
+        sleepTarget = Date.now() + minutes * 60000;
+        ensureTicker();
+        updateTimerUI();
+      }
+
+      function cancelAlarm() {
+        alarmTarget = null;
+        alarmNotice = '';
+        releaseWakeLock();
+        updateTimerUI();
+        idleTickerIfDone();
+      }
+
+      for (const button of document.querySelectorAll('.sleep-preset')) {
+        button.addEventListener('click', () => {
+          startSleepTimer(parseInt(button.dataset.minutes, 10));
+        });
+      }
+
+      document.getElementById('sleep-start').addEventListener('click', () => {
+        startSleepTimer(parseInt(sleepCustom.value, 10));
+      });
+
+      document.getElementById('sleep-cancel').addEventListener('click', () => {
+        sleepTarget = null;
+        updateTimerUI();
+        idleTickerIfDone();
+      });
+
+      document.getElementById('alarm-set').addEventListener('click', () => {
+        const value = alarmTimeInput.value;
+        if (!value) return;
+        // arm() from this user gesture so start() can later succeed outside
+        // one. Feature-detect: an older engine has no arm() — we still set
+        // the timer and let start() try.
+        if (typeof engine.arm === 'function') engine.arm();
+        const [h, m] = value.split(':').map(Number);
+        const target = new Date();
+        target.setHours(h, m, 0, 0);
+        if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+        alarmTarget = target.getTime();
+        alarmNotice = '';
+        acquireWakeLock();
+        ensureTicker();
+        updateTimerUI();
+      });
+
+      document.getElementById('alarm-cancel').addEventListener('click', cancelAlarm);
+
+      // ---- lifecycle recovery (throttled tabs, bfcache, iOS interrupts) --
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        // Timers may have been clamped while hidden — re-check immediately.
+        if (sleepTarget !== null || alarmTarget !== null) tick();
+        if (alarmTarget !== null) acquireWakeLock();
+        if (engine.running) {
+          // Recovers iOS 'interrupted' contexts once the engine ships resume().
+          try {
+            engine.resume?.();
+          } catch {}
+        }
+      });
+
+      window.addEventListener('focus', () => {
+        if (engine.running) {
+          try {
+            engine.resume?.();
+          } catch {}
+        }
+      });
+
+      window.addEventListener('pagehide', () => {
+        flushPersistSettings();
+        try {
+          engine.stop();
+        } catch {}
+      });
+
+      window.addEventListener('pageshow', (event) => {
+        // Restored from bfcache with the audio graph gone — show stopped UI.
+        if (event.persisted) {
+          finishing = false;
+          setTransportUI();
+        }
+      });
+
+      // ---- presets -------------------------------------------------------
+
+      const presetName = document.getElementById('preset-name');
+      const presetLoad = document.getElementById('preset-load');
+      const presetSave = document.getElementById('preset-save');
+      const presetDelete = document.getElementById('preset-delete');
+      const presetSubmit = document.getElementById('preset-submit');
+      const presetCopy = document.getElementById('preset-copy');
+
+      let presets = [];
+      try {
+        const stored = prefs.get('presets');
+        if (Array.isArray(stored)) presets = stored;
+      } catch {}
+
+      function paramsSnapshot() {
+        const s = structuredClone(settings);
+        delete s.ui;
+        return s;
+      }
+
+      function persistPresets() {
+        persistKey('presets', presets);
+      }
+
+      function refreshPresetSelect(selectedName) {
+        presetLoad.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Load preset…';
+        presetLoad.append(placeholder);
+        presets.forEach((preset, index) => {
+          const opt = document.createElement('option');
+          opt.value = String(index);
+          opt.textContent = preset.name;
+          if (preset.name === selectedName) opt.selected = true;
+          presetLoad.append(opt);
+        });
+      }
+
+      presetSave.addEventListener('click', () => {
+        const name = presetName.value.trim() || 'Untitled';
+        const entry = { name, params: paramsSnapshot() };
+        const existing = presets.findIndex((p) => p.name === name);
+        if (existing >= 0) presets[existing] = entry;
+        else presets.push(entry);
+        persistPresets();
+        refreshPresetSelect(name);
+      });
+
+      presetLoad.addEventListener('change', () => {
+        const index = parseInt(presetLoad.value, 10);
+        const preset = presets[index];
+        if (!preset) return;
+        const ui = settings.ui;
+        settings = deepMerge(DEFAULTS, preset.params);
+        settings.ui = ui;
+        engine.setParams(engineParamsFrom(settings));
+        syncUIFromSettings();
+        presetName.value = preset.name;
+        persistSettings();
+      });
+
+      presetDelete.addEventListener('click', () => {
+        const index = parseInt(presetLoad.value, 10);
+        if (!Number.isFinite(index) || !presets[index]) return;
+        presets.splice(index, 1);
+        persistPresets();
+        refreshPresetSelect();
+      });
+
+      function presetJSON() {
+        const name = presetName.value.trim() || 'Untitled';
+        return JSON.stringify({ name, params: paramsSnapshot() }, null, 2);
+      }
+
+      presetSubmit.addEventListener('click', () => {
+        const name = presetName.value.trim() || 'Untitled';
+        const url =
+          `${CONTACT_URL}?subject=${encodeURIComponent(`Ambi4 preset: ${name}`)}` +
+          `&message=${encodeURIComponent(presetJSON())}`;
+        window.open(url, '_blank', 'noopener');
+      });
+
+      presetCopy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(presetJSON());
+          presetCopy.textContent = 'Copied';
+        } catch {
+          presetCopy.textContent = 'Copy failed';
+        }
+        setTimeout(() => {
+          presetCopy.textContent = 'Copy JSON';
+        }, 2000);
+      });
+
+      // ---- initial sync ---------------------------------------------------
+
+      function syncUIFromSettings() {
+        bpmInput.value = String(settings.bpm);
+        bpmValue.textContent = String(settings.bpm);
+        speedInput.value = String(speedTFromBpm(settings.bpm));
+        repetitionInput.value = String(settings.repetition);
+        volumeInput.value = String(settings.volume);
+        rootSelect.value = settings.root;
+        modeSelect.value = settings.mode;
+        timeSignatureSelect.value = settings.timeSignature;
+        syncStructureUI();
+        syncArpUI();
+        syncTrackStateUI();
+        for (const id of TRACK_IDS) {
+          document.getElementById(`track-voice-${id}`).value = settings.tracks[id].voice;
+          const editor = document.getElementById(`voice-editor-${id}`);
+          if (!editor.hidden) renderVoiceEditor(id);
+        }
+        updateComplexityDisplay();
+      }
+
+      syncUIFromSettings();
+      refreshPresetSelect();
+      engine.setParams(engineParamsFrom(settings));
+      activateTab(settings.ui.activeTab, { persist: false });
+      setTransportUI();
+      updateTimerUI();
+
+      app.hidden = false;
+    }
+
+    init();
+  </script>
+
+  <style>
+    #generator-app {
+      max-width: 640px;
+    }
+
+    .play-toggle {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      margin-bottom: 8px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--bg);
+      background: var(--link);
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .play-toggle:hover {
+      background: var(--link-hover);
+    }
+
+    .play-toggle:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 3px;
+    }
+
+    .play-toggle[aria-pressed='true'] {
+      background: var(--secondary);
+    }
+
+    .play-toggle:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
+    .transport-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 22px;
+      margin-bottom: 12px;
+    }
+
+    .timer-status {
+      color: var(--secondary);
+      font-size: 14px;
+    }
+
+    .link-button {
+      padding: 0;
+      font-size: 14px;
+      color: var(--link);
+      background: none;
+      border: none;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .link-button:hover {
+      color: var(--link-hover);
+    }
+
+    .link-button:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    #track-visualiser {
+      display: block;
+      width: 100%;
+      height: 200px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    /* -- tabs -- */
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tabs [role='tab'] {
+      padding: 10px 18px;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--secondary);
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+    }
+
+    .tabs [role='tab'][aria-selected='true'] {
+      color: var(--link);
+      border-bottom-color: var(--link);
+    }
+
+    .tabs [role='tab']:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: -3px;
+    }
+
+    [role='tabpanel']:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 4px;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+
+    .control {
+      margin-bottom: 20px;
+    }
+
+    .control-label-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+
+    .control label,
+    .control-heading {
+      font-weight: 700;
+    }
+
+    .end-label,
+    .value-readout {
+      color: var(--secondary);
+      font-size: 14px;
+    }
+
+    .tri-label {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 2px;
+      color: var(--secondary);
+      font-size: 14px;
+    }
+
+    .tri-label span:nth-child(2) {
+      text-align: center;
+    }
+
+    .tri-label span:last-child {
+      text-align: right;
+    }
+
+    .control input[type='range'] {
+      width: 100%;
+    }
+
+    .control select {
+      width: 100%;
+      padding: 8px;
+      font-size: 16px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .control input:focus-visible,
+    .control select:focus-visible,
+    .timer-group input:focus-visible,
+    .presets-group input:focus-visible,
+    .presets-group select:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    .hint {
+      margin-top: 6px;
+      color: var(--secondary);
+      font-size: 14px;
+    }
+
+    /* -- sleep / alarm / presets fieldsets -- */
+
+    .timer-group,
+    .presets-group {
+      margin-bottom: 20px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .timer-group legend,
+    .presets-group legend {
+      padding: 0 6px;
+      font-weight: 700;
+    }
+
+    .timer-row,
+    .preset-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .timer-custom {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .timer-group input[type='number'],
+    .timer-group input[type='time'],
+    .presets-group input[type='text'] {
+      padding: 6px 8px;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .timer-group input[type='number'] {
+      width: 72px;
+    }
+
+    .presets-group input[type='text'] {
+      flex: 1 1 160px;
+    }
+
+    .presets-group select {
+      flex: 1 1 160px;
+      padding: 6px 8px;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    /* -- segmented control (3-state track state / 2-state arp mode) -- */
+
+    .segmented {
+      display: inline-flex;
+      flex-wrap: wrap;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .segmented input[type='radio'] {
+      position: absolute;
+      opacity: 0;
+      width: 1px;
+      height: 1px;
+      pointer-events: none;
+    }
+
+    .segmented label {
+      padding: 6px 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text);
+      border-right: 1px solid var(--border);
+    }
+
+    .segmented label:last-of-type {
+      border-right: none;
+    }
+
+    .segmented input[type='radio']:checked + label {
+      background: var(--link);
+      color: var(--bg);
+    }
+
+    .segmented input[type='radio']:focus-visible + label {
+      outline: 3px solid var(--link);
+      outline-offset: -3px;
+    }
+
+    /* -- tracks section -- */
+
+    .tracks-section {
+      margin-bottom: 24px;
+    }
+
+    .tracks-heading {
+      font-size: 16px;
+      margin-top: 0;
+      margin-bottom: 12px;
+    }
+
+    .track-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .track-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .track-name {
+      width: 84px;
+      flex-shrink: 0;
+      font-weight: 600;
+    }
+
+    .track-voice {
+      flex: 1 1 140px;
+      min-width: 120px;
+      padding: 6px 8px;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .voice-edit-toggle[aria-expanded='true'] {
+      background: var(--link);
+      color: var(--bg);
+      border-color: var(--link);
+    }
+
+    /* -- voice editor -- */
+
+    .voice-editor {
+      margin-top: 10px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .voice-editor .ve-section {
+      margin-bottom: 12px;
+    }
+
+    .voice-editor .ve-heading {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--secondary);
+    }
+
+    .voice-editor .ve-control {
+      margin-bottom: 10px;
+    }
+
+    .voice-editor .ve-control label {
+      font-size: 14px;
+    }
+
+    .voice-editor select {
+      width: 100%;
+      padding: 6px 8px;
+      font-size: 14px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    /* -- custom structure builder -- */
+
+    .custom-structure {
+      margin: -8px 0 20px;
+    }
+
+    .structure-blocks {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .structure-block {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .structure-block select {
+      width: auto;
+      padding: 6px;
+    }
+
+    .structure-block input[type='number'] {
+      width: 64px;
+      padding: 6px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .structure-block input[type='range'] {
+      flex: 1 1 100px;
+    }
+
+    .structure-block button {
+      padding: 4px 8px;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .structure-block button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .secondary-button {
+      padding: 8px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .secondary-button:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    /* -- arpeggiator step grid -- */
+
+    .arp-control {
+      margin-top: 24px;
+    }
+
+    .step-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .step-cell {
+      padding: 10px 0;
+      font-size: 12px;
+      color: var(--secondary);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+    }
+
+    .step-cell-marked {
+      font-weight: 700;
+    }
+
+    .step-cell[aria-pressed='true'] {
+      background: var(--link);
+      color: var(--bg);
+      border-color: var(--link);
+    }
+
+    .step-cell:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    #generator-unavailable {
+      color: var(--secondary);
+    }
+
+    /* -- small-screen touch targets (~44px) -- */
+
+    @media (max-width: 480px) {
+      .step-grid {
+        grid-template-columns: repeat(4, 1fr);
+      }
+
+      .step-cell {
+        min-height: 44px;
+        padding: 14px 0;
+        font-size: 14px;
+      }
+
+      .segmented label {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding: 10px 14px;
+      }
+    }
+  </style>
 </Base>

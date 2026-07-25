@@ -427,11 +427,21 @@ export function initVisualiser(canvas, engine) {
   // -- sizing --------------------------------------------------------------
 
   let resizeObserver = null;
+  let resizing = false;
+
+  function currentDpr() {
+    try {
+      return (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    } catch {
+      return 1;
+    }
+  }
 
   function resize() {
+    resizing = true;
     try {
       const rect = canvas.getBoundingClientRect();
-      dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+      dpr = currentDpr();
       cssWidth = Math.max(1, Math.round(rect.width) || canvas.clientWidth || canvas.width || 300);
       cssHeight = Math.max(1, Math.round(rect.height) || canvas.clientHeight || canvas.height || 150);
       canvas.width = Math.round(cssWidth * dpr);
@@ -443,12 +453,19 @@ export function initVisualiser(canvas, engine) {
       dpr = 1;
     }
     renderFrame();
+    resizing = false;
   }
 
   try {
     if (typeof ResizeObserver === 'function') {
       resizeObserver = new ResizeObserver(() => resize());
-      resizeObserver.observe(canvas);
+      // device-pixel-content-box also fires when devicePixelRatio changes
+      // (zoom, moving to a different-DPI screen) without a CSS-box resize.
+      try {
+        resizeObserver.observe(canvas, { box: 'device-pixel-content-box' });
+      } catch {
+        resizeObserver.observe(canvas);
+      }
     }
   } catch {
     resizeObserver = null;
@@ -729,6 +746,14 @@ export function initVisualiser(canvas, engine) {
 
   function renderFrame() {
     if (destroyed) return;
+    // Belt-and-braces DPR staleness check: browsers that lack
+    // device-pixel-content-box won't fire the ResizeObserver on zoom/screen
+    // moves, so compare once per rendered frame. `resizing` guards against
+    // recursion (resize() calls back into renderFrame()).
+    if (!resizing && currentDpr() !== dpr) {
+      resize(); // renders at the fresh ratio
+      return;
+    }
     try {
       draw();
     } catch {
