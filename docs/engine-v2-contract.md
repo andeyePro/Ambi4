@@ -1424,3 +1424,27 @@ slur-vs-re-strike and as where a phrase's tail decay begins, not as silence
 between notes. Shortening the patch ADSR per note would work but changes the
 filter path (`mainFilter` switches from note-tracking to the patch cutoff and
 adds a trim node), which is a timbre and node-count change outside this pass.
+
+---
+
+# v25 addendum — genre system (data schema; engine/UI consumption follows)
+
+src/data/genres/[slug].json, one file per genre:
+{ slug, name, cluster, oneLiner,
+  essence: {  // generative RULES, the preferred path
+    bpm: [lo, hi], swing: [lo, hi], timeSignatures: [...weights],
+    modes: [...weights], chordLanguage: { progressionGrammar: [...seed
+    progressions as degree strings], substitutionRules: [...], extensionBias,
+    harmonicRhythm: [...] },
+    grooveGrammar: { anchorPatterns: [...], syncopationCells: [...],
+    articulation: [...], pocketMs: [lo, hi] },
+    instrumentation: { perTrack: { state, voice, level, randomness } },
+    energyArc: structure preset bias, dissonanceRange, densityBias },
+  fallbackLists: { progressions: [...], grooves: [...] } | null,  // only when
+    essence alone cannot stay recognisable
+  defiance: [ { param, label, range } ]  // the genre-defying dials
+}
+Rules: every value must survive the engine sanitiser when compiled to params;
+bass state per genre (Ambient ships bass off — user ruling); recognisable-to-
+experts is the bar, with defiance dials as the escape hatch. A music-director
+review precedes merge.
