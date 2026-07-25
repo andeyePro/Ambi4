@@ -1,0 +1,141 @@
+{
+  "slug": "techno-tools",
+  "name": "Techno Tools",
+  "cluster": 3,
+  "oneLiner": "A dry machine loop on one chord — hypnosis by subtraction, not by event.",
+  "essence": {
+    "bpm": [122, 132],
+    "swing": [0, 0.08],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 1 }
+    ],
+    "modes": [
+      { "value": "minorPentatonic", "weight": 0.45 },
+      { "value": "phrygian", "weight": 0.3 },
+      { "value": "aeolian", "weight": 0.25 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "i",
+        "i i i VII",
+        "i II",
+        "i v"
+      ],
+      "substitutionRules": [
+        { "from": "VII", "to": "v", "prob": 0.2 },
+        { "from": "II", "to": "i", "prob": 0.25 }
+      ],
+      "extensionBias": 0.15,
+      "harmonicRhythm": [
+        { "value": 8, "weight": 0.5 },
+        { "value": 4, "weight": 0.35 },
+        { "value": 2, "weight": 0.15 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x---x---x---x---"
+      ],
+      "syncopationCells": [
+        "--x-",
+        "-x-x",
+        "x--x"
+      ],
+      "articulation": ["even"],
+      "pocketMs": [0, 4]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "auto", "voice": "glass", "level": 0.3, "randomness": 0.15 },
+        "arp": { "state": "on", "voice": "crystal", "level": 0.38, "randomness": { "min": 0.15, "max": 0.35 } },
+        "melody": { "state": "off", "voice": "pluck", "level": 0.4, "randomness": 0.2 },
+        "bass": { "state": "on", "voice": "sub", "level": 0.62, "randomness": 0.12 },
+        "texture": { "state": "auto", "voice": "colour", "level": { "min": 0.1, "max": 0.22 }, "randomness": 0.3 },
+        "percussion": { "state": "on", "voice": "tick", "level": 0.55, "randomness": 0.18 }
+      },
+      "reverbTail": 1.2,
+      "patches": {
+        "pad": {
+          "glass": {
+            "source": { "detune": 4 },
+            "filter": { "type": "lowpass", "cutoff": 900, "q": 2 },
+            "adsr": { "attack": 0.01, "decay": 0.4, "sustain": 0.2, "release": 0.5 },
+            "sends": { "reverb": 0.4, "delay": 0.3 }
+          }
+        },
+        "bass": {
+          "sub": {
+            "source": { "fold": 0.2 },
+            "filter": { "type": "lowpass", "cutoff": 300, "q": 1.1 },
+            "adsr": { "attack": 0.004, "decay": 0.12, "sustain": 0.3, "release": 0.12 },
+            "sends": { "reverb": 0.04, "delay": 0 }
+          }
+        },
+        "arp": {
+          "crystal": {
+            "filter": { "type": "lowpass", "cutoff": 3800, "q": 1 },
+            "sends": { "reverb": 0.3, "delay": 0.35 }
+          }
+        },
+        "texture": {
+          "colour": {
+            "source": {
+              "tilt": 0.2,
+              "bandCentre": { "min": 600, "max": 4800 },
+              "bandWidth": 0.8,
+              "sweepRate": 0.12,
+              "sweepDepth": 0.6,
+              "gust": 0.15,
+              "gustRate": 0.1,
+              "burst": 0,
+              "burstSharp": 0.5,
+              "swell": 0.25
+            },
+            "filter": { "type": "highpass", "cutoff": 200, "q": 0.7 },
+            "adsr": { "attack": 1, "decay": 0.01, "sustain": 1, "release": 2 },
+            "sends": { "reverb": 0.5, "delay": 0.2 }
+          }
+        },
+        "percussion": {
+          "tick": {
+            "source": { "noise": 0.9 },
+            "filter": { "type": "lowpass", "cutoff": 10000, "q": 0.7 },
+            "adsr": { "attack": 0.0015, "decay": 0.03, "sustain": 0, "release": 0.05 },
+            "sends": { "reverb": 0.12, "delay": 0.08 },
+            "perKind": {
+              "low": {
+                "source": { "pitch": -5 },
+                "filter": { "cutoff": 350 },
+                "adsr": { "decay": 0.18 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "energyArc": [
+      { "value": "drone", "weight": 0.55 },
+      { "value": "waves", "weight": 0.45 }
+    ],
+    "dissonanceRange": [0, 0.3],
+    "densityBias": 1.05
+  },
+  "fallbackLists": {
+    "progressions": [
+      "i"
+    ],
+    "grooves": [
+      {
+        "low": "x---x---x---x---",
+        "mid": "----------------",
+        "high": "--x---x---x---x-"
+      }
+    ]
+  },
+  "defiance": [
+    { "param": "bpm", "label": "After-hours to peak-time", "range": [118, 150] },
+    { "param": "patches.bass.sub.source.fold", "label": "Clean to distorted", "range": [0, 0.7] },
+    { "param": "tracks.arp.density", "label": "Sparse to rolling", "range": [0.5, 1.8] },
+    { "param": "reverbTail", "label": "Dry booth to warehouse", "range": [0.5, 4] }
+  ]
+}

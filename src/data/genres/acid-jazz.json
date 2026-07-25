@@ -1,0 +1,97 @@
+{
+  "slug": "acid-jazz",
+  "name": "Acid Jazz",
+  "cluster": 2,
+  "oneLiner": "Sixteenth-note jazz-funk: a two-chord minor-ninth vamp, a ghost-heavy bass and a shuffle that never quite sits down.",
+  "essence": {
+    "bpm": [94, 118],
+    "swing": [0.15, 0.45],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 1 }
+    ],
+    "modes": [
+      { "value": "dorian", "weight": 0.5 },
+      { "value": "mixolydian", "weight": 0.3 },
+      { "value": "aeolian", "weight": 0.2 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "i9 IV9",
+        "i7 IIImaj7 IV9 IV9",
+        "ii7 v9 i9 i9",
+        "i7 IV7 VII9 v7"
+      ],
+      "substitutionRules": [
+        { "from": "i7", "to": "i9", "prob": 0.6 },
+        { "from": "IV7", "to": "IV9", "prob": 0.5 },
+        { "from": "IV9", "to": "IV13", "prob": 0.2 },
+        { "from": "v7", "to": "v9", "prob": 0.4 },
+        { "from": "VII7", "to": "VII9", "prob": 0.4 }
+      ],
+      "extensionBias": 0.8,
+      "harmonicRhythm": [
+        { "value": 1, "weight": 0.5 },
+        { "value": 2, "weight": 0.4 },
+        { "value": 4, "weight": 0.1 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x-----x---x-----",
+        "x-----x--x------",
+        "x--x--x---x--x--"
+      ],
+      "syncopationCells": [
+        "--x-",
+        "---x",
+        "--xx",
+        "-x-x"
+      ],
+      "articulation": ["shortLong", "longShort", "even"],
+      "pocketMs": [8, 20]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "auto", "voice": "warm", "level": 0.45, "randomness": { "min": 0.25, "max": 0.5 } },
+        "arp": { "state": "auto", "voice": "crystal", "level": 0.5, "randomness": { "min": 0.3, "max": 0.55 } },
+        "melody": { "state": "auto", "voice": "keys", "level": 0.55, "randomness": { "min": 0.35, "max": 0.6 } },
+        "bass": { "state": "on", "voice": "round", "level": 0.7, "randomness": { "min": 0.3, "max": 0.55 } },
+        "texture": { "state": "auto", "voice": "wash", "level": 0.3, "randomness": 0.3 },
+        "percussion": { "state": "on", "voice": "soft", "level": 0.6, "randomness": { "min": 0.3, "max": 0.55 } }
+      },
+      "reverbTail": 1.1
+    },
+    "energyArc": [
+      { "value": "abab", "weight": 0.4 },
+      { "value": "journey", "weight": 0.35 },
+      { "value": "waves", "weight": 0.25 }
+    ],
+    "dissonanceRange": [0.1, 0.4],
+    "densityBias": 1.15
+  },
+  "fallbackLists": {
+    "progressions": null,
+    "grooves": [
+      {
+        "low": "x-----x---x-----",
+        "mid": "----x-------x---",
+        "high": "x-x-x-x-x-x-x-x-"
+      },
+      {
+        "low": "x-----x--x------",
+        "mid": "----x-------x--x",
+        "high": "x-xxx-x-x-xxx-x-"
+      },
+      {
+        "low": "x--x--x---x--x--",
+        "mid": "----x-------x---",
+        "high": "x-xx-xx-x-xx-xx-"
+      }
+    ]
+  },
+  "defiance": [
+    { "param": "swing", "label": "Straight to deep shuffle", "range": [0, 0.8] },
+    { "param": "tracks.bass.dissonance", "label": "Clean to gnarly", "range": [0, 0.8] },
+    { "param": "bpm", "label": "Haze to sprint", "range": [70, 150] }
+  ]
+}

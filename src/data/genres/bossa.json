@@ -1,0 +1,91 @@
+{
+  "slug": "bossa",
+  "name": "Bossa",
+  "cluster": 2,
+  "oneLiner": "Cool and straight: a tied surdo two-feel under rim-click clave, ninth chords gliding stepwise home.",
+  "essence": {
+    "bpm": [112, 140],
+    "swing": [0, 0.12],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 1 }
+    ],
+    "modes": [
+      { "value": "ionian", "weight": 0.4 },
+      { "value": "dorian", "weight": 0.25 },
+      { "value": "lydian", "weight": 0.2 },
+      { "value": "aeolian", "weight": 0.15 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "Imaj9 vi7 ii9 V13",
+        "ii7 V13 Imaj9 vi7",
+        "i9 ii7 v7 i9",
+        "IVmaj7 iii7 ii7 V13"
+      ],
+      "substitutionRules": [
+        { "from": "V7", "to": "V13", "prob": 0.3 },
+        { "from": "vi7", "to": "vi9", "prob": 0.3 },
+        { "from": "Imaj7", "to": "Imaj9", "prob": 0.6 },
+        { "from": "ii7", "to": "ii9", "prob": 0.4 }
+      ],
+      "extensionBias": 0.9,
+      "harmonicRhythm": [
+        { "value": 2, "weight": 0.6 },
+        { "value": 1, "weight": 0.25 },
+        { "value": 4, "weight": 0.15 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x-------x-------",
+        "x-----x-x-------",
+        "x------xx------x"
+      ],
+      "syncopationCells": [
+        "---x",
+        "--xx",
+        "--x-"
+      ],
+      "articulation": ["longShort", "even", "holdOne"],
+      "pocketMs": [0, 8]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "auto", "voice": "warm", "level": 0.42, "randomness": { "min": 0.2, "max": 0.4 } },
+        "arp": { "state": "auto", "voice": "softPluck", "level": 0.52, "randomness": { "min": 0.25, "max": 0.5 } },
+        "melody": { "state": "auto", "voice": "pluck", "level": 0.55, "randomness": { "min": 0.3, "max": 0.55 } },
+        "bass": { "state": "on", "voice": "round", "level": 0.7, "randomness": { "min": 0.15, "max": 0.35 } },
+        "texture": { "state": "off", "voice": "sparkle", "level": 0.3, "randomness": 0.3 },
+        "percussion": { "state": "on", "voice": "tick", "level": 0.5, "randomness": { "min": 0.2, "max": 0.4 } }
+      },
+      "reverbTail": 1
+    },
+    "energyArc": [
+      { "value": "waves", "weight": 0.45 },
+      { "value": "abab", "weight": 0.3 },
+      { "value": "drone", "weight": 0.25 }
+    ],
+    "dissonanceRange": [0.1, 0.35],
+    "densityBias": 0.9
+  },
+  "fallbackLists": {
+    "progressions": null,
+    "grooves": [
+      {
+        "low": "x-----x-x-------",
+        "mid": "x--x--x---x--x--",
+        "high": "x-x-x-x-x-x-x-x-"
+      },
+      {
+        "low": "x-------x-------",
+        "mid": "--x--x--x--x--x-",
+        "high": "x-x-x-x-x-x-x-x-"
+      }
+    ]
+  },
+  "defiance": [
+    { "param": "swing", "label": "Cool to samba sway", "range": [0, 0.5] },
+    { "param": "bpm", "label": "Ballad to street parade", "range": [88, 168] },
+    { "param": "tracks.arp.density", "label": "Gentle to busy strum", "range": [0.4, 1.8] }
+  ]
+}

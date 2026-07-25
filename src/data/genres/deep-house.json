@@ -1,0 +1,142 @@
+{
+  "slug": "deep-house",
+  "name": "Deep House",
+  "cluster": 3,
+  "oneLiner": "A warm minor-key vamp breathing over a soft four-on-the-floor — a basement heard through the wall.",
+  "essence": {
+    "bpm": [116, 124],
+    "swing": [0.08, 0.28],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 1 }
+    ],
+    "modes": [
+      { "value": "dorian", "weight": 0.45 },
+      { "value": "aeolian", "weight": 0.35 },
+      { "value": "minorPentatonic", "weight": 0.2 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "i IV",
+        "i IV i v",
+        "i v IV v",
+        "i VI",
+        "i VII VI VII",
+        "i v VI VII"
+      ],
+      "substitutionRules": [
+        { "from": "IV", "to": "ii", "prob": 0.3 },
+        { "from": "VI", "to": "IV", "prob": 0.2 },
+        { "from": "v", "to": "VII", "prob": 0.15 }
+      ],
+      "extensionBias": 0.85,
+      "harmonicRhythm": [
+        { "value": 2, "weight": 0.5 },
+        { "value": 4, "weight": 0.3 },
+        { "value": 1, "weight": 0.2 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x---x---x---x---",
+        "x---x---x---x--x"
+      ],
+      "syncopationCells": [
+        "--x-",
+        "-x-x",
+        "---x"
+      ],
+      "articulation": ["shortLong", "even"],
+      "pocketMs": [4, 14]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "on", "voice": "warm", "level": 0.5, "randomness": { "min": 0.15, "max": 0.35 } },
+        "arp": { "state": "auto", "voice": "softPluck", "level": 0.35, "randomness": { "min": 0.2, "max": 0.4 } },
+        "melody": { "state": "off", "voice": "keys", "level": 0.4, "randomness": 0.25 },
+        "bass": { "state": "on", "voice": "round", "level": 0.6, "randomness": 0.15 },
+        "texture": { "state": "on", "voice": "colour", "level": { "min": 0.14, "max": 0.26 }, "randomness": 0.25 },
+        "percussion": { "state": "on", "voice": "soft", "level": 0.5, "randomness": { "min": 0.15, "max": 0.3 } }
+      },
+      "reverbTail": 1.6,
+      "patches": {
+        "pad": {
+          "warm": {
+            "source": { "mix": 0.5, "detune": 7 },
+            "filter": { "type": "lowpass", "cutoff": 750, "q": 0.8, "envAmount": 0.3 },
+            "adsr": { "attack": 0.4, "decay": 0.3, "sustain": 0.8, "release": 1.6 },
+            "sends": { "reverb": 0.35, "delay": 0.15 }
+          }
+        },
+        "bass": {
+          "round": {
+            "source": { "shape1": 1.6, "mix": 0.3, "fold": 0.12 },
+            "filter": { "type": "lowpass", "cutoff": 480, "q": 1.4, "envAmount": 0.8 },
+            "adsr": { "attack": 0.006, "decay": 0.18, "sustain": 0.35, "release": 0.2 },
+            "sends": { "reverb": 0.05, "delay": 0 }
+          }
+        },
+        "texture": {
+          "colour": {
+            "source": {
+              "tilt": -0.5,
+              "bandCentre": 3400,
+              "bandWidth": 2.5,
+              "sweepRate": 0.03,
+              "sweepDepth": 0.1,
+              "gust": 0.2,
+              "gustRate": 0.06,
+              "burst": { "min": 0.18, "max": 0.35 },
+              "burstSharp": 0.85,
+              "swell": 0.1
+            },
+            "filter": { "type": "lowpass", "cutoff": 5200, "q": 0.6 },
+            "adsr": { "attack": 1.5, "decay": 0.01, "sustain": 1, "release": 3 },
+            "sends": { "reverb": 0.3, "delay": 0.1 }
+          }
+        },
+        "percussion": {
+          "soft": {
+            "source": { "pitch": -2, "noise": 0.8 },
+            "filter": { "type": "lowpass", "cutoff": 8500, "q": 0.7 },
+            "sends": { "reverb": 0.22, "delay": 0.1 },
+            "perKind": {
+              "low": {
+                "source": { "pitch": -3 },
+                "adsr": { "decay": 0.28 }
+              },
+              "high": {
+                "adsr": { "decay": 0.05, "release": 0.06 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "energyArc": [
+      { "value": "waves", "weight": 0.5 },
+      { "value": "abab", "weight": 0.3 },
+      { "value": "drone", "weight": 0.2 }
+    ],
+    "dissonanceRange": [0, 0.15],
+    "densityBias": 1
+  },
+  "fallbackLists": {
+    "progressions": [
+      "i IV",
+      "i VII VI VII"
+    ],
+    "grooves": [
+      {
+        "low": "x---x---x---x---",
+        "mid": "----x-------x---",
+        "high": "--x---x---x---x-"
+      }
+    ]
+  },
+  "defiance": [
+    { "param": "swing", "label": "Straight to shuffled", "range": [0, 0.6] },
+    { "param": "bpm", "label": "Basement to dancefloor", "range": [110, 128] },
+    { "param": "tracks.percussion.density", "label": "Heartbeat to busy kit", "range": [0.5, 1.6] },
+    { "param": "patches.bass.round.source.fold", "label": "Clean to gritty", "range": [0, 0.5] }
+  ]
+}
