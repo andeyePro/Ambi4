@@ -1,0 +1,76 @@
+{
+  "slug": "ambient",
+  "name": "Ambient",
+  "cluster": 1,
+  "oneLiner": "Music as a place, not an event — still air the room can think in.",
+  "essence": {
+    "bpm": [40, 62],
+    "swing": [0, 0],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 0.6 },
+      { "value": "3/4", "weight": 0.25 },
+      { "value": "6/8", "weight": 0.15 }
+    ],
+    "modes": [
+      { "value": "lydian", "weight": 0.3 },
+      { "value": "ionian", "weight": 0.2 },
+      { "value": "majorPentatonic", "weight": 0.2 },
+      { "value": "aeolian", "weight": 0.15 },
+      { "value": "wholeTone", "weight": 0.15 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "I",
+        "I IV",
+        "I ii",
+        "I vi IV vi",
+        "i VI",
+        "i VII i VI"
+      ],
+      "substitutionRules": [
+        { "from": "V", "to": "IV", "prob": 0.9 },
+        { "from": "vii", "to": "ii", "prob": 1 },
+        { "from": "I", "to": "vi", "prob": 0.2 },
+        { "from": "IV", "to": "ii", "prob": 0.25 }
+      ],
+      "extensionBias": 0.7,
+      "harmonicRhythm": [
+        { "value": 8, "weight": 0.5 },
+        { "value": 4, "weight": 0.35 },
+        { "value": "auto", "weight": 0.15 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x---------------"
+      ],
+      "syncopationCells": [],
+      "articulation": ["holdOne"],
+      "pocketMs": [0, 0]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "on", "voice": "warm", "level": 0.8, "randomness": 0.25 },
+        "arp": { "state": "off", "voice": "softPluck", "level": 0.4, "randomness": 0.2 },
+        "melody": { "state": "auto", "voice": "bell", "level": 0.35, "randomness": 0.4 },
+        "bass": { "state": "off", "voice": "breath", "level": 0.5, "randomness": 0.15 },
+        "texture": { "state": "on", "voice": "wash", "level": { "min": 0.28, "max": 0.46 }, "randomness": 0.3 },
+        "percussion": { "state": "off", "voice": "soft", "level": 0.3, "randomness": 0.2 }
+      },
+      "reverbTail": 4.5
+    },
+    "energyArc": [
+      { "value": "drone", "weight": 0.45 },
+      { "value": "waves", "weight": 0.45 },
+      { "value": "journey", "weight": 0.1 }
+    ],
+    "dissonanceRange": [0, 0.15],
+    "densityBias": 0.5
+  },
+  "fallbackLists": null,
+  "defiance": [
+    { "param": "tracks.percussion.state", "label": "Beatless to pulsing", "range": ["off", "auto", "on"] },
+    { "param": "tracks.pad.dissonance", "label": "Pure to uneasy", "range": [0, 0.7] },
+    { "param": "bpm", "label": "Adrift to striding", "range": [62, 108] }
+  ]
+}

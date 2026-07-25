@@ -1,0 +1,100 @@
+{
+  "slug": "downtempo",
+  "name": "Downtempo",
+  "cluster": 1,
+  "oneLiner": "A head-nod at half speed — beat-led, but sunk deep into the sofa.",
+  "essence": {
+    "bpm": [68, 95],
+    "swing": [0.25, 0.5],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 0.9 },
+      { "value": "6/8", "weight": 0.1 }
+    ],
+    "modes": [
+      { "value": "dorian", "weight": 0.35 },
+      { "value": "aeolian", "weight": 0.3 },
+      { "value": "minorPentatonic", "weight": 0.2 },
+      { "value": "phrygian", "weight": 0.15 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "i IV",
+        "i iv",
+        "i VI III VII",
+        "i iv VII i",
+        "i II",
+        "ii v i i"
+      ],
+      "substitutionRules": [
+        { "from": "i", "to": "i7", "prob": 0.8 },
+        { "from": "iv", "to": "iv7", "prob": 0.7 },
+        { "from": "IV", "to": "IV7", "prob": 0.7 },
+        { "from": "VII", "to": "VII7", "prob": 0.5 },
+        { "from": "V", "to": "v7", "prob": 0.8 }
+      ],
+      "extensionBias": 0.75,
+      "harmonicRhythm": [
+        { "value": 2, "weight": 0.5 },
+        { "value": 4, "weight": 0.35 },
+        { "value": 1, "weight": 0.15 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x---------x-----",
+        "x------x--x-----",
+        "x--------x----x-"
+      ],
+      "syncopationCells": [
+        "--x-",
+        "---x",
+        "-x--"
+      ],
+      "articulation": ["longShort", "holdOne", "even"],
+      "pocketMs": [8, 22]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "on", "voice": "warm", "level": 0.6, "randomness": 0.3 },
+        "arp": { "state": "off", "voice": "softPluck", "level": 0.4, "randomness": 0.25 },
+        "melody": { "state": "auto", "voice": "keys", "level": 0.45, "randomness": 0.4 },
+        "bass": { "state": "on", "voice": "round", "level": 0.7, "randomness": 0.25 },
+        "texture": { "state": "auto", "voice": "grains", "level": { "min": 0.2, "max": 0.35 }, "randomness": 0.3 },
+        "percussion": { "state": "on", "voice": "soft", "level": 0.55, "randomness": 0.3 }
+      },
+      "reverbTail": 2
+    },
+    "energyArc": [
+      { "value": "waves", "weight": 0.4 },
+      { "value": "abab", "weight": 0.4 },
+      { "value": "journey", "weight": 0.2 }
+    ],
+    "dissonanceRange": [0.05, 0.25],
+    "densityBias": 1
+  },
+  "fallbackLists": {
+    "progressions": null,
+    "grooves": [
+      {
+        "low": "x---------x-----",
+        "mid": "----x-------x---",
+        "high": "x-x-x-x-x-x-x-x-"
+      },
+      {
+        "low": "x------x--x-----",
+        "mid": "----x-------x---",
+        "high": "x-xxx-x-x-xxx-x-"
+      },
+      {
+        "low": "x--------x----x-",
+        "mid": "----x-------x--x",
+        "high": "--x---x---x---x-"
+      }
+    ]
+  },
+  "defiance": [
+    { "param": "swing", "label": "Machine to molasses", "range": [0, 1] },
+    { "param": "bpm", "label": "Sofa to dancefloor", "range": [95, 128] },
+    { "param": "tracks.percussion.state", "label": "Beat-led to beatless", "range": ["on", "auto", "off"] }
+  ]
+}

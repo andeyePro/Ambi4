@@ -1,0 +1,97 @@
+{
+  "slug": "soul-groove",
+  "name": "Soul Groove",
+  "cluster": 2,
+  "oneLiner": "Everything serves the one: a held-and-answered bass in a deep pocket, gospel extensions, strings behind the backbeat.",
+  "essence": {
+    "bpm": [84, 112],
+    "swing": [0.08, 0.35],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 0.85 },
+      { "value": "6/8", "weight": 0.15 }
+    ],
+    "modes": [
+      { "value": "mixolydian", "weight": 0.35 },
+      { "value": "ionian", "weight": 0.35 },
+      { "value": "dorian", "weight": 0.3 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "Imaj9 iii7 IVmaj9 V9",
+        "ii9 V13 Imaj9 vi7",
+        "i7 IV9 i7 IV9",
+        "Imaj7 VII9 IVmaj7 Imaj7"
+      ],
+      "substitutionRules": [
+        { "from": "Imaj7", "to": "Imaj9", "prob": 0.5 },
+        { "from": "V9", "to": "V13", "prob": 0.35 },
+        { "from": "vi7", "to": "VI7", "prob": 0.2 },
+        { "from": "IVmaj7", "to": "ii9", "prob": 0.15 }
+      ],
+      "extensionBias": 0.75,
+      "harmonicRhythm": [
+        { "value": 2, "weight": 0.45 },
+        { "value": 1, "weight": 0.4 },
+        { "value": 4, "weight": 0.15 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x-------x-x-----",
+        "x------x--x-----",
+        "x-------x-------"
+      ],
+      "syncopationCells": [
+        "--xx",
+        "--x-",
+        "-x-x",
+        "---x"
+      ],
+      "articulation": ["holdOne", "longShort", "even"],
+      "pocketMs": [6, 18]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "auto", "voice": "strings", "level": 0.5, "randomness": { "min": 0.25, "max": 0.5 } },
+        "arp": { "state": "auto", "voice": "softPluck", "level": 0.4, "randomness": { "min": 0.3, "max": 0.5 } },
+        "melody": { "state": "auto", "voice": "keys", "level": 0.58, "randomness": { "min": 0.35, "max": 0.6 } },
+        "bass": { "state": "on", "voice": "round", "level": 0.72, "randomness": { "min": 0.3, "max": 0.55 } },
+        "texture": { "state": "auto", "voice": "wash", "level": 0.32, "randomness": 0.3 },
+        "percussion": { "state": "on", "voice": "soft", "level": 0.6, "randomness": { "min": 0.25, "max": 0.5 } }
+      },
+      "reverbTail": 1.6
+    },
+    "energyArc": [
+      { "value": "journey", "weight": 0.4 },
+      { "value": "abab", "weight": 0.3 },
+      { "value": "build", "weight": 0.3 }
+    ],
+    "dissonanceRange": [0.05, 0.3],
+    "densityBias": 1
+  },
+  "fallbackLists": {
+    "progressions": null,
+    "grooves": [
+      {
+        "low": "x-------x-x-----",
+        "mid": "----x-------x---",
+        "high": "x-x-x-x-x-x-x-x-"
+      },
+      {
+        "low": "x------x--x-----",
+        "mid": "----x-------x---",
+        "high": "x-xx-xx-x-xx-xx-"
+      },
+      {
+        "low": "x-------x-------",
+        "mid": "----x-------x---",
+        "high": "--x---x---x---x-"
+      }
+    ]
+  },
+  "defiance": [
+    { "param": "bpm", "label": "Slow jam to revue", "range": [56, 132] },
+    { "param": "tracks.bass.density", "label": "Pocket to busy fingers", "range": [0.5, 2] },
+    { "param": "tracks.melody.dissonance", "label": "Straight to blue notes", "range": [0, 0.7] }
+  ]
+}

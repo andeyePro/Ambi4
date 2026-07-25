@@ -1,0 +1,79 @@
+{
+  "slug": "minimalism",
+  "name": "Minimalism",
+  "cluster": 1,
+  "oneLiner": "One bright cell, repeated until repetition itself becomes the tune.",
+  "essence": {
+    "bpm": [96, 138],
+    "swing": [0, 0],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 0.4 },
+      { "value": "3/4", "weight": 0.15 },
+      { "value": "5/4", "weight": 0.15 },
+      { "value": "7/8", "weight": 0.15 },
+      { "value": "6/8", "weight": 0.15 }
+    ],
+    "modes": [
+      { "value": "ionian", "weight": 0.3 },
+      { "value": "mixolydian", "weight": 0.25 },
+      { "value": "lydian", "weight": 0.2 },
+      { "value": "aeolian", "weight": 0.15 },
+      { "value": "dorian", "weight": 0.1 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "I",
+        "I vi",
+        "I IV",
+        "I ii",
+        "i VI",
+        "i v"
+      ],
+      "substitutionRules": [
+        { "from": "I", "to": "vi", "prob": 0.3 },
+        { "from": "I", "to": "iii", "prob": 0.15 },
+        { "from": "IV", "to": "ii", "prob": 0.2 },
+        { "from": "V7", "to": "V", "prob": 1 }
+      ],
+      "extensionBias": 0.2,
+      "harmonicRhythm": [
+        { "value": 8, "weight": 0.5 },
+        { "value": 4, "weight": 0.3 },
+        { "value": 2, "weight": 0.2 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x-x-x-x-x-x-x-x-",
+        "xxxxxxxxxxxxxxxx"
+      ],
+      "syncopationCells": [],
+      "articulation": ["even"],
+      "pocketMs": [0, 3]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "auto", "voice": "glass", "level": 0.45, "randomness": 0.15 },
+        "arp": { "state": "on", "voice": "marimba", "level": 0.62, "randomness": 0.1 },
+        "melody": { "state": "auto", "voice": "keys", "level": 0.5, "randomness": 0.2 },
+        "bass": { "state": "auto", "voice": "sub", "level": 0.55, "randomness": 0.1 },
+        "texture": { "state": "off", "voice": "sparkle", "level": 0.3, "randomness": 0.2 },
+        "percussion": { "state": "auto", "voice": "tick", "level": 0.35, "randomness": 0.1 }
+      },
+      "reverbTail": 1.5
+    },
+    "energyArc": [
+      { "value": "build", "weight": 0.4 },
+      { "value": "abab", "weight": 0.3 },
+      { "value": "waves", "weight": 0.3 }
+    ],
+    "dissonanceRange": [0, 0.1],
+    "densityBias": 1.35
+  },
+  "fallbackLists": null,
+  "defiance": [
+    { "param": "swing", "label": "Grid to swung", "range": [0, 0.6] },
+    { "param": "harmony.rhythm", "label": "Frozen to churning", "range": [8, 1] },
+    { "param": "tracks.arp.randomness", "label": "Locked to loose", "range": [0, 1] }
+  ]
+}

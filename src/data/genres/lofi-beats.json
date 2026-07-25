@@ -1,0 +1,97 @@
+{
+  "slug": "lofi-beats",
+  "name": "Lofi Beats",
+  "cluster": 2,
+  "oneLiner": "Dusty ninth-chord loops behind a dragging boom-bap: everything slightly late, slightly worn, endlessly repeatable.",
+  "essence": {
+    "bpm": [58, 88],
+    "swing": [0.3, 0.6],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 0.9 },
+      { "value": "6/8", "weight": 0.1 }
+    ],
+    "modes": [
+      { "value": "aeolian", "weight": 0.35 },
+      { "value": "dorian", "weight": 0.35 },
+      { "value": "ionian", "weight": 0.3 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "Imaj9 vi9 ii9 V13",
+        "i7 iv9 VII7 IIImaj7",
+        "ii7 V7 Imaj7 vi7",
+        "i9 VImaj7 VII9 i9"
+      ],
+      "substitutionRules": [
+        { "from": "Imaj7", "to": "Imaj9", "prob": 0.6 },
+        { "from": "i7", "to": "i9", "prob": 0.6 },
+        { "from": "ii7", "to": "ii9", "prob": 0.5 },
+        { "from": "vi7", "to": "vi9", "prob": 0.5 },
+        { "from": "V7", "to": "V13", "prob": 0.3 }
+      ],
+      "extensionBias": 0.85,
+      "harmonicRhythm": [
+        { "value": 2, "weight": 0.55 },
+        { "value": 1, "weight": 0.25 },
+        { "value": 4, "weight": 0.2 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x------x--x-----",
+        "x---------x-----",
+        "x------xx-x-----"
+      ],
+      "syncopationCells": [
+        "---x",
+        "--x-",
+        "--xx"
+      ],
+      "articulation": ["holdOne", "longShort", "even"],
+      "pocketMs": [12, 22]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "auto", "voice": "warm", "level": 0.5, "randomness": { "min": 0.2, "max": 0.4 } },
+        "arp": { "state": "off", "voice": "softPluck", "level": 0.4, "randomness": 0.3 },
+        "melody": { "state": "auto", "voice": "keys", "level": 0.55, "randomness": { "min": 0.2, "max": 0.45 } },
+        "bass": { "state": "on", "voice": "sub", "level": 0.72, "randomness": { "min": 0.15, "max": 0.4 } },
+        "texture": { "state": "on", "voice": "grains", "level": { "min": 0.28, "max": 0.45 }, "randomness": 0.3 },
+        "percussion": { "state": "on", "voice": "soft", "level": 0.55, "randomness": { "min": 0.2, "max": 0.45 } }
+      },
+      "reverbTail": 1.2
+    },
+    "energyArc": [
+      { "value": "waves", "weight": 0.45 },
+      { "value": "drone", "weight": 0.35 },
+      { "value": "abab", "weight": 0.2 }
+    ],
+    "dissonanceRange": [0.05, 0.25],
+    "densityBias": 0.8
+  },
+  "fallbackLists": {
+    "progressions": null,
+    "grooves": [
+      {
+        "low": "x------x--x-----",
+        "mid": "----x-------x---",
+        "high": "x-x-x-x-x-x-x-x-"
+      },
+      {
+        "low": "x---------x-----",
+        "mid": "----x-------x---",
+        "high": "x-x-x-xxx-x-x-x-"
+      },
+      {
+        "low": "x------xx-x-----",
+        "mid": "----x-------x---",
+        "high": "--x---x---x---x-"
+      }
+    ]
+  },
+  "defiance": [
+    { "param": "tracks.texture.level", "label": "Clean to dusty", "range": [0, 0.8] },
+    { "param": "swing", "label": "Tight to drunk", "range": [0, 1] },
+    { "param": "tracks.percussion.density", "label": "Head-nod to breakbeat", "range": [0.4, 1.8] }
+  ]
+}

@@ -1,0 +1,152 @@
+{
+  "slug": "synthwave",
+  "name": "Synthwave",
+  "cluster": 3,
+  "oneLiner": "Neon minor loops in detuned saws, a straight-eighth pulse under a huge gated snare.",
+  "essence": {
+    "bpm": [84, 104],
+    "swing": [0, 0.05],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 1 }
+    ],
+    "modes": [
+      { "value": "aeolian", "weight": 0.75 },
+      { "value": "dorian", "weight": 0.25 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "i VI III VII",
+        "i VII VI VII",
+        "i iv VI VII",
+        "VI VII i i",
+        "i VI VII v"
+      ],
+      "substitutionRules": [
+        { "from": "III", "to": "v", "prob": 0.15 },
+        { "from": "VI", "to": "iv", "prob": 0.2 },
+        { "from": "VII", "to": "v", "prob": 0.15 }
+      ],
+      "extensionBias": 0.35,
+      "harmonicRhythm": [
+        { "value": 2, "weight": 0.55 },
+        { "value": 1, "weight": 0.35 },
+        { "value": 4, "weight": 0.1 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x-------x-----x-",
+        "x---x---x---x---"
+      ],
+      "syncopationCells": [
+        "x-x-",
+        "---x"
+      ],
+      "articulation": ["even"],
+      "pocketMs": [0, 6]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "on", "voice": "warm", "level": 0.55, "randomness": 0.15 },
+        "arp": { "state": "on", "voice": "crystal", "level": 0.4, "randomness": { "min": 0.15, "max": 0.35 } },
+        "melody": { "state": "auto", "voice": "keys", "level": 0.35, "randomness": 0.25 },
+        "bass": { "state": "on", "voice": "round", "level": 0.6, "randomness": 0.1 },
+        "texture": { "state": "auto", "voice": "cloud", "level": { "min": 0.12, "max": 0.24 }, "randomness": 0.25 },
+        "percussion": { "state": "on", "voice": "soft", "level": 0.5, "randomness": 0.15 }
+      },
+      "reverbTail": 2.8,
+      "patches": {
+        "pad": {
+          "warm": {
+            "source": { "shape1": 2, "shape2": 2, "mix": 0.5, "detune": 9 },
+            "filter": { "type": "lowpass", "cutoff": 1300, "q": 0.8, "envAmount": 0.4 },
+            "adsr": { "attack": 0.8, "decay": 0.4, "sustain": 0.85, "release": 2.2 },
+            "sends": { "reverb": 0.4, "delay": 0.2 }
+          }
+        },
+        "bass": {
+          "round": {
+            "source": { "shape1": 2, "mix": 0.4, "fold": 0.08 },
+            "filter": { "type": "lowpass", "cutoff": 700, "q": 1.2, "envAmount": 0.7 },
+            "adsr": { "attack": 0.005, "decay": 0.14, "sustain": 0.5, "release": 0.15 },
+            "sends": { "reverb": 0.06, "delay": 0.05 }
+          }
+        },
+        "arp": {
+          "crystal": {
+            "filter": { "type": "lowpass", "cutoff": 4500, "q": 1 },
+            "sends": { "reverb": 0.35, "delay": 0.4 }
+          }
+        },
+        "melody": {
+          "keys": {
+            "filter": { "type": "lowpass", "cutoff": 2200, "q": 0.8 },
+            "sends": { "reverb": 0.45, "delay": 0.35 }
+          }
+        },
+        "texture": {
+          "cloud": {
+            "source": {
+              "octave": 1,
+              "tilt": 0.3,
+              "bandCentre": 2000,
+              "bandWidth": 1.5,
+              "sweepRate": 0.05,
+              "sweepDepth": 0.2,
+              "gust": 0.3,
+              "gustRate": 0.08,
+              "burst": 0.1,
+              "burstSharp": 0.3,
+              "swell": 0.3
+            },
+            "filter": { "type": "lowpass", "cutoff": 6000, "q": 0.7 },
+            "adsr": { "attack": 1.2, "decay": 0.01, "sustain": 1, "release": 3 },
+            "sends": { "reverb": 0.7, "delay": 0.3 }
+          }
+        },
+        "percussion": {
+          "soft": {
+            "source": { "noise": 0.9 },
+            "filter": { "type": "lowpass", "cutoff": 9000, "q": 0.7 },
+            "sends": { "reverb": 0.5, "delay": 0.05 },
+            "perKind": {
+              "low": {
+                "sends": { "reverb": 0.15 }
+              },
+              "mid": {
+                "adsr": { "decay": 0.1, "sustain": 0, "release": 0.08 },
+                "sends": { "reverb": 0.85 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "energyArc": [
+      { "value": "abab", "weight": 0.5 },
+      { "value": "journey", "weight": 0.3 },
+      { "value": "waves", "weight": 0.2 }
+    ],
+    "dissonanceRange": [0, 0.1],
+    "densityBias": 1
+  },
+  "fallbackLists": {
+    "progressions": [
+      "i VI III VII",
+      "i VII VI VII"
+    ],
+    "grooves": [
+      {
+        "low": "x-------x-----x-",
+        "mid": "----x-------x---",
+        "high": "x-x-x-x-x-x-x-x-"
+      }
+    ]
+  },
+  "defiance": [
+    { "param": "bpm", "label": "Night drive to chase", "range": [70, 118] },
+    { "param": "patches.pad.warm.source.fold", "label": "Soft to snarling", "range": [0, 0.6] },
+    { "param": "tracks.percussion.density", "label": "Heartbeat to full kit", "range": [0.4, 1.6] },
+    { "param": "swing", "label": "Straight to loose", "range": [0, 0.3] }
+  ]
+}

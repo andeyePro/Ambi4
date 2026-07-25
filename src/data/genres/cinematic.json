@@ -1,0 +1,121 @@
+{
+  "slug": "cinematic",
+  "name": "Cinematic",
+  "cluster": 3,
+  "oneLiner": "Slow strings and a far-off drum — a score for a scene that never quite arrives.",
+  "essence": {
+    "bpm": [58, 78],
+    "swing": [0, 0.04],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 0.6 },
+      { "value": "3/4", "weight": 0.25 },
+      { "value": "6/8", "weight": 0.15 }
+    ],
+    "modes": [
+      { "value": "aeolian", "weight": 0.5 },
+      { "value": "lydian", "weight": 0.3 },
+      { "value": "dorian", "weight": 0.2 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "i VI III VII",
+        "i iv VI v",
+        "i VI iv VII",
+        "I II",
+        "I II vi II"
+      ],
+      "substitutionRules": [
+        { "from": "VI", "to": "iv", "prob": 0.25 },
+        { "from": "VII", "to": "v", "prob": 0.2 },
+        { "from": "II", "to": "vi", "prob": 0.15 }
+      ],
+      "extensionBias": 0.5,
+      "harmonicRhythm": [
+        { "value": 4, "weight": 0.5 },
+        { "value": 2, "weight": 0.3 },
+        { "value": 8, "weight": 0.2 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x---------------",
+        "x-------x-------"
+      ],
+      "syncopationCells": [
+        "---x"
+      ],
+      "articulation": ["holdOne"],
+      "pocketMs": [0, 10]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "on", "voice": "strings", "level": 0.6, "randomness": 0.15 },
+        "arp": { "state": "off", "voice": "softPluck", "level": 0.35, "randomness": 0.2 },
+        "melody": { "state": "auto", "voice": "flute", "level": 0.3, "randomness": { "min": 0.2, "max": 0.4 } },
+        "bass": { "state": "on", "voice": "sub", "level": 0.5, "randomness": 0.1 },
+        "texture": { "state": "on", "voice": "wash", "level": { "min": 0.2, "max": 0.38 }, "randomness": 0.3 },
+        "percussion": { "state": "auto", "voice": "hand", "level": 0.4, "randomness": 0.2 }
+      },
+      "reverbTail": 5,
+      "patches": {
+        "pad": {
+          "strings": {
+            "source": { "detune": 6, "mix": 0.5 },
+            "filter": { "type": "lowpass", "cutoff": 2400, "q": 0.6 },
+            "adsr": { "attack": 2.5, "decay": 0.01, "sustain": 1, "release": 4.5 },
+            "sends": { "reverb": 0.65, "delay": 0.1 }
+          }
+        },
+        "bass": {
+          "sub": {
+            "filter": { "type": "lowpass", "cutoff": 200, "q": 0.6 },
+            "adsr": { "attack": 0.3, "decay": 0.01, "sustain": 1, "release": 1.8 },
+            "sends": { "reverb": 0.15, "delay": 0 }
+          }
+        },
+        "melody": {
+          "flute": {
+            "filter": { "type": "lowpass", "cutoff": 3000, "q": 0.7 },
+            "adsr": { "attack": 0.25, "decay": 0.2, "sustain": 0.8, "release": 1.2 },
+            "sends": { "reverb": 0.6, "delay": 0.2 }
+          }
+        },
+        "texture": {
+          "wash": {
+            "filter": { "type": "bandpass", "cutoff": 700, "q": 1, "envAmount": 0.8 },
+            "adsr": { "attack": 3, "decay": 0.01, "sustain": 1, "release": 5 },
+            "sends": { "reverb": 0.85, "delay": 0.2 }
+          }
+        },
+        "percussion": {
+          "hand": {
+            "source": { "pitch": -7, "noise": 0.5 },
+            "filter": { "type": "lowpass", "cutoff": 4000, "q": 0.7 },
+            "sends": { "reverb": 0.6, "delay": 0.1 },
+            "perKind": {
+              "low": {
+                "source": { "pitch": -12 },
+                "adsr": { "decay": 0.6, "release": 0.5 },
+                "sends": { "reverb": 0.7 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "energyArc": [
+      { "value": "journey", "weight": 0.5 },
+      { "value": "waves", "weight": 0.3 },
+      { "value": "build", "weight": 0.2 }
+    ],
+    "dissonanceRange": [0, 0.2],
+    "densityBias": 0.75
+  },
+  "fallbackLists": null,
+  "defiance": [
+    { "param": "reverbTail", "label": "Close room to cathedral", "range": [0.5, 6] },
+    { "param": "tracks.percussion.level", "label": "Distant to war drums", "range": [0, 0.8] },
+    { "param": "tracks.melody.dissonance", "label": "Calm to uneasy", "range": [0, 0.6] },
+    { "param": "bpm", "label": "Still frame to pursuit", "range": [50, 100] }
+  ]
+}
