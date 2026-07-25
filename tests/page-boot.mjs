@@ -505,16 +505,79 @@ try {
     if (scopeModule.querySelector('.panel-label')) {
       failures.push('the oscilloscope module still carries a panel title');
     }
+    // v26: no faceplate either. The scope is a BARE display like the piano
+    // roll, so it must not carry the module furniture class — the chrome is
+    // an overlay on the canvas, not a box around it.
+    if (scopeModule.classList.contains('module-panel')) {
+      failures.push('the oscilloscope module still carries the .module-panel faceplate');
+    }
+    const overlay = doc.getElementById('front-scope-overlay');
+    const scopeBody = doc.getElementById('front-scope-body');
+    if (!overlay) {
+      failures.push('the oscilloscope has no chrome overlay (#front-scope-overlay)');
+    } else if (scopeBody && scopeBody.contains(overlay)) {
+      failures.push(
+        'the oscilloscope overlay is inside the collapsible body — collapsing would take the twisty with it'
+      );
+    }
     const word = doc.getElementById('front-scope-word');
     const toggle = doc.getElementById('front-scope-toggle');
     if (!toggle || !toggle.hasAttribute('aria-expanded')) {
       failures.push('the oscilloscope has no collapse twisty (#front-scope-toggle)');
     } else if (toggle.getAttribute('aria-expanded') === 'true' && word && !word.hidden) {
       failures.push('the word "Oscilloscope" shows while the scope is expanded');
+    } else if (overlay && word && !overlay.contains(word)) {
+      failures.push('the word "Oscilloscope" is not in the overlay — it would vanish when collapsed');
     }
     if (!scopeModule.hidden) {
       const legendKeys = doc.querySelectorAll('#front-scope-legend .scope-legend-track');
       if (!legendKeys.length) failures.push('the oscilloscope legend rendered no track keys');
+    }
+  }
+
+  // v26 fullscreen: a toggle on each display, plus the host they are moved
+  // into and the "+ the other one" control that stacks them. jsdom implements
+  // no Fullscreen API, so the page feature-detects and HIDES both buttons
+  // here — presence in the document is what this gate can prove, and a
+  // missing button is the regression it is for.
+  {
+    const scopeFs = doc.getElementById('front-scope-fullscreen');
+    const rollFs = doc.getElementById('roll-fullscreen');
+    if (!scopeFs) failures.push('the oscilloscope has no fullscreen button (#front-scope-fullscreen)');
+    if (!rollFs) failures.push('the piano roll has no fullscreen button (#roll-fullscreen)');
+    if (scopeModule && scopeFs && !scopeModule.contains(scopeFs)) {
+      failures.push('the oscilloscope fullscreen button is outside the module it fullscreens');
+    }
+    const rollStage = doc.getElementById('roll-stage');
+    if (!rollStage) {
+      failures.push('the piano roll has no fullscreen wrapper (#roll-stage)');
+    } else if (pianoRoll && !rollStage.contains(pianoRoll)) {
+      failures.push('#roll-stage does not wrap the piano-roll canvas');
+    }
+    if (!doc.getElementById('fullscreen-stage')) {
+      failures.push('the fullscreen host (#fullscreen-stage) is missing');
+    }
+    if (!doc.getElementById('fullscreen-slots')) {
+      failures.push('the fullscreen host has no slot container (#fullscreen-slots)');
+    }
+    if (!doc.getElementById('fullscreen-add')) {
+      failures.push('the fullscreen host has no "+ the other display" control (#fullscreen-add)');
+    }
+  }
+
+  // v26 Advanced layout rule: dials pack HORIZONTALLY. Repetition, Swing and
+  // Reverb tail share the main-dial row rather than sitting on lines of their
+  // own — a regression here reads to the user as "dials scattered at random".
+  {
+    const row = doc.querySelector('#advanced-dials .advanced-dial-row');
+    if (!row) {
+      failures.push('the Advanced main-dial row (#advanced-dials .advanced-dial-row) is missing');
+    } else {
+      for (const id of ['dial-repetition', 'dial-swing', 'dial-reverb-tail']) {
+        const dial = doc.getElementById(id);
+        if (!dial) failures.push(`the Advanced tab has no #${id}`);
+        else if (!row.contains(dial)) failures.push(`#${id} is not in the shared main-dial row`);
+      }
     }
   }
 
@@ -892,6 +955,56 @@ try {
     const arpEditor = await openEditor('arp');
     if (arpEditor.querySelector('.pad-breath-knob, #pad-breath')) {
       failures.push('the arp editor grew a pad Breath control — it is pad-only');
+    }
+  }
+
+  // v26 OSC 2 ↔ Mix linkage: Mix is the BALANCE between the two oscillators,
+  // so with Osc 2 switched off there is nothing for it to balance and it must
+  // hide with the toggle. Switching Osc 2 back on brings it straight back —
+  // this is a visibility rule, the stored balance is never rewritten.
+  {
+    let checked = false;
+    for (const track of REGISTRY_IDS) {
+      const editor = await openEditor(track);
+      const toggle = editor.querySelector('.osc2-toggle');
+      if (!toggle) continue;
+      const mixCell = Array.from(editor.querySelectorAll('.patch-controls .knob-cell')).find(
+        (cell) => {
+          const label = cell.querySelector('.knob-label');
+          return label && label.textContent.trim() === 'Mix';
+        }
+      );
+      if (!mixCell) continue;
+      checked = true;
+      if (!toggle.getAttribute('title') && !toggle.getAttribute('aria-describedby')) {
+        failures.push('the Osc 2 toggle carries no explanation of what Mix is for');
+      }
+      if (toggle.getAttribute('aria-pressed') === 'true') toggle.click(); // switch Osc 2 OFF
+      if (!mixCell.hidden) {
+        failures.push(`the ${track} editor still shows the Mix dial with Osc 2 switched off`);
+      }
+      toggle.click(); // and back ON
+      if (mixCell.hidden) {
+        failures.push(`the ${track} editor left the Mix dial hidden after Osc 2 was re-enabled`);
+      }
+      break;
+    }
+    if (!checked) {
+      failures.push('no voice editor offered both an Osc 2 toggle and a Mix dial (v26 linkage unproved)');
+    }
+  }
+
+  // v26 layout rule, per-track feel dials: Randomness/Swing/Density/Drift
+  // rate/Dissonance form ONE aligned row inside the editor, never a column of
+  // one-dial lines. The percussion editor (drift rate + swing, no dissonance,
+  // no density) is the named offender, so it is the one asserted.
+  {
+    const editor = await openEditor('percussion');
+    const rows = editor.querySelectorAll(':scope > .dissonance-row');
+    if (rows.length > 1) {
+      failures.push(
+        `the percussion editor scatters its feel dials over ${rows.length} rows — they share one`
+      );
     }
   }
 

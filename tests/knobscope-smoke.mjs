@@ -2249,6 +2249,243 @@ test('multiScope: a non-DOM legendContainer is ignored gracefully (falls back to
 });
 
 // --------------------------------------------------------------------------
+// Scope tests — attachMultiScope v26: spread mode + total (master) trace
+// --------------------------------------------------------------------------
+
+// Match scope.js's private v26 constants — see the FALLBACK_GRID_COLOR
+// comment above for why the test mirrors these literally instead of
+// exporting them.
+const V26_TOTAL_TRACE_COLOR = '#ffffff';
+const V26_TOTAL_TRACE_OUTLINE_COLOR = 'rgba(8, 8, 8, 0.65)';
+
+test('multiScope v26: spread mode gives each selected track its own non-overlapping vertical band', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = {
+      pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+      bass: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+    };
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad', 'bass'], spread: true });
+
+    stepFrame(0);
+    const byColor = calls.pointsByColor;
+    const colors = Object.keys(byColor).filter((c) => c !== FALLBACK_GRID_COLOR);
+    assert.equal(colors.length, 2);
+    const [rangeA, rangeB] = colors.map((c) => ({ min: Math.min(...byColor[c]), max: Math.max(...byColor[c]) }));
+    const overlap = Math.min(rangeA.max, rangeB.max) - Math.max(rangeA.min, rangeB.min);
+    assert.ok(overlap < 0, `expected the two tracks' bands not to overlap in spread mode, got overlap ${overlap}`);
+
+    const layout = live.getLayout();
+    assert.equal(layout.spread, true);
+    assert.equal(layout.bands.length, 2);
+    assert.deepEqual(layout.bands.map((b) => b.id), ['pad', 'bass'], 'bands must follow selection order');
+    assert.ok(layout.bands[0].bottom <= layout.bands[1].top + 1e-9, 'bands must stack top-to-bottom without overlapping');
+
+    live.destroy();
+  });
+});
+
+test('multiScope v26: spread mode draws a small canvas id label per band and skips the shared bottom legend', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = {
+      pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+      bass: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+    };
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad', 'bass'], spread: true });
+    stepFrame(0);
+    assert.deepEqual(calls.fillTexts, ['pad', 'bass'], 'one canvas-drawn id label per band, in band order, no shared bottom legend');
+    live.destroy();
+  });
+});
+
+test('multiScope v26: setSpread(bool) is runtime-switchable — overlay ↔ spread without re-attaching', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = {
+      pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+      bass: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+    };
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad', 'bass'] });
+
+    const overlapOf = (byColor) => {
+      const colors = Object.keys(byColor).filter((c) => c !== FALLBACK_GRID_COLOR);
+      const [a, b] = colors.map((c) => ({ min: Math.min(...byColor[c]), max: Math.max(...byColor[c]) }));
+      return Math.min(a.max, b.max) - Math.max(a.min, b.min);
+    };
+
+    stepFrame(0);
+    assert.ok(overlapOf(calls.pointsByColor) > 0, 'overlay mode (default): both tracks share one band and must overlap');
+
+    live.setSpread(true);
+    calls.pointsByColor = {};
+    stepFrame(40);
+    assert.ok(overlapOf(calls.pointsByColor) < 0, 'after setSpread(true): bands must no longer overlap');
+
+    live.setSpread(false);
+    calls.pointsByColor = {};
+    stepFrame(80);
+    assert.ok(overlapOf(calls.pointsByColor) > 0, 'after setSpread(false): back to one shared overlapping band');
+
+    live.destroy();
+  });
+});
+
+test('multiScope v26: total trace defaults to hidden; opts.totalAnalyser + setTotalVisible(true) draws a white trace over a dark outline', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const engine = makeMockEngine({ analysers: {} });
+    const totalAnalyser = makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.4 });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: [], totalAnalyser });
+
+    stepFrame(0);
+    assert.ok(!Object.keys(calls.pointsByColor || {}).includes(V26_TOTAL_TRACE_COLOR), 'total trace must default to hidden');
+
+    live.setTotalVisible(true);
+    calls.pointsByColor = {};
+    stepFrame(40);
+    assert.ok(Object.keys(calls.pointsByColor).includes(V26_TOTAL_TRACE_COLOR), 'expected the white total trace after setTotalVisible(true)');
+    assert.ok(Object.keys(calls.pointsByColor).includes(V26_TOTAL_TRACE_OUTLINE_COLOR), 'expected a dark outline stroke underneath it');
+
+    live.setTotalVisible(false);
+    calls.pointsByColor = {};
+    stepFrame(80);
+    assert.ok(!Object.keys(calls.pointsByColor).includes(V26_TOTAL_TRACE_COLOR), 'setTotalVisible(false) must turn it back off');
+
+    live.destroy();
+  });
+});
+
+test('multiScope v26: setTotalVisible(true) without opts.totalAnalyser is a harmless no-op', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const engine = makeMockEngine({ analysers: {} });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: [] });
+    live.setTotalVisible(true);
+    stepFrame(0);
+    assert.ok(!Object.keys(calls.pointsByColor || {}).includes(V26_TOTAL_TRACE_COLOR));
+    live.destroy();
+  });
+});
+
+test('multiScope v26: spread + total composition — the total band always appends after the track bands', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const analysers = {
+      pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+      bass: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+    };
+    const totalAnalyser = makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.4 });
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad', 'bass'], spread: true, totalAnalyser });
+
+    stepFrame(0);
+    const before = live.getLayout();
+    assert.equal(before.bands.length, 2, 'total is hidden by default: 2 track bands only');
+
+    live.setTotalVisible(true);
+    calls.pointsByColor = {};
+    stepFrame(40);
+    const after = live.getLayout();
+    assert.equal(after.bands.length, 3, 'total gets an extra band once visible');
+    const padAfter = after.bands.find((b) => b.id === 'pad');
+    const bassAfter = after.bands.find((b) => b.id === 'bass');
+    const totalAfter = after.bands.find((b) => b.id === 'total');
+    assert.ok(totalAfter, 'expected a total band');
+    assert.ok(padAfter.top < bassAfter.top && bassAfter.top < totalAfter.top, 'total band must sit after every track band');
+
+    live.destroy();
+  });
+});
+
+test('multiScope v26: getLayout() before any frame has drawn falls back to a fresh CSS-box measurement', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const engine = makeMockEngine({ analysers: {} });
+  mockDocument.hidden = true; // keeps the rAF loop from ever running, so no frame has drawn yet
+  try {
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad'] });
+    const layout = live.getLayout();
+    assert.equal(layout.width, 600);
+    assert.equal(layout.height, 300);
+    assert.equal(layout.spread, false);
+    assert.deepEqual(layout.bands, [{ id: null, top: 0, bottom: 300, mid: 150, height: 300 }]);
+    live.destroy();
+  } finally {
+    mockDocument.hidden = false;
+  }
+});
+
+test('multiScope v26: fullscreen-scale resize (mock 3840×2160 CSS px) — dpr cap holds, buffers survive a mid-session resize, no throw', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    let rectW = 3840;
+    let rectH = 2160;
+    const padBufs = new Set();
+    const canvas = {
+      width: 0,
+      height: 0,
+      get clientWidth() { return rectW; },
+      get clientHeight() { return rectH; },
+      getContext(kind) { return kind === '2d' ? makeCtx2d(calls) : null; },
+      getBoundingClientRect() { return { width: rectW, height: rectH }; },
+    };
+    const padAnalyser = {
+      fftSize: 8192,
+      getFloatTimeDomainData(buf) {
+        padBufs.add(buf);
+        for (let i = 0; i < buf.length; i++) buf[i] = Math.sin(i / 4) * 0.05;
+      },
+    };
+    const totalAnalyser = makeCustomAnalyser({ sample: (i) => Math.sin(i / 3) * 0.2 });
+    const engine = makeMockEngine({ analysers: { pad: padAnalyser } });
+    const prevWindow = globalThis.window;
+    globalThis.window = { devicePixelRatio: 4 };
+    try {
+      const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad'], spread: true, totalAnalyser });
+      live.setTotalVisible(true);
+
+      stepFrame(0);
+      assert.equal(canvas.width, 3840 * 3, 'backing store must clamp to dpr 3, not 4, at fullscreen CSS size');
+      assert.equal(canvas.height, 2160 * 3);
+      const layout1 = live.getLayout();
+      assert.equal(layout1.width, 3840);
+      assert.equal(layout1.height, 2160);
+      assert.equal(layout1.bands.length, 2);
+
+      // Exit fullscreen: the CSS box shrinks. fitCanvas re-measures every
+      // drawn frame (no ResizeObserver dependency for this module to track
+      // a shrink), so the very next frame must resize cleanly.
+      rectW = 1024;
+      rectH = 576;
+      stepFrame(40);
+      assert.equal(canvas.width, 1024 * 3);
+      assert.equal(canvas.height, 576 * 3);
+      const layout2 = live.getLayout();
+      assert.equal(layout2.width, 1024);
+      assert.equal(layout2.height, 576);
+
+      stepFrame(80);
+      assert.equal(padBufs.size, 1, 'the per-track sample buffer must be reused across a resize, not reallocated');
+
+      live.destroy();
+    } finally {
+      if (prevWindow === undefined) delete globalThis.window;
+      else globalThis.window = prevWindow;
+    }
+  });
+});
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 

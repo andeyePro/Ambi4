@@ -18,25 +18,32 @@
  *          --knob-pointer #f6e8ca on --knob-face #37302a 10.7:1
  *          --tick-major on --panel 12.5:1 · --tick on --panel 3.7:1 (non-text, ≥3:1)
  *          --scope-trace #c8e05a on --scope-bg #10140e 12.6:1
- *   Track colours (v14, computed via WCAG relative-luminance formula, script
- *   kept alongside this file's history — see docs/engine-v2-contract.md v14):
- *     --track-pad #5d4419 on --panel #f2ead9 7.61:1 · on --bg #faf6ee 8.45:1
- *     --track-arp #296065 on --panel 5.94:1 · on --bg 6.59:1
- *     --track-melody #4a1d11 on --panel 11.90:1 · on --bg 13.21:1
- *     --track-bass #51702e on --panel 4.73:1 · on --bg 5.26:1
- *     --track-texture #964a96 on --panel 4.72:1 · on --bg 5.24:1
- *     --track-percussion #2b3a50 on --panel 9.62:1 · on --bg 10.68:1
+ *   Track colours (v26, re-derived as a rainbow — user ruling, docs/
+ *   engine-v2-contract.md v26 addendum: pad yellow, arp orange, melody red,
+ *   bass purple, texture blue, percussion green. Computed via the same WCAG
+ *   relative-luminance formula as the v14 pass; script kept alongside this
+ *   file's history):
+ *     --track-pad #5d591b on --panel #f2ead9 6.03:1 · on --bg #faf6ee 6.69:1
+ *     --track-arp #4b3023 on --panel 10.05:1 · on --bg 11.16:1
+ *     --track-melody #2f0e0e on --panel 14.74:1 · on --bg 16.37:1
+ *     --track-bass #8a38b2 on --panel 5.33:1 · on --bg 5.92:1
+ *     --track-texture #224563 on --panel 8.36:1 · on --bg 9.28:1
+ *     --track-percussion #357748 on --panel 4.52:1 · on --bg 5.02:1
  *   All six clear AA normal-text (4.5:1) as well as the ≥3:1 non-text floor,
  *   so any of them may be used for text, chips, lamps or trace colour alike.
- *   Hues chosen wide apart (12°/38°/88°/185°/215°/300°) and lightness
- *   deliberately decorrelated from hue (not a simple rainbow sweep), then
- *   grid-searched to maximise the worst-case pairwise colour distance under
- *   simulated protanopia/deuteranopia/tritanopia (Machado/Oliveira/Fairchild
- *   2009 matrices) — worst case ~44 (deuteranopia, pad vs melody) on a 0-441
- *   RGB-distance scale, comfortably discernible. "Sand" from the suggested
- *   70s palette was swapped for a navy/slate percussion colour: sand shares
- *   melody/pad/bass's warm hue range, which is the exact range that
- *   red-green colour-vision deficiencies compress hardest.
+ *   Hues are pinned near each rainbow name (pad ~56°, arp ~19°, melody ~0°,
+ *   bass ~280°, texture ~208°, percussion ~137°) with a ±10° search window,
+ *   then grid/annealing-searched over saturation (36–55%, muted 70s
+ *   channel-strip range, not saturated primaries) and lightness to maximise
+ *   the worst-case pairwise colour distance under simulated protanopia/
+ *   deuteranopia/tritanopia (Machado/Oliveira/Fairchild 2009 matrices,
+ *   applied in linear RGB) — worst case 48.00 (deuteranopia, arp vs melody)
+ *   on a 0-441 RGB-distance scale, comfortably discernible. Hue alone cannot
+ *   separate yellow/orange/red under red-green CVD — that whole arc
+ *   collapses onto one confusion line — so lightness is deliberately
+ *   decorrelated within it: melody sits far darker (L 12%) than arp (L 22%)
+ *   and pad (L 23%) despite the close hues, and that lightness gap is what
+ *   survives simulation.
  *   Dark:  --text #e6dfd1 on --bg #1e1b17 12.9:1 · on --panel #27231e 11.8:1
  *          --secondary #b0a390 on --bg 6.9:1 · on --panel 6.3:1
  *          --link #e8a743 on --bg 8.2:1 · on --panel 7.5:1 · --link-hover on --bg 10.2:1
@@ -45,14 +52,16 @@
  *          --knob-pointer #ffb454 on --knob-face #302b25 8.0:1
  *          --tick-major on --panel 11.8:1 · --tick on --panel 4.0:1 (non-text, ≥3:1)
  *          --scope-trace on --scope-bg #0b0f0a 13.1:1
- *     --track-pad #d6ad66 on --panel #27231e 7.45:1 · on --bg #1e1b17 8.19:1
- *     --track-arp #a1d4d9 on --panel 9.61:1 · on --bg 10.56:1
- *     --track-melody #d66c51 on --panel 4.55:1 · on --bg 5.00:1
- *     --track-bass #bad69a on --panel 9.79:1 · on --bg 10.76:1
- *     --track-texture #ba73ba on --panel 4.64:1 · on --bg 5.10:1
- *     --track-percussion #9cafc9 on --panel 6.98:1 · on --bg 7.67:1
- *   Dark-theme worst-case CVD-simulated pairwise distance ~46 (tritanopia,
- *   arp vs percussion) — tuned separately from light, same method.
+ *     --track-pad #e9e7b9 on --panel #27231e 12.33:1 · on --bg #1e1b17 13.55:1
+ *     --track-arp #d7b6a9 on --panel 8.29:1 · on --bg 9.11:1
+ *     --track-melody #c97354 on --panel 4.51:1 · on --bg 4.95:1
+ *     --track-bass #a676ce on --panel 4.54:1 · on --bg 4.99:1
+ *     --track-texture #bbd6e7 on --panel 10.32:1 · on --bg 11.34:1
+ *     --track-percussion #6acf67 on --panel 7.98:1 · on --bg 8.77:1
+ *   Dark-theme worst-case CVD-simulated pairwise distance 59.55 (deuteranopia,
+ *   arp vs percussion) — tuned separately from light, same method; hues
+ *   ~58°/17°/16°/273°/204°/118°, arp/melody again separated by lightness
+ *   (L 75% vs 56%) rather than hue for the same red-green reason.
  *   --panel-edge and --scope-grid are decorative (no text on them); the dark
  *   walnut edge is intentionally dim against the dark faceplate.
  */
@@ -89,13 +98,14 @@
   --accent-warm: #9d5407;
 
   /* v14 contract tokens — per-track identity colours (docs/engine-v2-contract.md
-     v14 addendum). Fixed names; contrast/CVD rationale in the header comment. */
-  --track-pad: #5d4419;
-  --track-arp: #296065;
-  --track-melody: #4a1d11;
-  --track-bass: #51702e;
-  --track-texture: #964a96;
-  --track-percussion: #2b3a50;
+     v14 addendum; fixed names). Values re-derived as a rainbow per the v26
+     addendum (user ruling); contrast/CVD rationale in the header comment. */
+  --track-pad: #5d591b;
+  --track-arp: #4b3023;
+  --track-melody: #2f0e0e;
+  --track-bass: #8a38b2;
+  --track-texture: #224563;
+  --track-percussion: #357748;
 
   /* Spaced, uppercase-friendly retro label stack; pair with .panel-label for
      the letter-spacing/size treatment. System fonts only. */
@@ -143,12 +153,12 @@
     --scope-trace: #c8e05a;
     --accent-warm: #f0a942;
 
-    --track-pad: #d6ad66;
-    --track-arp: #a1d4d9;
-    --track-melody: #d66c51;
-    --track-bass: #bad69a;
-    --track-texture: #ba73ba;
-    --track-percussion: #9cafc9;
+    --track-pad: #e9e7b9;
+    --track-arp: #d7b6a9;
+    --track-melody: #c97354;
+    --track-bass: #a676ce;
+    --track-texture: #bbd6e7;
+    --track-percussion: #6acf67;
 
     --pot-track: #14110e;
     --screw-hi: #9c9078;

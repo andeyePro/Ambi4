@@ -35,7 +35,8 @@
  *   simple rising-edge trigger; pauses while document.hidden.
  *
  * export function attachMultiScope(canvas, engine, { tracks, legendContainer,
- *   onSelectionChange } = {}) => { destroy(), setTracks(ids) }
+ *   onSelectionChange, spread, totalAnalyser } = {}) => { destroy(),
+ *   setTracks(ids), setSpread(bool), setTotalVisible(bool), getLayout() }
  *   One phosphor trace per selected track (default: every track — from
  *   engine.getTracks() when the engine exposes it, in its order; else the
  *   fallback canonical UI order pad/arp/melody/bass/texture/percussion —
@@ -73,7 +74,64 @@
  *   change (toggle or solo, never a programmatic setTracks() call) fires
  *   opts.onSelectionChange(ids) with the new drawn-track id array, for the
  *   caller to persist. setTracks(ids) stays silent (no callback) and syncs
- *   the legend's aria-pressed/colours either way.
+ *   the legend's aria-pressed/colours either way. The DOM legend places no
+ *   assumptions on surrounding panel padding — it only appends <button>s
+ *   into opts.legendContainer and never positions or sizes that container
+ *   itself, so a page that overlays it (borderless/fullscreen chrome) is
+ *   free to style/position it however it likes.
+ *
+ *   v26 spread mode (opts.spread, default false; runtime via
+ *   handle.setSpread(bool)): instead of every selected track's trace sharing
+ *   one full-height overlay band (all traces plotted around the same
+ *   mid-canvas "zero"), each selected track gets its own equal-height
+ *   horizontal band stacked top-to-bottom in selection order, its own
+ *   "flatline altitude" (that band's own vertical centre is its zero line)
+ *   and amplitude scale (MULTISCOPE_SPREAD_TRACE_HEIGHT of the band's own
+ *   height, not the full canvas), plus a small canvas-drawn id label pinned
+ *   to the band's top-left corner (drawn regardless of legendContainer,
+ *   since it identifies the band itself rather than duplicating the
+ *   legend). A silent track still gets its band + label, just no trace line
+ *   (same "silent draws nothing" rule as overlay mode) — the flatline
+ *   altitude is about layout (a fixed per-track zero-row), not about
+ *   forcing a literal flat line to be drawn under the silence floor. The
+ *   shared canvas-drawn bottom legend (the opts.legendContainer-less path)
+ *   is skipped while spread is on, since the per-band labels already serve
+ *   that role; a supplied DOM legend keeps working unchanged in either
+ *   mode.
+ *
+ *   v26 total trace (opts.totalAnalyser: an AnalyserNode of the
+ *   post-effects master/compressor output, page-supplied; runtime via
+ *   handle.setTotalVisible(bool), default hidden): an extra trace of that
+ *   analyser, drawn in WHITE with a thin dark outline stroked underneath it
+ *   (TOTAL_TRACE_OUTLINE_COLOR/TOTAL_TRACE_COLOR below) so it reads clearly
+ *   against both the dark default scope background and a light-themed one —
+ *   deliberately theme-invariant, not derived from --scope-trace/the
+ *   per-track tokens, since "the master, not a track" is the whole point of
+ *   giving it its own fixed colour. It has its own auto-gain/trigger state
+ *   (same law as every other trace) and follows the "silent draws nothing"
+ *   rule too. In overlay mode it draws last, on top of the per-track
+ *   traces, across the full canvas; in spread mode it gets its own
+ *   additional band, always appended AFTER the selected tracks' bands
+ *   (never inserted before/between them) — so toggling it on/off never
+ *   reorders an existing track's band, though every band's height still
+ *   redistributes across the new band count, same as selecting/deselecting
+ *   a track does. Without opts.totalAnalyser, setTotalVisible(true) is a
+ *   harmless no-op — nothing draws until a real analyser is supplied.
+ *
+ *   v26 handle.getLayout() => { width, height, dpr, spread, bands }: the
+ *   CURRENT frame's drawn geometry, in CSS px (the canvas's own coordinate
+ *   space — same units a caller's absolutely-positioned overlay div would
+ *   use), for a page that wants to position its own overlay chrome (e.g. a
+ *   fullscreen per-band highlight or an overlaid minimise control) against
+ *   the module's own layout rather than guessing it. `bands` is
+ *   `[{ id, top, bottom, mid, height }]` — one entry per selected track
+ *   (plus a trailing `{ id: 'total' }` entry when the total trace is
+ *   visible) in spread mode; in overlay mode it's a single
+ *   `[{ id: null, top: 0, bottom: height, mid: height / 2, height }]`
+ *   entry describing the one shared trace area every track/the total trace
+ *   draws into. Before the first frame has drawn (e.g. attached while
+ *   document.hidden), it falls back to a fresh best-effort measurement of
+ *   the canvas's current CSS box rather than returning stale/null data.
  *
  * All three live-drawing exports are devicePixelRatio-aware (capped, see
  * MAX_DPR) and redraw on size changes (ResizeObserver, device-pixel-
@@ -158,6 +216,24 @@ const MULTISCOPE_LEGEND_GAP = 12;
 // DOM legend (opts.legendContainer) click/dblclick disambiguation window —
 // see the attachMultiScope doc comment above for the full rationale.
 const MULTISCOPE_LEGEND_CLICK_DELAY_MS = 250;
+
+// -- v26: multi-scope spread mode + total trace --------------------------
+// Spread mode's per-band amplitude scale is smaller than overlay mode's
+// TRACE_HEIGHT (0.42 of the FULL canvas) because a band is only a fraction
+// of the canvas height and still needs headroom above/below the trace for
+// the id label and a visible gap from its neighbours.
+const MULTISCOPE_SPREAD_TRACE_HEIGHT = 0.34; // fraction of a band's own height for full amplitude
+const MULTISCOPE_SPREAD_LABEL_FONT = '9px monospace';
+const MULTISCOPE_SPREAD_LABEL_ALPHA = 0.85;
+const MULTISCOPE_SPREAD_LABEL_PAD = 3;
+// Deliberately theme-invariant (not a --scope-* custom property): the total
+// trace's whole point is "the master, not a themed track", see the
+// attachMultiScope doc comment above.
+const TOTAL_TRACE_COLOR = '#ffffff';
+const TOTAL_TRACE_OUTLINE_COLOR = 'rgba(8, 8, 8, 0.65)';
+const TOTAL_TRACE_OUTLINE_WIDTH = 4;
+const TOTAL_TRACE_LINE_WIDTH = 2;
+const TOTAL_TRACE_ID = 'total';
 
 const FALLBACK_BG = '#161009';
 const FALLBACK_GRID = 'rgba(245, 182, 66, 0.16)';
@@ -543,9 +619,15 @@ function currentDpr() {
   }
 }
 
-/** Sizes the backing store to CSS px × dpr; returns the CSS-px draw size. */
-function fitCanvas(canvas, ctx) {
-  const dpr = currentDpr();
+/**
+ * Measures the canvas's current CSS box (no side effects on the canvas
+ * itself) — the shared measurement step fitCanvas uses before it sizes the
+ * backing store, and also what attachMultiScope's getLayout() falls back to
+ * before a first frame has drawn. Holds at any CSS size, including a
+ * fullscreen-scale (e.g. 3840×2160) box — this is plain arithmetic on
+ * whatever getBoundingClientRect()/clientWidth/clientHeight report.
+ */
+function measureCanvasCssSize(canvas) {
   let w = 0;
   let h = 0;
   try {
@@ -557,6 +639,13 @@ function fitCanvas(canvas, ctx) {
   }
   w = Math.max(1, w || canvas.clientWidth || canvas.width || 300);
   h = Math.max(1, h || canvas.clientHeight || canvas.height || 120);
+  return { w, h };
+}
+
+/** Sizes the backing store to CSS px × dpr; returns the CSS-px draw size. */
+function fitCanvas(canvas, ctx) {
+  const dpr = currentDpr();
+  const { w, h } = measureCanvasCssSize(canvas);
   const bw = Math.round(w * dpr);
   const bh = Math.round(h * dpr);
   if (canvas.width !== bw) canvas.width = bw;
@@ -625,6 +714,17 @@ function drawGraticule(canvas, ctx, colors) {
   return { w, h, dpr };
 }
 
+/** Builds (beginPath..lineTo, no stroke()) the trace path for `samples` around vertical centre `mid` at amplitude `amp`. */
+function buildTracePath(ctx, samples, w, mid, amp) {
+  ctx.beginPath();
+  for (let i = 0; i < samples.length; i++) {
+    const x = (w * i) / (samples.length - 1);
+    const y = mid - clampRange(samples[i], -1.2, 1.2) * amp;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+}
+
 /**
  * Strokes one trace (glow underlay + main line) in `color` over whatever is
  * already on the canvas. No-ops on too-short/missing sample sets, so a
@@ -632,24 +732,22 @@ function drawGraticule(canvas, ctx, colors) {
  * `thin` (the front oscilloscope's multi-track composite preview) skips the
  * glow underlay and strokes a 1px line instead of 2px, so several overlaid
  * traces stay legible rather than blurring together.
+ * `band` (v26 spread mode), if supplied, overrides the trace's vertical
+ * centre/amplitude with `{ mid, amp }` instead of deriving them from the
+ * full `h` — a track confined to its own horizontal band rather than the
+ * whole canvas.
  */
-function strokeTraceLine(ctx, samples, w, h, color, dimFactor, thin = false) {
+function strokeTraceLine(ctx, samples, w, h, color, dimFactor, thin = false, band = null) {
   if (!samples || samples.length < 2) return;
 
   ctx.strokeStyle = color;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  const mid = h / 2;
-  const amp = h * TRACE_HEIGHT;
+  const mid = band ? band.mid : h / 2;
+  const amp = band ? band.amp : h * TRACE_HEIGHT;
   const strokeTrace = () => {
-    ctx.beginPath();
-    for (let i = 0; i < samples.length; i++) {
-      const x = (w * i) / (samples.length - 1);
-      const y = mid - clampRange(samples[i], -1.2, 1.2) * amp;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
+    buildTracePath(ctx, samples, w, mid, amp);
     ctx.stroke();
   };
 
@@ -672,6 +770,36 @@ function strokeTraceLine(ctx, samples, w, h, color, dimFactor, thin = false) {
   ctx.globalAlpha = dimFactor;
   ctx.lineWidth = 2;
   strokeTrace();
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * v26: strokes the "total" (post-effects master) trace — a dark outline
+ * stroked first, then a white line on top, so it stays legible against both
+ * the dark default scope background and a light-themed one without being
+ * derived from either theme's colour tokens (see the attachMultiScope doc
+ * comment's "v26 total trace" section for why it's deliberately
+ * theme-invariant). Same no-op-on-too-short-samples contract as
+ * strokeTraceLine; takes an explicit `mid`/`amp` rather than a `{ w, h }`
+ * pair since both attachMultiScope draw paths (overlay: full-canvas;
+ * spread: its own band) already have those numbers computed.
+ */
+function strokeTotalTraceLine(ctx, samples, w, mid, amp, dimFactor) {
+  if (!samples || samples.length < 2) return;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = dimFactor;
+
+  ctx.strokeStyle = TOTAL_TRACE_OUTLINE_COLOR;
+  ctx.lineWidth = TOTAL_TRACE_OUTLINE_WIDTH;
+  buildTracePath(ctx, samples, w, mid, amp);
+  ctx.stroke();
+
+  ctx.strokeStyle = TOTAL_TRACE_COLOR;
+  ctx.lineWidth = TOTAL_TRACE_LINE_WIDTH;
+  buildTracePath(ctx, samples, w, mid, amp);
+  ctx.stroke();
+
   ctx.globalAlpha = 1;
 }
 
@@ -1279,7 +1407,15 @@ function normaliseTracks(ids, allTracks = MULTISCOPE_ALL_TRACKS) {
 }
 
 export function attachMultiScope(canvas, engine, opts) {
-  const inert = { destroy() {}, setTracks() {} };
+  const inert = {
+    destroy() {},
+    setTracks() {},
+    setSpread() {},
+    setTotalVisible() {},
+    getLayout() {
+      return { width: 0, height: 0, dpr: 1, spread: false, bands: [] };
+    },
+  };
   if (!canvas || typeof canvas.getContext !== 'function' || !engine) return inert;
   let ctx = null;
   try {
@@ -1306,6 +1442,14 @@ export function attachMultiScope(canvas, engine, opts) {
   let destroyed = false;
   let selected = normaliseTracks(opts && opts.tracks, ALL_TRACKS);
   const trackStates = new Map(); // track id -> createTraceState() + { analyser }
+
+  // -- v26: spread mode + total (master) trace -----------------------------
+  let spread = !!(opts && opts.spread);
+  let totalAnalyser = (opts && opts.totalAnalyser) || null;
+  let totalVisible = false; // default hidden — see the doc comment's "v26 total trace" section
+  const totalTraceState = createTraceState();
+  if (totalAnalyser) bumpFftSize(totalAnalyser);
+  let lastLayout = null; // getLayout()'s cache of the most recently drawn frame's band geometry
 
   liveCanvases.add(canvas);
 
@@ -1519,25 +1663,93 @@ export function attachMultiScope(canvas, engine, opts) {
     unsubState = null;
   }
 
+  /** One track's trace for the current frame; `band` non-null confines it to a spread-mode row instead of the full h. */
+  function drawTrackTrace(id, ts, w, h, band) {
+    const st = getTrackState(id);
+    const analyser = st.analyser;
+    if (!analyser) return;
+    const data = readAnalyserSamples(analyser, st);
+    if (!data) return;
+    updateGainPeak(st, bufferPeak(data), ts);
+    if (st.gainPeak < SILENCE_FLOOR) return; // silent: draw nothing, no flat-line clutter
+    const gain = Math.min(GAIN_MAX, 1 / st.gainPeak);
+    const windowSamples = triggeredWindow(st, data);
+    const color = trackColors.get(id) || themeColors.trace;
+    strokeTraceLine(ctx, scaleWindow(windowSamples, gain), w, h, color, 1, false, band);
+  }
+
+  /** The v26 total (master) trace for the current frame, at vertical centre `mid`/amplitude `amp`. */
+  function drawTotalTrace(ts, w, mid, amp) {
+    if (!totalVisible || !totalAnalyser) return;
+    const data = readAnalyserSamples(totalAnalyser, totalTraceState);
+    if (!data) return;
+    updateGainPeak(totalTraceState, bufferPeak(data), ts);
+    if (totalTraceState.gainPeak < SILENCE_FLOOR) return; // same "silent draws nothing" rule as every other trace
+    const gain = Math.min(GAIN_MAX, 1 / totalTraceState.gainPeak);
+    const windowSamples = triggeredWindow(totalTraceState, data);
+    strokeTotalTraceLine(ctx, scaleWindow(windowSamples, gain), w, mid, amp, 1);
+  }
+
+  function totalTraceActive() {
+    return totalVisible && !!totalAnalyser;
+  }
+
+  /** v26: this frame's band geometry (CSS px) — one shared overlay band, or one row per drawn id in spread mode. */
+  function computeBands(h) {
+    if (!spread) return [{ id: null, top: 0, bottom: h, mid: h / 2, height: h }];
+    const ids = totalTraceActive() ? [...selected, TOTAL_TRACE_ID] : [...selected];
+    if (!ids.length) return [];
+    const bandH = h / ids.length;
+    return ids.map((id, i) => {
+      const top = i * bandH;
+      return { id, top, bottom: top + bandH, mid: top + bandH / 2, height: bandH };
+    });
+  }
+
+  function drawSpreadLabel(id, band) {
+    if (typeof ctx.fillText !== 'function') return;
+    try {
+      const label = id === TOTAL_TRACE_ID ? TOTAL_TRACE_ID : (TRACK_LABELS[id] || id);
+      const color = id === TOTAL_TRACE_ID ? TOTAL_TRACE_COLOR : (trackColors.get(id) || themeColors.trace);
+      ctx.font = MULTISCOPE_SPREAD_LABEL_FONT;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.globalAlpha = MULTISCOPE_SPREAD_LABEL_ALPHA;
+      ctx.fillStyle = color;
+      ctx.fillText(label, MULTISCOPE_SPREAD_LABEL_PAD, band.top + MULTISCOPE_SPREAD_LABEL_PAD);
+      ctx.globalAlpha = 1;
+    } catch {
+      ctx.globalAlpha = 1;
+    }
+  }
+
   function drawFrame(ts) {
     try {
       const { w, h, dpr } = drawGraticule(canvas, ctx, themeColors);
-      for (const id of selected) {
-        const st = getTrackState(id);
-        const analyser = st.analyser;
-        if (!analyser) continue;
-        const data = readAnalyserSamples(analyser, st);
-        if (!data) continue;
-        updateGainPeak(st, bufferPeak(data), ts);
-        if (st.gainPeak < SILENCE_FLOOR) continue; // silent: draw nothing, no flat-line clutter
-        const gain = Math.min(GAIN_MAX, 1 / st.gainPeak);
-        const windowSamples = triggeredWindow(st, data);
-        const color = trackColors.get(id) || themeColors.trace;
-        strokeTraceLine(ctx, scaleWindow(windowSamples, gain), w, h, color, 1);
-      }
-      if (!legendContainer) {
-        const legendEntries = selected.map((id) => ({ id, color: trackColors.get(id) || themeColors.trace }));
-        drawMultiScopeLegend(ctx, w, h, legendEntries, dpr);
+      const bands = computeBands(h);
+      lastLayout = { width: w, height: h, dpr, spread, bands };
+
+      if (spread) {
+        // Every band (including 'total', when active) gets its own id label —
+        // there's no separate canvas-drawn legend in spread mode, see the
+        // doc comment's "v26 spread mode" section.
+        for (const band of bands) {
+          drawSpreadLabel(band.id, band);
+          if (band.id === TOTAL_TRACE_ID) {
+            drawTotalTrace(ts, w, band.mid, band.height * MULTISCOPE_SPREAD_TRACE_HEIGHT);
+          } else {
+            drawTrackTrace(band.id, ts, w, 0, { mid: band.mid, amp: band.height * MULTISCOPE_SPREAD_TRACE_HEIGHT });
+          }
+        }
+      } else {
+        for (const id of selected) drawTrackTrace(id, ts, w, h, null);
+        // Drawn last: on top of every per-track trace, across the shared band.
+        drawTotalTrace(ts, w, h / 2, h * TRACE_HEIGHT);
+        if (!legendContainer) {
+          const legendEntries = selected.map((id) => ({ id, color: trackColors.get(id) || themeColors.trace }));
+          if (totalTraceActive()) legendEntries.push({ id: TOTAL_TRACE_ID, color: TOTAL_TRACE_COLOR });
+          drawMultiScopeLegend(ctx, w, h, legendEntries, dpr);
+        }
       }
     } catch {
       // never let a draw error kill the loop
@@ -1551,6 +1763,17 @@ export function attachMultiScope(canvas, engine, opts) {
     setTracks(ids) {
       preSoloSelection = null; // a programmatic set supersedes any pending solo-restore
       applySelectionSilently(ids);
+    },
+    setSpread(v) {
+      spread = !!v;
+    },
+    setTotalVisible(v) {
+      totalVisible = !!v;
+    },
+    getLayout() {
+      if (lastLayout) return lastLayout;
+      const { w, h } = measureCanvasCssSize(canvas);
+      return { width: w, height: h, dpr: currentDpr(), spread, bands: computeBands(h) };
     },
     destroy() {
       if (destroyed) return;

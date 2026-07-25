@@ -1385,6 +1385,77 @@ test('destroy() stays idempotent after a setFps() call', () => {
 });
 
 // --------------------------------------------------------------------------
+// v26: fullscreen-scale resize
+// --------------------------------------------------------------------------
+
+test('v26: fullscreen-scale resize (mock 3840×2160 CSS px) — dpr cap holds, level-meter buffer survives a mid-session resize, no throw', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    let rectW = 3840;
+    let rectH = 2160;
+    const padBufs = new Set();
+    let roCallback = null;
+    const prevRO = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(cb) { roCallback = cb; }
+      observe() {}
+      disconnect() {}
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      get clientWidth() { return rectW; },
+      get clientHeight() { return rectH; },
+      getContext(kind) { return kind === '2d' ? makeCtx2d(calls) : null; },
+      getBoundingClientRect() { return { width: rectW, height: rectH }; },
+    };
+    const engine = makeEngine();
+    engine.running = true;
+    engine.getAnalysers = () => ({
+      pad: {
+        fftSize: 32,
+        getByteTimeDomainData(buf) {
+          padBufs.add(buf);
+          for (let i = 0; i < buf.length; i++) buf[i] = 128 + Math.round(Math.sin(i) * 40);
+        },
+      },
+      bass: null, melody: null, texture: null, arp: null, percussion: null,
+    });
+    const prevWindow = globalThis.window;
+    globalThis.window = { devicePixelRatio: 4 };
+    try {
+      const inst = initVisualiser(canvas, engine);
+      engine.emit('state', { running: true });
+
+      stepFrame(0);
+      assert.equal(canvas.width, 3840 * 3, 'backing store must clamp to dpr 3, not 4, at fullscreen CSS size');
+      assert.equal(canvas.height, 2160 * 3);
+
+      // Exit fullscreen: the CSS box shrinks without a dpr change. The real
+      // page's signal for that is a ResizeObserver callback — fire the mock
+      // one directly, same as production wiring.
+      rectW = 1024;
+      rectH = 576;
+      assert.equal(typeof roCallback, 'function', 'expected the module to have registered a ResizeObserver callback');
+      roCallback();
+      assert.equal(canvas.width, 1024 * 3, 'backing store must shrink cleanly back down, dpr cap still applied');
+      assert.equal(canvas.height, 576 * 3);
+
+      stepFrame(40);
+      stepFrame(80);
+      assert.equal(padBufs.size, 1, 'the level-meter analyser buffer must be reused across a resize, not reallocated');
+
+      inst.destroy();
+    } finally {
+      if (prevWindow === undefined) delete globalThis.window;
+      else globalThis.window = prevWindow;
+      if (prevRO === undefined) delete globalThis.ResizeObserver;
+      else globalThis.ResizeObserver = prevRO;
+    }
+  });
+});
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 

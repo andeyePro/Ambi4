@@ -1473,3 +1473,101 @@ review precedes merge.
   orange, melody red, bass purple, texture blue, percussion green — theme
   re-derives the --track-* tokens in both themes, AA-checked, CVD-checked as
   before. (Premium instruments pick their own colour later.)
+
+---
+
+# v26 addendum — genre compiler (how the v25 genre data reaches the engine)
+
+`src/scripts/genre-compiler.js` — a pure, import-safe module that runs
+PAGE-side. `compileGenre(genreJson, { rng, defiance })` turns one
+`src/data/genres/[slug].json` into a full, sanitiser-clean params object; the
+engine then takes it through the ordinary `setParams`. Deterministic under
+`rng` (the same seed replays a genre exactly), with a FIXED draw order — time
+signature, mode, bpm, swing, harmonic rhythm, structure, progression seed +
+one roll per substituted token — where every draw consumes exactly one `rng()`
+call whether or not the genre declares anything usable for it.
+
+## Engine contract: `genre` is an inert tag, and that is all
+
+- `params.genre` is a slug string or `null`, and the engine NEVER reads it
+  while it plays: everything a genre asks for is already written into the
+  params it arrived with. The tag exists so a UI, a share link or a preset can
+  say which genre a piece came from.
+- `setGenreTable(list)` (slugs, or the genre files themselves) hands the engine
+  the registry the PAGE knows about. With a table set, an unknown slug is
+  refused like any other unknown enum value; with no table set the engine stays
+  data-agnostic and keeps any slug-shaped string as an opaque tag. SHAPE is the
+  boundary that matters — a tag can arrive from a share link — so it is
+  lowercased, `^[a-z0-9]+(-[a-z0-9]+)*$`-checked and capped at 32 characters
+  either way.
+- Sanitiser law, as for every other param: an explicit `null` clears the tag,
+  an unusable value keeps the stored one, and an inherited tag is re-filtered so
+  a stale genre cannot ride in through the base.
+- Rejected alternative: teaching the engine to load genre JSON. It would put
+  twelve data files (and a grammar expander) inside the audio engine to produce
+  params the engine already accepts, and would break the rule that the engine
+  ships no content.
+
+## Sixteen-step masks in odd metres — the v25 open question, decided
+
+TRUNCATE TO THE METRE PREFIX, exactly as the sequencer already treats its own
+20-slot lanes ("shorter metres use a prefix"). Mask character *i* maps to slot
+*i* for as many slots as the metre has: 3/4 and 6/8 play the mask's first
+twelve, 7/8 its first fourteen, 4/4 all sixteen, and 5/4 plays all sixteen and
+RESTS its last four slots. Rests, not defaults — the engine's default step is
+`on`, so a bar longer than the mask has to be written silent or it sprouts hits
+the music director never wrote. Not chosen: rescaling the mask onto the metre
+(invents onsets between the written ones and destroys the clave/backbeat
+placements that ARE the genre) or wrapping it round (a downbeat kick landing on
+beat 4½ of a 7/8 bar).
+
+## What maps onto what
+
+- Weighted enums → `timeSignature`, `mode`, `structure` (energyArc),
+  `harmony.rhythm`; ranges → `bpm`, `swing`, uniformly drawn.
+- Chord grammar: a seed is drawn from `progressionGrammar` (a seed ALSO named
+  in `fallbackLists.progressions` weighs twice — that list marks the seeds that
+  keep the genre recognisable), each token takes at most one substitution at
+  its rule's own probability, and the result parses under the v25 vocabulary
+  rule (ordinal-1 = scale-degree index; suffixes are colour). The expansion
+  sets `repetition` — `buildHook`'s loop-length law inverted, so the hook is as
+  long as the genre's phrase — and `complexity`, the chord COLOUR, blended from
+  `extensionBias` and the colour the expanded tokens actually ask for (a ninth
+  grammar compiles above `buildChord`'s 0.7 ninth threshold, a triad grammar
+  below its 0.35 seventh threshold).
+- KNOWN LOSS: the expanded DEGREES do not reach the engine — the hook owns the
+  chord walk and there is no params slot for a supplied progression. Only the
+  loop's shape (length, colour, harmonic rhythm, mode) survives.
+  `expandProgression()` returns the degrees for a UI or a test; feeding them to
+  the engine needs a hook-seed param that does not exist yet — open work.
+- Groove grammar, two paths. With `fallbackLists.grooves` (eight of twelve
+  genres): every groove becomes a MANUAL percussion sequencer — low/mid/high
+  masks on the sixteenth grid, one sequencer per groove, evenly weighted, so
+  the kit shuffles between the genre's own patterns; the bass needs no anchor
+  instruction because the engine already locks the line to percussion's low
+  lane, which is what `anchorPatterns` describe. Without one (ambient, new age,
+  minimalism, cinematic): percussion stays `auto` and the grammar is GUIDANCE
+  — `anchorPatterns` set the auto kit's density against four-on-the-floor
+  (bounded 0.5–1.5, so a sixteenth-grid anchor cannot compile to a machine-gun),
+  and no grid is faked from masks the director wrote for a kit.
+- Both paths: `pocketMs` → `tracks.bass.vary.timing` against the engine's own
+  22 ms lay-back ceiling (0 ms = machine-tight); `syncopationCells` → a small
+  bass-density uplift (`buildBassGroove` only reaches for a second cell above
+  density 0.6); the declared `articulation` set → a bass-density nudge into the
+  band whose articulation menu matches it.
+- `instrumentation.perTrack` → `tracks[*].state/voice/level/randomness`
+  (numbers and `{min,max}` both pass straight through); `reverbTail` and
+  `patches` pass through; `dissonanceRange` becomes a DRIFTING band on the
+  tuned tracks; `densityBias` reaches the five tracks that read a density (the
+  pad has no event rate).
+- `defiance` is applied LAST, keyed by a dial's own `param` path and carrying
+  its POSITION 0–1 (what a slider hands over). A string range is a list of
+  states; a numeric range interpolates, and snaps to the engine's enum where
+  one exists (`harmony.rhythm`). A key naming no dial of that genre is ignored.
+
+## Consequence worth knowing
+
+Every shipped grammar seed is one to four chords, so all twelve genres
+currently compile `repetition: 1` — the tightest four-chord hook. That is the
+law working, not a bug: it only starts to differentiate when a genre ships a
+five-chord-or-longer seed.

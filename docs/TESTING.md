@@ -24,6 +24,15 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   inside the Simple panel), carries no panel title, keeps the word
   "Oscilloscope" hidden while it is expanded, and has a populated legend even
   with the engine stopped.
+- v26 — the oscilloscope has no `.module-panel` faceplate and its chrome
+  (note, legend, options, fullscreen button, twisty) sits in an overlay OUTSIDE
+  the collapsible body, so collapsing cannot take the twisty with it; both
+  displays carry a fullscreen button and the fullscreen host is in the
+  document; Repetition, Swing and Reverb tail share the Advanced main-dial
+  row; switching Osc 2 off hides the Mix dial and switching it back on
+  restores it; and the percussion editor keeps its feel dials on ONE row.
+  jsdom implements no Fullscreen API, so the page hides both ⛶ buttons there —
+  the gate proves they are in the document, not that they are visible.
 - v19 — selecting Texture's "Coloured noise" voice and opening its editor builds
   at least ten patch dials, in Spectral / Motion / Bursts sub-rows. A voice can
   declare fields in its `controls` table that the editor's builder does not know
@@ -577,3 +586,65 @@ Live readouts (Advanced → any pulsed/tuned track's row, playing)
       Percussion, density on the tuned tracks), and only once the engine
       actually reports it. Absence here on an engine that doesn't report it
       yet is correct.
+
+## v26 delta — OSC 2 linkage, packed dial rows, bare scope, fullscreen
+
+Osc 2 and Mix (Advanced → any track with a second oscillator → Edit)
+- [ ] Hovering the "Osc 2" switch reads "Adds a second oscillator; Mix
+      balances the two."
+- [ ] Switching Osc 2 OFF takes the Mix dial away with it (Mix is the balance
+      between the two oscillators — with one source it did nothing, which read
+      as a broken control).
+- [ ] Switching Osc 2 back ON brings Mix back at the value it had before, not
+      at a default. Save a preset with Osc 2 off, reload, switch it on: the
+      balance you set is still there.
+- [ ] The same on a voice that ships with Osc 2 already off — the editor opens
+      with no Mix dial at all, and grows one the moment you switch Osc 2 on.
+
+Dials pack horizontally (Advanced)
+- [ ] Tempo, Complexity, Randomness, Volume, Repetition, Swing and Reverb tail
+      are ONE wrapping row at the top of the tab, under Tracks — not seven
+      controls on seven lines. Narrow the window: they re-wrap into two or
+      three rows, still with their faces on a shared baseline and their names
+      and read-outs below the faces.
+- [ ] Swing and Reverb tail are absent on an engine that doesn't take them,
+      and the row simply gets shorter — no gap where they would have been.
+- [ ] Percussion → Edit: Drift rate and Swing sit side by side on ONE row.
+      This was the named offender — they used to be on separate lines.
+- [ ] Melody → Edit: Dissonance, Drift rate, Swing and Density are all on one
+      aligned row. Pad → Edit: Dissonance, Drift rate and Breath likewise.
+
+Oscilloscope chrome
+- [ ] The oscilloscope has no faceplate/panel around it any more — it is a
+      bare display with one hairline edge, the same look as the piano roll
+      below it.
+- [ ] The track legend and the twisty sit ON the display's top edge, over the
+      trace, not in a strip above or below it. The traces are still readable
+      underneath (there is a soft fade behind the chrome).
+- [ ] Collapsing it still shows the word "Oscilloscope" beside the twisty, and
+      the legend goes away with the display. Re-expanding restores both.
+
+Fullscreen (both displays)
+- [ ] A small ⛶ sits on the oscilloscope and on the piano roll. Pressing
+      either takes that display fullscreen on its own.
+- [ ] In fullscreen, a "+ piano roll" (or "+ oscilloscope") control stacks the
+      other one below it, both filling half the height. Both keep drawing, and
+      both look sharp rather than upscaled — they resize to the new size and
+      screen density.
+- [ ] Esc, the browser's own exit affordance and the "Exit (Esc)" button all
+      restore the page with both displays back where they were, still running.
+- [ ] Pressing ⛶ again while fullscreen exits it.
+
+Oscilloscope options (in the overlay, while playing)
+- [ ] A "Spread" toggle appears once the trace is live. On, each track gets its
+      own flat line to wobble on, stacked up the display; off, they share one.
+      The setting survives a reload.
+- [ ] A white "Total" toggle appears ONLY if this build's engine publishes a
+      master/post-effects analyser. It is OFF by default. If it is absent, that
+      is correct for now, not a bug: the engine's `getAnalysers()` publishes
+      per-track analysers only, and the page skips the toggle entirely rather
+      than shipping one that does nothing. It lights up with no page change the
+      moment the engine adds `getMasterAnalyser()` (or a `master` key on
+      `getAnalysers()`) — that is the engine's next pass, owed from here.
+- [ ] Neither toggle shows on a build whose scope module has no `setSpread` /
+      `setTotalVisible`, for the same reason.
