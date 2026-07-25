@@ -706,6 +706,14 @@ function patchNumber(value, lo, hi) {
 /**
  * Per-field coercion for the Patch schema. Every entry returns undefined for a
  * value it cannot use, which is what drops the field from the sanitised patch.
+ *
+ * The v7 rangeable fields take `number | { min, max }` — the range dials in the
+ * voice editor write the object form, and the field's OWN bounds clamp both
+ * ends. NOT rangeable, per v7: the shape morph dials, octave and filter type,
+ * which are discrete or enum-like and take a single value engine-side —
+ * percussion's v18 `pitch` is continuous, so unlike octave it IS rangeable.
+ * `perKind` runs through the very same field table, so a kit override is
+ * rangeable exactly where the common patch is.
  */
 /** v5 morph positions of the legacy oscillator names. */
 const OSC_SHAPES = Object.freeze({ sine: 0, triangle: 1, sawtooth: 2, square: 3 });
@@ -718,31 +726,39 @@ const PATCH_SCHEMA = Object.freeze({
     // v5 morph dial: 0 sine, 1 triangle, 2 sawtooth, 3 square; fractional legal.
     shape1: (v) => patchNumber(v, 0, 3),
     shape2: (v) => (v === null ? null : patchNumber(v, 0, 3)),
-    mix: (v) => patchNumber(v, 0, 1),
+    mix: (v) => sanitiseRangeValue(v, 0, 1),
     // Bipolar since v12: the dial detunes flat as readily as sharp, and the
     // octave switch reaches two either way. Defaults are unchanged, so every
     // stored patch keeps sounding exactly as it did.
-    detune: (v) => patchNumber(v, -50, 50),
+    detune: (v) => sanitiseRangeValue(v, -50, 50),
     octave: (v) => {
       const num = patchNumber(v, -2, 2);
       return num === undefined ? undefined : Math.round(num);
     },
+    // v18: the percussion kits tune in semitones instead of by the octave
+    // switch — the same two octaves either way, but continuous and rangeable,
+    // and `noise` is the level of their noise component (1 is the kit as it
+    // was built). Both ride the same field table, so a perKind override takes
+    // them exactly where the common patch does; the voices ignore either field
+    // on a track that plays notes.
+    pitch: (v) => sanitiseRangeValue(v, -24, 24),
+    noise: (v) => sanitiseRangeValue(v, 0, 1),
   }),
   filter: Object.freeze({
     type: (v) => oneOf(v, PATCH_FILTER_TYPES, undefined),
-    cutoff: (v) => patchNumber(v, 40, 12000),
-    q: (v) => patchNumber(v, 0.1, 20),
-    envAmount: (v) => patchNumber(v, 0, 1),
+    cutoff: (v) => sanitiseRangeValue(v, 40, 12000),
+    q: (v) => sanitiseRangeValue(v, 0.1, 20),
+    envAmount: (v) => sanitiseRangeValue(v, 0, 1),
   }),
   adsr: Object.freeze({
-    attack: (v) => patchNumber(v, 0.001, 8),
-    decay: (v) => patchNumber(v, 0.001, 8),
-    sustain: (v) => patchNumber(v, 0, 1),
-    release: (v) => patchNumber(v, 0.01, 12),
+    attack: (v) => sanitiseRangeValue(v, 0.001, 8),
+    decay: (v) => sanitiseRangeValue(v, 0.001, 8),
+    sustain: (v) => sanitiseRangeValue(v, 0, 1),
+    release: (v) => sanitiseRangeValue(v, 0.01, 12),
   }),
   sends: Object.freeze({
-    reverb: (v) => patchNumber(v, 0, 1),
-    delay: (v) => patchNumber(v, 0, 1),
+    reverb: (v) => sanitiseRangeValue(v, 0, 1),
+    delay: (v) => sanitiseRangeValue(v, 0, 1),
   }),
 });
 
@@ -903,7 +919,11 @@ function copyPatch(patch) {
   for (const [section, fields] of Object.entries(patch)) {
     out[section] = section === 'perKind'
       ? Object.fromEntries(Object.entries(fields).map(([kind, sections]) => [kind, copyPatch(sections)]))
-      : { ...fields };
+      // A rangeable field may hold a `{ min, max }` object, which a spread of
+      // the section alone would hand out by reference.
+      : Object.fromEntries(
+        Object.entries(fields).map(([field, value]) => [field, copyRangeValue(value)]),
+      );
   }
   return out;
 }
@@ -2252,6 +2272,9 @@ export function createEngine(initialParams, options = {}) {
   const wanderedVoice = new Map();  // track → the voice id actually sounding
   // Per-kind patch merges (v14 kit), by `${track}:${voice}:${kind}`.
   const kindPatches = new Map();
+  // The same merges with every v7 range resolved to a number, thrown away each
+  // bar so a ranged patch drifts instead of freezing at its first resolution.
+  const resolvedPatches = new Map();
 
   // v9 cost accounting
   let maxNotes = Infinity;          // power budget: simultaneous sounding notes
@@ -2323,6 +2346,11 @@ export function createEngine(initialParams, options = {}) {
       if (next > 1) next = 2 - next;
       walkPhases.set(key, clamp(next, 0, 1));
     }
+    // Every patch resolution the last bar handed out was taken against the walk
+    // positions this loop has just moved, so none of them survives the barline.
+    // A frozen track's re-resolution lands on the same numbers, which is what
+    // makes randomness 0 hold a ranged patch still as well as a ranged plan.
+    resolvedPatches.clear();
   }
 
   /**
@@ -2777,6 +2805,28 @@ export function createEngine(initialParams, options = {}) {
   }
 
   /**
+   * Every v7 RangeValue in a patch as the number ruling 9c promises the voices:
+   * one drift walk per (track, voice, field), so a ranged cutoff and a ranged
+   * reverb send on the same voice wander independently while a note's own draws
+   * leave both alone. A patch of plain numbers is returned unchanged and opens
+   * no walk at all — the shipped defaults cost nothing.
+   */
+  function resolvePatchRanges(track, voiceId, patch) {
+    let out = null;
+    for (const section of Object.keys(PATCH_SCHEMA)) {
+      const fields = patch[section];
+      if (!fields) continue;
+      for (const [field, value] of Object.entries(fields)) {
+        if (!value || typeof value !== 'object') continue;
+        if (!out) out = { ...patch };
+        if (out[section] === fields) out[section] = { ...fields };
+        out[section][field] = resolveRange(track, `patch.${voiceId}.${section}.${field}`, value);
+      }
+    }
+    return out ?? patch;
+  }
+
+  /**
    * The patch the currently selected voice of `track` should be played with,
    * for a note of `kind` (v14 kit editor). A percussion note whose kind names
    * a per-instrument override is played with that override merged over the
@@ -2785,22 +2835,35 @@ export function createEngine(initialParams, options = {}) {
    * alone, with the overrides stripped so they can never reach a voice they
    * were not written for.
    *
-   * Merged patches are cached per (track, voice, kind) because this is on the
-   * per-note path; setParams() drops the cache, and the voice is part of the
-   * key, so a wander needs no invalidation of its own.
+   * What comes back is always NUMBERS (ruling 9c): a ranged field is resolved
+   * through its walk here, so nothing downstream — play(), applySends,
+   * getResolved — ever meets a `{ min, max }`.
+   *
+   * Two caches sit behind this because it is on the per-note path. The MERGED
+   * patch is cached per (track, voice, kind) and only setParams() drops it —
+   * the voice is in the key, so a wander needs no invalidation of its own. The
+   * RESOLVED patch is cached under the same key but thrown away every bar,
+   * which is what stops a ranged patch freezing on the first note that read it.
    */
   function patchFor(track, kind = null) {
     const bank = params.patches[track];
     if (!bank) return undefined;
-    const common = bank[effectiveVoice(track)];
-    if (!common || !common.perKind) return common;
-    const key = `${track}:${effectiveVoice(track)}:${kind ?? ''}`;
+    const voiceId = effectiveVoice(track);
+    const common = bank[voiceId];
+    if (!common) return undefined;
+    const key = `${track}:${voiceId}:${kind ?? ''}`;
+    const cached = resolvedPatches.get(key);
+    if (cached) return cached;
     let merged = kindPatches.get(key);
     if (!merged) {
-      merged = mergeSections(common, kind === null ? null : common.perKind[kind]);
+      merged = common.perKind
+        ? mergeSections(common, kind === null ? null : common.perKind[kind])
+        : common;
       kindPatches.set(key, merged);
     }
-    return merged;
+    const resolved = resolvePatchRanges(track, voiceId, merged);
+    resolvedPatches.set(key, resolved);
+    return resolved;
   }
 
   /**
@@ -4346,6 +4409,11 @@ export function createEngine(initialParams, options = {}) {
     // otherwise freeze both at whatever bar 0 decided — leaving every track but
     // the pad silent for the whole piece.
     applyTracks(0.4, time);
+    // The sends follow for the same reason: a ranged reverb/delay in the voice
+    // patch resolves through the walk that has just stepped, and the send gains
+    // are the only place that resolution can be heard. Ramped, as ever, so the
+    // bar-by-bar drift glides instead of stepping.
+    applySends(0.4, time);
 
     // The pad's dynamic contour runs off the bar clock, not off the chord
     // rhythm, so a two-bar chord still swells rather than sitting flat.
@@ -4941,6 +5009,7 @@ export function createEngine(initialParams, options = {}) {
       // A performance starts from a fresh set of decisions: no frozen bar from
       // the last run, and drift walks that begin wherever this run takes them.
       walkPhases.clear();
+      resolvedPatches.clear();
       frozenPlans.clear();
       held.clear();
       // Brackets the user drew stay drawn, but they enclose bar numbers this
@@ -5049,6 +5118,7 @@ export function createEngine(initialParams, options = {}) {
   function setParams(partial) {
     params = sanitiseParams(partial, params);
     kindPatches.clear();
+    resolvedPatches.clear();
     invalidateEditedPlans(partial);
     clearWanderedVoices(partial);
     if (ctx && graph) applyLevels(0.15);

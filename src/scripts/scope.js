@@ -16,8 +16,8 @@
  *   rAF time-domain trace (getFloatTimeDomainData, byte fallback) with a
  *   simple rising-edge trigger; pauses while document.hidden.
  *
- * export function attachMultiScope(canvas, engine, { tracks } = {}) =>
- *   { destroy(), setTracks(ids) }
+ * export function attachMultiScope(canvas, engine, { tracks, legendContainer,
+ *   onSelectionChange } = {}) => { destroy(), setTracks(ids) }
  *   One phosphor trace per selected track (default: all six, canonical UI
  *   order pad/arp/melody/bass/texture/percussion), sharing one graticule and
  *   one rAF loop. Analysers come from engine.getAnalysers(), lazily
@@ -27,10 +27,31 @@
  *   (same law as attachLiveScope) and its own reused sample buffer, so a
  *   quiet pad and a loud arp both read; a track under the silence floor
  *   draws no trace at all. Trace colour: getComputedStyle(canvas)
- *   --track-<id>, falling back to an evenly-spaced hue per track. A small
- *   canvas-drawn legend (colour swatch + id) runs along the bottom —
- *   labelling only, not interactive; track selection is the caller's UI.
- *   setTracks(ids) narrows/reorders the drawn set; unknown ids are dropped.
+ *   --track-<id>, falling back to an evenly-spaced hue per track.
+ *   setTracks(ids) narrows/reorders the drawn set (draw/z-order follows the
+ *   given order); unknown ids are dropped.
+ *
+ *   Legend: without opts.legendContainer, a small canvas-drawn legend
+ *   (colour swatch + id) runs along the bottom — labelling only, not
+ *   interactive. With opts.legendContainer (a DOM element), the canvas
+ *   legend is skipped and a DOM legend renders into it instead: one real
+ *   <button> per track (all six, fixed canonical order), each an id label
+ *   + a colour-swatch dot, aria-pressed reflecting whether that track is
+ *   currently drawn. Interaction: a single click toggles that track's trace
+ *   on/off; a double-click SOLOS it (every other track off); a second
+ *   double-click on the already-soloed track restores the selection that
+ *   was active just before it was soloed (soloing a different track while
+ *   one is already soloed does not overwrite that remembered selection —
+ *   only a plain single-click toggle clears it, since the user has then
+ *   manually changed the set). Click/dblclick are disambiguated by delaying
+ *   the single-click toggle ~250ms (MULTISCOPE_LEGEND_CLICK_DELAY_MS) behind
+ *   a setTimeout: a second click on the same button within that window
+ *   cancels the pending toggle so the following native dblclick event can
+ *   solo cleanly, with no toggle-then-correct flicker. Every legend-driven
+ *   change (toggle or solo, never a programmatic setTracks() call) fires
+ *   opts.onSelectionChange(ids) with the new drawn-track id array, for the
+ *   caller to persist. setTracks(ids) stays silent (no callback) and syncs
+ *   the legend's aria-pressed/colours either way.
  *
  * All three live-drawing exports are devicePixelRatio-aware (capped, see
  * MAX_DPR) and redraw on size changes (ResizeObserver, device-pixel-
@@ -91,6 +112,9 @@ const MULTISCOPE_LEGEND_ALPHA = 0.85;
 const MULTISCOPE_LEGEND_PAD = 4;
 const MULTISCOPE_LEGEND_SWATCH = 7;
 const MULTISCOPE_LEGEND_GAP = 12;
+// DOM legend (opts.legendContainer) click/dblclick disambiguation window —
+// see the attachMultiScope doc comment above for the full rationale.
+const MULTISCOPE_LEGEND_CLICK_DELAY_MS = 250;
 
 const FALLBACK_BG = '#161009';
 const FALLBACK_GRID = 'rgba(245, 182, 66, 0.16)';
@@ -970,6 +994,10 @@ function trackColor(canvas, id) {
   return cssColor(canvas, `--track-${id}`, `hsl(${fallbackTrackHue(id)}, 70%, 55%)`);
 }
 
+function isDomElement(el) {
+  return !!el && typeof el.appendChild === 'function' && typeof el.removeChild === 'function';
+}
+
 /** Filters/dedupes a requested track list to known ids, in caller order; falls back to all six. */
 function normaliseTracks(ids) {
   if (!Array.isArray(ids)) return [...MULTISCOPE_ALL_TRACKS];
@@ -1016,8 +1044,147 @@ export function attachMultiScope(canvas, engine, opts) {
   function refreshColors() {
     themeColors = readScopeColors(canvas);
     trackColors = new Map(MULTISCOPE_ALL_TRACKS.map((id) => [id, trackColor(canvas, id)]));
+    syncLegend();
   }
+
+  // -- DOM legend (opts.legendContainer) — see the doc comment above -------
+  const legendContainer = opts && isDomElement(opts.legendContainer) ? opts.legendContainer : null;
+  const onSelectionChange =
+    opts && typeof opts.onSelectionChange === 'function' ? opts.onSelectionChange : null;
+  const legendButtons = new Map(); // track id -> { btn, dot, onClick, onDblClick }
+  let pendingClickId = null;
+  let pendingClickTimer = null;
+  let preSoloSelection = null; // selection to restore on the soloed track's second dblclick
+
+  function syncLegend() {
+    if (!legendContainer) return;
+    try {
+      for (const [id, { btn, dot }] of legendButtons) {
+        btn.setAttribute('aria-pressed', selected.includes(id) ? 'true' : 'false');
+        dot.style.backgroundColor = trackColors.get(id) || themeColors.trace;
+      }
+    } catch {
+      // a legend sync failure must never break the trace loop
+    }
+  }
+
+  /** setTracks()'s path: updates the drawn set + legend, no callback (caller-driven, not user-driven). */
+  function applySelectionSilently(next) {
+    selected = normaliseTracks(next);
+    syncLegend();
+  }
+
+  /** Legend-driven path (click/dblclick): updates the set, legend, AND fires onSelectionChange. */
+  function applySelectionFromLegend(next) {
+    applySelectionSilently(next);
+    if (onSelectionChange) {
+      try {
+        onSelectionChange([...selected]);
+      } catch {
+        // a consumer callback failure must never break the trace loop
+      }
+    }
+  }
+
+  function toggleTrack(id) {
+    preSoloSelection = null; // a manual toggle supersedes any pending solo-restore
+    const idx = selected.indexOf(id);
+    applySelectionFromLegend(idx >= 0 ? selected.filter((t) => t !== id) : [...selected, id]);
+  }
+
+  function soloTrack(id) {
+    const alreadySoloedOnId = preSoloSelection !== null && selected.length === 1 && selected[0] === id;
+    if (alreadySoloedOnId) {
+      applySelectionFromLegend(preSoloSelection);
+      preSoloSelection = null;
+      return;
+    }
+    if (preSoloSelection === null) preSoloSelection = [...selected];
+    applySelectionFromLegend([id]);
+  }
+
+  function clearPendingClick() {
+    if (pendingClickTimer !== null) {
+      try {
+        clearTimeout(pendingClickTimer);
+      } catch {
+        // ignore
+      }
+    }
+    pendingClickTimer = null;
+    pendingClickId = null;
+  }
+
+  // Click vs dblclick disambiguation: a plain click's toggle is delayed
+  // MULTISCOPE_LEGEND_CLICK_DELAY_MS behind a timer; a second click on the
+  // SAME button within that window cancels the pending toggle (so no
+  // toggle-then-correct flicker) and lets the native dblclick event solo.
+  function onLegendClick(id) {
+    if (pendingClickTimer !== null && pendingClickId === id) {
+      clearPendingClick();
+      return;
+    }
+    clearPendingClick();
+    pendingClickId = id;
+    pendingClickTimer = setTimeout(() => {
+      pendingClickTimer = null;
+      pendingClickId = null;
+      toggleTrack(id);
+    }, MULTISCOPE_LEGEND_CLICK_DELAY_MS);
+  }
+
+  function onLegendDblClick(id) {
+    clearPendingClick();
+    soloTrack(id);
+  }
+
+  function buildLegend() {
+    if (!legendContainer) return;
+    try {
+      legendContainer.textContent = '';
+      legendButtons.clear();
+      for (const id of MULTISCOPE_ALL_TRACKS) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'scope-legend-track';
+        btn.setAttribute('aria-pressed', selected.includes(id) ? 'true' : 'false');
+        const dot = document.createElement('span');
+        dot.className = 'scope-legend-dot';
+        dot.style.backgroundColor = trackColors.get(id) || themeColors.trace;
+        const label = document.createElement('span');
+        label.className = 'scope-legend-label';
+        label.textContent = id;
+        btn.appendChild(dot);
+        btn.appendChild(label);
+        const onClick = () => onLegendClick(id);
+        const onDblClick = () => onLegendDblClick(id);
+        btn.addEventListener('click', onClick);
+        btn.addEventListener('dblclick', onDblClick);
+        legendContainer.appendChild(btn);
+        legendButtons.set(id, { btn, dot, onClick, onDblClick });
+      }
+    } catch {
+      // a legend build failure must never break the trace loop
+    }
+  }
+
+  function destroyLegend() {
+    clearPendingClick();
+    if (!legendContainer) return;
+    try {
+      for (const { btn, onClick, onDblClick } of legendButtons.values()) {
+        btn.removeEventListener('click', onClick);
+        btn.removeEventListener('dblclick', onDblClick);
+      }
+      legendContainer.textContent = '';
+    } catch {
+      // ignore
+    }
+    legendButtons.clear();
+  }
+
   refreshColors();
+  buildLegend();
   let themeMedia = null;
   function onThemeChange() {
     refreshColors();
@@ -1088,8 +1255,10 @@ export function attachMultiScope(canvas, engine, opts) {
         const color = trackColors.get(id) || themeColors.trace;
         strokeTraceLine(ctx, scaleWindow(windowSamples, gain), w, h, color, 1);
       }
-      const legendEntries = selected.map((id) => ({ id, color: trackColors.get(id) || themeColors.trace }));
-      drawMultiScopeLegend(ctx, w, h, legendEntries, dpr);
+      if (!legendContainer) {
+        const legendEntries = selected.map((id) => ({ id, color: trackColors.get(id) || themeColors.trace }));
+        drawMultiScopeLegend(ctx, w, h, legendEntries, dpr);
+      }
     } catch {
       // never let a draw error kill the loop
     }
@@ -1100,13 +1269,15 @@ export function attachMultiScope(canvas, engine, opts) {
 
   return {
     setTracks(ids) {
-      selected = normaliseTracks(ids);
+      preSoloSelection = null; // a programmatic set supersedes any pending solo-restore
+      applySelectionSilently(ids);
     },
     destroy() {
       if (destroyed) return;
       destroyed = true;
       loop.stop();
       liveCanvases.delete(canvas);
+      destroyLegend();
       try {
         if (unsubState) unsubState();
       } catch {

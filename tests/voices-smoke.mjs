@@ -365,7 +365,7 @@ test('VOICES matches the contract exactly', () => {
       const voice = VOICES[track][id];
       assert.equal(voice.label, label, `${track}.${id}: label`);
       assert.equal(typeof voice.play, 'function', `${track}.${id}: play`);
-      assert.equal(Object.keys(voice).sort().join(','), 'controls,defaults,label,play',
+      assert.equal(Object.keys(voice).sort().join(','), 'controls,defaults,engineType,label,play',
         `${track}.${id}: unexpected keys`);
     }
   }
@@ -540,6 +540,26 @@ const SCHEMA = {
   },
 };
 
+/**
+ * v18: a kit is tuned in semitones instead of by the octave switch, and its
+ * noise component has a level of its own — so percussion publishes `pitch`
+ * and `noise` where every other track publishes `octave`.
+ */
+const PERCUSSION_SOURCE = {
+  osc1: { oneOf: OSCS },
+  osc2: { oneOf: [...OSCS, null] },
+  shape1: { range: [0, 3] },
+  shape2: { range: [0, 3], orNull: true },
+  mix: { range: [0, 1] },
+  detune: { range: [0, 50] },
+  pitch: { range: [-24, 24] },
+  noise: { range: [0, 1] },
+};
+
+const schemaFor = (track) => (
+  track === 'percussion' ? { ...SCHEMA, source: PERCUSSION_SOURCE } : SCHEMA
+);
+
 /** Every corner of the schema at once, plus the awkward ends of it. */
 const EXTREME = {
   source: { osc1: 'square', osc2: 'sawtooth', mix: 1, detune: 50, octave: 1 },
@@ -625,7 +645,7 @@ test('every voice publishes a complete, in-range default patch', () => {
       assert.ok(defaults && typeof defaults === 'object', `${where}: missing`);
       assert.deepEqual(Object.keys(defaults).sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
-      for (const [group, fields] of Object.entries(SCHEMA)) {
+      for (const [group, fields] of Object.entries(schemaFor(track))) {
         assert.deepEqual(Object.keys(defaults[group]).sort(), Object.keys(fields).sort(),
           `${where}.${group}: wrong fields`);
         for (const [field, rule] of Object.entries(fields)) {
@@ -994,7 +1014,13 @@ test('shape2: null is the single-oscillator setting, even against an osc2 string
 // --------------------------------------------------------------------------
 
 const SOURCE_FIELDS = ['shape1', 'shape2', 'mix', 'detune', 'octave'];
+/** v18: the kits swap the octave switch for semitones and a noise level. */
+const PERCUSSION_SOURCE_FIELDS = ['shape1', 'shape2', 'mix', 'detune', 'pitch', 'noise'];
 const FILTER_FIELDS = ['type', 'cutoff', 'q', 'envAmount'];
+
+const sourceFieldsFor = (track) => (
+  track === 'percussion' ? PERCUSSION_SOURCE_FIELDS : SOURCE_FIELDS
+);
 
 /** true|false|string[] against the field list its group is allowed to name. */
 function checkControlShape(where, value, allowed) {
@@ -1018,11 +1044,12 @@ test('controls: schema shape, and every applicable field exists in defaults', ()
       assert.ok(controls && typeof controls === 'object', `${where}: missing`);
       assert.deepEqual(Object.keys(controls).sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
-      checkControlShape(`${where}.source`, controls.source, SOURCE_FIELDS);
+      const sourceFields = sourceFieldsFor(track);
+      checkControlShape(`${where}.source`, controls.source, sourceFields);
       checkControlShape(`${where}.filter`, controls.filter, FILTER_FIELDS);
       assert.equal(controls.adsr, true, `${where}.adsr: every voice's own envelope honours a patch`);
       assert.equal(controls.sends, true, `${where}.sends: the engine applies sends outside play()`);
-      for (const [group, fields] of [['source', SOURCE_FIELDS], ['filter', FILTER_FIELDS]]) {
+      for (const [group, fields] of [['source', sourceFields], ['filter', FILTER_FIELDS]]) {
         const declared = controls[group];
         const named = declared === true ? fields : (declared || []);
         for (const field of named) {
@@ -1075,6 +1102,8 @@ function wildSourceValue(field, base) {
   if (field === 'shape1' || field === 'shape2') return base === 0 ? 2 : 0;
   if (field === 'mix') return base > 0.5 ? 0 : 1;
   if (field === 'detune') return base > 25 ? 0 : 50;
+  if (field === 'pitch') return base > 0 ? -12 : 12;
+  if (field === 'noise') return base > 0.5 ? 0 : 1;
   return base === 1 ? -1 : 1; // octave
 }
 
@@ -1128,13 +1157,249 @@ function checkFieldHonesty(track, id, group, fields, wildValueFor) {
 for (const [track, patches] of Object.entries(EXPECTED)) {
   for (const id of Object.keys(patches)) {
     test(`controls honesty: ${track}.${id} source`, () => {
-      checkFieldHonesty(track, id, 'source', SOURCE_FIELDS, wildSourceValue);
+      checkFieldHonesty(track, id, 'source', sourceFieldsFor(track), wildSourceValue);
     });
     test(`controls honesty: ${track}.${id} filter`, () => {
       checkFieldHonesty(track, id, 'filter', FILTER_FIELDS, wildFilterValue);
     });
   }
 }
+
+// --------------------------------------------------------------------------
+// v18 — percussion source.pitch / source.noise
+// --------------------------------------------------------------------------
+
+const PERCUSSION_KINDS = ['low', 'mid', 'high'];
+
+const percussionNote = (kind, velocity = 0.8) => ({
+  midi: null, freq: null, kind, duration: 0.25, when: 0.5, velocity, pan: 0,
+});
+
+/** The graph AND the whole automation schedule: one note, written out in full. */
+function renderSignature(run) {
+  const r = (v) => Math.round(v * 1e6) / 1e6;
+  const events = run.events.map((e) => `${e.name}/${e.kind}/${r(e.value)}/${r(e.time)}`).join(';');
+  return `${graphSignature(run)}||${events}`;
+}
+
+/**
+ * FNV-1a of the above, with the length alongside it so a collision would have
+ * to match both. Short enough to read in a failure message and to store here.
+ */
+function renderHash(run) {
+  const text = renderSignature(run);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${h.toString(16).padStart(8, '0')}:${text.length}`;
+}
+
+/**
+ * Recorded from the library as it stood BEFORE source.pitch and source.noise
+ * existed. Adding controls is not allowed to move the sound of a kit nobody
+ * has edited, and a hash is the only way to say that without hand-waving.
+ */
+const PERCUSSION_GOLDEN = {
+  'soft.low.v0.35': 'f8b0599c:634', 'soft.low.v0.8': 'cfbcf5b3:633',
+  'soft.mid.v0.35': 'e4d162ab:641', 'soft.mid.v0.8': 'e143306c:640',
+  'soft.high.v0.35': 'e81555b1:386', 'soft.high.v0.8': 'fd948224:384',
+  'hand.low.v0.35': 'c12d05e0:853', 'hand.low.v0.8': '2de49603:853',
+  'hand.mid.v0.35': '742f36dc:596', 'hand.mid.v0.8': '9b92f4a5:596',
+  'hand.high.v0.35': 'aa4ce86e:598', 'hand.high.v0.8': '1f77ea74:597',
+  'tick.low.v0.35': 'f384190c:589', 'tick.low.v0.8': 'ea55a535:589',
+  'tick.mid.v0.35': '1ac7a7d6:337', 'tick.mid.v0.8': '12f67e10:337',
+  'tick.high.v0.35': '5aaa56c9:338', 'tick.high.v0.8': '35d9ea30:338',
+};
+
+test('v18: an unpatched percussion note renders exactly the pre-v18 graph', () => {
+  for (const id of Object.keys(VOICES.percussion)) {
+    for (const kind of PERCUSSION_KINDS) {
+      for (const velocity of [0.35, 0.8]) {
+        const key = `${id}.${kind}.v${velocity}`;
+        const run = withSeed(4711, () => playAndCheck(key, VOICES.percussion[id],
+          percussionNote(kind, velocity)));
+        assert.equal(renderHash(run), PERCUSSION_GOLDEN[key],
+          `${key}: an unpatched percussion note no longer renders what it did`);
+      }
+    }
+  }
+});
+
+test('v18: percussion publishes pitch and noise in place of the octave switch', () => {
+  for (const id of Object.keys(VOICES.percussion)) {
+    const { defaults, controls } = VOICES.percussion[id];
+    assert.equal(defaults.source.octave, undefined,
+      `percussion.${id}: still publishes an octave switch`);
+    assert.equal(defaults.source.pitch, 0,
+      `percussion.${id}: the default pitch must be the kit as it was built`);
+    assert.equal(defaults.source.noise, 1,
+      `percussion.${id}: the default noise must be the level the kit was balanced at`);
+    assert.ok(Array.isArray(controls.source), `percussion.${id}: controls.source must be a subset`);
+    assert.ok(controls.source.includes('pitch'), `percussion.${id}: controls omit pitch`);
+    assert.ok(controls.source.includes('noise'), `percussion.${id}: controls omit noise`);
+    assert.ok(!controls.source.includes('octave'), `percussion.${id}: controls still offer octave`);
+  }
+  // And no melodic voice grew the kit's controls by accident.
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    if (track === 'percussion') continue;
+    for (const id of Object.keys(patches)) {
+      const { defaults } = VOICES[track][id];
+      assert.equal(defaults.source.pitch, undefined, `${track}.${id}: took the kit's pitch field`);
+      assert.equal(defaults.source.noise, undefined, `${track}.${id}: took the kit's noise field`);
+      assert.ok('octave' in defaults.source, `${track}.${id}: lost its octave switch`);
+    }
+  }
+});
+
+/** The membrane oscillators of a percussion note, highest scheduled frequency. */
+function membraneTop(run) {
+  const oscs = run.graph.filter((n) => n.kind === 'oscillator');
+  assert.ok(oscs.length > 0, 'this note struck no membrane to measure');
+  return Math.max(...oscs.map((n) => n.frequency.max));
+}
+
+test('v18: source.pitch transposes a kit by semitones, to ±24 at the extremes', () => {
+  // 'low' is the one kind every kit strikes a membrane for, so it is the kind
+  // with an oscillator whose frequency the transposition can be read off.
+  for (const id of Object.keys(VOICES.percussion)) {
+    const note = percussionNote('low');
+    const base = withSeed(88, () => playAndCheck(`percussion.${id} pitch 0`, VOICES.percussion[id],
+      note, { patch: { source: { pitch: 0 } } }));
+    const reference = membraneTop(base);
+    for (const pitch of [-24, -12, -7, -0.5, 3.5, 12, 24]) {
+      const run = withSeed(88, () => playAndCheck(`percussion.${id} pitch ${pitch}`,
+        VOICES.percussion[id], note, { patch: { source: { pitch } } }));
+      const ratio = membraneTop(run) / reference;
+      assert.ok(Math.abs(ratio - Math.pow(2, pitch / 12)) < 1e-9,
+        `percussion.${id}: pitch ${pitch} moved the skin by ×${ratio.toFixed(6)}, `
+        + `not ×${Math.pow(2, pitch / 12).toFixed(6)}`);
+    }
+    // Beyond the ends the dial clamps rather than running away.
+    for (const [asked, capped] of [[99, 24], [-99, -24]]) {
+      const run = withSeed(88, () => playAndCheck(`percussion.${id} pitch ${asked}`,
+        VOICES.percussion[id], note, { patch: { source: { pitch: asked } } }));
+      assert.ok(Math.abs(membraneTop(run) / reference - Math.pow(2, capped / 12)) < 1e-9,
+        `percussion.${id}: pitch ${asked} was not clamped to ${capped}`);
+    }
+  }
+});
+
+test('v18: a legacy octave patch still tunes a kit, as pitch ×12', () => {
+  for (const id of Object.keys(VOICES.percussion)) {
+    for (const kind of PERCUSSION_KINDS) {
+      const note = percussionNote(kind);
+      for (const octave of [-2, -1, 1, 2]) {
+        const legacy = withSeed(88, () => playAndCheck(`percussion.${id} octave ${octave}`,
+          VOICES.percussion[id], note, { patch: { source: { octave } } }));
+        const semitones = withSeed(88, () => playAndCheck(`percussion.${id} pitch ${octave * 12}`,
+          VOICES.percussion[id], note, { patch: { source: { pitch: octave * 12 } } }));
+        assert.equal(renderHash(legacy), renderHash(semitones),
+          `percussion.${id}/${kind}: a stored octave ${octave} no longer renders as ${octave * 12} semitones`);
+      }
+      // An explicit pitch wins over a legacy octave sitting beside it.
+      const both = withSeed(88, () => playAndCheck(`percussion.${id} both`, VOICES.percussion[id],
+        note, { patch: { source: { octave: -2, pitch: 5 } } }));
+      const alone = withSeed(88, () => playAndCheck(`percussion.${id} pitch 5`,
+        VOICES.percussion[id], note, { patch: { source: { pitch: 5 } } }));
+      assert.equal(renderHash(both), renderHash(alone),
+        `percussion.${id}/${kind}: a legacy octave overrode an explicit pitch`);
+    }
+  }
+});
+
+test('v18: source.noise silences the noise layers and leaves the membrane sounding', () => {
+  for (const id of Object.keys(VOICES.percussion)) {
+    const note = percussionNote('low');
+    const full = withSeed(88, () => playAndCheck(`percussion.${id} noise 1`, VOICES.percussion[id],
+      note, { patch: { source: { noise: 1 } } }));
+    const silent = withSeed(88, () => playAndCheck(`percussion.${id} noise 0`, VOICES.percussion[id],
+      note, { patch: { source: { noise: 0 } } }));
+    const noiseSources = (run) => run.graph.filter((n) => n.kind === 'bufferSource').length;
+    assert.ok(noiseSources(full) >= 1, `percussion.${id}: 'low' has no noise layer to silence`);
+    assert.equal(noiseSources(silent), 0,
+      `percussion.${id}: noise 0 still scheduled a noise source`);
+    // The drum itself is untouched: same oscillators, same frequencies, same
+    // level — only the noise went away.
+    assert.equal(membraneTop(silent), membraneTop(full),
+      `percussion.${id}: silencing the noise moved the membrane`);
+    assert.equal(silent.graph.filter((n) => n.kind === 'oscillator').length,
+      full.graph.filter((n) => n.kind === 'oscillator').length,
+      `percussion.${id}: silencing the noise cost the drum an oscillator`);
+    assert.ok(silent.sum > 0, `percussion.${id}: noise 0 silenced the whole drum`);
+    // And in between, the layer scales rather than switching.
+    const half = withSeed(88, () => playAndCheck(`percussion.${id} noise 0.5`,
+      VOICES.percussion[id], note, { patch: { source: { noise: 0.5 } } }));
+    assert.equal(noiseSources(half), noiseSources(full),
+      `percussion.${id}: a half-noise kit dropped a layer`);
+    assert.ok(half.sum < full.sum && half.sum > silent.sum,
+      `percussion.${id}: noise 0.5 (${half.sum}) does not sit between 0 (${silent.sum}) `
+      + `and 1 (${full.sum})`);
+  }
+});
+
+/**
+ * Turned right down, a kind whose entire sound is noise has nothing left to
+ * play. That is the honest answer for a hat, but it must be a CLEAN silence:
+ * no source scheduled, no node left connected waiting for an ended callback
+ * that will never come.
+ */
+test('v18: noise 0 on a noise-only instrument is silent and tears down at once', () => {
+  const ctx = new MockAudioContext();
+  const destination = makeNode('gain');
+  for (const [id, kind] of [['soft', 'high'], ['tick', 'mid'], ['tick', 'high']]) {
+    created = [];
+    startedSources = [];
+    const where = `percussion.${id}/${kind}`;
+    const handle = VOICES.percussion[id].play(ctx, destination, percussionNote(kind),
+      { source: { noise: 0 } });
+    assert.equal(startedSources.length, 0, `${where}: noise 0 still scheduled a source`);
+    assert.ok(handle && typeof handle.cancel === 'function', `${where}: no cancel() returned`);
+    const leaked = created.filter((n) => n !== destination && !n.disconnected);
+    assert.equal(leaked.length, 0,
+      `${where}: ${leaked.length} node(s) left connected with nothing to end them`);
+    handle.cancel();   // and cancelling a note that is already gone is harmless
+  }
+});
+
+test('v18: noise 1 is the kit as built — the dial only ever takes noise away', () => {
+  for (const id of Object.keys(VOICES.percussion)) {
+    for (const kind of PERCUSSION_KINDS) {
+      const note = percussionNote(kind);
+      const defaults = withSeed(88, () => playAndCheck(`percussion.${id} defaults`,
+        VOICES.percussion[id], note, { patch: VOICES.percussion[id].defaults }));
+      const asked = withSeed(88, () => playAndCheck(`percussion.${id} noise 1`,
+        VOICES.percussion[id], note, {
+          patch: { ...VOICES.percussion[id].defaults, source: { noise: 1 } },
+        }));
+      assert.equal(renderHash(asked), renderHash(defaults),
+        `percussion.${id}/${kind}: noise 1 is not the published default level`);
+    }
+  }
+});
+
+// --------------------------------------------------------------------------
+// v18 — engineType: the synthesis class the selector shows as "custom [engine]"
+// --------------------------------------------------------------------------
+
+const ENGINE_CLASSES = ['subtractive', 'fm', 'noise', 'physical', 'hybrid'];
+
+test('v18: every voice declares an engineType from the contract\'s five classes', () => {
+  let declared = 0;
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const { engineType } = VOICES[track][id];
+      assert.equal(typeof engineType, 'string', `${track}.${id}: engineType is not a string`);
+      assert.ok(ENGINE_CLASSES.includes(engineType),
+        `${track}.${id}: engineType ${JSON.stringify(engineType)} is not one of `
+        + ENGINE_CLASSES.join('|'));
+      declared += 1;
+    }
+  }
+  assert.equal(declared, 21, `${declared} voices carry an engineType, not 21`);
+});
+
 
 // --------------------------------------------------------------------------
 // v12 — mono/legato: retarget pathway (if wired) and safe fallback

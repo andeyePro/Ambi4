@@ -100,6 +100,7 @@ const VOICES: Record<string, [string, string][]> = {
     <div class="module-panel transport-module">
       <div class="transport-head">
         <span class="panel-label transport-label" aria-hidden="true">Transport</span>
+        <span class="panel-label processor-label" id="processor-label">Processor</span>
         <button
           type="button"
           id="tutorial-toggle"
@@ -212,15 +213,14 @@ const VOICES: Record<string, [string, string][]> = {
           </div>
         </div>
         <div class="processor-row">
-          <span class="panel-label processor-label">Processor</span>
           <div class="dial-slot dial-label-external" id="processor-dial"></div>
-          <span id="processor-readout" class="value-readout processor-readout"></span>
         </div>
       </div>
 
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
-        <span id="record-status" class="record-status" role="status" hidden></span>
+        <span id="record-status" class="record-status" role="status"></span>
+        <span id="processor-readout" class="value-readout processor-readout"></span>
       </div>
 
     </div>
@@ -228,6 +228,32 @@ const VOICES: Record<string, [string, string][]> = {
     <p id="ios-silent-hint" class="hint" hidden>
       iPhone/iPad: if you hear nothing, check the silent switch.
     </p>
+
+    <!-- v18: the oscilloscope and the piano roll are PERSISTENT — they sit
+         above the tab strip, at the piano roll's own full width, and only the
+         control surfaces below switch with Simple|Advanced. The module carries
+         no title: the twisty at its top right is the only chrome, and the word
+         "Oscilloscope" appears beside it just when the body is collapsed. -->
+    <div class="module-panel scope-module" id="front-scope-module" hidden>
+      <div class="scope-module-head">
+        <span id="front-scope-note" class="value-readout scope-note"></span>
+        <button
+          type="button"
+          id="front-scope-toggle"
+          class="scope-collapse"
+          aria-label="Oscilloscope"
+          aria-expanded="true"
+          aria-controls="front-scope-body"
+        >
+          <span class="scope-collapse-word" id="front-scope-word" aria-hidden="true" hidden>Oscilloscope</span>
+          <span class="scope-twisty" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div id="front-scope-body">
+        <canvas id="front-scope" class="front-scope" aria-label="Live oscilloscope of the selected tracks"></canvas>
+        <div id="front-scope-legend" class="scope-legend" role="group" aria-label="Tracks shown on the oscilloscope"></div>
+      </div>
+    </div>
 
     <canvas
       id="track-visualiser"
@@ -244,23 +270,6 @@ const VOICES: Record<string, [string, string][]> = {
     </div>
 
     <section id="panel-simple" role="tabpanel" aria-labelledby="tab-simple" tabindex="0">
-      <div class="module-panel scope-module" id="front-scope-module" hidden>
-        <div class="scope-module-head">
-          <button
-            type="button"
-            id="front-scope-toggle"
-            class="panel-label scope-collapse"
-            aria-expanded="true"
-            aria-controls="front-scope-body"
-          >Oscilloscope</button>
-          <span id="front-scope-note" class="value-readout scope-note"></span>
-        </div>
-        <div id="front-scope-body">
-          <canvas id="front-scope" class="front-scope" aria-label="Live oscilloscope of the selected tracks"></canvas>
-          <div id="front-scope-chips" class="scope-chips" role="group" aria-label="Tracks shown on the oscilloscope"></div>
-        </div>
-      </div>
-
       <div class="module-panel sliders-module">
         {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => (
           <div class="control simple-dial" id={`dial-${id}`}>
@@ -504,6 +513,17 @@ const VOICES: Record<string, [string, string][]> = {
     // build (every button ships visible on both tabs); adding e.g. 'record'
     // here is the whole change needed to demote a button to Advanced-only.
     const SIMPLE_HIDDEN = new Set([]);
+
+    // ---- pre-launch: paid features are hidden, not teased ------------------
+    // Nothing greyed, nothing captioned "coming soon" — an affordance the
+    // visitor cannot use is simply not rendered. Every code path behind these
+    // stays intact and dormant (MediaRecorder wiring, the sequencer's JS-editor
+    // entry), so launch is this one flag going false.
+    const PAID_FEATURES_HIDDEN = true;
+
+    // Hidden on BOTH tabs while PAID_FEATURES_HIDDEN — by data-transport id,
+    // the same handle SIMPLE_HIDDEN uses.
+    const HIDDEN_UNTIL_LAUNCH = new Set(['record']);
 
     // ---- v6 step sequencers (shared shape) ------------------------------
     // Steps-per-bar by metre; all 20 slots persist, the first N render/play.
@@ -1202,8 +1222,12 @@ const VOICES: Record<string, [string, string][]> = {
       }
 
       let createEngine;
+      // v18: the page probes the engine's own patch sanitiser for the fields
+      // it wants to offer dials for (percussion source.pitch / source.noise).
+      // Absent on an older engine build, hence the separate binding.
+      let sanitiseParams = null;
       try {
-        ({ createEngine } = await import('../scripts/ambient-engine.js'));
+        ({ createEngine, sanitiseParams } = await import('../scripts/ambient-engine.js'));
       } catch {
         unavailable.hidden = false;
         return;
@@ -1226,6 +1250,9 @@ const VOICES: Record<string, [string, string][]> = {
         getStats: typeof engine.getStats === 'function',
         setPowerBudget: typeof engine.setPowerBudget === 'function',
         swing: false,
+        patchPitch: false,
+        patchNoise: false,
+        patchNoiseRange: false,
         randomness: {},
         dissonance: {},
         vary: {},
@@ -1249,6 +1276,32 @@ const VOICES: Record<string, [string, string][]> = {
           engineCaps.level[id] = isNumberOrRange(entry.level);
         }
       } catch {}
+
+      // v18 patch-schema probe: percussion trades its 3-position Octave switch
+      // for a continuous Pitch dial and gains a Noise dial, but ONLY once the
+      // engine's PATCH_SCHEMA accepts those fields — a dial writing a key the
+      // sanitiser drops is a dial that does nothing. sanitiseParams is a pure
+      // function, so the probe runs a throwaway patch through the very code
+      // path a real edit would take (rather than trusting a version number),
+      // and asks the same question of the {min,max} form for rangeability.
+      function probePatchSource(source) {
+        if (typeof sanitiseParams !== 'function') return null;
+        try {
+          const probed = sanitiseParams({ patches: { percussion: { __probe: { source } } } });
+          const bank = probed && isPlainObject(probed.patches) ? probed.patches.percussion : null;
+          const patch = bank && isPlainObject(bank.__probe) ? bank.__probe : null;
+          return patch && isPlainObject(patch.source) ? patch.source : null;
+        } catch {
+          return null;
+        }
+      }
+      {
+        const plain = probePatchSource({ pitch: 7, noise: 0.5 }) || {};
+        const ranged = probePatchSource({ noise: { min: 0.2, max: 0.6 } }) || {};
+        engineCaps.patchPitch = typeof plain.pitch === 'number';
+        engineCaps.patchNoise = isNumberOrRange(plain.noise);
+        engineCaps.patchNoiseRange = isPlainObject(ranged.noise);
+      }
 
       const { prefs, consentPrompt } = await loadPrefsModule();
 
@@ -1423,10 +1476,14 @@ const VOICES: Record<string, [string, string][]> = {
 
       // v15: a transport control can be demoted to Advanced-only by adding
       // its data-transport id to SIMPLE_HIDDEN — nothing else changes.
+      // Pre-launch: HIDDEN_UNTIL_LAUNCH wins over both tabs.
       function applyTransportVisibility(tabName) {
         for (const el of document.querySelectorAll('[data-transport]')) {
           const owner = el.closest('.popover-anchor') || el;
-          owner.hidden = tabName === 'simple' && SIMPLE_HIDDEN.has(el.dataset.transport);
+          const id = el.dataset.transport;
+          owner.hidden =
+            (PAID_FEATURES_HIDDEN && HIDDEN_UNTIL_LAUNCH.has(id)) ||
+            (tabName === 'simple' && SIMPLE_HIDDEN.has(id));
         }
       }
 
@@ -1604,8 +1661,9 @@ const VOICES: Record<string, [string, string][]> = {
           if (active && focus) button.focus();
         });
         applyTransportVisibility(name);
-        // The front scope only draws while its panel is actually on screen.
-        updateFrontScope();
+        // v18: the scope and the piano roll sit above the tab strip and are
+        // never hidden by a tab change, so switching tabs no longer touches
+        // the trace at all.
         if (settings.ui.activeTab !== name) {
           settings.ui.activeTab = name;
           if (persist) persistSettings();
@@ -1735,6 +1793,14 @@ const VOICES: Record<string, [string, string][]> = {
         percussion: 'The kit. Soft kit is brushed and quiet, Hand drum is warm and tuned, Ticks is a dry pulse.',
       };
 
+      // ---- v18 voice-selector honesty ------------------------------------
+      // What each track is ACTUALLY sounding, from the engine's voice wander.
+      // Declared HERE, above every caller (the voices-module .then below can
+      // resolve during a later await in init) — a `let`/`const` further down
+      // would be a temporal-dead-zone crash, the shipped blank-page bug.
+      const soundingVoice = new Map();
+      const VOICE_LIVE_VALUE = '__live';
+
       for (const id of TRACK_IDS) {
         const voiceSelect = document.getElementById(`track-voice-${id}`);
         const lamp = document.getElementById(`track-lamp-${id}`);
@@ -1750,9 +1816,15 @@ const VOICES: Record<string, [string, string][]> = {
         }
 
         voiceSelect.addEventListener('change', () => {
+          // The dynamic "what you're hearing" option is display-only and
+          // disabled, so it can never be the user's pick — but a stray
+          // programmatic change event must not store it as a voice id.
+          if (voiceSelect.value === VOICE_LIVE_VALUE) return;
           settings.tracks[id].voice = voiceSelect.value;
           engine.setParams({ tracks: { [id]: { voice: voiceSelect.value } } });
           persistSettings();
+          soundingVoice.delete(id);
+          refreshVoiceSelect(id);
           const editor = document.getElementById(`voice-editor-${id}`);
           if (!editor.hidden) renderVoiceEditor(id);
         });
@@ -1761,14 +1833,28 @@ const VOICES: Record<string, [string, string][]> = {
       // ---- voice editors (v3 patch model, v5 module look) ---------------
 
       let voicesModulePromise = null;
+      // The resolved table, kept for the synchronous readers (the v18 voice
+      // selector needs .defaults / .engineType without awaiting anything).
+      let voicesTable = null;
       function getVoicesTable() {
         if (!voicesModulePromise) {
           voicesModulePromise = import('../scripts/engine-voices.js')
-            .then((m) => m.VOICES || null)
+            .then((m) => {
+              voicesTable = m.VOICES || null;
+              return voicesTable;
+            })
             .catch(() => null);
         }
         return voicesModulePromise;
       }
+
+      // The voice table carries the defaults and engineType the v18 selector
+      // needs; it lands asynchronously, so the labels are redrawn on arrival.
+      // Called BELOW getVoicesTable's own `let`s, not from the row-wiring loop
+      // above them — the same temporal-dead-zone trap as everything else here.
+      getVoicesTable().then(() => {
+        for (const id of TRACK_IDS) refreshVoiceSelect(id);
+      });
 
       function sendPatch(track, voiceId, patch) {
         engine.setParams({ patches: { [track]: { [voiceId]: structuredClone(patch) } } });
@@ -2758,14 +2844,21 @@ const VOICES: Record<string, [string, string][]> = {
         blockButton.setAttribute('aria-label', `Edit ${label}'s pattern as blocks`);
         blockButton.setAttribute('aria-expanded', 'false');
         blockButton.hidden = !BLOCKS_MODULE;
-        const codeButton = document.createElement('button');
-        codeButton.type = 'button';
-        codeButton.className = 'round-button seq-editor-button seq-code-button';
-        codeButton.textContent = '>_';
-        codeButton.disabled = true;
-        codeButton.setAttribute('aria-label', 'JS editor');
-        describe(codeButton, 'JS editor coming.');
-        editors.append(blockButton, codeButton);
+        editors.append(blockButton);
+        // The v13 JS-editor entry (>_) is a paid feature and is not built at
+        // all pre-launch — not greyed, not tooltipped. Flipping
+        // PAID_FEATURES_HIDDEN brings it back as a disabled affordance until
+        // the editor itself exists.
+        if (!PAID_FEATURES_HIDDEN) {
+          const codeButton = document.createElement('button');
+          codeButton.type = 'button';
+          codeButton.className = 'round-button seq-editor-button seq-code-button';
+          codeButton.textContent = '>_';
+          codeButton.disabled = true;
+          codeButton.setAttribute('aria-label', 'JS editor');
+          describe(codeButton, 'JS editor coming.');
+          editors.append(codeButton);
+        }
         head.append(titleBox, modeGroup, editors);
 
         // -- v14 multi-sequencer tab strip + per-sequencer weight -----------
@@ -3786,7 +3879,7 @@ const VOICES: Record<string, [string, string][]> = {
       // now ranges (mix, detune, filter cutoff/q/envAmount, ADSR ×4, both
       // sends) — it reads a RangeValue's midpoint for display and always
       // writes back a plain number, collapsing any existing {min,max}.
-      function buildSliderEditor(container, patch, commit, controls) {
+      function buildSliderEditor(container, patch, commit, controls, track = null) {
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -3839,7 +3932,13 @@ const VOICES: Record<string, [string, string][]> = {
             },
           });
         }
-        if (source && controlsFieldAllowed(sourceSpec, 'octave')) {
+        // v18: the same percussion Pitch/Noise swap the knob editor makes,
+        // gated on the same engine probe (see buildKnobEditor).
+        const pitchInPlaceOfOctave = track === 'percussion' && engineCaps.patchPitch;
+        const sourceEditable = (field) =>
+          controlsFieldAllowed(sourceSpec, field) || controlsFieldAllowed(sourceSpec, 'octave');
+
+        if (source && !pitchInPlaceOfOctave && controlsFieldAllowed(sourceSpec, 'octave')) {
           veSelect(source, 'Octave', {
             options: [
               ['-1', '-1'],
@@ -3849,6 +3948,38 @@ const VOICES: Record<string, [string, string][]> = {
             value: String(patch.source.octave),
             onChange: (v) => {
               patch.source.octave = parseInt(v, 10);
+              commit();
+            },
+          });
+        }
+        if (source && pitchInPlaceOfOctave && sourceEditable('pitch')) {
+          veRange(source, 'Pitch', {
+            min: -24,
+            max: 24,
+            step: 1,
+            value: clamp(
+              typeof patch.source.pitch === 'number'
+                ? patch.source.pitch
+                : (patch.source.octave || 0) * 12,
+              -24,
+              24
+            ),
+            format: (v) => (v > 0 ? `+${Math.round(v)} st` : `${Math.round(v)} st`),
+            onChange: (v) => {
+              patch.source.pitch = Math.round(clamp(v, -24, 24));
+              commit();
+            },
+          });
+        }
+        if (source && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
+          veRange(source, 'Noise', {
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: rangeMid(sanitiseRangeValueIn(patch.source.noise, 0, 1, defaults?.source?.noise ?? 1)),
+            format: pctFormat,
+            onChange: (v) => {
+              patch.source.noise = clamp(v, 0, 1);
               commit();
             },
           });
@@ -3996,7 +4127,7 @@ const VOICES: Record<string, [string, string][]> = {
        * `field` on a knob's options is the dotted patch path it edits
        * ('filter.cutoff'); it is consumed here, never passed to createKnob.
        */
-      function buildKnobEditor(container, patch, commit, knobs, controls, defaults, ghost = null) {
+      function buildKnobEditor(container, patch, commit, knobs, controls, defaults, ghost = null, track = null) {
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -4215,12 +4346,22 @@ const VOICES: Record<string, [string, string][]> = {
             },
           });
         }
+        // v18: percussion trades the 3-position Octave switch for a continuous
+        // Pitch dial (±24 semitones) and gains a Noise dial — but only where
+        // the engine's own PATCH_SCHEMA accepts those fields (probed at boot).
+        // Without engine support the Octave switch stays exactly as it was.
+        const pitchInPlaceOfOctave = track === 'percussion' && engineCaps.patchPitch;
+        // The voice's `controls` may not name the new fields yet: a percussion
+        // voice that lets you edit Octave is letting you edit the same thing.
+        const sourceEditable = (field) =>
+          allowed(sourceSpec, field) || allowed(sourceSpec, 'octave');
+
         // v12: octave ships ±1, not the addendum's sketched ±2 — both the
         // engine sanitiser (patchNumber(v, -1, 1)) and every voice's own
         // OCTAVES = [-1, 0, 1] (engine-voices.js) clamp there; a ±2 dial
         // would silently round-trip through Math.round(clamp(v,-1,1)) and
         // never actually reach ±2.
-        if (source && allowed(sourceSpec, 'octave')) {
+        if (source && !pitchInPlaceOfOctave && allowed(sourceSpec, 'octave')) {
           addKnob(source, {
             label: 'Octave',
             field: 'source.octave',
@@ -4233,6 +4374,53 @@ const VOICES: Record<string, [string, string][]> = {
             defaultValue: defaults.source.octave,
             onInput: (v) => {
               patch.source.octave = Math.round(clamp(v, -1, 1));
+              commit();
+            },
+          });
+        }
+
+        if (source && pitchInPlaceOfOctave && sourceEditable('pitch')) {
+          const semitones = (v) => {
+            const n = Math.round(v);
+            return n > 0 ? `+${n} st` : `${n} st`;
+          };
+          addKnob(source, {
+            label: 'Pitch',
+            field: 'source.pitch',
+            min: -24,
+            max: 24,
+            step: 1,
+            // An older stored patch carries the octave switch instead; ×12
+            // reads it in the new dial's units so nothing jumps on upgrade.
+            value: clamp(
+              typeof patch.source.pitch === 'number'
+                ? patch.source.pitch
+                : (patch.source.octave || 0) * 12,
+              -24,
+              24
+            ),
+            marks: [-24, -12, 0, 12, 24],
+            format: semitones,
+            defaultValue: defaults.source.pitch ?? (defaults.source.octave || 0) * 12,
+            onInput: (v) => {
+              patch.source.pitch = Math.round(clamp(v, -24, 24));
+              commit();
+            },
+          });
+        }
+
+        if (source && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
+          addKnob(source, {
+            label: 'Noise',
+            field: 'source.noise',
+            min: 0,
+            max: 1,
+            value: sanitiseRangeValueIn(patch.source.noise, 0, 1, defaults.source.noise ?? 0.5),
+            format: pctFormat,
+            allowRange: engineCaps.patchNoiseRange,
+            ...(defaults.source.noise != null ? { defaultValue: defaults.source.noise } : {}),
+            onInput: (v) => {
+              patch.source.noise = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
             },
           });
@@ -4508,6 +4696,8 @@ const VOICES: Record<string, [string, string][]> = {
           sendPatch(track, voiceId, patch);
           scheduleScopeRender(track);
           persistSettings();
+          // The row's selector reads "Custom (…)" from this comparison.
+          refreshVoiceSelect(track);
         }
 
         function commit() {
@@ -4668,7 +4858,7 @@ const VOICES: Record<string, [string, string][]> = {
           let knobsBuilt = false;
           if (knobApi) {
             try {
-              buildKnobEditor(patchBox, editView, commit, patchKnobs, controls, base, ghost);
+              buildKnobEditor(patchBox, editView, commit, patchKnobs, controls, base, ghost, track);
               knobsBuilt = true;
             } catch {
               for (const knob of patchKnobs) {
@@ -4683,7 +4873,7 @@ const VOICES: Record<string, [string, string][]> = {
           // Slider fallback: no knob.js, so no ghost pointers either — the
           // instrument tabs still edit the override, just without the
           // "common" read-out.
-          if (!knobsBuilt) buildSliderEditor(patchBox, editView, commit, controls);
+          if (!knobsBuilt) buildSliderEditor(patchBox, editView, commit, controls, track);
           ed.knobs.push(...patchKnobs);
           if (resetButton) resetButton.textContent = resetLabel();
         }
@@ -4722,6 +4912,7 @@ const VOICES: Record<string, [string, string][]> = {
           // the defaults are known, send them explicitly for robustness.
           sendPatch(track, voiceId, defaults ? structuredClone(defaults) : {});
           persistSettings();
+          refreshVoiceSelect(track);
           renderVoiceEditor(track);
         });
 
@@ -4988,26 +5179,42 @@ const VOICES: Record<string, [string, string][]> = {
         setProcessorTier(settings.ui.processor);
       } else {
         document.querySelector('.processor-row')?.remove();
+        // The dial's title lives in the transport panel's header row now, so
+        // it has to go with it or the header names a control that isn't there.
+        document.getElementById('processor-label')?.remove();
+        document.getElementById('processor-readout')?.remove();
       }
 
-      // ---- v13 front-page oscilloscope (Simple tab) -----------------------
-      // One canvas, one coloured trace per selected track, under the piano
-      // roll. scope.js owns the drawing, the colours (--track-<id> read off
-      // the canvas), the analyser re-fetch and the fps/IntersectionObserver
+      // ---- v13/v18 front-page oscilloscope (above the tabs) ---------------
+      // One canvas, one coloured trace per selected track, between the
+      // transport strip and the piano roll and persistent across both tabs.
+      // scope.js owns the drawing, the colours (--track-<id> read off the
+      // canvas), the analyser re-fetch and the fps/IntersectionObserver
       // gating; this block owns WHICH tracks are traced and whether the trace
-      // may run at all (governor budget, collapsed panel, other tab, engine
-      // stopped), plus the persisted panel state.
+      // may run at all (governor budget, collapsed panel, engine stopped),
+      // plus the persisted panel state.
       //
       // attachMultiScope(canvas, engine, { tracks }) is feature-detected — the
       // page can deploy ahead of the scope.js that exports it, and then the
       // whole module stays hidden rather than showing a dead canvas. So is
       // setTracks(ids): without it, a selection change re-attaches instead.
+      //
+      // v18 legend: scope.js may own it (opts.legendContainer + the
+      // onSelectionChange callback). That is detected by RESULT, not by
+      // version — the opts go in on every attach, and if the container comes
+      // back empty this block renders its own legend with the same markup,
+      // colours and click/double-click gestures. The legend is also the
+      // control surface while the trace is detached (stopped, collapsed,
+      // budget-paused, or nothing selected), which is exactly when scope.js
+      // is not there to draw it, so the fallback is a live path rather than
+      // an old-build contingency.
       {
         const scopeModule = document.getElementById('front-scope-module');
         const scopeCanvas = document.getElementById('front-scope');
         const scopeBody = document.getElementById('front-scope-body');
-        const scopeChips = document.getElementById('front-scope-chips');
+        const scopeLegend = document.getElementById('front-scope-legend');
         const scopeToggle = document.getElementById('front-scope-toggle');
+        const scopeWord = document.getElementById('front-scope-word');
         const scopeNote = document.getElementById('front-scope-note');
         const available =
           !!scopeModule &&
@@ -5019,15 +5226,32 @@ const VOICES: Record<string, [string, string][]> = {
           if (scopeModule) scopeModule.hidden = true;
         } else {
           scopeModule.hidden = false;
-          const chipButtons = new Map();
           let handle = null;
           let attachedKey = '';
+          // Set while a legend gesture is being applied, so the persist +
+          // re-render it triggers can never be mistaken for a fresh gesture.
+          let applyingSelection = false;
+          const LEGEND_CLICK_DELAY_MS = 250;
+          let pendingClickTimer = null;
+          let pendingClickId = null;
 
           const selectedTracks = () => {
             const stored = settings.ui.scopeTracks;
             if (Array.isArray(stored)) return TRACK_IDS.filter((id) => stored.includes(id));
             // The live default: every track that isn't switched off.
             return TRACK_IDS.filter((id) => settings.tracks[id].state !== 'off');
+          };
+
+          const applySelection = (ids) => {
+            if (applyingSelection) return;
+            applyingSelection = true;
+            try {
+              settings.ui.scopeTracks = TRACK_IDS.filter((id) => ids.includes(id));
+              persistSettings();
+              updateFrontScope();
+            } finally {
+              applyingSelection = false;
+            }
           };
 
           const detach = () => {
@@ -5039,44 +5263,98 @@ const VOICES: Record<string, [string, string][]> = {
             attachedKey = '';
           };
 
-          for (const id of TRACK_IDS) {
-            const chip = document.createElement('button');
-            chip.type = 'button';
-            chip.className = `scope-chip track-color-${id}`;
-            chip.textContent = TRACK_LABELS[id];
-            chip.setAttribute('aria-pressed', 'true');
-            chip.addEventListener('click', () => {
-              const current = selectedTracks();
-              const next = current.includes(id)
-                ? current.filter((t) => t !== id)
-                : TRACK_IDS.filter((t) => t === id || current.includes(t));
-              settings.ui.scopeTracks = next;
-              persistSettings();
-              updateFrontScope();
-            });
-            describe(chip, `Show ${TRACK_LABELS[id]} on the oscilloscope.`);
-            chipButtons.set(id, chip);
-            scopeChips.append(chip);
+          // -- the page's own legend (scope.js's is preferred; see above) --
+          const legendButtons = new Map();
+
+          const clearPendingClick = () => {
+            if (pendingClickTimer !== null) clearTimeout(pendingClickTimer);
+            pendingClickTimer = null;
+            pendingClickId = null;
+          };
+
+          const toggleTrack = (id) => {
+            const current = selectedTracks();
+            applySelection(current.includes(id) ? current.filter((t) => t !== id) : [...current, id]);
+          };
+
+          function buildPageLegend() {
+            clearPendingClick();
+            legendButtons.clear();
+            scopeLegend.textContent = '';
+            for (const id of TRACK_IDS) {
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = `scope-legend-track track-color-${id}`;
+              const dot = document.createElement('span');
+              dot.className = 'scope-legend-dot';
+              dot.setAttribute('aria-hidden', 'true');
+              const label = document.createElement('span');
+              label.className = 'scope-legend-label';
+              label.textContent = TRACK_LABELS[id];
+              button.append(dot, label);
+              // A single click toggles, a double click solos: the toggle waits
+              // out the double-click window so a solo never flickers through
+              // an off state first.
+              button.addEventListener('click', () => {
+                if (pendingClickTimer !== null && pendingClickId === id) {
+                  clearPendingClick();
+                  return;
+                }
+                clearPendingClick();
+                pendingClickId = id;
+                pendingClickTimer = setTimeout(() => {
+                  pendingClickTimer = null;
+                  pendingClickId = null;
+                  toggleTrack(id);
+                }, LEGEND_CLICK_DELAY_MS);
+              });
+              button.addEventListener('dblclick', () => {
+                clearPendingClick();
+                applySelection([id]);
+              });
+              describe(button, `Show ${TRACK_LABELS[id]} on the oscilloscope. Double-click to solo it.`);
+              legendButtons.set(id, button);
+              scopeLegend.append(button);
+            }
           }
+
+          const syncPageLegend = (ids) => {
+            for (const [id, button] of legendButtons) {
+              button.setAttribute('aria-pressed', String(ids.includes(id)));
+            }
+          };
+
+          /** scope.js empties the container on destroy, so this re-checks every pass. */
+          const ensureLegend = (ids) => {
+            if (scopeLegend.querySelector('.scope-legend-track:not([data-page-legend])')) {
+              // scope.js's own legend is in place and syncs itself.
+              legendButtons.clear();
+              return;
+            }
+            if (!legendButtons.size || !scopeLegend.firstElementChild) {
+              buildPageLegend();
+              for (const button of legendButtons.values()) button.dataset.pageLegend = '';
+            }
+            syncPageLegend(ids);
+          };
 
           scopeToggle.addEventListener('click', () => {
             settings.ui.scopeOpen = !settings.ui.scopeOpen;
             persistSettings();
             updateFrontScope();
           });
+          describe(scopeToggle, 'Show or hide the oscilloscope.');
 
           updateFrontScope = function updateFrontScopeImpl() {
             const open = settings.ui.scopeOpen !== false;
             scopeBody.hidden = !open;
             scopeToggle.setAttribute('aria-expanded', String(open));
+            // Collapsed is the one state that shows the module's name.
+            if (scopeWord) scopeWord.hidden = open;
             const ids = selectedTracks();
-            for (const [id, chip] of chipButtons) {
-              chip.setAttribute('aria-pressed', String(ids.includes(id)));
-            }
 
             const allowed = powerBudget ? powerBudget.scopeEnabled !== false : true;
-            const onScreen = open && !tabPanels.simple.hidden;
-            if (!allowed || !onScreen || !ids.length || !engine.running) {
+            if (!allowed || !open || !ids.length || !engine.running) {
               detach();
               scopeNote.textContent = !allowed
                 ? 'paused — Processor tier'
@@ -5085,16 +5363,21 @@ const VOICES: Record<string, [string, string][]> = {
                   : engine.running
                     ? ''
                     : 'press Play';
+              ensureLegend(ids);
               return;
             }
             scopeNote.textContent = '';
 
             const key = ids.join(',');
-            if (handle && key === attachedKey) return;
+            if (handle && key === attachedKey) {
+              ensureLegend(ids);
+              return;
+            }
             if (handle && typeof handle.setTracks === 'function') {
               try {
                 handle.setTracks(ids);
                 attachedKey = key;
+                ensureLegend(ids);
                 return;
               } catch {
                 // fall through to a clean re-attach
@@ -5102,12 +5385,19 @@ const VOICES: Record<string, [string, string][]> = {
             }
             detach();
             try {
-              handle = scopeApi.attachMultiScope(scopeCanvas, engine, { tracks: ids });
+              handle = scopeApi.attachMultiScope(scopeCanvas, engine, {
+                tracks: ids,
+                legendContainer: scopeLegend,
+                onSelectionChange: (next) => {
+                  if (Array.isArray(next)) applySelection(next);
+                },
+              });
             } catch {
               handle = null;
             }
             if (handle) attachedKey = key;
             else scopeNote.textContent = 'unavailable';
+            ensureLegend(ids);
           };
         }
       }
@@ -5212,10 +5502,18 @@ const VOICES: Record<string, [string, string][]> = {
           bits.push(entry.held ? 'held' : `random ${pctFormat(entry.randomness ?? 0)}`);
           readout.textContent = bits.join(' · ');
         }
-        // The editor follows the SOUNDING voice: the row's <select> keeps
-        // showing the user's choice (wander is ephemeral, per the contract),
-        // the editor header says what is actually sounding, and the dial set
-        // re-renders when that changes.
+        // v18: the row's <select> follows the SOUNDING voice too (through its
+        // display-only first option — the stored choice is never overwritten).
+        // Only a CHANGE redraws it: this runs at 4 Hz.
+        for (const id of TRACK_IDS) {
+          const entry = tracks ? tracks[id] : null;
+          const voice = entry && typeof entry.voice === 'string' ? entry.voice : null;
+          if (!voice || soundingVoice.get(id) === voice) continue;
+          soundingVoice.set(id, voice);
+          refreshVoiceSelect(id);
+        }
+        // The editor follows the SOUNDING voice as well: its header says what
+        // is actually sounding, and the dial set re-renders when that changes.
         // Snapshot the entries: a wander re-render replaces this track's
         // openEditors entry mid-loop, which a live Map iteration would trip
         // over.
@@ -5249,6 +5547,78 @@ const VOICES: Record<string, [string, string][]> = {
       function voiceLabel(track, voiceId) {
         const found = VOICE_LABELS[track]?.[voiceId];
         return found || voiceId;
+      }
+
+      /** A voice's synthesis class, when engine-voices exports one (v18). */
+      function voiceEngineType(track, voiceId) {
+        const entry = voicesTable?.[track]?.[voiceId];
+        const type = entry && typeof entry.engineType === 'string' ? entry.engineType.trim() : '';
+        return type ? type[0].toUpperCase() + type.slice(1) : null;
+      }
+
+      /** Shape-normalised copy, so an osc1/shape1 spelling never reads as an edit. */
+      function normalisedPatch(patch) {
+        const copy = structuredClone(patch);
+        if (!isPlainObject(copy.source)) copy.source = {};
+        writeShape(copy.source, 1, readShape(copy.source, 1) ?? 0);
+        writeShape(copy.source, 2, readShape(copy.source, 2));
+        return copy;
+      }
+
+      /** Does the stored patch for this voice differ from the voice's own defaults? */
+      function patchIsEdited(track, voiceId) {
+        const stored = (settings.patches[track] || {})[voiceId];
+        if (!isPlainObject(stored)) return false;
+        const entry = voicesTable?.[track]?.[voiceId];
+        const base = normalisedPatch(deepMerge(FALLBACK_PATCH, (entry && entry.defaults) || {}));
+        const live = normalisedPatch(deepMerge(base, stored));
+        if (isPlainObject(live.perKind) && Object.keys(live.perKind).length) return true;
+        for (const section of PATCH_SECTIONS) {
+          const from = isPlainObject(base[section]) ? base[section] : {};
+          const to = isPlainObject(live[section]) ? live[section] : {};
+          for (const field of new Set([...Object.keys(from), ...Object.keys(to)])) {
+            if (JSON.stringify(from[field]) !== JSON.stringify(to[field])) return true;
+          }
+        }
+        return false;
+      }
+
+      /**
+       * v18: the row's <select> shows what you are HEARING — the sounding
+       * voice once wander has moved it, and "Custom (Subtractive)" when that
+       * voice's patch has been edited away from its defaults. Both are a
+       * dynamic, disabled first option: settings.tracks[t].voice keeps the
+       * user's own selection untouched whatever the engine is doing, and the
+       * option disappears again the moment the two agree. Called on wander
+       * (applyResolved) and on every patch commit, never on a timer.
+       */
+      function refreshVoiceSelect(track) {
+        const select = document.getElementById(`track-voice-${track}`);
+        if (!select) return;
+        const chosen = settings.tracks[track].voice;
+        const sounding = soundingVoice.get(track) || chosen;
+        const edited = patchIsEdited(track, sounding);
+        let live = select.querySelector('.voice-live-option');
+        if (!edited && sounding === chosen) {
+          if (live) live.remove();
+          select.value = chosen;
+          return;
+        }
+        if (!live) {
+          live = document.createElement('option');
+          live.className = 'voice-live-option';
+          live.value = VOICE_LIVE_VALUE;
+          live.disabled = true;
+          select.prepend(live);
+        }
+        const engineType = edited ? voiceEngineType(track, sounding) : null;
+        const text = edited
+          ? engineType
+            ? `Custom (${engineType})`
+            : 'Custom'
+          : voiceLabel(track, sounding);
+        if (live.textContent !== text) live.textContent = text;
+        live.selected = true;
       }
 
       // ---- structure + custom structure builder -------------------------
@@ -5548,14 +5918,13 @@ const VOICES: Record<string, [string, string][]> = {
       let recordStartedAt = 0;
       let recordTimer = null;
 
+      // v18 hardware-panel rule: the elapsed time swaps INSIDE a box that is
+      // always there (see .record-status) — hiding the element would let the
+      // status line re-flow every time recording starts and stops.
       function updateRecordStatus() {
-        if (!recorder) {
-          recordStatus.hidden = true;
-          recordStatus.textContent = '';
-          return;
-        }
-        recordStatus.hidden = false;
-        recordStatus.textContent = `Recording ${formatCountdown(Date.now() - recordStartedAt)}`;
+        recordStatus.textContent = recorder
+          ? `Recording ${formatCountdown(Date.now() - recordStartedAt)}`
+          : '';
       }
 
       function stopRecording() {
@@ -5613,18 +5982,24 @@ const VOICES: Record<string, [string, string][]> = {
       }
 
       recordButton.disabled = true;
-      describe(
-        recordButton,
-        canRecord
-          ? 'Records the mix to a .webm file on this device. Needs the engine to publish its output stream — arriving with the next engine update.'
-          : 'This browser has no MediaRecorder, so recording is unavailable here.'
-      );
-      if (canRecord) {
-        recordButton.addEventListener('click', () => {
-          if (recorder) stopRecording();
-          else startRecording();
-        });
-        refreshRecordAvailability();
+      // Pre-launch the button is hidden outright (applyTransportVisibility), so
+      // it gets no tooltip either — a description node beside a control nobody
+      // can use still reaches a screen reader, which is the same tease. The
+      // whole MediaRecorder path above stays live for the flag going false.
+      if (!PAID_FEATURES_HIDDEN) {
+        describe(
+          recordButton,
+          canRecord
+            ? 'Records the mix to a .webm file on this device. Needs the engine to publish its output stream — arriving with the next engine update.'
+            : 'This browser has no MediaRecorder, so recording is unavailable here.'
+        );
+        if (canRecord) {
+          recordButton.addEventListener('click', () => {
+            if (recorder) stopRecording();
+            else startRecording();
+          });
+          refreshRecordAvailability();
+        }
       }
 
       if (typeof engine.on === 'function') {
@@ -6311,6 +6686,10 @@ const VOICES: Record<string, [string, string][]> = {
         syncAllTrackExtras();
         for (const id of TRACK_IDS) {
           document.getElementById(`track-voice-${id}`).value = settings.tracks[id].voice;
+          // A loaded preset brings its own patches, so the "Custom (…)"
+          // display has to be recomputed, not just the stored selection.
+          soundingVoice.delete(id);
+          refreshVoiceSelect(id);
           levelControls.get(id)?.set(settings.tracks[id].level);
           const editor = document.getElementById(`voice-editor-${id}`);
           if (!editor.hidden) renderVoiceEditor(id);
@@ -6366,6 +6745,44 @@ const VOICES: Record<string, [string, string][]> = {
 
     #generator-app {
       max-width: 640px;
+
+      /* -- v18 dial alignment contract --------------------------------------
+         Every dial on the page is the same three stacked zones, in this order
+         and at these fixed heights, so faces line up on one baseline in ANY
+         row and the text under them can never push a face up or down:
+
+           face  — the knob's own square SVG, exactly --knob-size tall
+           label — its name (knob.js's .knob-label)
+           value — its read-out (.knob-value), tall enough for the wave glyph
+
+         The zones are fixed HEIGHTS with visible overflow rather than min-
+         heights: a long read-out ("2.0 kHz–8.0 kHz") bleeds into the gutter
+         instead of wrapping the box taller and dragging its neighbours out of
+         line. Nothing is reserved ABOVE a face — the end-marks and the centre
+         mark hang below the read-out (.dial-ends / .dial-mid), which is what
+         let the old `.simple-dial { padding-top }` compensation hack go. */
+      --dial-label-h: 15px;
+      --dial-value-h: 20px;
+      --dial-ends-h: 15px;
+    }
+
+    .knob > svg {
+      height: var(--knob-size, 72px);
+    }
+
+    .knob-label {
+      height: var(--dial-label-h);
+      line-height: var(--dial-label-h);
+      white-space: nowrap;
+      overflow: visible;
+    }
+
+    .knob-value {
+      display: block;
+      height: var(--dial-value-h);
+      line-height: var(--dial-value-h);
+      white-space: nowrap;
+      overflow: visible;
     }
 
     /* -- 70s module furniture (theme owns the .module-panel appearance /
@@ -6384,18 +6801,22 @@ const VOICES: Record<string, [string, string][]> = {
       margin-bottom: 0;
     }
 
+    /* Pushes the right-hand group (PROCESSOR + the `?`) to the far end, and
+       keeps doing so if the Processor title is removed with its dial. */
     .transport-label {
       display: block;
-      margin-bottom: 8px;
+      margin-right: auto;
     }
 
     /* -- v15 transport strip: [▶ Play/Finish] [■ Stop] [● Record] ... and,
           far right, the sleep + schedule icons stacked at half height -- */
 
+    /* v18: TRANSPORT and PROCESSOR are one header row — both engraved titles
+       on a single baseline, the panel's `?` last. The Processor title sits at
+       the right end, over the dial it names. */
     .transport-head {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      align-items: baseline;
       gap: 8px;
       margin-bottom: 8px;
     }
@@ -6404,8 +6825,10 @@ const VOICES: Record<string, [string, string][]> = {
        Processor dial all live on the same line. `wrap` is the narrow-screen
        escape hatch — at ~360 px the dial drops to a second line rather than
        squashing the buttons. `center` (not `stretch`) keeps the buttons at
-       their own height now that the tallest item in the row is a dial with a
-       caption above and a read-out below it. */
+       their own height now that the tallest item in the row is a dial. Every
+       item in it is a FIXED size: the processor's status text (whose length
+       changes as the tier and the note count change) lives in the row BELOW,
+       where it cannot resize the transport buttons. */
     .transport-main {
       display: flex;
       align-items: center;
@@ -6422,9 +6845,14 @@ const VOICES: Record<string, [string, string][]> = {
       gap: 8px;
     }
 
+    /* v18 hardware-panel rule: the key is sized to its WIDEST caption
+       ("Finishing…"), so Play → Finish → Finishing… only ever swaps text
+       inside a box that never changes size. Reserving it in `ch` (the label
+       span, not the button) keeps the reservation honest when the font
+       stack, the letter-spacing or the caption changes. */
     .play-toggle {
       display: inline-flex;
-      flex: 2 1 160px;
+      flex: 2 1 200px;
       align-items: center;
       justify-content: center;
       gap: 10px;
@@ -6439,6 +6867,13 @@ const VOICES: Record<string, [string, string][]> = {
       cursor: pointer;
     }
 
+    .play-toggle-label {
+      display: inline-block;
+      min-width: 11ch;
+      text-align: center;
+    }
+
+    /* Both glyphs are the same 18px box, so swapping ▶ for 𝄂 moves nothing. */
     .transport-glyph {
       display: inline-flex;
       align-items: center;
@@ -6493,7 +6928,12 @@ const VOICES: Record<string, [string, string][]> = {
       box-shadow: inset 0 0 0 1px #c8302f;
     }
 
+    /* Reserved box: present (and empty) while idle, so "Recording 0:07"
+       appearing never re-flows the line it shares. */
     .record-status {
+      flex: 0 0 auto;
+      min-width: 15ch;
+      text-align: right;
       color: #c8302f;
       font-size: 14px;
       font-weight: 600;
@@ -6540,11 +6980,17 @@ const VOICES: Record<string, [string, string][]> = {
       cursor: wait;
     }
 
+    /* The status line under the transport row. Two visual lines in one box:
+       transport status and record elapsed on the first, the processor's own
+       status on a full-width second line. Both lines reserve their height
+       whether or not they have anything to say, so text arriving or leaving
+       can never move a control above them. */
     .transport-row {
       display: flex;
+      flex-wrap: wrap;
       align-items: baseline;
       justify-content: space-between;
-      gap: 12px;
+      gap: 4px 12px;
       min-height: 22px;
       margin-bottom: 12px;
     }
@@ -6552,6 +6998,15 @@ const VOICES: Record<string, [string, string][]> = {
     .timer-status {
       color: var(--secondary);
       font-size: 14px;
+    }
+
+    /* Takes the slack on the status line so the record box beside it keeps
+       its reserved width. It is the one element allowed to grow to a second
+       line — a warning ("Audio didn't start…") must not be truncated — and it
+       sits below every control in the panel, so nothing above it can move. */
+    .transport-row .timer-status {
+      flex: 1 1 auto;
+      min-width: 0;
     }
 
     .link-button {
@@ -6762,25 +7217,35 @@ const VOICES: Record<string, [string, string][]> = {
       pointer-events: none;
     }
 
+    /* v18: the scale marks are ONE caption line under the whole dial — low
+       left, centre mark in the middle, high right — clear of the name and the
+       read-out above them. The line is absolutely positioned (so an unequal
+       mark set can't shift a face) and the space it needs is reserved in flow
+       by the slot's own padding-bottom, so it never overlaps what follows. */
     .dial-knob .dial-slot {
       position: relative;
+      /* the caption line's own height plus the 4px it hangs below the read-out */
+      padding-bottom: calc(var(--dial-ends-h) + 4px);
     }
 
     .dial-knob .dial-ends {
       position: absolute;
       left: 50%;
-      top: calc(var(--knob-size, 96px) + 4px);
+      top: calc(
+        var(--knob-size, 96px) + var(--dial-label-h) + var(--dial-value-h) + 4px
+      );
       width: calc(var(--knob-size, 96px) + 52px);
+      height: var(--dial-ends-h);
       transform: translateX(-50%);
     }
 
-    /* Centre mark ("Evolving") sits at the top of the sweep — 50% on a 270°
-       dial is straight up, so it belongs above the face, not in the ends row
-       (whose bottom-centre is the dial's dead zone). */
     .dial-knob .dial-mid {
       position: absolute;
-      top: -4px;
       left: 50%;
+      top: calc(
+        var(--knob-size, 96px) + var(--dial-label-h) + var(--dial-value-h) + 4px
+      );
+      height: var(--dial-ends-h);
       transform: translateX(-50%);
       color: var(--secondary);
       font-size: 11px;
@@ -6813,6 +7278,7 @@ const VOICES: Record<string, [string, string][]> = {
       display: flex;
       flex-wrap: wrap;
       justify-content: space-around;
+      align-items: flex-start;
       gap: 24px 16px;
     }
 
@@ -6820,7 +7286,6 @@ const VOICES: Record<string, [string, string][]> = {
       flex: 1 1 130px;
       max-width: 220px;
       margin-bottom: 0;
-      padding-top: 20px; /* headroom for the centre mark ("Evolving") */
       --knob-size: 96px;
     }
 
@@ -6831,14 +7296,13 @@ const VOICES: Record<string, [string, string][]> = {
 
     /* -- processor dial (transport panel) -- */
 
-    /* Title above the dial, status below it — the same "one visible label,
-       named once" rule every other dial follows. */
+    /* v18: the title is up in the panel header (one baseline with TRANSPORT)
+       and the status text is down in the transport status row, so what sits
+       in the button row is the dial and nothing else — a fixed-size item. */
     .processor-row {
       display: flex;
       flex: 0 0 auto;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
+      justify-content: center;
       --knob-size: 56px;
     }
 
@@ -6846,11 +7310,16 @@ const VOICES: Record<string, [string, string][]> = {
       display: block;
     }
 
+    /* Its own full-width line at the foot of the transport panel, right
+       aligned under the dial's column, with its height always reserved: the
+       tier/notes/fps text changes length constantly and must never be able to
+       resize or re-flow the button row above it. */
     .processor-readout {
-      max-width: 150px;
+      flex: 1 0 100%;
+      min-height: 14px;
       font-size: 10px;
       line-height: 1.3;
-      text-align: center;
+      text-align: right;
       color: var(--secondary);
     }
 
@@ -7072,6 +7541,19 @@ const VOICES: Record<string, [string, string][]> = {
       gap: 12px;
     }
 
+    /* v18: every dial that belongs to a track — the row's Level/Randomness
+       and everything in its editor — wears that track's colour on its ring,
+       so which track you are adjusting is glanceable from the dial alone.
+       Only the ring is re-tinted: the pointer keeps the brass token, because
+       the track colours are contrast-checked against --panel/--bg (where the
+       ring is drawn) and NOT against the dark --knob-face the pointer crosses.
+       Dials that belong to no track (the four main dials, Processor) are left
+       on the theme's brass default. */
+    .track-row,
+    .voice-editor {
+      --knob-ring: var(--track-accent, var(--knob-ring-default));
+    }
+
     /* v14: ONE line per track — lamp+name, voice, Level, Randomness, Edit —
        with the track's own colour as a left accent bar. */
     .track-row {
@@ -7105,10 +7587,14 @@ const VOICES: Record<string, [string, string][]> = {
     }
 
     /* Status strip under the row's controls: what the engine is actually
-       resolving to right now, plus the cost meter. */
+       resolving to right now, plus the cost meter. Its height covers both
+       (14px read-out + a 5px meter) at all times — the meter only exists
+       while the engine reports stats, and a row that grew when Play was
+       pressed would move every row below it. */
     .track-foot {
       display: block;
       flex-basis: 100%;
+      min-height: 19px;
     }
 
     .resolved-readout {
@@ -7280,7 +7766,9 @@ const VOICES: Record<string, [string, string][]> = {
       color: var(--accent-warm, #d98324);
     }
 
-    /* -- v13 front-page oscilloscope (Simple tab, under the piano roll) -- */
+    /* -- v13/v18 front-page oscilloscope (above the tabs, full width) --
+          No title: the twisty top right is the only chrome, and the word
+          "Oscilloscope" appears next to it only while the body is collapsed. */
 
     .scope-module {
       margin-bottom: 20px;
@@ -7289,31 +7777,50 @@ const VOICES: Record<string, [string, string][]> = {
     .scope-module-head {
       display: flex;
       align-items: baseline;
-      justify-content: space-between;
       gap: 12px;
+      min-height: 18px;
       margin-bottom: 8px;
     }
 
+    .scope-note {
+      flex: 1 1 auto;
+      font-size: 11px;
+    }
+
     .scope-collapse {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-left: auto;
       background: none;
       border: 0;
       padding: 0;
       cursor: pointer;
       color: inherit;
       font: inherit;
-      text-align: left;
     }
 
-    .scope-collapse::before {
-      content: '▾ ';
+    .scope-collapse-word {
+      font-family: var(--label-font, inherit);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text);
     }
 
-    .scope-collapse[aria-expanded='false']::before {
-      content: '▸ ';
+    .scope-twisty::before {
+      content: '▾';
+      color: var(--secondary);
     }
 
-    .scope-note {
-      font-size: 11px;
+    .scope-collapse[aria-expanded='false'] .scope-twisty::before {
+      content: '▸';
+    }
+
+    .scope-collapse:focus-visible {
+      outline: 2px solid var(--link);
+      outline-offset: 3px;
     }
 
     .front-scope {
@@ -7325,32 +7832,54 @@ const VOICES: Record<string, [string, string][]> = {
       border-radius: var(--radius);
     }
 
-    .scope-chips {
+    /* v18 legend: right-aligned under the trace, one key per track in that
+       track's own colour. Single click toggles a trace, double click solos.
+       Styled here for BOTH legends — scope.js's DOM legend and the page's own
+       fallback build the same three class names. */
+    .scope-legend {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      justify-content: flex-end;
+      gap: 4px 6px;
       margin-top: 8px;
     }
 
-    .scope-chip {
-      border: 1px solid var(--track-accent, var(--border));
+    .scope-legend-track {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid transparent;
       border-radius: 999px;
       background: none;
       color: var(--secondary);
-      padding: 4px 10px;
+      padding: 3px 8px;
       font-family: var(--label-font, inherit);
       font-size: 11px;
       letter-spacing: 0.06em;
+      text-transform: uppercase;
       cursor: pointer;
-      min-height: 28px;
+      min-height: 26px;
     }
 
-    .scope-chip[aria-pressed='true'] {
-      background: var(--track-accent, var(--link));
-      color: var(--bg);
+    .scope-legend-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--track-accent, var(--scope-trace));
+      opacity: 0.35;
+      flex: none;
     }
 
-    .scope-chip:focus-visible {
+    .scope-legend-track[aria-pressed='true'] {
+      border-color: var(--track-accent, var(--border));
+      color: var(--text);
+    }
+
+    .scope-legend-track[aria-pressed='true'] .scope-legend-dot {
+      opacity: 1;
+    }
+
+    .scope-legend-track:focus-visible {
       outline: 2px solid var(--link);
       outline-offset: 2px;
     }
@@ -7363,11 +7892,15 @@ const VOICES: Record<string, [string, string][]> = {
 
     /* -- the Advanced tab's copy of the four main dials -- */
 
+    /* v18: START, not END — every dial in the row hangs from one baseline at
+       the top, and the reserved label/read-out zones below keep the bottoms
+       level too. Bottom-aligning made any dial with an extra line of text
+       (a ghost read-out, a wrapped name) ride up above its neighbours. */
     .advanced-dial-row {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
       gap: 12px;
-      align-items: end;
+      align-items: start;
     }
 
     .knob-sections {
@@ -7387,7 +7920,7 @@ const VOICES: Record<string, [string, string][]> = {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
       gap: 12px 8px;
-      align-items: end;
+      align-items: start;
       justify-items: center;
     }
 
@@ -7397,6 +7930,7 @@ const VOICES: Record<string, [string, string][]> = {
       width: 100%;
     }
 
+    /* Not a dial: the Osc 2 key centres against the faces beside it. */
     .knob-cell-toggle {
       align-self: center;
     }
@@ -7441,10 +7975,11 @@ const VOICES: Record<string, [string, string][]> = {
 
     /* An overridden dial takes the track accent so the kit's exceptions are
        visible at a glance. */
+    /* No padding: a ring drawn INSIDE the cell tints an overridden dial
+       without nudging its face out of the row's shared baseline. */
     .knob-cell-overridden {
       border-radius: var(--radius);
       box-shadow: inset 0 0 0 1px var(--track-accent, var(--link));
-      padding: 4px 2px;
     }
 
     .knob-cell-overridden .knob-ghost-dot {
@@ -7530,6 +8065,7 @@ const VOICES: Record<string, [string, string][]> = {
     .vary-cells {
       display: flex;
       flex-wrap: wrap;
+      align-items: flex-start;
       gap: 10px 8px;
     }
 
@@ -7835,7 +8371,7 @@ const VOICES: Record<string, [string, string][]> = {
 
     .dissonance-row {
       display: flex;
-      align-items: flex-end;
+      align-items: flex-start;
       margin-bottom: 16px;
     }
 

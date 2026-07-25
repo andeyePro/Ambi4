@@ -76,6 +76,11 @@
   --knob-face: #37302a;
   --knob-ring: #a87f42;
   --knob-pointer: #f6e8ca;
+  /* v18: the brass ring a dial falls back to when nothing re-tints it. Same
+     value as --knob-ring; it exists because --knob-ring is what gets
+     overridden (per-track, see .track-row / .voice-editor on the generator
+     page) and a var() cannot fall back to the property it is redefining. */
+  --knob-ring-default: #a87f42;
   --tick: #857659;
   --tick-major: #2b2620;
   --scope-bg: #10140e;
@@ -129,6 +134,7 @@
     --panel-inset: rgba(255, 255, 255, 0.07);
     --knob-face: #302b25;
     --knob-ring: #96703a;
+    --knob-ring-default: #96703a;
     --knob-pointer: #ffb454;
     --tick: #8c7f6a;
     --tick-major: #e6dfd1;

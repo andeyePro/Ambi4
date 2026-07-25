@@ -4482,6 +4482,367 @@ test('a per-instrument override reaches play() for its own kind only', () => hid
 }));
 
 // --------------------------------------------------------------------------
+// v7 range dials in the voice patch — the fields the UI's range dials write
+// --------------------------------------------------------------------------
+
+/** Every v7-rangeable patch field, with a range inside its own bounds. */
+const RANGEABLE_PATCH_FIELDS = [
+  ['source', 'mix', { min: 0.2, max: 0.8 }],
+  ['source', 'detune', { min: -30, max: 20 }],
+  // v18: percussion's semitone tuning and noise level. The field table is
+  // track-agnostic, so they sanitise here exactly as they do on a kit.
+  ['source', 'pitch', { min: -18, max: 7 }],
+  ['source', 'noise', { min: 0.2, max: 0.9 }],
+  ['filter', 'cutoff', { min: 400, max: 4000 }],
+  ['filter', 'q', { min: 1, max: 9 }],
+  ['filter', 'envAmount', { min: 0.1, max: 0.9 }],
+  ['adsr', 'attack', { min: 0.05, max: 2 }],
+  ['adsr', 'decay', { min: 0.1, max: 3 }],
+  ['adsr', 'sustain', { min: 0.2, max: 0.7 }],
+  ['adsr', 'release', { min: 0.5, max: 6 }],
+  ['sends', 'reverb', { min: 0.1, max: 0.6 }],
+  ['sends', 'delay', { min: 0, max: 0.4 }],
+];
+
+/** A patch carrying one field, wrapped for sanitiseParams. */
+const patchWith = (section, field, value) => ({
+  patches: { pad: { warm: { [section]: { [field]: value } } } },
+});
+
+test('v7: every rangeable patch field takes a {min,max}, and the fixed ones refuse one', () => {
+  for (const [section, field, range] of RANGEABLE_PATCH_FIELDS) {
+    const stored = sanitiseParams(patchWith(section, field, range)).patches.pad?.warm?.[section];
+    assert.deepEqual(stored?.[field], range,
+      `${section}.${field} dropped a range the v7 dial can write`);
+
+    // Reversed bounds swap rather than reject, exactly as level/randomness do.
+    const swapped = sanitiseParams(patchWith(section, field, { min: range.max, max: range.min }))
+      .patches.pad.warm[section][field];
+    assert.deepEqual(swapped, range, `${section}.${field} did not swap reversed bounds`);
+
+    // Both ends clamp into the field's OWN bounds, not some shared 0–1.
+    const clamped = sanitiseParams(patchWith(section, field, { min: -99999, max: 99999 }))
+      .patches.pad.warm[section][field];
+    assert.equal(typeof clamped.min, 'number');
+    assert.ok(clamped.min < clamped.max, `${section}.${field} collapsed when clamped`);
+    const single = sanitiseParams(patchWith(section, field, 99999)).patches.pad.warm[section][field];
+    assert.equal(clamped.max, single, `${section}.${field} clamps a range end differently from a number`);
+
+    // Half-formed is rejected, not guessed at: the field simply does not land.
+    assert.deepEqual(sanitiseParams(patchWith(section, field, { min: range.min })).patches, {},
+      `${section}.${field} accepted a half-written range`);
+    assert.deepEqual(sanitiseParams(patchWith(section, field, { min: range.min, max: 'nope' })).patches, {},
+      `${section}.${field} accepted a range with an unusable bound`);
+
+    // A plain number still behaves exactly as it always did.
+    assert.equal(sanitiseParams(patchWith(section, field, range.min)).patches.pad.warm[section][field],
+      range.min, `${section}.${field} stopped taking a plain number`);
+  }
+
+  // NOT rangeable (v7): the morph dials, octave and the filter type.
+  for (const [section, field, range] of [
+    ['source', 'shape1', { min: 0, max: 3 }],
+    ['source', 'shape2', { min: 0, max: 3 }],
+    ['source', 'octave', { min: -1, max: 1 }],
+    ['filter', 'type', { min: 0, max: 1 }],
+  ]) {
+    assert.deepEqual(sanitiseParams(patchWith(section, field, range)).patches, {},
+      `${section}.${field} accepted a range the engine can only take a single value for`);
+  }
+
+  // perKind follows the same field rules as the common patch.
+  const kit = sanitiseParams({
+    patches: {
+      percussion: {
+        soft: {
+          perKind: {
+            low: { filter: { cutoff: { min: 4000, max: 100 }, type: { min: 0, max: 1 } } },
+            high: { sends: { reverb: { min: 0.2 } } },
+          },
+        },
+      },
+    },
+  }).patches.percussion.soft;
+  assert.deepEqual(kit.perKind.low.filter.cutoff, { min: 100, max: 4000 },
+    'a kit override dropped, or failed to normalise, a ranged field');
+  assert.equal(kit.perKind.low.filter.type, undefined, 'a kit override took a ranged filter type');
+  assert.equal(kit.perKind.high, undefined, 'a kit override kept a half-written range');
+});
+
+test('v7: getParams round-trips the range form, and hands out a copy of it', () => {
+  const engine = createEngine({
+    patches: {
+      pad: {
+        warm: {
+          filter: { cutoff: { min: 400, max: 4000 }, q: 3 },
+          sends: { reverb: { min: 0.1, max: 0.6 } },
+          perKind: { low: { adsr: { release: { min: 0.5, max: 4 } } } },
+        },
+      },
+    },
+  });
+  const stored = engine.getParams().patches.pad.warm;
+  assert.deepEqual(stored, {
+    filter: { cutoff: { min: 400, max: 4000 }, q: 3 },
+    sends: { reverb: { min: 0.1, max: 0.6 } },
+    perKind: { low: { adsr: { release: { min: 0.5, max: 4 } } } },
+  }, 'getParams must report the stored form, ranges intact');
+
+  const snapshot = engine.getParams();
+  snapshot.patches.pad.warm.filter.cutoff.min = 40;
+  snapshot.patches.pad.warm.perKind.low.adsr.release.max = 12;
+  assert.equal(engine.getParams().patches.pad.warm.filter.cutoff.min, 400,
+    'a caller wrote through getParams into the engine\'s own range object');
+  assert.equal(engine.getParams().patches.pad.warm.perKind.low.adsr.release.max, 4,
+    'a kit override\'s range was handed out by reference');
+
+  // getResolved() is the other half of the contract: the same fields, resolved.
+  const resolved = engine.getResolved().patches.pad;
+  assert.equal(typeof resolved.filter.cutoff, 'number', 'getResolved must report numbers');
+  assert.ok(resolved.filter.cutoff >= 400 && resolved.filter.cutoff <= 4000);
+  assert.equal(typeof resolved.sends.reverb, 'number');
+  assert.equal(resolved.perKind, undefined, 'getResolved leaked the override map');
+});
+
+/**
+ * Play a solo pad with `settings` and one patch, and hand back the cutoff each
+ * note was actually played with — the number the voice writes to its filter's
+ * frequency, so a drifting sequence here is a drifting sound.
+ */
+async function padCutoffs(patch, settings, seed, seconds = 14) {
+  const pad = spyOnBank(bankFor('pad'));
+  try {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+      tracks: { ...tracksAll('off'), pad: { state: 'on', vary: { voice: 0 }, ...settings } },
+      patches: { pad: { warm: patch } },
+    }, { rng: seededRng(seed) });
+    await engine.start();
+    await advance(seconds, FAST);
+    engine.stop();
+    assert.ok(pad.plays.length > 4, `only ${pad.plays.length} pad notes to measure`);
+    return pad.plays.map((play) => {
+      assert.equal(typeof play.patch.filter.cutoff, 'number',
+        'ruling 9c: a voice must never be handed a {min,max}');
+      return play.patch.filter.cutoff;
+    });
+  } finally {
+    pad.restore();
+  }
+}
+
+test('v7: a ranged cutoff drifts across bars, deterministically, inside its bounds', () => hiddenTab(async () => {
+  const ranged = { filter: { cutoff: { min: 400, max: 4000 }, q: 3 } };
+  const drifting = await padCutoffs(ranged, { randomness: 0.6 }, 5101);
+  for (const cutoff of drifting) {
+    assert.ok(cutoff >= 400 - 1e-6 && cutoff <= 4000 + 1e-6,
+      `a resolved cutoff of ${cutoff} is outside its 400–4000 bounds`);
+  }
+  assert.ok(new Set(drifting.map((v) => v.toFixed(6))).size > 1,
+    'a ranged cutoff never moved — the range dial is a no-op');
+
+  // Same seed, same piece: the walk is drawn from the engine's own rng.
+  assert.deepEqual(await padCutoffs(ranged, { randomness: 0.6 }, 5101), drifting,
+    'a seeded run did not reproduce its own cutoff drift');
+
+  // A plain number is untouched by any of this.
+  const fixed = await padCutoffs({ filter: { cutoff: 900 } }, { randomness: 0.6 }, 5102);
+  assert.deepEqual([...new Set(fixed)], [900], 'a single-valued cutoff drifted');
+}));
+
+test('v7: randomness 0 freezes a ranged patch the way hold does', () => hiddenTab(async () => {
+  const ranged = { filter: { cutoff: { min: 400, max: 4000 } } };
+  const frozen = new Set((await padCutoffs(ranged, { randomness: 0 }, 5103)).map((v) => v.toFixed(6)));
+  assert.equal(frozen.size, 1, `randomness 0 let a ranged patch drift: ${[...frozen]}`);
+
+  const held = new Set(
+    (await padCutoffs(ranged, { randomness: 0.6, hold: true }, 5104)).map((v) => v.toFixed(6)),
+  );
+  assert.equal(held.size, 1, `hold let a ranged patch drift: ${[...held]}`);
+}));
+
+test('v7: a ranged send drifts the track send gains bar by bar', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+    tracks: { ...tracksAll('off'), pad: { state: 'on', randomness: 0.6, vary: { voice: 0 } } },
+    patches: { pad: { warm: { sends: { reverb: { min: 0.2, max: 0.8 }, delay: 0.3 } } } },
+  }, { rng: seededRng(5105) });
+  await engine.start();
+  const sends = sendGains(liveContexts[liveContexts.length - 1]).pad;
+  const seen = [];
+  for (let i = 0; i < 12; i++) {
+    await advance(1, FAST);
+    seen.push(sends.reverb.gain.value);
+  }
+  engine.stop();
+  for (const value of seen) {
+    assert.ok(value >= 0.2 - 1e-6 && value <= 0.8 + 1e-6,
+      `a reverb send of ${value} is outside its 0.2–0.8 bounds`);
+  }
+  assert.ok(new Set(seen.map((v) => v.toFixed(9))).size > 1, 'a ranged reverb send never drifted');
+  assert.equal(sends.delay.gain.value, 0.3, 'the single-valued delay send moved');
+}));
+
+test('v7: a ranged perKind override resolves for its own kind only', () => hiddenTab(async () => {
+  const percussion = spyOnBank(bankFor('percussion'));
+  try {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+      tracks: {
+        ...tracksAll('off'),
+        percussion: {
+          state: 'on',
+          randomness: 0.6,
+          vary: { voice: 0 },
+          sequencer: {
+            mode: 'manual',
+            steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => [lane, seqLane({ prob: 1 })])),
+          },
+        },
+      },
+      patches: {
+        percussion: {
+          soft: {
+            filter: { cutoff: 900 },
+            perKind: { low: { filter: { cutoff: { min: 100, max: 400 } } } },
+          },
+        },
+      },
+    }, { rng: seededRng(5106) });
+    await engine.start();
+    await advance(14, FAST);
+    engine.stop();
+
+    const byKind = new Map();
+    for (const play of percussion.plays) {
+      if (!byKind.has(play.note.kind)) byKind.set(play.note.kind, []);
+      byKind.get(play.note.kind).push(play.patch.filter.cutoff);
+    }
+    const low = byKind.get('low');
+    assert.ok(low?.length > 4, 'the low lane never sounded enough to measure');
+    for (const cutoff of low) {
+      assert.equal(typeof cutoff, 'number', 'a kit override reached a voice as a {min,max}');
+      assert.ok(cutoff >= 100 - 1e-6 && cutoff <= 400 + 1e-6,
+        `a resolved override of ${cutoff} is outside its 100–400 bounds`);
+    }
+    assert.ok(new Set(low.map((v) => v.toFixed(6))).size > 1, 'a ranged kit override never drifted');
+    for (const lane of ['mid', 'high']) {
+      assert.deepEqual([...new Set(byKind.get(lane) ?? [])], [900],
+        `the ranged low override leaked onto the ${lane} lane`);
+    }
+  } finally {
+    percussion.restore();
+  }
+}));
+
+// --------------------------------------------------------------------------
+// v18 — percussion source.pitch / source.noise
+// --------------------------------------------------------------------------
+
+test('v18: pitch is continuous within ±24 semitones, where octave stays a switch', () => {
+  const sourceOf = (source) => sanitiseParams({ patches: { percussion: { soft: { source } } } })
+    .patches.percussion?.soft?.source;
+
+  // Continuous: a fraction of a semitone survives, unlike the octave switch.
+  assert.equal(sourceOf({ pitch: 3.5 }).pitch, 3.5);
+  assert.equal(sourceOf({ octave: 1.4 }).octave, 1, 'octave stopped rounding to a switch position');
+
+  // Two octaves either way, and no further.
+  assert.equal(sourceOf({ pitch: 24 }).pitch, 24);
+  assert.equal(sourceOf({ pitch: -24 }).pitch, -24);
+  assert.equal(sourceOf({ pitch: 99 }).pitch, 24);
+  assert.equal(sourceOf({ pitch: -99 }).pitch, -24);
+
+  // Noise is a plain 0–1 level.
+  assert.equal(sourceOf({ noise: 0 }).noise, 0);
+  assert.equal(sourceOf({ noise: 1 }).noise, 1);
+  assert.equal(sourceOf({ noise: 4 }).noise, 1, 'a noise level above 1 was not clamped');
+  assert.equal(sourceOf({ noise: -1 }).noise, 0);
+
+  // Rubbish is dropped rather than guessed at, like every other patch field.
+  for (const bad of [NaN, 'loud', null, true, undefined]) {
+    assert.equal(sourceOf({ pitch: bad })?.pitch, undefined, `pitch accepted ${String(bad)}`);
+    assert.equal(sourceOf({ noise: bad })?.noise, undefined, `noise accepted ${String(bad)}`);
+  }
+
+  // A kit override takes them on the same terms as the common patch.
+  const kit = sanitiseParams({
+    patches: {
+      percussion: {
+        soft: {
+          source: { pitch: -5, noise: 0.4 },
+          perKind: { low: { source: { pitch: 99, noise: { min: 0.8, max: 0.1 } } } },
+        },
+      },
+    },
+  }).patches.percussion.soft;
+  assert.deepEqual(kit.source, { pitch: -5, noise: 0.4 });
+  assert.deepEqual(kit.perKind.low.source, { pitch: 24, noise: { min: 0.1, max: 0.8 } });
+});
+
+test('v18: a ranged pitch/noise reaches the voice as numbers, per kind', () => hiddenTab(async () => {
+  const percussion = spyOnBank(bankFor('percussion'));
+  try {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+      tracks: {
+        ...tracksAll('off'),
+        percussion: {
+          state: 'on',
+          randomness: 0.6,
+          vary: { voice: 0 },
+          sequencer: {
+            mode: 'manual',
+            steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => [lane, seqLane({ prob: 1 })])),
+          },
+        },
+      },
+      patches: {
+        percussion: {
+          soft: {
+            source: { noise: { min: 0.2, max: 0.9 } },
+            perKind: { low: { source: { pitch: { min: -12, max: -2 } } } },
+          },
+        },
+      },
+    }, { rng: seededRng(4041) });
+    await engine.start();
+    await advance(14, FAST);
+    engine.stop();
+
+    const byKind = new Map();
+    for (const play of percussion.plays) {
+      if (!byKind.has(play.note.kind)) byKind.set(play.note.kind, []);
+      byKind.get(play.note.kind).push(play.patch.source);
+    }
+    assert.ok(percussion.plays.length > 4, 'the kit never sounded enough to measure');
+    for (const [kind, sources] of byKind) {
+      for (const source of sources) {
+        assert.equal(typeof source.noise, 'number', `${kind}: a ranged noise reached a voice unresolved`);
+        assert.ok(source.noise >= 0.2 - 1e-6 && source.noise <= 0.9 + 1e-6,
+          `${kind}: a resolved noise of ${source.noise} is outside its 0.2–0.9 bounds`);
+      }
+    }
+    const low = byKind.get('low') ?? [];
+    assert.ok(low.length > 4, 'the low lane never sounded enough to measure');
+    for (const source of low) {
+      assert.equal(typeof source.pitch, 'number', 'a ranged pitch reached a voice unresolved');
+      assert.ok(source.pitch >= -12 - 1e-6 && source.pitch <= -2 + 1e-6,
+        `a resolved pitch of ${source.pitch} is outside its -12–-2 bounds`);
+    }
+    assert.ok(new Set(low.map((s) => s.pitch.toFixed(6))).size > 1, 'a ranged pitch never drifted');
+    assert.ok(new Set(byKind.get('low').map((s) => s.noise.toFixed(6))).size > 1,
+      'a ranged noise never drifted');
+    for (const lane of ['mid', 'high']) {
+      assert.ok((byKind.get(lane) ?? []).every((s) => s.pitch === undefined),
+        `the low lane's pitch override leaked onto the ${lane} lane`);
+    }
+  } finally {
+    percussion.restore();
+  }
+}));
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 

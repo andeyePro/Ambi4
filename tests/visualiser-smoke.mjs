@@ -28,13 +28,19 @@ const test = (name, fn) => tests.push([name, fn]);
 // exactly 4 arcTo() calls before its fill()) has its moveTo() point (the
 // blip's top-left corner) pushed to it, in draw order — used to inspect the
 // y position (and therefore de-overlap slot) the visualiser assigned notes.
+// If `calls.rects` / `calls.arcs` are pre-seeded to arrays, every
+// fillRect()/arc() call also has its geometry ({x,y,w,h} / {x,y,r}) pushed
+// to them, in draw order — used by the repeat-mark geometry test.
 function makeCtx2d(calls, propWrites) {
   const record = (name) => { calls[name] = (calls[name] || 0) + 1; };
   let fillStyleValue = '';
   let currentPath = null; // { moveTo: {x,y}|null, arcToCount } for the path since the last beginPath()
   const methods = {
     clearRect() { record('clearRect'); },
-    fillRect() { record('fillRect'); },
+    fillRect(x, y, w, h) {
+      record('fillRect');
+      if (calls.rects) calls.rects.push({ x, y, w, h });
+    },
     beginPath() { currentPath = { moveTo: null, arcToCount: 0 }; },
     moveTo(x, y) {
       if (currentPath && currentPath.moveTo === null) currentPath.moveTo = { x, y };
@@ -49,7 +55,9 @@ function makeCtx2d(calls, propWrites) {
         calls.roundRects.push(currentPath.moveTo);
       }
     },
-    arc() {},
+    arc(x, y, r) {
+      if (calls.arcs) calls.arcs.push({ x, y, r });
+    },
     fillText(text) {
       record('fillText');
       calls.lastText = text;
@@ -797,9 +805,9 @@ test('repeat brackets: clicking the open mark again, or pressing Esc, cancels th
   }
 });
 
-test('repeat brackets: active loop (read from bar-event loop info) dims bars outside it and draws the bracket glyphs', () => {
+test('repeat brackets: active loop (read from bar-event loop info) dims bars outside it and draws the repeat marks', () => {
   const calls = {};
-  calls.texts = [];
+  calls.arcs = [];
   const canvas = makeCanvas(calls);
   const { engine } = makeLoopEngine();
   engine.running = true;
@@ -811,12 +819,13 @@ test('repeat brackets: active loop (read from bar-event loop info) dims bars out
   engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 2, loop: { startBar: 0, endBar: 1 } });
 
   calls.fillRect = 0;
-  calls.texts.length = 0;
+  calls.arcs.length = 0;
   engine.emit('state', { running: false }); // forces a synchronous static render
 
   assert.ok(calls.fillRect >= 1, 'expected at least one dimming rect for bars outside the active loop');
-  assert.ok(calls.texts.includes('𝄆'), 'expected the open-repeat bracket glyph');
-  assert.ok(calls.texts.includes('𝄇'), 'expected the close-repeat bracket glyph');
+  // Each repeat mark draws a thick bar + thin bar (fillRect) and two dots (arc); an
+  // active loop draws both the open and close marks, so at least 4 dots total.
+  assert.ok(calls.arcs.length >= 4, `expected at least 4 repeat-dot arcs for open+close marks, got ${calls.arcs.length}`);
 
   inst.destroy();
 });
@@ -826,7 +835,7 @@ test('repeat brackets: falls back to locally tracked state when bar events never
   globalThis.document = { createElement: (tag) => makeFakeElement(tag) };
   try {
     const calls = {};
-    calls.texts = [];
+    calls.arcs = [];
     const root = makeFakeElement('div');
     const canvas = makeDomCanvas(calls);
     root.appendChild(canvas);
@@ -840,12 +849,12 @@ test('repeat brackets: falls back to locally tracked state when bar events never
     engine.advance(2);
     engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 2 });
 
-    calls.texts.length = 0;
+    calls.arcs.length = 0;
     byBar(0).click();
     byBar(1).click(); // -> engine.setLoopRegion(0, 1); renders immediately off our own local state
 
     assert.ok(
-      calls.texts.includes('𝄆') && calls.texts.includes('𝄇'),
+      calls.arcs.length >= 4,
       'active loop must draw from locally tracked state when no bar event ever supplied loop info',
     );
 
@@ -866,6 +875,44 @@ test('repeat brackets: malformed loop info on bar events is dropped, not thrown'
   engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0, loop: 'nonsense' });
   engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 1, loop: { startBar: 'x' } });
   engine.emit('bar', { bar: 2, beatsPerBar: 4, time: 2, loop: null }); // explicit "no active loop"
+  inst.destroy();
+});
+
+test('repeat brackets: v17 mark geometry — open dots sit right of its bars, close dots sit left of its bars', () => {
+  const calls = {};
+  calls.rects = [];
+  calls.arcs = [];
+  const canvas = makeCanvas(calls);
+  const { engine } = makeLoopEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+
+  engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 });
+  engine.advance(2);
+  engine.emit('bar', { bar: 1, beatsPerBar: 4, time: 2, loop: { startBar: 0, endBar: 1 } });
+
+  calls.rects.length = 0;
+  calls.arcs.length = 0;
+  engine.emit('state', { running: false }); // forces a synchronous static render
+
+  // drawLoopMarkers draws the outside-loop dimming (fillRect, 0-2 rects) before
+  // the open then close repeat marks, so the trailing 4 rects are always the
+  // marks' thick+thin bars; arc() is only ever called for the marks' dots.
+  // Loop dimming and per-lane level meters also call fillRect, at widths that
+  // never coincide with the marks' fixed 5px thick bar — filtering on that
+  // isolates the open mark's thick bar (drawn first) from the close mark's
+  // (drawn second).
+  const thickBars = calls.rects.filter((r) => r.w === 5);
+  assert.equal(thickBars.length, 2, `expected 2 thick bars (open + close), got ${thickBars.length}`);
+  assert.equal(calls.arcs.length, 4, `expected 4 dot arcs (2 per mark; arc() is only ever called for mark dots)`);
+
+  const [openThick, closeThick] = thickBars;
+  const [openDot, , closeDot] = calls.arcs;
+
+  assert.ok(openDot.x > openThick.x, 'open mark: dots must sit to the right of its bars');
+  assert.ok(closeDot.x < closeThick.x, 'close mark: dots must sit to the left of its bars');
+
   inst.destroy();
 });
 

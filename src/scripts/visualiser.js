@@ -1,6 +1,7 @@
 /**
  * visualiser.js — canvas track visualiser for the ambient engine (v2, v14
- * track-order/lamp/chord addendum, v15 repeat-bracket addendum).
+ * track-order/lamp/chord addendum, v15 repeat-bracket addendum, v16
+ * de-overlap addendum, v17 repeat-mark redraw).
  *
  * export function initVisualiser(canvas, engine) => { destroy() }
  *
@@ -36,9 +37,13 @@
  * engine doesn't (yet) echo it. Without both engine methods, no ruler
  * overlay is built and clicks do nothing. Ruler button positions are
  * recomputed on 'bar' events, resize/theme changes, and a light poll — like
- * the lamps, never from inside the rAF render loop; the bracket glyphs and
+ * the lamps, never from inside the rAF render loop; the repeat marks and
  * the dimming of bars outside an active loop are drawn every frame inside
- * draw(), since they move with the scroll.
+ * draw(), since they move with the scroll. The marks themselves (v17) are
+ * canvas-drawn barline+dot shapes, not font glyphs — see the REPEAT_BAR_ and
+ * REPEAT_DOT_ constants and drawRepeatMark() below — sized to span the full
+ * lane-stack height in the theme's --accent-warm colour, with the pending
+ * open mark (no close yet) drawn at reduced alpha.
  *
  * This module is a pure, self-contained script: no imports, and nothing at
  * module-import time touches `window`/`document`/canvas APIs — every browser
@@ -119,11 +124,19 @@ const LABEL_FONT = `11px ${FONT_STACK}`;
 // Smaller/secondary label used for the section letter once bar ticks carry
 // the primary chord-name label (once a 'chord' event has ever fired).
 const SECONDARY_FONT = `9px ${FONT_STACK}`;
-const BRACKET_FONT = `14px ${FONT_STACK}`;
-
-// Repeat-bracket glyphs (v15 addendum) drawn at the open/close loop marks.
-const OPEN_REPEAT_GLYPH = '𝄆';
-const CLOSE_REPEAT_GLYPH = '𝄇';
+// Repeat-mark geometry (v17 addendum): drawn as canvas rects/arcs rather than
+// the 𝄆/𝄇 font glyphs used in v15 — glyph rendering was inconsistent across
+// platforms. Sized to read clearly as musical repeat barlines at a glance,
+// spanning the full lane-stack height. Open mark, left to right: thick bar,
+// thin bar, two dots (stacked, at 1/3 and 2/3 of the span). Close mark is the
+// mirror image: two dots, thin bar, thick bar.
+const REPEAT_BAR_THICK_W = 5;
+const REPEAT_BAR_THIN_W = 2;
+const REPEAT_BAR_GAP = 3; // gap between the thick and thin bars
+const REPEAT_DOT_GAP = 6; // gap from the thin bar to the near edge of the dot column
+const REPEAT_DOT_RADIUS = 3.5;
+const REPEAT_PENDING_ALPHA = 0.6; // alpha of the open mark while a close is still pending
+const REPEAT_MARK_CULL_MARGIN = 30; // off-canvas margin before a mark is skipped, wide enough for its full span
 const LOOP_DIM_ALPHA = 0.4; // alpha of the overlay dimming bars outside an active loop
 
 // ---------------------------------------------------------------------------
@@ -216,6 +229,7 @@ const FALLBACK_THEME = {
   secondary: { r: 90, g: 90, b: 95, a: 1 },
   border: { r: 238, g: 238, b: 238, a: 1 },
   link: { r: 0, g: 123, b: 255, a: 1 },
+  accentWarm: { r: 157, g: 84, b: 7, a: 1 }, // #9d5407, the --accent-warm fallback
 };
 
 /**
@@ -233,7 +247,7 @@ function laneAccentFor(track, idx, computed, link, text) {
   }
 }
 
-/** Reads --text/--secondary/--border/--link off the canvas and derives per-lane accents. */
+/** Reads --text/--secondary/--border/--link/--accent-warm off the canvas and derives per-lane accents. */
 function readTheme(canvas) {
   let computed = null;
   try {
@@ -253,8 +267,9 @@ function readTheme(canvas) {
   const secondary = read('--secondary', FALLBACK_THEME.secondary);
   const border = read('--border', FALLBACK_THEME.border);
   const link = read('--link', FALLBACK_THEME.link);
+  const accentWarm = read('--accent-warm', FALLBACK_THEME.accentWarm);
   const laneAccents = TRACKS.map((t, i) => laneAccentFor(t, i, computed, link, text));
-  return { text, secondary, border, link, laneAccents };
+  return { text, secondary, border, link, accentWarm, laneAccents };
 }
 
 // ---------------------------------------------------------------------------
@@ -1390,26 +1405,50 @@ export function initVisualiser(canvas, engine) {
     if (rightW > 0) ctx2d.fillRect(rightX, TOP_MARGIN, rightW, height - TOP_MARGIN);
   }
 
-  function drawLoopBracket(glyph, time, nowCtx, x0, w) {
-    if (time === null) return;
-    const x = x0 + fracForTime(time, nowCtx) * w;
-    if (x < x0 - 12 || x > x0 + w + 12) return;
-    ctx2d.fillStyle = rgba(theme.link, 0.95);
-    ctx2d.font = BRACKET_FONT;
-    ctx2d.textAlign = 'left';
-    ctx2d.textBaseline = 'alphabetic';
-    ctx2d.fillText(glyph, snapPixel(clampRange(x - 2, x0, x0 + w - 10)), snapPixel(TOP_MARGIN - 2));
+  /**
+   * Draws one repeat mark — a thick+thin barline pair plus two stacked dots —
+   * spanning the full lane-stack height (`top`..`bottom`). `mirrored` false
+   * draws the open mark (thick bar at `x`, thin bar and dots extending
+   * rightward, so dot x > bar x); `mirrored` true draws the close mark, the
+   * mirror image (thick bar's trailing edge at `x`, thin bar and dots
+   * extending leftward, so dot x < bar x).
+   */
+  function drawRepeatMark(x, mirrored, alpha, top, bottom) {
+    const span = bottom - top;
+    const thickX = mirrored ? x - REPEAT_BAR_THICK_W : x;
+    ctx2d.fillStyle = rgba(theme.accentWarm, alpha);
+    ctx2d.fillRect(snapPixel(thickX), snapPixel(top), REPEAT_BAR_THICK_W, span);
+    const thinX = mirrored
+      ? thickX - REPEAT_BAR_GAP - REPEAT_BAR_THIN_W
+      : thickX + REPEAT_BAR_THICK_W + REPEAT_BAR_GAP;
+    ctx2d.fillRect(snapPixel(thinX), snapPixel(top), REPEAT_BAR_THIN_W, span);
+    const dotX = mirrored
+      ? thinX - REPEAT_DOT_GAP - REPEAT_DOT_RADIUS
+      : thinX + REPEAT_BAR_THIN_W + REPEAT_DOT_GAP + REPEAT_DOT_RADIUS;
+    [1 / 3, 2 / 3].forEach((frac) => {
+      ctx2d.beginPath();
+      ctx2d.arc(snapPixel(dotX), snapPixel(top + span * frac), REPEAT_DOT_RADIUS, 0, Math.PI * 2);
+      ctx2d.fill();
+    });
   }
 
-  /** Repeat-bracket glyphs + outside-loop dimming (v15); gated on engine support for the whole feature. */
+  function drawLoopBracket(mirrored, time, nowCtx, x0, w, top, bottom, alpha) {
+    if (time === null) return;
+    const x = x0 + fracForTime(time, nowCtx) * w;
+    if (x < x0 - REPEAT_MARK_CULL_MARGIN || x > x0 + w + REPEAT_MARK_CULL_MARGIN) return;
+    drawRepeatMark(x, mirrored, alpha, top, bottom);
+  }
+
+  /** Repeat marks (barline+dots) + outside-loop dimming (v15/v17); gated on engine support for the whole feature. */
   function drawLoopMarkers(nowCtx, x0, w, height) {
     if (!loopFeatureAvailable()) return;
+    const top = TOP_MARGIN;
     if (activeLoop) {
       drawLoopDimming(nowCtx, x0, w, height);
-      drawLoopBracket(OPEN_REPEAT_GLYPH, findBarTickTime(activeLoop.start), nowCtx, x0, w);
-      drawLoopBracket(CLOSE_REPEAT_GLYPH, findBarTickTime(activeLoop.end), nowCtx, x0, w);
+      drawLoopBracket(false, findBarTickTime(activeLoop.start), nowCtx, x0, w, top, height, 1);
+      drawLoopBracket(true, findBarTickTime(activeLoop.end), nowCtx, x0, w, top, height, 1);
     } else if (pendingOpenBar !== null) {
-      drawLoopBracket(OPEN_REPEAT_GLYPH, findBarTickTime(pendingOpenBar), nowCtx, x0, w);
+      drawLoopBracket(false, findBarTickTime(pendingOpenBar), nowCtx, x0, w, top, height, REPEAT_PENDING_ALPHA);
     }
   }
 
