@@ -29,6 +29,23 @@
  *     --track-bass #8a38b2 on --panel 5.33:1 · on --bg 5.92:1
  *     --track-texture #224563 on --panel 8.36:1 · on --bg 9.28:1
  *     --track-percussion #357748 on --panel 4.52:1 · on --bg 5.02:1
+ *   v23 user-track colours (same search, run with the six above pinned and the
+ *   twelve scored together; hues held ≥26° apart within the user six):
+ *     --track-user-1 #1a7471 on --panel 4.64:1 · on --bg 5.15:1
+ *     --track-user-2 #af289d on --panel 4.86:1 · on --bg 5.39:1
+ *     --track-user-3 #473b91 on --panel 7.62:1 · on --bg 8.46:1
+ *     --track-user-4 #76373e on --panel 7.35:1 · on --bg 8.16:1
+ *     --track-user-5 #18293a on --panel 12.38:1 · on --bg 13.75:1
+ *     --track-user-6 #340e4e on --panel 13.30:1 · on --bg 14.77:1
+ *   Worst-case CVD-simulated pairwise distance across ALL TWELVE is 33.84
+ *   (protanopia, arp vs user-5) — lower than the built-in six's own 48.00, as
+ *   twelve colours on one faceplate must be, and still clear of the ~25 band
+ *   where two swatches start reading as one. Every user colour additionally
+ *   carries its track's LABEL beside it, which the built-ins do too; colour is
+ *   never the only channel. Hues ~178°/308°/248°/354°/210°/276°: teal, magenta
+ *   and indigo are the three the built-in rainbow leaves empty, and the last
+ *   three are separated from their neighbours by lightness rather than hue for
+ *   the same red-green reason the arp/melody pair is.
  *   All six clear AA normal-text (4.5:1) as well as the ≥3:1 non-text floor,
  *   so any of them may be used for text, chips, lamps or trace colour alike.
  *   Hues are pinned near each rainbow name (pad ~56°, arp ~19°, melody ~0°,
@@ -58,6 +75,16 @@
  *     --track-bass #a676ce on --panel 4.54:1 · on --bg 4.99:1
  *     --track-texture #bbd6e7 on --panel 10.32:1 · on --bg 11.34:1
  *     --track-percussion #6acf67 on --panel 7.98:1 · on --bg 8.77:1
+ *     --track-user-1 #4ebc85 on --panel 6.58:1 · on --bg 7.23:1
+ *     --track-user-2 #c17baa on --panel 4.97:1 · on --bg 5.46:1
+ *     --track-user-3 #b2a3d7 on --panel 6.77:1 · on --bg 7.44:1
+ *     --track-user-4 #dd9c2c on --panel 6.59:1 · on --bg 7.24:1
+ *     --track-user-5 #86ea7b on --panel 10.46:1 · on --bg 11.49:1
+ *     --track-user-6 #c5e03e on --panel 10.48:1 · on --bg 11.52:1
+ *   Dark's twelve-colour worst case is 39.89 (protanopia, arp vs user-1). The
+ *   dark user six are tuned independently of the light ones, as the built-in
+ *   six already are, so a token's hue is not promised to match across themes —
+ *   only its IDENTITY (which track it marks) is, and nobody sees both at once.
  *   Dark-theme worst-case CVD-simulated pairwise distance 59.55 (deuteranopia,
  *   arp vs percussion) — tuned separately from light, same method; hues
  *   ~58°/17°/16°/273°/204°/118°, arp/melody again separated by lightness
@@ -106,6 +133,18 @@
   --track-bass: #8a38b2;
   --track-texture: #224563;
   --track-percussion: #357748;
+
+  /* v23 contract tokens — the six colours a USER track can be assigned
+     (`colourToken: --track-user-N`, N = 1-6, by creation ordinal). Fixed names,
+     same as the six above: a consumer reads the token off the registry, never a
+     literal colour. Derived by the same search as the v26 rainbow — see the
+     header comment for the contrast figures and the CVD rationale. */
+  --track-user-1: #1a7471;
+  --track-user-2: #af289d;
+  --track-user-3: #473b91;
+  --track-user-4: #76373e;
+  --track-user-5: #18293a;
+  --track-user-6: #340e4e;
 
   /* Spaced, uppercase-friendly retro label stack; pair with .panel-label for
      the letter-spacing/size treatment. System fonts only. */
@@ -159,6 +198,13 @@
     --track-bass: #a676ce;
     --track-texture: #bbd6e7;
     --track-percussion: #6acf67;
+
+    --track-user-1: #4ebc85;
+    --track-user-2: #c17baa;
+    --track-user-3: #b2a3d7;
+    --track-user-4: #dd9c2c;
+    --track-user-5: #86ea7b;
+    --track-user-6: #c5e03e;
 
     --pot-track: #14110e;
     --screw-hi: #9c9078;
@@ -360,6 +406,35 @@ main a:hover {
 
 .track-color-percussion {
   --track-accent: var(--track-percussion);
+}
+
+/* v23: the same mechanism for a user track. The class is derived from the
+   registry's own colourToken (`--track-user-2` → `.track-color-user-2`), so
+   theming a track the build never heard of is the identical one-class switch
+   theming a built-in is. */
+
+.track-color-user-1 {
+  --track-accent: var(--track-user-1);
+}
+
+.track-color-user-2 {
+  --track-accent: var(--track-user-2);
+}
+
+.track-color-user-3 {
+  --track-accent: var(--track-user-3);
+}
+
+.track-color-user-4 {
+  --track-accent: var(--track-user-4);
+}
+
+.track-color-user-5 {
+  --track-accent: var(--track-user-5);
+}
+
+.track-color-user-6 {
+  --track-accent: var(--track-user-6);
 }
 
 .track-chip {

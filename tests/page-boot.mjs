@@ -1276,6 +1276,182 @@ try {
       failures.push('the fast-forward button is hidden against an engine that can re-seed');
     }
   }
+  // ---- v23 user tracks — probe-gated ---------------------------------------
+  // The Add Track surface renders ONLY where the engine can answer both halves
+  // of the question — canAddTrack (may I) and addTrack (do it). Against a build
+  // that predates them its ABSENCE is the correct state; present-but-does-
+  // nothing is the bug this gate exists to catch, so the harness asks the same
+  // question the page does rather than asserting unconditionally.
+  let engineTakesUserTracks = false;
+  try {
+    const probe = engineModule.createEngine();
+    engineTakesUserTracks =
+      typeof probe.canAddTrack === 'function' && typeof probe.addTrack === 'function';
+  } catch {}
+  {
+    const button = doc.getElementById('add-track');
+    if (!engineTakesUserTracks) {
+      if (button) {
+        failures.push(
+          'the Add Track button renders against an engine with no addTrack/canAddTrack — ' +
+            'a control that cannot do anything'
+        );
+      }
+    } else if (!button) {
+      failures.push('the engine ships addTrack/canAddTrack but the tracks panel has no #add-track button');
+    } else {
+      if (button.disabled) {
+        failures.push('the Add Track button is disabled on a boot with none of the six user slots used');
+      }
+      const form = doc.getElementById('add-track-form');
+      if (!form) {
+        failures.push('#add-track has no #add-track-form to open');
+      } else if (!form.hidden) {
+        failures.push('the Add Track form is open before the button has been pressed');
+      }
+      // The panel must not jiggle when the note text changes, so the note has
+      // to be in the document from the start rather than appearing with words.
+      if (!doc.getElementById('add-track-note')) {
+        failures.push('the Add Track control has no always-present note line (#add-track-note)');
+      }
+    }
+  }
+
+  // ---- v23 fallback table is still the built-in six -------------------------
+  // FALLBACK_TRACKS is the branch an engine bundle WITHOUT getTracks() boots
+  // on, and an engine that can addTrack necessarily HAS getTracks() — so that
+  // branch can never meet a seventh track and the table stays six forever. The
+  // comparison is against the MODULE registry (built-ins), never the live
+  // instance list, or adding a track in this harness would fail a test about
+  // something else entirely.
+  {
+    const pageSource = readFileSync(join(repoRoot, 'src/pages/index.astro'), 'utf8');
+    const table = /const FALLBACK_TRACKS = (\[[\s\S]*?\n {4}\]);/.exec(pageSource);
+    const fallback = table ? new Function(`return ${table[1]};`)() : [];
+    if (fallback.length !== 6) {
+      failures.push(`FALLBACK_TRACKS has ${fallback.length} entries — it is the built-in six, forever`);
+    }
+    if (REGISTRY_IDS.length !== 6) {
+      failures.push(
+        `the MODULE getTracks() returned ${REGISTRY_IDS.length} tracks — the build-time export is ` +
+          'built-ins only; a user track must never reach it'
+      );
+    }
+    const notBuiltin = REGISTRY_TRACKS.filter((track) => track.builtin !== true).map((t) => t.id);
+    if (notBuiltin.length) {
+      failures.push(`the MODULE registry carries non-built-in tracks: ${notBuiltin.join(', ')}`);
+    }
+    if (fallback.map((t) => t.id).join() !== REGISTRY_IDS.join()) {
+      failures.push(
+        `FALLBACK_TRACKS [${fallback.map((t) => t.id).join(', ')}] is not the module registry ` +
+          `[${REGISTRY_IDS.join(', ')}]`
+      );
+    }
+  }
+
+  // ---- v23 a user track row appends below the built-in six ------------------
+  // The whole of commit 4 in one gate: the row is BUILT (it did not exist at
+  // build time), it is built BELOW everything that did (v18 — nothing above it
+  // moves), and it answers to the SAME listeners a built-in row answers to.
+  // That last clause is the pre-mortem's fourth blocker: a runtime row wired by
+  // a second, parallel set of handlers is the failure this proves against.
+  if (engineTakesUserTracks && doc.getElementById('add-track')) {
+    const rowIdsOf = () =>
+      Array.from(doc.querySelectorAll('.track-row[data-track]')).map((row) =>
+        row.getAttribute('data-track')
+      );
+    const before = rowIdsOf();
+    const beforeOrder = before.join();
+    doc.getElementById('add-track').click();
+    const form = doc.getElementById('add-track-form');
+    const nameInput = doc.getElementById('add-track-name');
+    if (!form || form.hidden || !nameInput) {
+      failures.push('pressing Add Track did not open its form');
+    } else {
+      nameInput.value = 'Chimes 2';
+      form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      const appeared = await waitUntil(() => rowIdsOf().length === before.length + 1);
+      if (!appeared) {
+        const err = doc.getElementById('add-track-error');
+        failures.push(
+          'submitting the Add Track form built no new row' +
+            (err && err.textContent ? ` — the form says: ${err.textContent}` : '')
+        );
+      } else {
+        const after = rowIdsOf();
+        const newId = after[after.length - 1];
+        if (after.slice(0, before.length).join() !== beforeOrder) {
+          failures.push(
+            `adding a track moved the built-in rows: [${beforeOrder}] became [${after.slice(0, before.length).join()}]`
+          );
+        }
+        const row = doc.querySelector(`.track-row[data-track="${newId}"]`);
+        const item = row && row.parentElement;
+        const items = Array.from(doc.querySelectorAll('.track-rows > [data-track-item], .track-rows > .track-item'));
+        if (item && items.length && items[items.length - 1] !== item) {
+          failures.push('the user track row is not the LAST row in the tracks panel');
+        }
+        // Colour: the theme must define the token the engine assigned, and the
+        // row has to carry the class that reads it.
+        if (item && !item.className.includes('track-color-user-1')) {
+          failures.push(`the first user track row carries no --track-user-1 accent class (got "${item.className}")`);
+        }
+        // Every control a built-in row has, on a row the build never rendered.
+        const missing = [];
+        if (!doc.getElementById(`track-lamp-${newId}`)) missing.push('lamp');
+        const select = doc.getElementById(`track-voice-${newId}`);
+        if (!select || !select.options.length) missing.push('voice select with options');
+        if (!row?.querySelector('.level-knob, .level-slider')) missing.push('level control');
+        if (!row?.querySelector('.rand-knob, .rand-slider')) missing.push('randomness control');
+        if (!doc.getElementById(`voice-edit-toggle-${newId}`)) missing.push('Edit toggle');
+        if (!doc.getElementById(`track-remove-${newId}`)) missing.push('remove button');
+        if (missing.length) {
+          failures.push(`the user track row is missing: ${missing.join(', ')}`);
+        }
+        // The listeners, not just the markup: a lamp that does not cycle is a
+        // row that was drawn rather than wired.
+        const lamp = doc.getElementById(`track-lamp-${newId}`);
+        const stateBefore = row?.getAttribute('data-track-state');
+        lamp?.click();
+        const cycled = await waitUntil(() => row?.getAttribute('data-track-state') !== stateBefore);
+        if (!cycled) {
+          failures.push(`the user track's lamp does not cycle its state — the row was built but not wired`);
+        }
+        // The editor accordion, the knob path and the step grid, on the same
+        // terms the six get: buildKnobEditor falling back to sliders here would
+        // be silent everywhere else.
+        doc.getElementById(`voice-edit-toggle-${newId}`)?.click();
+        const built = await waitUntil(
+          () => doc.querySelectorAll(`#voice-editor-${newId} .patch-controls .knob-cell`).length > 0
+        );
+        if (!built) {
+          failures.push(`the user track's voice editor built no knob cells — it fell back to sliders`);
+        }
+        const stepped = await waitUntil(
+          () => doc.querySelectorAll(`#voice-editor-${newId} .seq-cell`).length > 0
+        );
+        if (!stepped) {
+          failures.push('the user track\'s editor rendered no step sequencer — every user track is sequenced');
+        }
+        // Removal is offered on user tracks only, and it takes the row with it.
+        for (const track of REGISTRY_IDS) {
+          if (doc.getElementById(`track-remove-${track}`)) {
+            failures.push(`the built-in ${track} row carries a remove button — a built-in cannot go`);
+          }
+        }
+        doc.getElementById(`track-remove-${newId}`)?.click();
+        const gone = await waitUntil(() => !doc.querySelector(`.track-row[data-track="${newId}"]`));
+        if (!gone) {
+          failures.push('removing the user track left its row in the document');
+        } else if (rowIdsOf().join() !== beforeOrder) {
+          failures.push(
+            `removing the user track disturbed the built-in rows: [${rowIdsOf().join()}] vs [${beforeOrder}]`
+          );
+        }
+      }
+    }
+  }
+
   // ---- v27 blank slate (fromMartin 25) --------------------------------------
   // Clicking Blank slate must leave every track OFF — the "all you" state.
   // Runs LAST: it rewrites the whole params object, so it must follow every

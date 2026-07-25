@@ -413,7 +413,14 @@ function sanitiseUserTrack(value, taken) {
   const colourToken = typeof value.colourToken === 'string' && COLOUR_TOKEN.test(value.colourToken)
     ? value.colourToken
     : null;
-  return { id, label, family, voiceSet, colourToken };
+  const entry = { id, label, family, voiceSet, colourToken };
+  // The manifest is settled LAST because it has to agree with the entry above:
+  // a document naming a different id, label, kind or bank is not this track's
+  // manifest. Rejecting one costs the manifest alone — the track survives and
+  // falls back to its voiceSet's stock editor, which a manifest is optional for.
+  const manifest = sanitiseManifest(value.manifest, entry);
+  if (manifest) entry.manifest = manifest;
+  return entry;
 }
 
 /**
@@ -1586,6 +1593,256 @@ const PATCH_SCHEMA = Object.freeze({
   }),
 });
 
+// -- v23 user instrument manifests -------------------------------------------
+//
+// A manifest is JSON DATA and nothing else: dial ranges, labels, a voiceSet
+// name. It carries no function body, no source string and no URL, which is what
+// lets it TRAVEL in a saved preset and in a share link while the v10 boundary
+// (user CODE never travels) stands unmoved. It declares which of the voice
+// editor's dials a user track shows, and compiles to exactly the
+// `controls`/`defaults` pair `VOICES[track][voiceId]` already publishes, so the
+// page's dial builder needs no new branch to render one.
+
+const MANIFEST_SCHEMA = 'ambi4.instrument/1';
+
+/** Dials per manifest. Past this the tail is dropped, as the track cap does. */
+const MANIFEST_DIAL_MAX = 24;
+
+const MANIFEST_DIAL_LABEL_MAX = 20;
+
+const MANIFEST_CURVES = Object.freeze(['linear', 'log']);
+
+const MANIFEST_UNITS = Object.freeze(['', '%', 'Hz', 's', 'st', 'ct', 'oct', 'dB', 'x']);
+
+/** The four Patch sections a dial may name, in the editor's own order. */
+const MANIFEST_SECTIONS = Object.freeze(Object.keys(PATCH_SCHEMA));
+
+/**
+ * A voice id inside a bank. NOT checked for membership: the voice library is
+ * loaded lazily and the engine cannot know which ids it offers — the same
+ * ruling `sanitisePatches` already makes for patch voice keys. The grammar is
+ * here so an id is safe to use as an object key and a DOM id, not to police the
+ * library.
+ */
+const MANIFEST_VOICE_ID = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+
+/**
+ * What a manifest may not contain ANYWHERE, at any depth, in a key or a value:
+ * a string that reads like code or like a smuggled URL. Word boundaries keep
+ * ordinary prose ("Important", "Formant") out of it while still catching the
+ * bare words the contract names.
+ *
+ * Finding one REJECTS THE WHOLE MANIFEST rather than cleaning it. A manifest
+ * arrives from a share link — untrusted, cross-device — and a document that has
+ * tried to smuggle a function body has told you what it is; stripping the field
+ * and keeping the rest would be trusting the remainder of a forgery.
+ */
+const MANIFEST_CODE_SHAPED = /\bfunction\b|=>|\bimport\b|javascript:|data:/i;
+
+/** Whether anything in this value reads like code. Depth-limited, cycle-safe. */
+function manifestCarriesCode(value, depth = 0) {
+  if (typeof value === 'string') return MANIFEST_CODE_SHAPED.test(value);
+  if (typeof value === 'function') return true;
+  if (!value || typeof value !== 'object') return false;
+  // Deeper than any legal manifest goes; a nest built to outrun the walk is
+  // itself grounds to refuse the document.
+  if (depth > 6) return true;
+  if (Array.isArray(value)) return value.some((item) => manifestCarriesCode(item, depth + 1));
+  for (const [key, item] of Object.entries(value)) {
+    if (MANIFEST_CODE_SHAPED.test(key)) return true;
+    if (manifestCarriesCode(item, depth + 1)) return true;
+  }
+  return false;
+}
+
+/**
+ * The range PATCH_SCHEMA itself allows for a field, DERIVED from the field's
+ * own coercion rather than restated beside it: a table written out by hand is a
+ * table that drifts the first time a bound moves. Probing with a value past any
+ * plausible bound returns whatever the field clamps to, in both directions.
+ *
+ * null for a field the schema does not have, and for an ENUM field (osc types,
+ * filter type), which has no numeric range to dial through — a manifest dial on
+ * one is dropped rather than rendered as a knob the engine would then refuse.
+ */
+const PATCH_FIELD_RANGES = new Map();
+
+function patchFieldRange(section, field) {
+  const key = `${section}.${field}`;
+  if (PATCH_FIELD_RANGES.has(key)) return PATCH_FIELD_RANGES.get(key);
+  const fields = PATCH_SCHEMA[section];
+  const coerce = fields ? fields[field] : undefined;
+  let range = null;
+  if (typeof coerce === 'function') {
+    const min = coerce(-1e12);
+    const max = coerce(1e12);
+    if (typeof min === 'number' && typeof max === 'number' && min < max) {
+      // Whether the field takes `{ min, max }` engine-side, asked the same way:
+      // a manifest cannot make a single-valued field rangeable, and a dial that
+      // wrote a range the sanitiser then dropped is the silent-drop the v21 gate
+      // rule exists to prevent.
+      const spread = coerce({ min, max });
+      range = { min, max, rangeable: Boolean(spread) && typeof spread === 'object' };
+    }
+  }
+  PATCH_FIELD_RANGES.set(key, range);
+  return range;
+}
+
+/** A finite number, or null — a manifest bound is never coerced from a string. */
+const manifestNumber = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * One dial, or null when it cannot be rendered honestly. A dial naming a field
+ * PATCH_SCHEMA does not know is DROPPED, never rendered: a control the engine
+ * will silently drop is worse than no control. Bounds outside the schema's own
+ * range for that field are CLAMPED to it rather than rejected — the manifest
+ * asked for something reasonable and slightly wrong, which is a different thing
+ * from asking for something that does not exist.
+ */
+function sanitiseManifestDial(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const section = oneOf(value.section, MANIFEST_SECTIONS, null);
+  if (!section) return null;
+  const field = typeof value.field === 'string' ? value.field : '';
+  const range = patchFieldRange(section, field);
+  if (!range) return null;
+  const label = typeof value.label === 'string'
+    ? value.label.trim().slice(0, MANIFEST_DIAL_LABEL_MAX) : '';
+  if (!label) return null;
+  const rawMin = manifestNumber(value.min);
+  const rawMax = manifestNumber(value.max);
+  const rawDefault = manifestNumber(value.default);
+  if (rawMin === null || rawMax === null || rawDefault === null) return null;
+  if (!(rawMin < rawMax)) return null;
+  const min = clamp(rawMin, range.min, range.max);
+  const max = clamp(rawMax, range.min, range.max);
+  // Both ends clamped onto the same bound leaves nothing to turn.
+  if (!(min < max)) return null;
+  return {
+    section,
+    field,
+    label,
+    min,
+    max,
+    // A default outside the dial's own span is pulled onto it: the alternative
+    // is a knob whose double-click-to-default lands somewhere it cannot be
+    // dragged to, which is a broken control rather than a missing one.
+    default: clamp(rawDefault, min, max),
+    curve: oneOf(value.curve, MANIFEST_CURVES, 'linear'),
+    // An unrecognised unit is presentation, not meaning: it degrades to no unit
+    // rather than costing the manifest its dial.
+    unit: value.unit === undefined ? '' : oneOf(value.unit, MANIFEST_UNITS, ''),
+    // Asked for AND supported: a field the engine takes single-valued stays
+    // single-valued whatever the manifest says.
+    rangeable: value.rangeable === false ? false : range.rangeable,
+  };
+}
+
+/**
+ * `dials`, deduplicated and capped. Duplicate `field` within a section: LAST
+ * wins, and it wins in its own position — a manifest that restates a dial meant
+ * the restatement. Entries past the cap are dropped from the TAIL, as
+ * `userTracks` drops its own.
+ */
+function sanitiseManifestDials(value) {
+  if (!Array.isArray(value)) return [];
+  const byKey = new Map();
+  for (const raw of value) {
+    const dial = sanitiseManifestDial(raw);
+    if (!dial) continue;
+    const key = `${dial.section}.${dial.field}`;
+    byKey.delete(key);
+    byKey.set(key, dial);
+  }
+  return [...byKey.values()].slice(0, MANIFEST_DIAL_MAX);
+}
+
+/**
+ * One `params.userTracks[].manifest`, or null when it is unusable. `entry` is
+ * the already-sanitised track it belongs to, and the manifest must AGREE with
+ * it: a document describing a different track's id, label, kind or bank is not
+ * this track's manifest and is not repaired into one.
+ *
+ * A rejected manifest costs the manifest ONLY — never the track. A user track
+ * without one is a perfectly good track: it gets its voiceSet's stock editor,
+ * which is exactly what a receiving device that refused a foreign document
+ * should fall back to.
+ */
+function sanitiseManifest(value, entry) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (value.schema !== MANIFEST_SCHEMA) return null;
+  if (manifestCarriesCode(value)) return null;
+  if (value.id !== entry.id) return null;
+  if (value.kind !== entry.family) return null;
+  if (value.voiceSet !== entry.voiceSet) return null;
+  const label = typeof value.label === 'string'
+    ? value.label.trim().slice(0, USER_TRACK_LABEL_MAX) : '';
+  if (label !== entry.label) return null;
+  const voice = typeof value.voice === 'string' && MANIFEST_VOICE_ID.test(value.voice)
+    ? value.voice : null;
+  if (!voice) return null;
+  const dials = sanitiseManifestDials(value.dials);
+  // Every dial dropped means an editor with nothing in it, which is strictly
+  // worse than the stock one. Refuse the manifest and let the track keep it.
+  if (!dials.length) return null;
+  const out = { schema: MANIFEST_SCHEMA, id: entry.id, label, kind: entry.family, voiceSet: entry.voiceSet, voice };
+  // Presentation only, so an unusable one is dropped rather than fatal — the
+  // track's own colourToken is the authority a consumer reads in any case.
+  if (typeof value.colourToken === 'string' && COLOUR_TOKEN.test(value.colourToken)) {
+    out.colourToken = value.colourToken;
+  }
+  out.dials = dials;
+  return out;
+}
+
+/** A manifest nobody can write through to the engine's own copy. */
+const copyManifest = (manifest) => (manifest
+  ? { ...manifest, dials: manifest.dials.map((dial) => ({ ...dial })) }
+  : null);
+
+/**
+ * What a manifest MEANS to a voice editor: the same `controls`/`defaults` pair
+ * the voice library publishes for a built-in voice, plus the per-field spec
+ * table the v19 sculpting groups already read.
+ *
+ * - `controls[section]` is the manifest's fields for that section, or `false`
+ *   when it declares none — a section with no dials vanishes from the editor.
+ * - `defaults[section]` is a patch object of each dial's default. It is an
+ *   OVERLAY: merge it over the named voice's own defaults (`{...voice.defaults
+ *   [section], ...defaults[section]}`). The engine cannot do that merge itself
+ *   — the voice library is loaded lazily and a manifest is sanitised on the
+ *   synchronous setParams path — so the caller that already holds VOICES does
+ *   it, and takes `engineType` from the named voice at the same time.
+ * - `dials[]` carries `fallback` alongside `default`, which is the field name
+ *   the v19 `{ field, min, max, fallback, unit }` spec shape uses, so a
+ *   read-out carries its unit and double-click-to-default works untouched.
+ */
+function compileManifest(manifest) {
+  if (!manifest) return null;
+  const controls = {};
+  const defaults = {};
+  for (const section of MANIFEST_SECTIONS) {
+    const rows = manifest.dials.filter((dial) => dial.section === section);
+    if (!rows.length) {
+      controls[section] = false;
+      continue;
+    }
+    controls[section] = rows.map((dial) => dial.field);
+    defaults[section] = Object.fromEntries(rows.map((dial) => [dial.field, dial.default]));
+  }
+  return {
+    id: manifest.id,
+    label: manifest.label,
+    kind: manifest.kind,
+    voiceSet: manifest.voiceSet,
+    voice: manifest.voice,
+    controls,
+    defaults,
+    dials: manifest.dials.map((dial) => ({ ...dial, fallback: dial.default })),
+  };
+}
+
 /** The four Patch sections, clamped and stripped of unknown keys. */
 function sanitisePatchSections(value) {
   const out = {};
@@ -1824,7 +2081,11 @@ const copyHarmony = (harmony) => ({
 function copyParams(params, order = TRACK_ORDER) {
   return {
     ...params,
-    userTracks: params.userTracks.map((entry) => ({ ...entry })),
+    // A manifest is an object inside the entry: a spread of the entry alone
+    // would hand its dials out by reference.
+    userTracks: params.userTracks.map((entry) => (entry.manifest
+      ? { ...entry, manifest: copyManifest(entry.manifest) }
+      : { ...entry })),
     harmony: copyHarmony(params.harmony),
     customStructure: params.customStructure.map((block) => ({ ...block })),
     arp: { ...params.arp, steps: params.arp.steps.slice() },
@@ -4515,6 +4776,27 @@ export function createEngine(initialParams, options = {}) {
       tracks: { [entry.id]: openingGrid(entry.family) },
     });
     return trackViews().find((view) => view.id === entry.id) ?? null;
+  }
+
+  /**
+   * A user track's instrument manifest, COMPILED — `{ controls, defaults,
+   * dials }` in the shape the voice library publishes for a built-in voice,
+   * plus the manifest's own `voiceSet`/`voice` so the caller can look the named
+   * voice up and take its `engineType` (the "custom [engine]" selector-honesty
+   * rule is unchanged by a manifest).
+   *
+   * null for a built-in, for an unknown id, and for a user track that has no
+   * manifest — all three mean the same thing to the caller: build this track's
+   * editor the way you always did.
+   *
+   * It is an ACCESSOR rather than a sixth field on the public track view: that
+   * view's five keys are a pinned contract, and a manifest is a document, not a
+   * label. Everything it hands back is freshly built, so a caller cannot write
+   * through it into the engine's params.
+   */
+  function getTrackManifest(id) {
+    const entry = params.userTracks.find((row) => row.id === id);
+    return entry && entry.manifest ? compileManifest(entry.manifest) : null;
   }
 
   /**
@@ -7243,6 +7525,7 @@ export function createEngine(initialParams, options = {}) {
     canAddTrack,
     addTrack,
     removeTrack,
+    getTrackManifest,
     getAnalysers,
     getMasterAnalyser,
     getStats,
