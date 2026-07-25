@@ -38,6 +38,12 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   control the moment the engine lands the param, and accepts its absence before
   then. A dial that renders against an engine which drops the param is also a
   failure: a control that does nothing is worse than no control.
+- Iteration 4 — same probe-gated discipline as the v21 bullet above, applied
+  to three more surfaces: the Scale select gains Ionian/Mixolydian/Phrygian
+  options only where `mode` accepts each one; the Chord length select (near
+  Structure) shows only where `harmony.rhythm` survives the sanitiser; and the
+  pad editor's Breath knob shows only where `tracks.pad.padBreath` does — and
+  never on any other track's editor.
 - Fresh install — this harness boots with empty storage and no consent, which is
   every first-time visitor: nothing is persisted before consent is granted, every
   track row builds a randomness control, and no dial read-out comes up NaN
@@ -526,3 +532,39 @@ Detune (any voice editor → Source)
       right sharp, and the middle reads "In tune" and is findable by feel. (The
       v12 delta's "stays 0–50, unipolar" line is superseded — the engine has
       accepted negative cents since v18.)
+
+## Iteration 4 delta — three more modes, chord length, pad breath
+
+Everything below is engine-gated, same discipline as the v21 delta above: if
+this build ships against an engine that has not landed the param yet, the
+control is simply absent — check the boot gate's "iteration 4 probe-gated
+surfaces" block passed before assuming a missing control is a bug here.
+
+Scale (Advanced → Scale select)
+- [ ] Ionian (Major), Mixolydian and Phrygian are selectable alongside the
+      original six. Each audibly plays a normal 7-note scale, not a silent or
+      broken one.
+
+Chord length (Advanced, near Structure)
+- [ ] A "Chord length" select sits directly under Structure: Auto / 1 / 2 / 4 /
+      8 bars.
+- [ ] Auto behaves as today (the hook picks its own pass length). Setting 1
+      bar audibly changes chord every bar; 8 bars holds one chord for a long
+      stretch. Changing it while playing takes effect without a glitch.
+
+Pad breath (Advanced → Pad → Edit)
+- [ ] A "Breath" knob (0–1) sits in the pad's own editor — nowhere else.
+      Tooltip/hover text: "How much the pad swells with each bar."
+- [ ] At 0 the pad's bar-to-bar swell is much shallower than the current
+      default sound; turned up it swells more obviously in time with the bar.
+- [ ] Persists in a saved preset and across a reload like every other pad
+      setting.
+
+Live readouts (Advanced → any pulsed/tuned track's row, playing)
+- [ ] If this engine build reports resolved swing/density (Live readouts
+      already show `level`/`random` next to each track), the same small text
+      now also shows the track's actual sounding `swing`/`density` value —
+      only on tracks where that field applies (swing on Melody/Bass/Arp/
+      Percussion, density on the tuned tracks), and only once the engine
+      actually reports it. Absence here on an engine that doesn't report it
+      yet is correct.

@@ -28,12 +28,22 @@ const ENHARMONICS = {
   DB: 'C#', EB: 'D#', FB: 'E', GB: 'F#', AB: 'G#', BB: 'A#', 'E#': 'F', 'B#': 'C',
 };
 
-/** Semitone offsets from the root. */
+/**
+ * Semitone offsets from the root. v21 completes the diatonic set: ionian,
+ * mixolydian and phrygian join the three modes that were already here, so the
+ * plain major scale, its bVII-flavoured cousin and the bII-flavoured dark one
+ * are all reachable. Everything downstream stacks chords in SCALE STEPS, so a
+ * new table is all a new mode needs — the chords, the tune and the bass line
+ * are diatonic to whatever is in here by construction.
+ */
 export const SCALES = Object.freeze({
   majorPentatonic: [0, 2, 4, 7, 9],
   minorPentatonic: [0, 3, 5, 7, 10],
+  ionian: [0, 2, 4, 5, 7, 9, 11],
   dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
   lydian: [0, 2, 4, 6, 7, 9, 11],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
   aeolian: [0, 2, 3, 5, 7, 8, 10],
   wholeTone: [0, 2, 4, 6, 8, 10],
 });
@@ -427,6 +437,22 @@ function deepFreeze(value) {
  */
 export const REVERB_TAIL_RANGE = Object.freeze([0.5, 6]);
 
+/**
+ * v21 harmonic rhythm: how many bars one chord of the hook holds. 'auto' is
+ * the repetition-weighted one-or-two-bar draw every version so far has made;
+ * a fixed number pins it, and the loop's PASS length follows from it — eight
+ * chords at four bars each is a thirty-two bar pass.
+ */
+export const HARMONY_RHYTHMS = Object.freeze(['auto', 1, 2, 4, 8]);
+
+/**
+ * v21 padBreath: the depth of the pad's bar-phased swell, which is exactly
+ * what the contour has always swung by. Shipping the old constant AS the
+ * default is what keeps a params object that never mentions it sounding the
+ * same; 0 is a flat sustain and 1 is as much dynamic as the voicing allows.
+ */
+const DEFAULT_PAD_BREATH = 0.28;
+
 export const DEFAULT_PARAMS = Object.freeze({
   speed: 1,
   // v14: straight by default. The dial is global; per-track overrides are a
@@ -442,6 +468,8 @@ export const DEFAULT_PARAMS = Object.freeze({
   // v21: seconds of reverb tail. 4 is the length every version so far has
   // baked, so a params object that never mentions it sounds unchanged.
   reverbTail: 4,
+  padBreath: DEFAULT_PAD_BREATH,
+  harmony: Object.freeze({ rhythm: 'auto' }),
   structure: 'auto',
   customStructure: Object.freeze(defaultCustomStructure().map(Object.freeze)),
   arp: Object.freeze({ ...defaultArp(), steps: Object.freeze(new Array(ARP_STEP_COUNT).fill(true)) }),
@@ -460,6 +488,7 @@ const NUMERIC_RANGES = {
   bpm: [20, 220],
   volume: [0, 1],
   reverbTail: REVERB_TAIL_RANGE,
+  padBreath: [0, 1],
 };
 
 function numberIn(value, range, fallback) {
@@ -520,6 +549,26 @@ export function randomnessIsHold(value) {
   if (value === null || value === undefined) return false;
   if (typeof value === 'object') return value.max <= RANDOMNESS_HOLD_EPSILON;
   return value <= 0;
+}
+
+/**
+ * One harmonic rhythm value: 'auto', or a bar count from HARMONY_RHYTHMS as a
+ * NUMBER whichever form it arrived in — a `<select>` sends its options as
+ * strings, and "4 bars" and 4 are the same musical instruction. Anything else
+ * returns null, which lets the caller fall back to the stored value.
+ */
+function harmonyRhythm(value) {
+  if (value === 'auto') return 'auto';
+  const num = typeof value === 'number' ? value : Number(value);
+  if (value === undefined || value === null || value === '' || !Number.isFinite(num)) return null;
+  return HARMONY_RHYTHMS.includes(num) ? num : null;
+}
+
+function sanitiseHarmony(value, base) {
+  const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.harmony;
+  const v = value && typeof value === 'object' ? value : null;
+  const sent = v && 'rhythm' in v ? harmonyRhythm(v.rhythm) : null;
+  return { rhythm: sent ?? harmonyRhythm(from.rhythm) ?? 'auto' };
 }
 
 /** 16 booleans; short arrays are padded with `true`, long ones truncated. */
@@ -1143,6 +1192,7 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS) {
   out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
   out.timeSignature = oneOf(at('timeSignature'), Object.keys(TIME_SIGNATURES),
     oneOf(from.timeSignature, Object.keys(TIME_SIGNATURES), DEFAULT_PARAMS.timeSignature));
+  out.harmony = sanitiseHarmony(at('harmony'), from.harmony);
   out.structure = oneOf(at('structure'), STRUCTURES, oneOf(from.structure, STRUCTURES, 'auto'));
   out.customStructure = sanitiseCustomStructure(at('customStructure'), from.customStructure);
   out.arp = sanitiseArp(at('arp'), from.arp);
@@ -1217,6 +1267,7 @@ function copyTrack(track) {
 function copyParams(params) {
   return {
     ...params,
+    harmony: { ...params.harmony },
     customStructure: params.customStructure.map((block) => ({ ...block })),
     arp: { ...params.arp, steps: params.arp.steps.slice() },
     tracks: Object.fromEntries(TRACK_ORDER.map((name) => [name, copyTrack(params.tracks[name])])),
@@ -1494,7 +1545,10 @@ export function nameChord(rootPc, semitones) {
   const ninth = set.has(2);
 
   let quality = '';
-  if (third === 'min') quality = fifth === 'dim' ? 'dim' : 'm';
+  // A diminished triad carrying a MINOR seventh is half-diminished, and the
+  // seventh degree of every seven-note mode makes one: calling it "dim7" would
+  // promise a diminished seventh that is not in the chord, so it reads m7b5.
+  if (third === 'min') quality = fifth === 'dim' && seventh !== 'min' ? 'dim' : 'm';
   else if (third === 'maj') quality = fifth === 'aug' ? 'aug' : '';
   else if (set.has(5)) quality = 'sus4';
   else if (ninth) quality = 'sus2';
@@ -1509,7 +1563,7 @@ export function nameChord(rootPc, semitones) {
   else if (ninth && !extension && quality !== 'sus2') extension = 'add9';
 
   // A named fifth that the quality has not already accounted for.
-  const tail = fifth === 'dim' && third !== 'min' ? 'b5' : fifth === 'aug' && third !== 'maj' ? '#5' : '';
+  const tail = fifth === 'dim' && quality !== 'dim' ? 'b5' : fifth === 'aug' && third !== 'maj' ? '#5' : '';
   // A suspension takes its extension in front of it, the way it is written: D9sus4.
   return quality.startsWith('sus')
     ? `${root}${extension}${quality}${tail}`
@@ -3734,6 +3788,18 @@ export function createEngine(initialParams, options = {}) {
   }
 
   /**
+   * How many bars the chord starting now holds (v21). 'auto' is the original
+   * draw — two bars the more often the more repetition was asked for — and a
+   * fixed harmony.rhythm is taken at its word, which is what makes the hook's
+   * pass length its chord count times this.
+   */
+  function chordSpanBars() {
+    const rhythm = params.harmony.rhythm;
+    if (rhythm !== 'auto') return rhythm;
+    return rng() < 0.5 + params.repetition * 0.2 ? 2 : 1;
+  }
+
+  /**
    * Advance to the next chord of the hook and publish it as the harmonic frame
    * every track reads. A held track re-derives its frozen plan against whatever
    * this supplies, which is how hold keeps following the harmony (ruling 5).
@@ -3892,7 +3958,6 @@ export function createEngine(initialParams, options = {}) {
   const PAD_REATTACK_SPAN = 0.4;   // ...plus this much at randomness 1
   const PAD_REATTACK_LEVEL = 0.7;  // the breath sits under the downbeat attack
   const PAD_SWELL_BARS = 4;        // period of the pad's dynamic contour
-  const PAD_SWELL_DEPTH = 0.28;    // velocity swing at section intensity 1
 
   /**
    * The pad's bar plan: how wide the voicing is, plus one velocity jitter per
@@ -3919,8 +3984,9 @@ export function createEngine(initialParams, options = {}) {
       reattack: rng() < (PAD_REATTACK_BASE + spread * PAD_REATTACK_SPAN) * (0.5 + intensity)
         && spread > 0,
       // A smooth contour rather than a per-bar draw: the pad swells and settles
-      // over four bars, and only as far as the section's intensity asks.
-      swell: 1 + Math.sin(padSwellPhase * Math.PI * 2) * PAD_SWELL_DEPTH * intensity,
+      // over four bars, as deep as padBreath asks and only as far as the
+      // section's intensity carries it. padBreath 0 is a flat sustain.
+      swell: 1 + Math.sin(padSwellPhase * Math.PI * 2) * params.padBreath * intensity,
     };
   }
 
@@ -4907,9 +4973,9 @@ export function createEngine(initialParams, options = {}) {
         degree: chordDegree,
         inversion: chordInversion,
         extension: chordExtension,
-        // Slower harmonic rhythm when the listener wants repetition. Drawn
-        // only where a span actually begins, so a bar mid-chord costs nothing.
-        span: fresh ? (rng() < 0.5 + params.repetition * 0.2 ? 2 : 1) : 0,
+        // Read only where a span actually begins, so a bar mid-chord costs
+        // nothing — and, under 'auto', draws no randomness either.
+        span: fresh ? chordSpanBars() : 0,
       };
     });
     // Every bar of a repeat re-reads its captured frame, not just the ones a
@@ -5631,10 +5697,18 @@ export function createEngine(initialParams, options = {}) {
         voice: effectiveVoice(name),
         level: resolveRange(name, 'level', config.level),
         randomness: trackRandomness(name),
+        // v21 followers, resolved: the feel this track is actually swung by
+        // (its own, or the global dial it follows) and the multiplier its
+        // event rate is actually taking (1 while it follows complexity).
+        swing: trackSwing(name),
+        density: trackDensity(name),
         held: held.has(name) || isFrozenTrack(name),
         vary: Object.fromEntries(VARY_ASPECTS.map((aspect) => [aspect, varyAmount(name, aspect)])),
       };
       if (config.dissonance !== undefined) resolved.dissonance = trackDissonance(name);
+      // The kit as the grid is currently keyed: a dynamic lane list is the one
+      // readout a percussion UI cannot derive from anything else.
+      if (config.lanes) resolved.lanes = config.lanes.map((lane) => ({ ...lane }));
       if (config.sequencers && config.sequencers.length > 1) {
         resolved.sequencer = clamp(activeSequencer.get(name) ?? 0, 0, config.sequencers.length - 1);
       }
