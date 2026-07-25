@@ -963,3 +963,377 @@ displayOrder distinct from engine/staging order (byte-identity preserved);
 page/visualiser/scope consume getTracks() with hardcoded fallbacks.
 PENDING (window 3): addTrack/removeTrack for user tracks (cap 12), user
 instrument manifests (JSON dial spec), persistence of user tracks in params.
+
+---
+
+# v23 — user tracks (window-3 build spec; supersedes v22's PENDING note)
+
+## The frozen floor (THE decision — read this before anything below)
+
+Every derived table (TRACK_ORDER, SEQUENCED_TRACKS, TUNED_TRACKS, TRACK_MIX,
+AUTO_THRESHOLDS, MAX_STAGE_INDEX, TRACK_VIEWS) is a module-level constant,
+frozen at import, built from the six built-ins. Runtime mutation cannot reach
+them and MUST NOT try. So the registry splits in two:
+
+- FLOOR (module scope, unchanged forever): the six built-ins and every table
+  above. Frozen, six entries, byte-identity-pinned by the v22 proofs. Nothing
+  in this window edits a line of it.
+- LAYER (instance scope, inside `createEngine`): `userTracks[]` plus derived
+  ACCESSORS over floor+user — `trackOrder()`, `sequencedTracks()`,
+  `tunedTracks()`, `tunedSet()`, `trackMix(id)`, `autoThreshold(id)`,
+  `stageIndexOf(id)`, `stageBars()`, `trackViews()`. Every engine-internal
+  loop `for (const name of TRACK_ORDER)` becomes `for (const name of
+  trackOrder())`; `const STAGE_BARS = MAX_STAGE_INDEX` becomes `stageBars()`
+  (it is captured at closure build today and would freeze a stale value).
+- IDENTITY SHORTCUT (load-bearing, not an optimisation): with zero user
+  tracks every accessor returns THE SAME FROZEN OBJECT the module built —
+  `trackOrder() === TRACK_ORDER`, `trackViews() === TRACK_VIEWS`. No copy, no
+  allocation, no re-sort. `engine.getTracks() === getTracks()` therefore still
+  holds, and the existing handle test keeps passing unchanged.
+- Consumers: the MODULE export `getTracks()` stays built-ins-only forever —
+  it is what `index.astro` imports at BUILD time for the SSR track rows, and a
+  server render cannot know a user's tracks. `engine.getTracks()` (instance)
+  is floor+user, in display order: built-ins in their fixed display order
+  first, user tracks after, in creation order. The page, visualiser and scope
+  all already read the instance handle; they need no new API, only the
+  understanding that the list length is no longer 6.
+- Module-level exported helpers that read a floor table gain an optional
+  trailing argument and default it to the floor: `autoActiveTracks(intensity,
+  complexity, tracks = TRACK_ORDER)`, `stageIndexOf(name, tracks =
+  TRACK_REGISTRY)`. Existing call sites and tests are untouched.
+- ORDER RULE: user tracks append after every built-in in engine order, in
+  sequenced order, in staging and in the auto ladder. The first six draws of
+  every per-track rng pass are therefore the built-ins' own draws, in the
+  order they have always been.
+- BYTE-IDENTITY IS CONDITIONAL, and stated plainly: zero user tracks ⇒ the
+  note stream is bit-identical to v0.0.24 under the same seeded `options.rng`.
+  One user track legitimately changes the stream (it draws). That is not a
+  regression and no test may assert otherwise.
+
+## addTrack
+
+`engine.addTrack({ id, label, family, voiceSet, colourToken? })` → the frozen
+public view of the new track (`{id, label, builtin: false, colourToken,
+family}` — the same five fields, no sixth; the v22 key-set pin stands).
+
+- `id`: `/^[a-z][a-z0-9-]{1,23}$/` — 2-24 chars, lowercase ASCII, digits and
+  hyphen, must start with a letter. `#` is banned explicitly because frozen
+  plan keys are `${track}#${lane}`; whitespace, dots and uppercase are banned
+  because the id is a params key, a CSS-var suffix and a share-link token.
+- Reserved ids (rejected as `reserved-id`): the six built-ins, plus `master`,
+  `global`, `all`, `none`, `off`, `auto`, `on` — the last three collide with
+  TRACK_STATES in every select the UI builds.
+- Collision with an existing user track: `duplicate-id`. Case is not folded —
+  the grammar forbids uppercase, so there is nothing to fold.
+- `label`: non-empty string after trim, ≤ 24 chars; trimmed before storage.
+- `family`: `'melodic' | 'percussive'` exactly.
+- `voiceSet`: a key of the voice library — `'pad'|'bass'|'melody'|'texture'|
+  'arp'|'percussion'`. A `'percussive'` family REQUIRES `voiceSet:
+  'percussion'`; any other pairing is `bad-voice-set`. The track's voice bank
+  is `VOICES[voiceSet]`, its default voice `DEFAULT_TRACK_VOICES[voiceSet]`,
+  and `voiceFor()` falls back through `FALLBACK_VOICES[voiceSet]` exactly as a
+  built-in does. No new voice code ships for a user track (v10 boundary).
+- `colourToken`: optional; must match `/^--[a-z][a-z0-9-]{1,31}$/`. Absent ⇒
+  the engine assigns `--track-user-N`, N = 1-6 by creation ordinal.
+- Cap: 12 tracks total, so 6 user tracks. Exceeding ⇒ `cap`.
+- THROWS, never returns false. `TypeError` for a malformed shape or grammar,
+  `RangeError` for the cap; every thrown error carries `err.code` from
+  `'bad-id'|'reserved-id'|'duplicate-id'|'bad-label'|'bad-family'|
+  'bad-voice-set'|'bad-colour-token'|'cap'`. Rationale: a false is
+  indistinguishable between "your id is bad" and "you are full", and the
+  sanitiser-tolerance convention exists for `setParams` (untrusted stored
+  data), not for a UI-driven API call.
+- `engine.canAddTrack(spec)` → `null` when addTrack would succeed, else the
+  same code string. Non-throwing, allocates nothing, is the probe the Add
+  Track button enables/disables from. Same idiom as every other engineCaps
+  probe.
+- Effects, in order: validate → append to `params.userTracks` → rebuild the
+  instance accessors → `ensureTrackChain(id)` (build the input/tone/dry/sends/
+  analyser chain if `graph` exists) → seed `params.tracks[id]` from the
+  defaults below. `ensureTrackChain` DRAWS NO RANDOMNESS — the reverb IR is
+  the only rng in `buildGraph` and it is not rebuilt.
+- Adding mid-playback is legal. The new track sounds from the NEXT bar (it has
+  no plan for the bar already realised) and is subject to `stageIndexOf`.
+
+## removeTrack
+
+`engine.removeTrack(id)` → `true` removed, `false` unknown id (idempotent —
+calling twice is not an error). Throws `Error` with `code: 'builtin'` for any
+of the six: deleting a built-in is a programming fault, not a user outcome.
+
+- Params: `params.userTracks` entry and `params.tracks[id]` are both deleted
+  synchronously. `getParams()` stops reporting the track on the same tick.
+- Scheduling: no new note is scheduled for the track from the moment of the
+  call. Plans already realised for the current bar are discarded, frozen plans
+  under `${id}` and `${id}#*` are cleared.
+- Voice teardown: in-flight notes RING OUT. The track's chain is disconnected
+  only after `max(entry.until)` over its live notes has passed (the existing
+  `pruneLiveNotes` bookkeeping already knows this), then input/tone/dry/sends/
+  analyser are disconnected and dropped. Stopped engine ⇒ teardown is
+  immediate. No fade is applied: cutting a ringing note is the click the
+  50 ms-fade rule exists to prevent.
+- `getAnalysers()` drops the key at once (the analyser node may outlive it by
+  a tail; nothing may hold it).
+- Staging reindex: user stage indices are `MAX_STAGE_INDEX + 1 + ordinal`,
+  compacted on removal so the remaining user tracks stay contiguous.
+  `stageBars()` shrinks with them. A RUN IN PROGRESS is not re-staged
+  retroactively — a track already sounding keeps sounding; the reindex only
+  decides who may enter on a future bar.
+- Auto ladder thresholds recompute the same way (see § getStats + ladder).
+
+## params.userTracks (persistence)
+
+Identity lives in its OWN ordered array, NOT inside `params.tracks`:
+
+```
+params.userTracks = [{ id, label, family, voiceSet, colourToken, manifest? }]
+```
+
+- Order = creation order = append order everywhere (engine order, sequenced
+  order, staging, ladder). Cap 6; entries past the cap are dropped from the
+  TAIL.
+- `params.tracks[id]` is an ordinary track entry, built by the same
+  `defaultTracks()`/`sanitiseTracks()` code paths as a built-in: state, voice,
+  level, randomness, driftRate, swing, density, hold, mono, glide, vary; plus
+  `dissonance` when melodic (melodic ⇒ tuned), plus `lanes` when percussive,
+  plus `sequencers`/`sequencer` — EVERY user track is sequenced (see below).
+- Defaults for a freshly added track: `state: 'on'` (the user just made it —
+  it should sound), `voice: DEFAULT_TRACK_VOICES[voiceSet]`, level 0.8,
+  randomness {0.35, 0.65}, driftRate 1, swing null, density null, hold false,
+  mono false, glide 0, vary all null (no voice wander — the pad/texture 0.15
+  is a built-in-specific ruling), dissonance the standard default.
+- SANITISER ORDER: `sanitiseUserTracks(value, base)` runs FIRST and its result
+  defines the id set `sanitiseTracks` then iterates (built-ins first, user
+  tracks in stored order). `params.userTracks` is AUTHORITATIVE on setParams —
+  addTrack/removeTrack are sugar that write it. That is what lets loading a
+  preset recreate tracks with no extra API call.
+- Unknown ids: a `params.tracks` key that is neither a built-in nor a
+  surviving `userTracks` id is DROPPED SILENTLY, exactly as today. A
+  `userTracks` entry that fails validation is dropped whole (its `tracks`
+  entry then orphans and drops with it) — never coerced, never renamed.
+- Compat: absent `userTracks` ⇒ zero user tracks ⇒ params byte-identical to
+  v0.0.24. Every stored preset, share link and `ambi4:`-namespaced settings
+  blob written before this window loads unchanged. A user track added and
+  later removed leaves nothing behind.
+- `getParams()` returns `userTracks` in its copy; `copyParams` deep-copies it.
+
+## Share semantics (v10 code-never-travels)
+
+- A manifest is JSON DATA — dial ranges, labels, a voiceSet name. It is not a
+  function body, carries no source string and no URL. It therefore TRAVELS in
+  a saved preset and in a `#p=` share link, like every other param. The v10
+  boundary is unmoved: user CODE (`ambi4:code:<seam>` voice bodies) never
+  travels and is never referenced by id from a manifest.
+- The sanitiser strips any key not in the schema below on the way in. A
+  manifest field that looks like code (a string containing `function`, `=>`,
+  `import`, or any `javascript:`/`data:` URL) is grounds to reject the whole
+  manifest, not to clean it.
+- Receiving device, track it has never seen: RECOMMENDED DEFAULT is GENERIC
+  SYNTHESIS WITH A NOTICE — create the track, sound it through the built-in
+  `voiceSet` the manifest names (always present), apply every dial the local
+  PATCH_SCHEMA knows, drop dials it doesn't, and surface one line under the
+  share note: "Added N custom tracks — their custom voice code isn't included
+  in shared links." Rationale: dropping the track silently orphans its mix
+  levels and sequencer grids and the arrangement arrives wrong; refusing loses
+  the whole preset over one track.
+  THIS IS A USER DECISION — recorded here as a recommendation, not a ruling.
+  The alternatives, if Martin picks differently: drop-with-notice (safest
+  sonically, loses arrangement) or refuse (never silently wrong, worst UX).
+- Size: a manifest is ~200-600 bytes per track; six of them stay well inside
+  the few-KB share-link budget the fragment already carries losslessly.
+
+## User instrument manifest (JSON schema)
+
+```
+{
+  schema: 'ambi4.instrument/1',
+  id, label,
+  kind: 'melodic' | 'percussive',
+  voiceSet: 'pad'|'bass'|'melody'|'texture'|'arp'|'percussion',
+  voice: <a voice id within that set>,
+  colourToken?: '--track-…',
+  dials: [{
+    section: 'source'|'filter'|'adsr'|'sends',
+    field:   <a PATCH_SCHEMA field name in that section>,
+    label:   <≤ 20 chars>,
+    min, max, default,                       // finite; min < max; min ≤ default ≤ max
+    curve?: 'linear'|'log',                  // default 'linear'
+    unit?:  ''|'%'|'Hz'|'s'|'st'|'ct'|'oct'|'dB'|'x',
+    rangeable?: boolean                      // default true; false pins it single-valued
+  }]
+}
+```
+
+- `id`/`label`/`kind`/`voiceSet` mirror addTrack's rules and must agree with
+  the track they belong to; disagreement rejects the manifest.
+- `dials` cap 24. A dial naming a field PATCH_SCHEMA does not know is DROPPED
+  (never rendered): a control the engine will silently drop is worse than no
+  control — the standing v21 gate rule. A dial whose min/max fall outside the
+  schema's own range for that field is clamped to the schema range, not
+  rejected.
+- Duplicate `field` within a section: last wins, earlier dropped.
+- MAPPING onto the page dial-builder: the manifest compiles to exactly what
+  `VOICES[track][voiceId]` already publishes, so the builder needs no new
+  branch —
+  - `controls` ← `{ source: [fields…], filter: [fields…], adsr: true|[…],
+    sends: true|[…] }`, each section's array being the manifest's fields for
+    it; a section with no dials becomes `false` and vanishes from the editor.
+  - `defaults` ← a patch object of each dial's `default`, merged over the
+    named voice's own defaults.
+  - the per-field min/max/unit/curve table feeds the same spec shape the v19
+    sculpting groups already use (`{field, min, max, fallback, unit}`), so
+    read-outs carry units and double-click-to-default works untouched.
+  - `engineType` ← the named voice's own `engineType`; the "custom [engine]"
+    selector-honesty rule (v17) applies unchanged.
+- A manifest is OPTIONAL. A user track without one is a perfectly good track:
+  it gets its voiceSet's stock editor.
+
+## Percussion lanes
+
+- A user percussive track gets its OWN lane set: `params.tracks[id].lanes`,
+  defaulting to a copy of the three built-in lanes (low/mid/high, kinds to
+  match). Lanes are already per-track in the params shape; nothing is shared
+  with the built-in kit.
+- The three built-in lane IDS are undeletable inside EVERY percussive track —
+  they are the kinds the drum voices actually synthesise, and every legacy
+  `steps: {low, mid, high}` grid and stored `perKind` patch is keyed by them.
+  User lanes append per track, cap 8 lanes PER TRACK.
+- Caps compose multiplicatively and that is accepted: 12 tracks × 8 lanes is
+  the paper worst case (7 percussive tracks = 56 lanes). Lanes cost nothing
+  until they fire; the v9 power governor's polyphony cap is global and
+  unchanged, and it is the only backstop needed.
+- A user MELODIC track has no lanes: one step grid, like melody/bass/arp.
+- EVERY user track is sequenced (appended to `sequencedTracks()` after
+  `percussion`). A user track has no bespoke generative pass — there is no
+  motif engine, bass groove or chord wash written for it — so its material
+  comes from its step grid (manual, or the Markov auto mode every sequenced
+  track already has) with pitch from the current chord when melodic.
+
+## getStats, ladder, mix defaults
+
+- `getStats().perTrack` is keyed by `trackOrder()`: six keys in the same order
+  with zero user tracks, +1 key per user track after them. `nodesEstimate`
+  counts `NODES_PER_TRACK` for each. `getResolved().tracks`,
+  `getResolved().patches` and `getAnalysers()` gain their keys the same way.
+- Auto ladder: user thresholds are `0.6 + 0.05 × (ordinal + 1)` → 0.65, 0.70,
+  0.75, 0.80, 0.85, 0.90. Rising and above percussion's 0.6, so the active set
+  stays a PREFIX of `trackOrder()` — the property the v22 ladder proof asserts,
+  now asserted over the instance list too.
+- Default mix (the decorative tier, deliberately not the pad/bass tier):
+  - melodic: `{ level: 0.2, dry: 0.7, reverb: 0.45, delay: 0.25, tone: 6500 }`
+  - percussive: `{ level: 0.24, dry: 0.85, reverb: 0.3, delay: 0.12, tone: 9000 }`
+- No auto-scaling of built-in levels when user tracks arrive: a built-in's
+  gain must not depend on how many tracks the user made. Twelve tracks at full
+  tilt lean on the master's 0.7 headroom and the glue compressor, which is
+  what they are for.
+
+## Consumer contract beyond the fixed six
+
+- Colour: a user track publishes `colourToken: '--track-user-N'` (N = 1-6).
+  The theme MUST define those six vars — hues spaced away from the built-in
+  six. Where a var is missing, the existing fallbacks already cover it:
+  `scope.js` hashes list position to a hue, `visualiser.js` `laneAccentFor`
+  parses with a computed fallback. Nothing throws on an undefined var today
+  and nothing may start to.
+- The public view keeps EXACTLY its five keys (id, label, builtin,
+  colourToken, family). No sixth field, no literal colour — the v22 key-set
+  pin is a contract, and a literal colour would bypass theming.
+- Hardcoded fallback tables stay SIX FOREVER: `FALLBACK_TRACKS`
+  (index.astro), `MULTISCOPE_ALL_TRACKS` (scope.js), the visualiser's own
+  fallback. They are the branch an engine bundle WITHOUT `getTracks()` boots
+  on; an engine with `addTrack` necessarily has `getTracks()`, so that branch
+  can never meet a seventh track. Corollary for the boot gate: the 1:1
+  fallback-vs-registry assertion must compare against the MODULE `getTracks()`
+  (built-ins), not the live instance list, or adding a track in the harness
+  fails a test about something else.
+- SSR: `index.astro` renders six rows at build time from the module export;
+  user rows are appended CLIENT-side after the engine boots, into a container
+  BELOW the built-in six, so no existing control moves (v18 hardware-panel
+  rule — an insertion below is not a layout shift of anything above).
+- `scope.attachMultiScope` reads the registry once at attach. A track added
+  after attach is not traced until re-attach; the legend must not grow
+  silently. Re-attach on registry change is the page's call to make.
+
+## Test plan
+
+Engine (`tests/engine-smoke.mjs`), named:
+
+- `identity: zero user tracks returns the module's own frozen lists` —
+  `trackOrder() === TRACK_ORDER`, `trackViews() === TRACK_VIEWS`, object
+  identity not deep equality.
+- `identity: the v22 proofs still pass with the accessors in place` — the six
+  existing proofs run unedited. A failure here is a behaviour change.
+- `byte-identity: the same seed produces the same note stream with no user
+  tracks` — two runs under a fixed `options.rng`, note streams deepEqual, one
+  of them on an engine that has had a track added AND removed.
+- `addTrack: the id grammar accepts and rejects exactly what it says` — table
+  test over good/bad ids, asserting `err.code`.
+- `addTrack: built-in and reserved ids are refused` / `addTrack: duplicate id
+  is refused` / `addTrack: family and voiceSet must agree`.
+- `addTrack: the twelfth track is the last one` — cap, `RangeError`, code
+  `'cap'`.
+- `addTrack: canAddTrack returns the code addTrack would throw` — same spec
+  through both paths, no throw from the probe.
+- `addTrack: the new track appears in getTracks(), getParams().tracks,
+  getStats().perTrack, getResolved() and getAnalysers()` — one test, five
+  surfaces, order asserted.
+- `addTrack: a track added mid-playback sounds from the next bar and draws no
+  rng at chain build`.
+- `removeTrack: built-ins throw, unknown ids return false twice`.
+- `removeTrack: in-flight notes ring out and the chain is dropped after them`.
+- `removeTrack: staging and the ladder compact` — indices contiguous,
+  `stageBars()` shrinks, active set stays a prefix.
+- `params: userTracks round-trips through setParams/getParams` including an
+  over-cap array (tail dropped) and a malformed entry (dropped whole).
+- `params: an orphan tracks entry is dropped and a pre-v23 blob is unchanged`.
+- `manifest: dials naming unknown fields are dropped, out-of-range min/max are
+  clamped, a code-shaped string rejects the manifest`.
+- `manifest: compiles to a controls/defaults pair the voice-editor shape
+  accepts`.
+- `lanes: a user percussive track gets its own three lanes; built-in lane ids
+  are undeletable in it; the eighth lane is the last`.
+- `ladder: user thresholds rise above percussion and keep the set a prefix`.
+
+Page (`tests/page-boot.mjs`), named:
+
+- `v23 user tracks — probe-gated` — the Add Track control renders ONLY where
+  `engine.canAddTrack` is a function; absent engine support ⇒ absent control
+  (present-but-does-nothing is the bug).
+- `v23 fallback table is still the built-in six` — `FALLBACK_TRACKS` matched
+  1:1 against the MODULE registry, user tracks excluded from the comparison.
+- `v23 a user track row appends below the built-in six` — nothing above it
+  moves (v18).
+
+Standing discipline: with zero user tracks EVERY built-in behaviour is
+byte-identical. Any test that has to be "updated" to accommodate this window
+is a defect report, not a test edit.
+
+## Staged delivery (4 commits, each safe as the last landed)
+
+1. `floor/layer split` — accessors replace the direct table reads inside
+   `createEngine`, `STAGE_BARS` becomes `stageBars()`, module helpers gain
+   their defaulted trailing argument. Zero user tracks exist, zero public API
+   changes, the identity + byte-identity tests are the whole gate. Landing
+   alone changes nothing observable.
+2. `params.userTracks` — schema, sanitiser ordering, defaults, persistence,
+   share round-trip, `ensureTrackChain`/teardown, staging + ladder + mix +
+   stats over N tracks. A hand-written params blob can now create a track, so
+   the entire runtime is exercised head-lessly with no UI at all.
+3. `addTrack / removeTrack / canAddTrack` — the API over commit 2's machinery,
+   plus mid-playback add and ring-out removal. Still no UI: the console and
+   the smoke tests are the users.
+4. `manifests + UI` — manifest schema and sanitiser, the controls/defaults
+   compile, the Add Track surface, `--track-user-N` theme vars, the
+   shared-preset notice. The only commit that can move a pixel.
+
+Out of window: live MIDI/QWERTY capture, audio-in tracks, per-user-track
+generative passes, and any code seam for a user voice body (v10 stands).
+
+## v23 cross-reference (chair)
+The window-3 build MUST clear the seven hard blockers in
+docs-private/window3-addtrack-premortem.md (frozen tables vs instance layer;
+one-shot graph build; voiceFor unknown-id throw; unguarded page listeners on
+build-time rows; sanitiser dropping unknown track/patch keys; no generator for
+user tracks — resolved by v23's every-user-track-is-sequenced rule; getStats
+deref). New tests over repaired tests: the suite has 7-track fixtures but zero
+runtime-add coverage.

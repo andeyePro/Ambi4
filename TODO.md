@@ -19,7 +19,7 @@
 - [ ] Web Analytics privacy-page line (andeye.com/privacy mention of Cloudflare cookie-less beacon)
 
 ### Product roadmap additions (v19)
-- [ ] Custom tracks: addTrack/removeTrack + user instrument manifests (registry core shipping in v0.0.24)
+- [ ] Custom tracks: addTrack/removeTrack + manifests — v23 spec + pre-mortem written; window-3 build next
 - [ ] Live MIDI/QWERTY recording into tracks
 - [ ] Live play-along mode (same input path triggering track voices in real time)
 - [ ] Audio-in track: mic capture to a buffer (on-device only), trim/normalise/loop editing, played through the normal track chain
