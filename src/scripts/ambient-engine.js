@@ -150,9 +150,16 @@ export function getTracks() {
   return TRACK_VIEWS;
 }
 
-/** The bar a track may first sound in; -1 for anything not in the registry. */
-function stageIndexOf(name) {
-  const track = TRACK_BY_ID.get(name);
+/**
+ * The bar a track may first sound in; -1 for anything not in the registry.
+ * `tracks` is the registry to answer from: the floor by default, an engine's
+ * own list (floor + its user tracks) when one passes it.
+ */
+function stageIndexOf(name, tracks = TRACK_REGISTRY) {
+  // The floor keeps its prebuilt index; any other list is searched as given.
+  const track = tracks === TRACK_REGISTRY
+    ? TRACK_BY_ID.get(name)
+    : tracks.find((entry) => entry.id === name);
   return track ? track.stageIndex : -1;
 }
 
@@ -920,11 +927,11 @@ function sanitiseVary(value, base) {
   return out;
 }
 
-function sanitiseTracks(value, base) {
+function sanitiseTracks(value, base, order = TRACK_ORDER) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.tracks;
   const v = value && typeof value === 'object' ? value : null;
   const tracks = {};
-  for (const name of TRACK_ORDER) {
+  for (const name of order) {
     const baseTrack = from[name] && typeof from[name] === 'object' ? from[name] : {};
     const partial = v && v[name] && typeof v[name] === 'object' ? v[name] : null;
     const voiceCandidate = partial && typeof partial.voice === 'string' && partial.voice.trim()
@@ -1244,11 +1251,11 @@ function mergePatch(base, incoming, laneIds = PERCUSSION_LANES) {
  * track names are dropped; unknown voice ids are kept, because the engine
  * cannot know which ids the (lazily loaded) voice library offers.
  */
-function sanitisePatches(value, base, laneIds = PERCUSSION_LANES) {
+function sanitisePatches(value, base, laneIds = PERCUSSION_LANES, order = TRACK_ORDER) {
   const from = base && typeof base === 'object' && !Array.isArray(base) ? base : {};
   const v = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   const out = {};
-  for (const track of TRACK_ORDER) {
+  for (const track of order) {
     const baseBank = from[track] && typeof from[track] === 'object' && !Array.isArray(from[track])
       ? from[track]
       : null;
@@ -1279,8 +1286,11 @@ function sanitisePatches(value, base, laneIds = PERCUSSION_LANES) {
  * and silently ignoring unknown keys (including v1's `voices`). `arp`, `tracks`
  * and `customStructure` merge deeply. Always returns a complete, freshly
  * allocated params object.
+ *
+ * `order` is the track list the per-track sections are built from — the floor's
+ * six by default, an engine's own list when it passes one.
  */
-export function sanitiseParams(partial, base = DEFAULT_PARAMS) {
+export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORDER) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS;
   const p = partial && typeof partial === 'object' ? partial : null;
   const at = (key) => (p && key in p ? p[key] : undefined);
@@ -1299,13 +1309,13 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS) {
   out.structure = oneOf(at('structure'), STRUCTURES, oneOf(from.structure, STRUCTURES, 'auto'));
   out.customStructure = sanitiseCustomStructure(at('customStructure'), from.customStructure);
   out.arp = sanitiseArp(at('arp'), from.arp);
-  out.tracks = sanitiseTracks(at('tracks'), from.tracks);
+  out.tracks = sanitiseTracks(at('tracks'), from.tracks, order);
   bridgeLegacyArpSteps(p, out.tracks, out.arp);
   bridgeLegacyPercussion(p, out.tracks);
   // Lanes are settled before the patches that key off them, so adding a lane
   // and its kit override in ONE call keeps the override.
   out.patches = sanitisePatches(at('patches'), from.patches,
-    out.tracks.percussion.lanes.map((lane) => lane.id));
+    out.tracks.percussion.lanes.map((lane) => lane.id), order);
   return out;
 }
 
@@ -1367,13 +1377,13 @@ function copyTrack(track) {
 }
 
 /** Deep copy of a sanitised params object — what getParams() hands out. */
-function copyParams(params) {
+function copyParams(params, order = TRACK_ORDER) {
   return {
     ...params,
     harmony: { ...params.harmony },
     customStructure: params.customStructure.map((block) => ({ ...block })),
     arp: { ...params.arp, steps: params.arp.steps.slice() },
-    tracks: Object.fromEntries(TRACK_ORDER.map((name) => [name, copyTrack(params.tracks[name])])),
+    tracks: Object.fromEntries(order.map((name) => [name, copyTrack(params.tracks[name])])),
     patches: copyPatches(params.patches),
   };
 }
@@ -2193,9 +2203,18 @@ const AUTO_THRESHOLDS = Object.freeze(Object.fromEntries(
   TRACK_REGISTRY.map((track) => [track.id, track.autoThreshold]),
 ));
 
-export function autoActiveTracks(intensity = 0.5, complexity = 0.5) {
+/** A track's place on the ladder, from the floor's own table. */
+const floorAutoThreshold = (name) => AUTO_THRESHOLDS[name];
+
+/**
+ * `tracks` and `thresholdFor` default to the floor, so every existing caller
+ * asks the same question of the same six; an engine passes its own list and
+ * its own threshold accessor so a user track can join the ladder.
+ */
+export function autoActiveTracks(intensity = 0.5, complexity = 0.5,
+  tracks = TRACK_ORDER, thresholdFor = floorAutoThreshold) {
   const energy = 0.55 * clamp(Number(intensity) || 0, 0, 1) + 0.45 * clamp(Number(complexity) || 0, 0, 1);
-  return TRACK_ORDER.filter((name) => energy >= AUTO_THRESHOLDS[name]);
+  return tracks.filter((name) => energy >= thresholdFor(name));
 }
 
 // -- the silence floor (v14) ------------------------------------------------
@@ -2430,6 +2449,41 @@ const TRACK_MIX = Object.freeze(Object.fromEntries(
   TRACK_REGISTRY.map((track) => [track.id, track.mix]),
 ));
 
+/** A track's mix row, from the floor's own table. */
+const floorMix = (name) => TRACK_MIX[name];
+
+/**
+ * The instance track layer (v23). Every derived table above is a module
+ * constant, frozen at import and unreachable from a running engine, so an
+ * engine reads its tracks through THESE accessors instead — one indirection
+ * that a user track added at runtime can reach, where a captured constant
+ * would have frozen it out.
+ *
+ * With no user tracks (all this window ships) each accessor hands back the
+ * module's own frozen object: `trackOrder() === TRACK_ORDER`,
+ * `trackViews() === TRACK_VIEWS`. That identity is load-bearing, not an
+ * optimisation — nothing copies, re-sorts or allocates, so the v22 identity
+ * proofs and `engine.getTracks() === getTracks()` hold exactly as they did.
+ */
+export function createTrackLayer() {
+  const trackRegistry = () => TRACK_REGISTRY;
+  return {
+    trackRegistry,
+    trackOrder: () => TRACK_ORDER,
+    sequencedTracks: () => SEQUENCED_TRACKS,
+    tunedTracks: () => TUNED_TRACKS,
+    trackViews: () => TRACK_VIEWS,
+    trackById: (id) => TRACK_BY_ID.get(id),
+    mixFor: floorMix,
+    autoThresholdFor: floorAutoThreshold,
+    // The module helper, asked about this engine's registry rather than the
+    // floor's — the shadowing is deliberate: every call site inside
+    // createEngine reads the layer's answer, not the module's.
+    stageIndexOf: (id) => stageIndexOf(id, trackRegistry()),
+    stageBars: () => MAX_STAGE_INDEX,
+  };
+}
+
 function audioContextCtor() {
   const g = globalThis;
   return g.AudioContext || g.webkitAudioContext || null;
@@ -2464,7 +2518,7 @@ function createImpulseResponse(ctx, seconds = 4, decay = REVERB_DECAY, rng = Mat
   return buffer;
 }
 
-function buildGraph(ctx, rng = Math.random) {
+function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.random) {
   const master = ctx.createGain();
   master.gain.value = SILENCE;
 
@@ -2510,9 +2564,9 @@ function buildGraph(ctx, rng = Math.random) {
   delayTone.connect(delayReturn);
   delayReturn.connect(master);
 
-  const tracks = {};
-  for (const name of TRACK_ORDER) {
-    const mix = TRACK_MIX[name];
+  const nodes = {};
+  for (const name of tracks) {
+    const mix = mixFor(name);
     const input = ctx.createGain();
     input.gain.value = SILENCE;
     // Section intensity opens and closes this filter — the "brightness" the
@@ -2541,14 +2595,14 @@ function buildGraph(ctx, rng = Math.random) {
     tone.connect(delaySend);
     delaySend.connect(delay);
     tone.connect(analyser);
-    tracks[name] = { input, tone, dry, reverbSend, delaySend, analyser };
+    nodes[name] = { input, tone, dry, reverbSend, delaySend, analyser };
   }
 
   // `convolver`, `reverbReturn` and `reverbSeconds` are the LIVE tail: a swap
   // replaces all three, which is why nothing else holds a reference to them.
   return {
     master, compressor, reverbBus, convolver, reverbReturn,
-    reverbSeconds: DEFAULT_PARAMS.reverbTail, delay, feedback, tracks,
+    reverbSeconds: DEFAULT_PARAMS.reverbTail, delay, feedback, tracks: nodes,
   };
 }
 
@@ -2578,7 +2632,15 @@ function loadVoices() {
  * reproducible bar for bar, which is what the property tests need.
  */
 export function createEngine(initialParams, options = {}) {
-  let params = sanitiseParams(initialParams);
+  // v23: this engine's own view of its tracks. Nothing below reads a module
+  // track table directly — every one of them is a floor an added track has to
+  // be able to stand on top of.
+  const {
+    trackOrder, sequencedTracks, trackViews,
+    mixFor, autoThresholdFor, stageIndexOf, stageBars,
+  } = createTrackLayer();
+
+  let params = sanitiseParams(initialParams, DEFAULT_PARAMS, trackOrder());
   const rng = options && typeof options.rng === 'function' ? options.rng : Math.random;
 
   let ctx = null;
@@ -2767,7 +2829,7 @@ export function createEngine(initialParams, options = {}) {
   function advanceWalks() {
     // v14 random/hold merge: randomness 0 IS a hold, so a track sitting at 0
     // drifts by nothing at all.
-    const frozen = new Set(TRACK_ORDER.filter(isFrozenTrack));
+    const frozen = new Set(trackOrder().filter(isFrozenTrack));
     for (const [key, position] of walkPhases) {
       // SPEC-CRITIC [hold/prob] → ruling 5: hold freezes every draw the bar
       // makes, and the walk step is one of them. A held track's ranged params —
@@ -2952,7 +3014,7 @@ export function createEngine(initialParams, options = {}) {
    * and never draws.
    */
   function advanceSequencers() {
-    for (const track of SEQUENCED_TRACKS) {
+    for (const track of sequencedTracks()) {
       const list = params.tracks[track].sequencers;
       if (!list || list.length < 2) continue;
       if (held.has(track) || isFrozenTrack(track)) continue;
@@ -3127,7 +3189,7 @@ export function createEngine(initialParams, options = {}) {
 
   /** Hold engages and releases on the barline, never mid-bar. */
   function applyHolds() {
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       const wanted = params.tracks[name].hold === true;
       if (wanted === held.has(name)) continue;
       if (wanted) {
@@ -3190,11 +3252,11 @@ export function createEngine(initialParams, options = {}) {
 
   function randomise(track) {
     if (track === undefined || track === null) {
-      for (const name of TRACK_ORDER) pendingRandomise.add(name);
+      for (const name of trackOrder()) pendingRandomise.add(name);
       return;
     }
     // Stopped, or an unknown track name: nothing to do, and nothing to throw.
-    if (typeof track === 'string' && TRACK_ORDER.includes(track)) pendingRandomise.add(track);
+    if (typeof track === 'string' && trackOrder().includes(track)) pendingRandomise.add(track);
   }
 
   // -- track activity --------------------------------------------------------
@@ -3219,7 +3281,8 @@ export function createEngine(initialParams, options = {}) {
     // forced 'on' still waits its turn — with all six eligible by bar 5.
     if (currentBarNumber < stageIndexOf(name)) return false;
     if (state === 'on') return true;
-    return autoActiveTracks(sectionIntensity(), params.complexity).includes(name);
+    return autoActiveTracks(sectionIntensity(), params.complexity,
+      trackOrder(), autoThresholdFor).includes(name);
   }
 
   /** Effective harmonic colour: complexity, opened up by section intensity. */
@@ -3232,7 +3295,7 @@ export function createEngine(initialParams, options = {}) {
   /**
    * The v8 gain chain (SPEC-CRITIC [multiplier order] → ruling 2):
    *
-   *   TRACK_MIX[t].level × clamp(level-drift × volume-walk, SILENCE, 1)
+   *   mixFor(t).level × clamp(level-drift × volume-walk, SILENCE, 1)
    *
    * The user's `level` and the vary.volume walk multiply INSIDE a clamp to 1,
    * so the tuned v5 mix is a ceiling that nothing can push past: that clamp is
@@ -3241,7 +3304,7 @@ export function createEngine(initialParams, options = {}) {
    * a = 1, centred on the configured level.
    */
   function trackGain(name) {
-    const mix = TRACK_MIX[name].level;
+    const mix = mixFor(name).level;
     const level = resolveRange(name, 'level', params.tracks[name].level);
     const amount = varyAmount(name, 'volume');
     const swing = Math.pow(2, 0.5 * amount * (walk(name, 'volumeWalk') * 4 - 2));
@@ -3258,7 +3321,7 @@ export function createEngine(initialParams, options = {}) {
     const time = when ?? ctx.currentTime;
     const intensity = sectionIntensity();
     const constant = Math.max(rampSeconds / 3, 0.02);
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       const track = graph.tracks[name];
       // A track switched off stops SCHEDULING; what is already sounding rings
       // out on its own release rather than being pulled out from under the
@@ -3269,7 +3332,7 @@ export function createEngine(initialParams, options = {}) {
       if (level !== null) {
         track.input.gain.setTargetAtTime(Math.max(level, SILENCE), time, constant);
       }
-      const brightness = clamp(TRACK_MIX[name].tone * (0.55 + intensity * 0.75), 300, 18000);
+      const brightness = clamp(mixFor(name).tone * (0.55 + intensity * 0.75), 300, 18000);
       track.tone.frequency.setTargetAtTime(brightness, time, constant);
     }
   }
@@ -3347,16 +3410,16 @@ export function createEngine(initialParams, options = {}) {
     if (!ctx || !graph) return;
     const time = when ?? ctx.currentTime;
     const constant = Math.max(rampSeconds / 3, 0.02);
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       const patchSends = patchFor(name)?.sends;
       const voice = voiceFor(name);
       const voiceSends = voice && voice.defaults ? voice.defaults.sends : null;
       const reverb = typeof patchSends?.reverb === 'number' ? patchSends.reverb
         : typeof voiceSends?.reverb === 'number' ? voiceSends.reverb
-          : TRACK_MIX[name].reverb;
+          : mixFor(name).reverb;
       const delay = typeof patchSends?.delay === 'number' ? patchSends.delay
         : typeof voiceSends?.delay === 'number' ? voiceSends.delay
-          : TRACK_MIX[name].delay;
+          : mixFor(name).delay;
       graph.tracks[name].reverbSend.gain.setTargetAtTime(reverb, time, constant);
       graph.tracks[name].delaySend.gain.setTargetAtTime(delay, time, constant);
     }
@@ -3531,7 +3594,7 @@ export function createEngine(initialParams, options = {}) {
    */
   function wanderVoices(time) {
     let changed = false;
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       if (params.tracks[name].state === 'off' || held.has(name)) continue;
       const amount = varyAmount(name, 'voice');
       if (amount <= 0) {
@@ -4119,8 +4182,10 @@ export function createEngine(initialParams, options = {}) {
 
   // -- the silence floor -----------------------------------------------------
 
-  /** Bars 0–4 belong to the staged entry; the floor takes over after it. */
-  const STAGE_BARS = MAX_STAGE_INDEX;
+  // Bars 0–4 belong to the staged entry; the floor takes over after it. Read
+  // through stageBars() at each bar rather than captured here: a track added
+  // or removed while the piece plays lengthens or shortens the entry, and a
+  // value captured at closure build would be stale from that moment on.
 
   /** One bar of breath is music; two in a row is the defect. */
   const SILENCE_TOLERANCE_BARS = 1;
@@ -4192,7 +4257,7 @@ export function createEngine(initialParams, options = {}) {
    * it covers the gap instead, and the piece never falls silent at all.
    */
   function coverSilence(time) {
-    if (currentBarNumber < STAGE_BARS || outroStarted) return;
+    if (currentBarNumber < stageBars() || outroStarted) return;
     // Which track (if any) covers this bar is a decision like any other: a
     // repeat that covered a gap on its first traversal covers it every pass.
     const cover = once('cover', () => {
@@ -4957,7 +5022,7 @@ export function createEngine(initialParams, options = {}) {
       // barline like every other timing decision. v21 snapshots the per-track
       // amounts alongside it: same warp law, one resolved value per track.
       swing: clamp(params.swing, 0, 1),
-      swings: Object.fromEntries(TRACK_ORDER.map((name) => [name, trackSwing(name)])),
+      swings: Object.fromEntries(trackOrder().map((name) => [name, trackSwing(name)])),
     };
 
     retuneDelay(time, secPerBeat);
@@ -5495,7 +5560,7 @@ export function createEngine(initialParams, options = {}) {
     if (!ctx) {
       ctx = new Ctor();
       ctxSampleRate = ctx.sampleRate;
-      graph = buildGraph(ctx);
+      graph = buildGraph(ctx, trackOrder(), mixFor);
       output = wireOutput();
       try { ctx.onstatechange = handleStateChange; } catch { /* read-only mock */ }
       applySends(0.02);
@@ -5745,7 +5810,7 @@ export function createEngine(initialParams, options = {}) {
   function invalidateEditedPlans(partial) {
     if (!partial || typeof partial !== 'object') return;
     const tracks = partial.tracks && typeof partial.tracks === 'object' ? partial.tracks : null;
-    for (const name of SEQUENCED_TRACKS) {
+    for (const name of sequencedTracks()) {
       const track = tracks && tracks[name] && typeof tracks[name] === 'object' ? tracks[name] : null;
       if (track && ('sequencer' in track || 'sequencers' in track)) clearFrozen(name);
     }
@@ -5758,14 +5823,14 @@ export function createEngine(initialParams, options = {}) {
     const tracks = partial && typeof partial === 'object' && partial.tracks
       && typeof partial.tracks === 'object' ? partial.tracks : null;
     if (!tracks) return;
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       const track = tracks[name] && typeof tracks[name] === 'object' ? tracks[name] : null;
       if (track && 'voice' in track) wanderedVoice.delete(name);
     }
   }
 
   function setParams(partial) {
-    params = sanitiseParams(partial, params);
+    params = sanitiseParams(partial, params, trackOrder());
     kindPatches.clear();
     resolvedPatches.clear();
     invalidateEditedPlans(partial);
@@ -5775,7 +5840,7 @@ export function createEngine(initialParams, options = {}) {
   }
 
   function getParams() {
-    return copyParams(params);
+    return copyParams(params, trackOrder());
   }
 
   /**
@@ -5788,7 +5853,7 @@ export function createEngine(initialParams, options = {}) {
    */
   function getResolved() {
     const tracks = {};
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       const config = params.tracks[name];
       const resolved = {
         state: config.state,
@@ -5814,7 +5879,7 @@ export function createEngine(initialParams, options = {}) {
       tracks[name] = resolved;
     }
     const patches = {};
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       const patch = patchFor(name);
       patches[name] = patch ? copyPatch(patch) : null;
     }
@@ -5829,7 +5894,7 @@ export function createEngine(initialParams, options = {}) {
 
   function getAnalysers() {
     return Object.fromEntries(
-      TRACK_ORDER.map((name) => [name, graph ? graph.tracks[name].analyser : null]),
+      trackOrder().map((name) => [name, graph ? graph.tracks[name].analyser : null]),
     );
   }
 
@@ -5851,7 +5916,7 @@ export function createEngine(initialParams, options = {}) {
     const at = ctx ? ctx.currentTime : 0;
     const span = clamp(at - statsStart, 1, NOTE_RATE_WINDOW);
     const perTrack = {};
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       perTrack[name] = { activeNotes: 0, nodesEstimate: 0, notesPerMin: 0 };
     }
     let totalActiveNotes = 0;
@@ -5860,7 +5925,7 @@ export function createEngine(initialParams, options = {}) {
       perTrack[entry.track].activeNotes += 1;
       totalActiveNotes += 1;
     }
-    for (const name of TRACK_ORDER) {
+    for (const name of trackOrder()) {
       const times = noteTimes.get(name);
       const recent = times ? times.filter((when) => when > at - NOTE_RATE_WINDOW).length : 0;
       perTrack[name].notesPerMin = round3((recent * 60) / span);
@@ -5926,7 +5991,7 @@ export function createEngine(initialParams, options = {}) {
     setParams,
     getParams,
     getResolved,
-    getTracks,
+    getTracks: trackViews,
     getAnalysers,
     getStats,
     setPowerBudget,
