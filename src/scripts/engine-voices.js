@@ -552,8 +552,8 @@ function membrane(rig, dest, {
   t, type = 'sine', from, to, bend, attack = 0.004, decay, peak, p = null, hold = 0, span = 1,
 }) {
   // A drum's skin is the one oscillator a percussion patch can pick the shape
-  // of, and the octave control moves the whole kit rather than one note.
-  const shift = p ? Math.pow(2, p.source.octave) : 1;
+  // of, and the pitch control moves the whole kit rather than one note.
+  const shift = transpose(p);
   const osc = rig.osc(p ? p.source.shape1 : type, from * shift, t);
   const amp = rig.gain(SILENCE);
   osc.connect(amp);
@@ -568,11 +568,18 @@ function membrane(rig, dest, {
  * Pass `p` only where the burst IS the voice's amplitude envelope — a transient
  * layered under a tone keeps its own short shape, or the patch's attack would
  * swallow the very click it exists for.
+ *
+ * Passing `p` also puts the burst under the percussion patch's source.noise
+ * (v18): every noise layer in the kit is one of these calls, which is exactly
+ * what that dial is for. At 0 the layer is not built at all — a silenced hat
+ * should cost no nodes, and nothing here may schedule an inaudible source.
  */
 function noiseBurst(rig, dest, {
   t, colour = 'white', type = 'bandpass', freq, q = 1, decay, peak, attack = 0.002, rate = 1,
   p = null, hold = 0, span = 1,
 }) {
+  const scale = noiseLevel(p);
+  if (scale <= 0) return t;
   const source = rig.noise(t, { colour, rate });
   const filter = rig.filter(type, freq, q);
   const amp = rig.gain(SILENCE);
@@ -580,7 +587,7 @@ function noiseBurst(rig, dest, {
   filter.connect(amp);
   amp.connect(dest);
   const makeup = type === 'bandpass' ? noiseMakeup(freq, q, rig.sampleRate) : 1;
-  const end = struckEnv(amp.gain, t, { attack, decay, peak: peak * makeup, hold, span }, p);
+  const end = struckEnv(amp.gain, t, { attack, decay, peak: peak * scale * makeup, hold, span }, p);
   rig.stopAt(source, end + 0.02);
   return end;
 }
@@ -605,6 +612,9 @@ function noiseBurst(rig, dest, {
 const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 // v12: two octaves either way, and detune reaches flat as well as sharp.
 const OCTAVES = [-2, -1, 0, 1, 2];
+// v18: percussion tunes in semitones instead — the same two octaves either
+// way, but continuous, because a drum a minor third down is a different drum.
+const PITCH_RANGE = 24;
 
 const oneOf = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
 const inRange = (value, lo, hi, fallback) => (
@@ -627,6 +637,26 @@ function shapeOf(shape, osc, fallback, nullable) {
   if (legacy >= 0) return legacy;
   if (nullable && osc === null) return null;
   return fallback;
+}
+
+/**
+ * True for a voice tuned in semitones rather than by the octave switch — which
+ * since v18 is exactly the percussion kits, and is declared by the defaults
+ * they publish rather than by anyone here knowing which track they came from.
+ */
+const semitoned = (defaults) => defaults.source.pitch !== undefined;
+
+/**
+ * A percussion patch's transposition, in semitones. A patch stored before v18
+ * carries the octave switch instead, which is the same move ×12 — so a saved
+ * kit tuned an octave down still comes back an octave down.
+ */
+function pitchOf(source, d) {
+  if (Number.isFinite(source.pitch)) return clamp(source.pitch, -PITCH_RANGE, PITCH_RANGE);
+  if (Number.isFinite(source.octave)) {
+    return clamp(source.octave * 12, -PITCH_RANGE, PITCH_RANGE);
+  }
+  return d.source.pitch;
 }
 
 /**
@@ -654,7 +684,11 @@ function patchFor(defaults, patch) {
       osc2: shape2 === null ? null : OSC_TYPES[clamp(Math.round(shape2), 0, 3)],
       mix: inRange(source.mix, 0, 1, d.source.mix),
       detune: inRange(source.detune, -50, 50, d.source.detune),
-      octave: oneOf(source.octave, OCTAVES, d.source.octave),
+      // A voice has one tuning control or the other, never both: the octave
+      // switch for anything that plays notes, semitones for a kit that does not.
+      ...(semitoned(d)
+        ? { pitch: pitchOf(source, d), noise: inRange(source.noise, 0, 1, d.source.noise) }
+        : { octave: oneOf(source.octave, OCTAVES, d.source.octave) }),
     },
     filter: {
       type: oneOf(filter.type, FILTER_TYPES, d.filter.type),
@@ -679,6 +713,20 @@ function patchFor(defaults, patch) {
 
 /** A frequency after the patch's octave shift; the identity without a patch. */
 const shifted = (p, f) => (p ? f * Math.pow(2, p.source.octave) : f);
+
+/** The same for a kit: source.pitch in semitones, unity without a patch. */
+const transpose = (p) => (
+  p && Number.isFinite(p.source.pitch) ? Math.pow(2, p.source.pitch / 12) : 1
+);
+
+/**
+ * How much of a kit's noise component the patch is asking for. Unity is the
+ * level the voice was built at, which is what the defaults publish, so an
+ * unedited kit is untouched and no setting of the dial can add gain.
+ */
+const noiseLevel = (p) => (
+  p && Number.isFinite(p.source.noise) ? p.source.noise : 1
+);
 
 /**
  * Re-balance a subtractive voice's oscillator layers under a patch.
@@ -946,21 +994,34 @@ const DEFAULTS = {
       sends: { reverb: 0.3, delay: 0.35 },
     },
   },
+  // v18: a kit is tuned in semitones, not by the octave switch, and its noise
+  // component has a level of its own. `pitch: 0` is the kit as it was built;
+  // `noise: 1` is every noise layer at the level the voice was balanced at —
+  // soft's brush and hat, hand's finger noise and slap, tick's clicks — so an
+  // unedited kit sounds exactly as it did, and the dial only ever takes noise
+  // away. Turned right down, a kind whose whole sound IS noise (soft's hat,
+  // tick's mid and high) falls silent; that is the honest answer for a hat.
   percussion: {
     soft: {
-      source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, pitch: 0, noise: 1,
+      },
       filter: { type: 'lowpass', cutoff: 1390, q: 0.8, envAmount: 0 },
       adsr: { attack: 0.006, decay: 0.3, sustain: 0, release: 0.05 },
       sends: { reverb: 0.2, delay: 0.1 },
     },
     hand: {
-      source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, pitch: 0, noise: 1,
+      },
       filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.004, decay: 0.15, sustain: 0, release: 0.05 },
       sends: { reverb: 0.25, delay: 0.12 },
     },
     tick: {
-      source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, pitch: 0, noise: 1,
+      },
       filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.0015, decay: 0.035, sustain: 0, release: 0.05 },
       sends: { reverb: 0.3, delay: 0.2 },
@@ -989,8 +1050,9 @@ Object.freeze(DEFAULTS);
  * `detune` needs at least one layer with a nonzero `spread`, or a direct read
  * of `p.source.detune` outside layersFor (glass's partial jitter, bell's
  * beating partial, chimes' tube scatter); `octave` is honoured by every voice
- * here, via `shifted()` on its base frequency or membrane()'s own pitch bend,
- * so it is never absent. `shape1` alone (no shape2/mix/detune) shows up where
+ * that plays notes, via `shifted()` on its base frequency, and the kits honour
+ * `pitch` in its place through membrane()'s own bend, so a tuning control is
+ * never absent. `shape1` alone (no shape2/mix/detune) shows up where
  * a voice reads `p.source.shape1` straight — wash's quiet anchor tone,
  * percussion's membrane skin — without ever having a second oscillator to
  * blend against.
@@ -1039,13 +1101,20 @@ const CONTROLS = {
     marimba: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   percussion: {
-    // membrane() reads shape1+octave for the pitched skin; noiseBurst() (hat/
-    // click layers) has no oscillator and ignores source entirely — a
-    // per-kind partial (real for the kinds that strike a membrane, absent
-    // for the noise-only ones), declared at the voice level as the union.
-    soft: { source: ['shape1', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
-    hand: { source: ['shape1', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
-    tick: { source: ['shape1', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    // membrane() reads shape1+pitch for the pitched skin; noiseBurst() (hat/
+    // click layers) has no oscillator, but since v18 it does read `noise` —
+    // between them the two cover every layer a kit builds. Each is a per-kind
+    // partial (a membrane is real for the kinds that strike one, noise for the
+    // kinds that have a noise layer), declared at the voice level as the union.
+    soft: {
+      source: ['shape1', 'pitch', 'noise'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true,
+    },
+    hand: {
+      source: ['shape1', 'pitch', 'noise'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true,
+    },
+    tick: {
+      source: ['shape1', 'pitch', 'noise'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true,
+    },
   },
 };
 
@@ -1058,6 +1127,100 @@ for (const track of Object.values(CONTROLS)) {
   Object.freeze(track);
 }
 Object.freeze(CONTROLS);
+
+/**
+ * The synthesis class each voice actually belongs to (v18), for the selector's
+ * "custom [engine]" display. Five classes, and the honest one wins even when a
+ * neighbour on the same track reads differently:
+ *
+ *   subtractive  oscillators through a filter that shapes them
+ *   fm           a carrier whose frequency a modulator drives
+ *   noise        noise is the source; anything pitched is a garnish on it
+ *   physical     a model of a struck object: a bending skin, or a modal stack
+ *                of an instrument's real overtone ratios
+ *   hybrid       two of the above each carrying a real share of the sound
+ *
+ * The line for `hybrid` is a SUSTAINED second engine, not a transient: pluck's
+ * string tick, chimes' mallet and marimba's woody click are one-shot garnish
+ * and change nothing, while flute's breath band and bass.breath's air run the
+ * length of the note with their own envelopes and do. Where a noise layer is
+ * fed through the same filters as the oscillators it is not a second engine at
+ * all — it is more source material for a subtractive one, which is why choir,
+ * whose breath goes through its formants, stays subtractive.
+ */
+const ENGINE_TYPES = {
+  pad: {
+    // Four detuned saw/triangle layers under a lowpass that sweeps and breathes.
+    warm: 'subtractive',
+    // Additive: five stretched sine partials, 0.88 of the mix, fading in out of
+    // step under their own tremolos — plus an FM carrier at 0.12 for the
+    // shimmer. Neither is a garnish on the other, and neither is a filter
+    // shaping a source, so the honest answer is hybrid rather than 'fm'.
+    glass: 'hybrid',
+    // Five-voice saw ensemble through a lowpass; the chorus taps are an effect
+    // on the output, not a synthesis method.
+    strings: 'subtractive',
+    // Saw pair (plus breath into the same filters) through moving formants —
+    // vowel filtering is subtractive synthesis by definition.
+    choir: 'subtractive',
+  },
+  bass: {
+    // Sine plus an octave partial through a lowpass; static, but a filter stack.
+    sub: 'subtractive',
+    // Triangle and sine under a resonant lowpass falling over the note.
+    round: 'subtractive',
+    // A clean sine and a band of pink air that swells beside it on its own
+    // envelope for the whole note: two engines, and the voice is named for the
+    // quieter one.
+    breath: 'hybrid',
+  },
+  melody: {
+    // Two saws under a resonant cutoff dropping a decade in a quarter second.
+    pluck: 'subtractive',
+    // Sine carrier, 3.47 modulator, decaying index — textbook two-operator FM.
+    bell: 'fm',
+    // Sine tone and its octave with a parallel breath band on its own envelope.
+    flute: 'hybrid',
+    // Sine carrier at ratio 1 with a velocity-scaled index: an FM tine.
+    keys: 'fm',
+  },
+  texture: {
+    // Two or three sine carriers, each with a ratio-7.1 modulator.
+    sparkle: 'fm',
+    // A cloud of bandpassed noise grains; not one oscillator in the voice.
+    grains: 'noise',
+    // The real overtone ratios of a struck tube (1 : 2.76 : 5.4 : 8.93), each
+    // partial ringing for its own span — modal synthesis of a physical object.
+    chimes: 'physical',
+    // Two decorrelated pink layers through a sweeping band; the 0.14 anchor
+    // sine only tells the wash which chord it is in.
+    wash: 'noise',
+  },
+  arp: {
+    // Triangle and sine octave under a resonant lowpass that falls.
+    softPluck: 'subtractive',
+    // Sine carrier, 2.01 modulator: a glassy FM ping.
+    crystal: 'fm',
+    // A bar's own overtones (1 : 4 : 9.2) with per-partial decays, struck by a
+    // mallet click — the same modal model as chimes.
+    marimba: 'physical',
+  },
+  percussion: {
+    // Membranes whose skins bend as they relax, with beater and brush noise
+    // over them: two of its three kinds are a modelled drum.
+    soft: 'physical',
+    // Every kind strikes a membrane — the wide fast bend is the whole point of
+    // the voice — with slap and finger noise layered on top.
+    hand: 'physical',
+    // The kit that is mostly not a drum: mid and high are filtered clicks with
+    // no oscillator at all, and even low leads with a noise burst and only
+    // adds a short pitched body under it.
+    tick: 'noise',
+  },
+};
+
+for (const track of Object.values(ENGINE_TYPES)) Object.freeze(track);
+Object.freeze(ENGINE_TYPES);
 
 // ---------------------------------------------------------------------------
 // 4a. Pads — long attacks, long releases, movement in the filter
@@ -2084,31 +2247,53 @@ function percTick(ctx, destination, note, patch) {
 export const VOICES = {
   pad: {
     warm: {
-      label: 'Warm', play: padWarm, defaults: DEFAULTS.pad.warm, controls: CONTROLS.pad.warm,
+      label: 'Warm',
+      play: padWarm,
+      engineType: ENGINE_TYPES.pad.warm,
+      defaults: DEFAULTS.pad.warm,
+      controls: CONTROLS.pad.warm,
     },
     glass: {
-      label: 'Glass', play: padGlass, defaults: DEFAULTS.pad.glass, controls: CONTROLS.pad.glass,
+      label: 'Glass',
+      play: padGlass,
+      engineType: ENGINE_TYPES.pad.glass,
+      defaults: DEFAULTS.pad.glass,
+      controls: CONTROLS.pad.glass,
     },
     strings: {
       label: 'Strings',
       play: padStrings,
+      engineType: ENGINE_TYPES.pad.strings,
       defaults: DEFAULTS.pad.strings,
       controls: CONTROLS.pad.strings,
     },
     choir: {
-      label: 'Choir', play: padChoir, defaults: DEFAULTS.pad.choir, controls: CONTROLS.pad.choir,
+      label: 'Choir',
+      play: padChoir,
+      engineType: ENGINE_TYPES.pad.choir,
+      defaults: DEFAULTS.pad.choir,
+      controls: CONTROLS.pad.choir,
     },
   },
   bass: {
     sub: {
-      label: 'Sub', play: bassSub, defaults: DEFAULTS.bass.sub, controls: CONTROLS.bass.sub,
+      label: 'Sub',
+      play: bassSub,
+      engineType: ENGINE_TYPES.bass.sub,
+      defaults: DEFAULTS.bass.sub,
+      controls: CONTROLS.bass.sub,
     },
     round: {
-      label: 'Round', play: bassRound, defaults: DEFAULTS.bass.round, controls: CONTROLS.bass.round,
+      label: 'Round',
+      play: bassRound,
+      engineType: ENGINE_TYPES.bass.round,
+      defaults: DEFAULTS.bass.round,
+      controls: CONTROLS.bass.round,
     },
     breath: {
       label: 'Breath',
       play: bassBreath,
+      engineType: ENGINE_TYPES.bass.breath,
       defaults: DEFAULTS.bass.breath,
       controls: CONTROLS.bass.breath,
     },
@@ -2117,61 +2302,81 @@ export const VOICES = {
     pluck: {
       label: 'Pluck',
       play: melodyPluck,
+      engineType: ENGINE_TYPES.melody.pluck,
       defaults: DEFAULTS.melody.pluck,
       controls: CONTROLS.melody.pluck,
     },
     bell: {
-      label: 'Bell', play: melodyBell, defaults: DEFAULTS.melody.bell, controls: CONTROLS.melody.bell,
+      label: 'Bell',
+      play: melodyBell,
+      engineType: ENGINE_TYPES.melody.bell,
+      defaults: DEFAULTS.melody.bell,
+      controls: CONTROLS.melody.bell,
     },
     flute: {
       label: 'Flute',
       play: melodyFlute,
+      engineType: ENGINE_TYPES.melody.flute,
       defaults: DEFAULTS.melody.flute,
       controls: CONTROLS.melody.flute,
     },
     keys: {
-      label: 'Keys', play: melodyKeys, defaults: DEFAULTS.melody.keys, controls: CONTROLS.melody.keys,
+      label: 'Keys',
+      play: melodyKeys,
+      engineType: ENGINE_TYPES.melody.keys,
+      defaults: DEFAULTS.melody.keys,
+      controls: CONTROLS.melody.keys,
     },
   },
   texture: {
     sparkle: {
       label: 'Sparkle',
       play: textureSparkle,
+      engineType: ENGINE_TYPES.texture.sparkle,
       defaults: DEFAULTS.texture.sparkle,
       controls: CONTROLS.texture.sparkle,
     },
     grains: {
       label: 'Grains',
       play: textureGrains,
+      engineType: ENGINE_TYPES.texture.grains,
       defaults: DEFAULTS.texture.grains,
       controls: CONTROLS.texture.grains,
     },
     chimes: {
       label: 'Chimes',
       play: textureChimes,
+      engineType: ENGINE_TYPES.texture.chimes,
       defaults: DEFAULTS.texture.chimes,
       controls: CONTROLS.texture.chimes,
     },
     wash: {
-      label: 'Wash', play: textureWash, defaults: DEFAULTS.texture.wash, controls: CONTROLS.texture.wash,
+      label: 'Wash',
+      play: textureWash,
+      engineType: ENGINE_TYPES.texture.wash,
+      defaults: DEFAULTS.texture.wash,
+      controls: CONTROLS.texture.wash,
     },
   },
   arp: {
     softPluck: {
       label: 'Soft pluck',
       play: arpSoftPluck,
+      engineType: ENGINE_TYPES.arp.softPluck,
       defaults: DEFAULTS.arp.softPluck,
       controls: CONTROLS.arp.softPluck,
     },
     crystal: {
       label: 'Crystal',
       play: arpCrystal,
+      engineType: ENGINE_TYPES.arp.crystal,
       defaults: DEFAULTS.arp.crystal,
       controls: CONTROLS.arp.crystal,
     },
     marimba: {
       label: 'Marimba',
       play: arpMarimba,
+      engineType: ENGINE_TYPES.arp.marimba,
       defaults: DEFAULTS.arp.marimba,
       controls: CONTROLS.arp.marimba,
     },
@@ -2180,18 +2385,21 @@ export const VOICES = {
     soft: {
       label: 'Soft kit',
       play: percSoft,
+      engineType: ENGINE_TYPES.percussion.soft,
       defaults: DEFAULTS.percussion.soft,
       controls: CONTROLS.percussion.soft,
     },
     hand: {
       label: 'Hand drum',
       play: percHand,
+      engineType: ENGINE_TYPES.percussion.hand,
       defaults: DEFAULTS.percussion.hand,
       controls: CONTROLS.percussion.hand,
     },
     tick: {
       label: 'Ticks',
       play: percTick,
+      engineType: ENGINE_TYPES.percussion.tick,
       defaults: DEFAULTS.percussion.tick,
       controls: CONTROLS.percussion.tick,
     },

@@ -12,6 +12,11 @@
  * against whatever the sibling modules currently export (engine, voices, knob,
  * scope, visualiser, power, prefs). Anything the page feature-detects must
  * therefore degrade cleanly here rather than throw.
+ *
+ * It also holds the page's PLACEMENT gates — where a module ends up in the
+ * document is markup the build can produce but neither `astro build` nor a
+ * module smoke test ever looks at (v16: factory presets below the Simple
+ * dials; v18: the oscilloscope above the tabs, with no title of its own).
  */
 
 import assert from 'node:assert/strict';
@@ -324,6 +329,46 @@ try {
   }
   const cards = doc.querySelectorAll('#factory-preset-row .factory-preset');
   if (!cards.length) failures.push('no factory preset button was rendered into #factory-preset-row');
+
+  // v18 placement gate: the oscilloscope is PERSISTENT — it sits between the
+  // transport strip and the piano roll, above the tab strip, so it survives a
+  // tab switch; it carries no title of its own (the twisty is the only chrome,
+  // and the word "Oscilloscope" shows only while it is collapsed); and its
+  // legend is always populated, because the legend is the control surface even
+  // when the trace is detached (which is exactly this harness's state — the
+  // engine never plays here, so scope.js's own legend is never built and the
+  // page's fallback must cover it).
+  const scopeModule = doc.getElementById('front-scope-module');
+  const tabs = doc.querySelector('.tabs');
+  const pianoRoll = doc.getElementById('track-visualiser');
+  const FOLLOWING = window.Node.DOCUMENT_POSITION_FOLLOWING;
+  if (!scopeModule) {
+    failures.push('the oscilloscope module (#front-scope-module) is missing');
+  } else {
+    if (simplePanel && simplePanel.contains(scopeModule)) {
+      failures.push('the oscilloscope is inside the Simple tab panel — it must live above the tabs');
+    }
+    if (tabs && !(scopeModule.compareDocumentPosition(tabs) & FOLLOWING)) {
+      failures.push('the oscilloscope renders BELOW the tab strip');
+    }
+    if (pianoRoll && !(scopeModule.compareDocumentPosition(pianoRoll) & FOLLOWING)) {
+      failures.push('the oscilloscope renders BELOW the piano-roll visualiser');
+    }
+    if (scopeModule.querySelector('.panel-label')) {
+      failures.push('the oscilloscope module still carries a panel title');
+    }
+    const word = doc.getElementById('front-scope-word');
+    const toggle = doc.getElementById('front-scope-toggle');
+    if (!toggle || !toggle.hasAttribute('aria-expanded')) {
+      failures.push('the oscilloscope has no collapse twisty (#front-scope-toggle)');
+    } else if (toggle.getAttribute('aria-expanded') === 'true' && word && !word.hidden) {
+      failures.push('the word "Oscilloscope" shows while the scope is expanded');
+    }
+    if (!scopeModule.hidden) {
+      const legendKeys = doc.querySelectorAll('#front-scope-legend .scope-legend-track');
+      if (!legendKeys.length) failures.push('the oscilloscope legend rendered no track keys');
+    }
+  }
 } catch (err) {
   failures.push(`importing the built page script threw: ${err && err.stack ? err.stack : err}`);
 }

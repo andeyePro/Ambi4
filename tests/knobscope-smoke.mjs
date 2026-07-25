@@ -8,9 +8,12 @@
  * proving the aria contract, silent set(), key/drag/dblclick interaction,
  * destroy idempotence, the offline audio-graph build (morphed PeriodicWave
  * coefficients + filter config), the math-model fallback, per-canvas render
- * coalescing, live-scope subscribe/unsubscribe, and multi-scope per-track
- * traces/colours/gain/legend/perf discipline — including bare-Node import
- * safety for both modules.
+ * coalescing, live-scope subscribe/unsubscribe, multi-scope per-track
+ * traces/colours/gain/legend/perf discipline, and the multi-scope DOM legend
+ * (opts.legendContainer/onSelectionChange: click-toggle, dblclick-solo +
+ * restore, mock setTimeout/clearTimeout for the click/dblclick
+ * disambiguation delay) — including bare-Node import safety for both
+ * modules.
  */
 
 import assert from 'node:assert/strict';
@@ -1014,6 +1017,33 @@ function withMockRaf(fn) {
   }
 }
 
+// setTimeout/clearTimeout mock for the DOM legend's click/dblclick
+// disambiguation timer — deterministic control instead of a real 250ms
+// sleep per test. `advance()` fires every currently-pending timer once.
+function withMockTimers(fn) {
+  const timers = new Map();
+  let nextId = 1;
+  const prevSet = globalThis.setTimeout;
+  const prevClear = globalThis.clearTimeout;
+  globalThis.setTimeout = (cb, ms) => {
+    const id = nextId++;
+    timers.set(id, cb);
+    return id;
+  };
+  globalThis.clearTimeout = (id) => { timers.delete(id); };
+  const advance = () => {
+    const pending = [...timers.values()];
+    timers.clear();
+    for (const cb of pending) cb();
+  };
+  try {
+    return fn({ advance, pendingCount: () => timers.size });
+  } finally {
+    globalThis.setTimeout = prevSet;
+    globalThis.clearTimeout = prevClear;
+  }
+}
+
 test('scope: live scope subscribes (rAF + visibility) and unsubscribes on destroy', () => {
   withMockRaf(({ rafCbs, stepFrame }) => {
     const calls = {};
@@ -1597,6 +1627,185 @@ test('multiScope: degenerate inputs return inert handles, never throw', () => {
   const inert = scope.attachMultiScope({}, engine);
   inert.setTracks(['pad']);
   inert.destroy();
+});
+
+// --------------------------------------------------------------------------
+// Scope tests — attachMultiScope DOM legend (opts.legendContainer)
+// --------------------------------------------------------------------------
+
+function legendButtonIds(container) {
+  return container.children.map((btn) => btn.children[1].textContent);
+}
+
+function pressedIds(container) {
+  return container.children.filter((btn) => btn.getAttribute('aria-pressed') === 'true').map((btn) => btn.children[1].textContent);
+}
+
+test('multiScope: DOM legend renders one real button per track, aria-pressed matches the initial selection', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const legendContainer = mockElement('div');
+  const engine = makeMockEngine({ analysers: {} });
+  const live = scope.attachMultiScope(canvas, engine, { legendContainer, tracks: ['pad', 'bass'] });
+
+  assert.equal(legendContainer.children.length, 6, 'one button per known track, always all six');
+  assert.deepEqual(legendButtonIds(legendContainer), MULTI_TRACKS, 'canonical track order, fixed regardless of selection');
+  for (const btn of legendContainer.children) assert.equal(btn.tagName, 'button');
+  assert.deepEqual(pressedIds(legendContainer), ['pad', 'bass']);
+
+  withMockRaf(({ stepFrame }) => {
+    stepFrame(0);
+    assert.deepEqual(calls.fillTexts, undefined, 'canvas-drawn legend must be skipped when a legendContainer is supplied');
+  });
+
+  live.destroy();
+});
+
+test('multiScope: DOM legend click toggles the track after the disambiguation delay and fires onSelectionChange', () => {
+  withMockTimers(({ advance, pendingCount }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const legendContainer = mockElement('div');
+    const engine = makeMockEngine({ analysers: {} });
+    const changes = [];
+    const live = scope.attachMultiScope(canvas, engine, {
+      legendContainer,
+      tracks: ['pad', 'arp'],
+      onSelectionChange: (ids) => changes.push(ids),
+    });
+
+    const arpBtn = legendContainer.children.find((b) => b.children[1].textContent === 'arp');
+    arpBtn.dispatch('click');
+    assert.equal(pendingCount(), 1, 'the toggle must be delayed, not immediate');
+    assert.equal(arpBtn.getAttribute('aria-pressed'), 'true', 'still pressed before the delay elapses');
+    assert.deepEqual(changes, [], 'onSelectionChange must not fire before the delay elapses');
+
+    advance();
+    assert.equal(arpBtn.getAttribute('aria-pressed'), 'false', 'toggled off after the delay');
+    assert.deepEqual(changes, [['pad']]);
+
+    // Toggling back on appends to the end of the drawn/z-order list.
+    arpBtn.dispatch('click');
+    advance();
+    assert.equal(arpBtn.getAttribute('aria-pressed'), 'true');
+    assert.deepEqual(changes[1], ['pad', 'arp'], 're-enabling must append, not reorder to canonical position');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: DOM legend dblclick solos a track; a second dblclick on it restores the prior selection', () => {
+  withMockTimers(() => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const legendContainer = mockElement('div');
+    const engine = makeMockEngine({ analysers: {} });
+    const changes = [];
+    const live = scope.attachMultiScope(canvas, engine, {
+      legendContainer,
+      tracks: ['pad', 'bass', 'melody'],
+      onSelectionChange: (ids) => changes.push(ids),
+    });
+
+    const btnFor = (id) => legendContainer.children.find((b) => b.children[1].textContent === id);
+    const doubleClick = (btn) => {
+      btn.dispatch('click');
+      btn.dispatch('click'); // cancels the first click's pending toggle
+      btn.dispatch('dblclick');
+    };
+
+    doubleClick(btnFor('melody'));
+    assert.deepEqual(pressedIds(legendContainer), ['melody'], 'solo must leave only the double-clicked track on');
+    assert.deepEqual(changes[changes.length - 1], ['melody']);
+
+    // Soloing a DIFFERENT track while one is already soloed must not
+    // overwrite the remembered pre-solo selection.
+    doubleClick(btnFor('bass'));
+    assert.deepEqual(pressedIds(legendContainer), ['bass']);
+
+    doubleClick(btnFor('bass')); // second dblclick on the now-soloed track: restore
+    assert.deepEqual(pressedIds(legendContainer).sort(), ['bass', 'melody', 'pad'], 'must restore the ORIGINAL selection, not the solo before it');
+    assert.deepEqual(changes[changes.length - 1].slice().sort(), ['bass', 'melody', 'pad']);
+
+    // No stray toggle from the two cancelled single clicks in each doubleClick().
+    assert.equal(changes.length, 3, 'exactly one onSelectionChange per dblclick solo/restore, no extra toggles');
+
+    live.destroy();
+  });
+});
+
+test('multiScope: a plain click after a solo does not later trigger a stale restore', () => {
+  withMockTimers(({ advance }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const legendContainer = mockElement('div');
+    const engine = makeMockEngine({ analysers: {} });
+    const live = scope.attachMultiScope(canvas, engine, { legendContainer, tracks: ['pad'] });
+    const btnFor = (id) => legendContainer.children.find((b) => b.children[1].textContent === id);
+
+    btnFor('pad').dispatch('click');
+    btnFor('pad').dispatch('click');
+    btnFor('pad').dispatch('dblclick'); // solo pad (already the only one — pressed stays ['pad'])
+    assert.deepEqual(pressedIds(legendContainer), ['pad']);
+
+    btnFor('bass').dispatch('click'); // a plain toggle must clear the pending solo-restore
+    advance();
+    assert.deepEqual(pressedIds(legendContainer).sort(), ['bass', 'pad']);
+
+    btnFor('pad').dispatch('click');
+    btnFor('pad').dispatch('click');
+    btnFor('pad').dispatch('dblclick'); // solo pad again — a fresh solo, not a "restore"
+    assert.deepEqual(pressedIds(legendContainer), ['pad']);
+
+    live.destroy();
+  });
+});
+
+test('multiScope: programmatic setTracks() syncs the legend aria-pressed but never fires onSelectionChange', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const legendContainer = mockElement('div');
+  const engine = makeMockEngine({ analysers: {} });
+  const changes = [];
+  const live = scope.attachMultiScope(canvas, engine, {
+    legendContainer,
+    tracks: ['pad'],
+    onSelectionChange: (ids) => changes.push(ids),
+  });
+
+  live.setTracks(['texture', 'percussion']);
+  assert.deepEqual(pressedIds(legendContainer).sort(), ['percussion', 'texture']);
+  assert.deepEqual(changes, [], 'setTracks() is the caller-driven path — it must stay silent');
+
+  live.destroy();
+});
+
+test('multiScope: destroy() empties the legend DOM and removes its listeners', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const legendContainer = mockElement('div');
+  const engine = makeMockEngine({ analysers: {} });
+  const live = scope.attachMultiScope(canvas, engine, { legendContainer });
+  const padBtn = legendContainer.children.find((b) => b.children[1].textContent === 'pad');
+  assert.ok(padBtn.listenerCount('click') > 0);
+
+  live.destroy();
+  assert.equal(legendContainer.children.length, 0, 'destroy must remove the legend DOM');
+  assert.equal(padBtn.listenerCount('click'), 0, 'destroy must remove the click listener');
+  assert.equal(padBtn.listenerCount('dblclick'), 0, 'destroy must remove the dblclick listener');
+  live.destroy(); // idempotent
+});
+
+test('multiScope: a non-DOM legendContainer is ignored gracefully (falls back to the canvas legend)', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const engine = makeMockEngine({ analysers: {} });
+    const live = scope.attachMultiScope(canvas, engine, { legendContainer: { not: 'a dom element' } });
+    stepFrame(0);
+    assert.deepEqual(calls.fillTexts, MULTI_TRACKS, 'must fall back to the canvas-drawn legend');
+    live.destroy();
+  });
 });
 
 // --------------------------------------------------------------------------

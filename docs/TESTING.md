@@ -15,10 +15,15 @@ Green = the page boots against today's modules. Red = do not deploy; the failure
 line quotes whatever init threw. Run it after ANY change to `src/pages/index.astro`
 or to a module the page imports.
 
-It also asserts the v16 placement rule — the factory-preset gallery renders on the
-Simple tab BELOW the dials, with at least one preset card built from the build-time
-list. An empty gallery means the preset payload never reached the page, which
-`astro build` cannot see either.
+It also asserts the placement rules, which are markup `astro build` cannot see:
+
+- v16 — the factory-preset gallery renders on the Simple tab BELOW the dials,
+  with at least one preset card built from the build-time list. An empty gallery
+  means the preset payload never reached the page.
+- v18 — the oscilloscope sits ABOVE the tab strip and above the piano roll (not
+  inside the Simple panel), carries no panel title, keeps the word
+  "Oscilloscope" hidden while it is expanded, and has a populated legend even
+  with the engine stopped.
 
 Tester: Martin, Mac (Chrome or Safari) + iPhone Safari. URL: https://ambi4.work (deploys from main ~2 min after push — check the commit you expect is live before starting). Start with device volume MODEST — new voices are untested at loud levels.
 
@@ -273,10 +278,18 @@ Min-max dials
       Filter type or the Shape dials does NOTHING — those params take a single
       value engine-side, so they deliberately have no range affordance.
 
+Paid features hidden until launch
+- [ ] The transport strip is Play / Stop / clock / alarm / Processor. There is NO
+      Record button anywhere, on either tab — not greyed, not tooltipped, absent.
+      (This supersedes the v14/v15 delta's "Record is greyed" expectation.)
+- [ ] Sequencer panels show only the blocks icon; there is no `>_` JS-editor
+      icon. Nothing anywhere is greyed with a "coming soon" caption.
+- [ ] Both are one flag away: `PAID_FEATURES_HIDDEN` at the top of the page
+      script. The MediaRecorder wiring underneath is untouched and dormant.
+
 Block editor (sequencer panels)
-- [ ] Melody / Bass / Arp / Percussion Edit panels: two small buttons to the
-      right of Auto/Manual — a blocks icon and `>_`. `>_` is greyed with a "JS
-      editor coming" tooltip.
+- [ ] Melody / Bass / Arp / Percussion Edit panels: one small button to the
+      right of Auto/Manual — the blocks icon.
 - [ ] Click the blocks icon: the step grid is replaced by the block canvas
       (palette on the left, one row per lane). Percussion shows High at the TOP,
       as everywhere else.
@@ -295,3 +308,78 @@ Block editor (sequencer panels)
 - [ ] Structure block labels in the custom builder now read "Section A", "Section B" etc, not a bare letter.
 - [ ] Voice editor Shape 1 / Shape 2 dials show sine/triangle/saw/square waveform icons at the four marks, and the readout shows the icon(s) too (one icon on a canonical shape, two either side of "~" mid-morph).
 - [ ] Simple tab is now five dials: Speed, Complexity, Repetition, Randomness, Master volume. Randomness is new — turning it sets ALL SIX tracks' randomness at once; if tracks disagree (e.g. you'd tweaked one individually) the dial shows their average and clicking it can switch to a drifting min-max range (per-track randomness supports that; Complexity/Repetition don't, so clicking them does nothing — expected, the engine only takes a single number for those two). Interlinks still work: dragging Speed moves the Advanced-tab BPM field and vice versa; dragging Complexity snaps structure/arp/track-states back to Auto.
+
+## v18 delta — design polish: alignment, colour, scope, honesty (2026-07-25)
+
+Panel rule (applies everywhere — report ANY breach as a bug)
+- [ ] Nothing moves or resizes when text changes. Press Play and watch the
+      transport: the key reads Play → Finish → Finishing… without changing
+      width, and the Processor dial beside it never jumps to a second line.
+- [ ] Start recording: "Recording 0:07" appears in the status line without
+      shifting the transport status beside it, and stops without shifting it
+      back. Same for the sleep/alarm countdown badges on their icons.
+- [ ] The Processor status ("Auto (med) · 22 notes · 30 fps") is now its own
+      full-width line at the foot of the transport panel, right-aligned. Change
+      the tier while playing: the text changes length; nothing above it moves.
+- [ ] Track rows keep their height when Play starts (the cost meter's space is
+      reserved whether or not it is drawn).
+
+Alignment
+- [ ] TRANSPORT and PROCESSOR are titles on ONE line at the top of the transport
+      panel — same size, same baseline.
+- [ ] Every dial in a row lines up: the four Simple dials, the same four at the
+      foot of Advanced, the Level/Randomness pair in a track row, and every row
+      of dials inside a voice editor. Faces on one baseline, names under them on
+      one baseline, read-outs under those on one baseline.
+- [ ] The Randomness dial's "Evolving" mark now reads on the caption line UNDER
+      the dial, between "Repetitive" and "Random" — not above the face.
+- [ ] Turn a voice-editor dial into a range (click the read-out area / drag with
+      a second thumb) so it reads e.g. "2.0 kHz–8.0 kHz": the long read-out does
+      not wrap, and the dials either side of it do not move.
+- [ ] On the kit tabs (Percussion → Edit → High), an overridden dial takes a
+      coloured ring WITHOUT shifting down relative to its neighbours.
+
+Track colour on dials
+- [ ] Every dial belonging to a track wears that track's colour on its ring —
+      the Level/Randomness dials in the row, and every dial inside that track's
+      editor. Open two editors in turn: the ring colour follows the track.
+- [ ] The four main dials and the Processor dial keep the brass ring (they
+      belong to no track). Dial pointers stay brass everywhere — only the ring
+      is tinted, so the pointer keeps its contrast on the dark face.
+
+Oscilloscope
+- [ ] It sits between the transport panel and the piano roll, full width (same
+      width as the piano roll), with NO title — just a twisty at the top right.
+- [ ] Switch to Advanced: the scope and the piano roll stay put. Only the
+      controls below the tabs change. Both keep drawing.
+- [ ] Click the twisty: the body collapses and the word "Oscilloscope" appears
+      beside it. Reload — it is still collapsed. Click again to reopen.
+- [ ] The legend is right-aligned under the trace, one key per track in that
+      track's colour. Single-click a key: that trace toggles off/on.
+      Double-click a key: it solos (every other trace off). Double-click the
+      soloed key again: the previous selection comes back.
+- [ ] Your legend selection survives a reload.
+- [ ] The old chip row above the legend is gone.
+
+Voice selector honesty (Advanced → track rows)
+- [ ] With everything at defaults, each row's voice select reads the voice you
+      chose, as before.
+- [ ] Open a voice editor and move any dial: the row's select now reads
+      "Custom (…)" — the bracket names that voice's synthesis class
+      (Subtractive / FM / Noise / Physical / Hybrid). Press "Reset to default"
+      in the editor: it goes back to the voice name.
+- [ ] Choosing a voice from the list still works and is still what gets saved:
+      reload after a Custom reading and your chosen voice is intact.
+- [ ] While playing with randomness up, a track whose voice wanders shows the
+      voice you are HEARING in the select. Stop and reload: your own choice is
+      back.
+
+Percussion Pitch + Noise (Percussion → Edit)
+- [ ] The Source section has a Pitch dial (±24 semitones, reads e.g. "+7 st")
+      where the Octave switch used to be, and a new Noise dial (0–100%).
+- [ ] Turn Pitch up: the kit's tuned parts rise in pitch. Turn Noise down: the
+      hats/clicks recede and the drum body dominates.
+- [ ] Both are per-instrument-overridable on the High/Mid/Low tabs like every
+      other dial.
+- [ ] If this build ships against an engine that does not know the fields, the
+      old Octave switch is still there instead — expected, not a bug.
