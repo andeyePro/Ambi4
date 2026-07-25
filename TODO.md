@@ -3,7 +3,6 @@
 ## Open
 
 ### Awaiting Martin (decisions / actions)
-- [ ] GitHub branch swap (default → main-clean, delete main, rename → main) then repo → public (AGPL prepped)
 - [ ] Bass verdict FAILED TWICE — craft pass BUILT (v24: pocket, articulation, contour, fills, register, drummerless anchor; see CHANGELOG + contract § v24). Needs Martin's ears; stays default-off until it passes
 - [ ] Bass voice envelopes cap articulation — `sub` attack 0.12 s / release 0.75 s means the shortest note any bass voice can sound is ~1 s, so true staccato is unreachable from the engine. Owner: engine-voices.js (shortening the patch ADSR per note also swaps the filter path and adds a node, so it is a deliberate timbre decision, not a tweak)
 - [ ] Record button tier decision (free now vs gated when payments exist)
@@ -24,7 +23,8 @@
 - [ ] Playlists rebuild: verified PD/CC0 artwork, broader instrumental artists, Ambi4-made playlist categories
 - [ ] Web Analytics privacy-page line (andeye.com/privacy mention of Cloudflare cookie-less beacon)
 
-### Product roadmap additions (v19)
+### Product roadmap additions (v19+)
+- [ ] AI-free pledge labelling: a listed preset/album can carry "AI-free" if the user signs a pledge that no external AI compiled it (pairs with Blank slate; enforcement = pledge + moderation, not detection)
 - [ ] Custom tracks: addTrack/removeTrack + manifests — v23 spec + pre-mortem written; window-3 build next
 - [ ] Live MIDI/QWERTY recording into tracks
 - [ ] Live play-along mode (same input path triggering track voices in real time)
