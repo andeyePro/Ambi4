@@ -14,17 +14,12 @@
 - [ ] Premium tier: define the offer
 - [ ] Transport buttons: review which (if any) demote to Advanced-only (one-line gate ready)
 
-### Next build queue (v20 shape model)
-
-### Next build queue (schema gaps from the preset psychologist)
-
 ### Next build queue
-- [ ] Per-track swing overrides (global swing shipped)
 - [ ] Playlists rebuild: verified PD/CC0 artwork, broader instrumental artists, Ambi4-made playlist categories
 - [ ] Web Analytics privacy-page line (andeye.com/privacy mention of Cloudflare cookie-less beacon)
 
 ### Product roadmap additions (v19)
-- [ ] Custom tracks + user instrument manifests (Premium-class; registry refactor)
+- [ ] Custom tracks: addTrack/removeTrack + user instrument manifests (registry core shipping in v0.0.24)
 - [ ] Live MIDI/QWERTY recording into tracks
 - [ ] Live play-along mode (same input path triggering track voices in real time)
 - [ ] Audio-in track: mic capture to a buffer (on-device only), trim/normalise/loop editing, played through the normal track chain
