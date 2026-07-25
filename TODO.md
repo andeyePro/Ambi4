@@ -4,7 +4,7 @@
 
 ### Awaiting Martin (decisions / actions)
 - [ ] GitHub branch swap (default → main-clean, delete main, rename → main) then repo → public (AGPL prepped)
-- [ ] Verdict round 2: bass groove rework (still off by default); melody now auto
+- [ ] Bass verdict FAILED TWICE — dedicated bass-craft pass queued (pocket vs kick, articulation, velocity contour, fills, register); stays off until user passes it
 - [ ] Record button tier decision (free now vs gated when payments exist)
 - [ ] xander. playlist copy + NotXander filename: keep / reword / drop
 - [ ] Official andeye logo asset for the footer (placeholder deleted)
