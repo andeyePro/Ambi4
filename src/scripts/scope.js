@@ -1451,6 +1451,38 @@ export function attachMultiScope(canvas, engine, opts) {
   if (totalAnalyser) bumpFftSize(totalAnalyser);
   let lastLayout = null; // getLayout()'s cache of the most recently drawn frame's band geometry
 
+  // v27: spread-mode labels are dismissable. A click on a label's hit zone
+  // (the top-left strip of any band) hides every label; once hidden, ANY
+  // click on the canvas restores them. Overlay mode ignores clicks entirely.
+  let spreadLabelsHidden = false;
+  const SPREAD_LABEL_HIT_W = 140; // CSS px — generous, labels are short words
+  const SPREAD_LABEL_HIT_H = 20;
+  function onCanvasClick(event) {
+    if (!spread) return;
+    if (spreadLabelsHidden) {
+      spreadLabelsHidden = false;
+      return;
+    }
+    const layout = lastLayout;
+    if (!layout || !layout.spread) return;
+    let x = event.offsetX;
+    let y = event.offsetY;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      const rect = typeof canvas.getBoundingClientRect === 'function' ? canvas.getBoundingClientRect() : null;
+      if (!rect) return;
+      x = event.clientX - rect.left;
+      y = event.clientY - rect.top;
+    }
+    const hit = layout.bands.some(
+      (band) =>
+        x >= 0 && x <= SPREAD_LABEL_HIT_W && y >= band.top && y <= band.top + SPREAD_LABEL_HIT_H
+    );
+    if (hit) spreadLabelsHidden = true;
+  }
+  if (typeof canvas.addEventListener === 'function') {
+    canvas.addEventListener('click', onCanvasClick);
+  }
+
   liveCanvases.add(canvas);
 
   function getTrackState(id) {
@@ -1732,9 +1764,11 @@ export function attachMultiScope(canvas, engine, opts) {
       if (spread) {
         // Every band (including 'total', when active) gets its own id label —
         // there's no separate canvas-drawn legend in spread mode, see the
-        // doc comment's "v26 spread mode" section.
+        // doc comment's "v26 spread mode" section. v27 owner request: a click
+        // on a label hides the whole set (the traces speak for themselves);
+        // a click anywhere on the canvas brings them back.
         for (const band of bands) {
-          drawSpreadLabel(band.id, band);
+          if (!spreadLabelsHidden) drawSpreadLabel(band.id, band);
           if (band.id === TOTAL_TRACE_ID) {
             drawTotalTrace(ts, w, band.mid, band.height * MULTISCOPE_SPREAD_TRACE_HEIGHT);
           } else {
@@ -1766,6 +1800,10 @@ export function attachMultiScope(canvas, engine, opts) {
     },
     setSpread(v) {
       spread = !!v;
+      if (!spread) spreadLabelsHidden = false; // labels return with overlay mode
+    },
+    getSpreadLabelsHidden() {
+      return spreadLabelsHidden;
     },
     setTotalVisible(v) {
       totalVisible = !!v;
@@ -1781,6 +1819,13 @@ export function attachMultiScope(canvas, engine, opts) {
       loop.stop();
       liveCanvases.delete(canvas);
       destroyLegend();
+      try {
+        if (typeof canvas.removeEventListener === 'function') {
+          canvas.removeEventListener('click', onCanvasClick);
+        }
+      } catch {
+        // ignore
+      }
       try {
         if (unsubState) unsubState();
       } catch {
