@@ -605,7 +605,11 @@ const VOICES: Record<string, [string, string][]> = {
     // visitor cannot use is simply not rendered. Every code path behind these
     // stays intact and dormant (MediaRecorder wiring, the sequencer's JS-editor
     // entry), so launch is this one flag going false.
-    const PAID_FEATURES_HIDDEN = true;
+    // Every paid-tier feature stays invisible until its tier can be bought
+// (owner rule: never give-then-take). Dev unlock for the owner only:
+// localStorage.setItem('ambi4:dev','1') then refresh.
+const DEV_UNLOCK = (() => { try { return localStorage.getItem('ambi4:dev') === '1'; } catch { return false; } })();
+const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     // Hidden on BOTH tabs while PAID_FEATURES_HIDDEN — by data-transport id,
     // the same handle SIMPLE_HIDDEN uses.
@@ -3846,7 +3850,9 @@ const VOICES: Record<string, [string, string][]> = {
         blockButton.innerHTML = BLOCKS_SVG;
         blockButton.setAttribute('aria-label', `Edit ${label}'s pattern as blocks`);
         blockButton.setAttribute('aria-expanded', 'false');
-        blockButton.hidden = !BLOCKS_MODULE;
+        // The block editor is a Plus-tier feature: hidden until the tier can
+        // be bought (owner rule — never give-then-take). Dev unlock shows it.
+        blockButton.hidden = !BLOCKS_MODULE || PAID_FEATURES_HIDDEN;
         editors.append(blockButton);
         // The v13 JS-editor entry (>_) is a paid feature and is not built at
         // all pre-launch — not greyed, not tooltipped. Flipping
