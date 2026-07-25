@@ -669,30 +669,102 @@ const VOICES: Record<string, [string, string][]> = {
       const labelOf = new Map(FALLBACK_TRACKS.map((track) => [track.id, track.label]));
       const isMelodic = (id) => familyOf.get(id) === 'melodic';
       const exported = (list) => (Array.isArray(list) ? list.filter(has) : null);
-      const sequenced =
+      // v23: the engine's exported lists are the FLOOR — six built-ins, frozen
+      // at import, and a server render cannot know a user's tracks. Anything in
+      // the live list that the floor does not name is a user track, and it
+      // appends AFTER every built-in: sequenced (every user track is — it has
+      // no bespoke generative pass, so its material comes from its step grid)
+      // and tuned when melodic.
+      const builtin = new Set(FALLBACK_TRACKS.map((track) => track.id));
+      const userIds = ids.filter((id) => !builtin.has(id));
+      const withUsers = (list, keep) => [
+        ...list.filter((id) => !userIds.includes(id)),
+        ...userIds.filter(keep),
+      ];
+      const sequenced = withUsers(
         exported(engineExports.SEQUENCED_TRACKS) ||
-        FALLBACK_TRACKS.filter((track) => track.sequenced !== null)
-          .sort((a, b) => a.sequenced - b.sequenced)
-          .map((track) => track.id)
-          .filter(has);
+          FALLBACK_TRACKS.filter((track) => track.sequenced !== null)
+            .sort((a, b) => a.sequenced - b.sequenced)
+            .map((track) => track.id)
+            .filter(has),
+        () => true
+      );
       return {
         TRACK_IDS: ids,
         TRACK_LABELS: Object.fromEntries(
           tracks.map((track) => [track.id, track.label || labelOf.get(track.id) || track.id])
         ),
+        TRACK_FAMILY: Object.fromEntries(
+          tracks.map((track) => [track.id, track.family === 'percussive' ? 'percussive' : 'melodic'])
+        ),
         // Tuned tracks take a Dissonance dial (v14); percussion has no chord
         // to stray from.
-        TUNED_TRACKS: exported(engineExports.TUNED_TRACKS) || ids.filter(isMelodic),
+        TUNED_TRACKS: withUsers(
+          exported(engineExports.TUNED_TRACKS) || ids.filter(isMelodic),
+          isMelodic
+        ),
         SEQ_TRACKS: sequenced,
-        // The single-lane sequencers: percussion's grid is a kit of lanes.
+        // The single-lane sequencers: a kit's grid is lanes, melodic or not.
         SEQ_SINGLE_TRACKS: sequenced.filter(isMelodic),
       };
     }
 
     // Seeded from the fallback so nothing depends on init() having run, then
     // re-derived from the engine's registry inside init (see engineCaps).
-    let { TRACK_IDS, TRACK_LABELS, TUNED_TRACKS, SEQ_TRACKS, SEQ_SINGLE_TRACKS } =
+    let { TRACK_IDS, TRACK_LABELS, TRACK_FAMILY, TUNED_TRACKS, SEQ_TRACKS, SEQ_SINGLE_TRACKS } =
       trackListsFrom(FALLBACK_TRACKS);
+
+    // ---- v23 user tracks (page view) ------------------------------------
+    // The engine's instance registry is the authority on WHICH tracks exist;
+    // `settings.userTracks` is the page's copy of it, which is what persists,
+    // travels in a preset and rides a share link. Both are kept in step by
+    // syncUserTracks() below — never by two separate derivations.
+    let USER_TRACKS = [];
+    let USER_TRACK_BY_ID = new Map();
+
+    // The engine's own grammar and caps, restated (not imported: the page reads
+    // the ENGINE's answer through canAddTrack before it ever commits, and these
+    // exist so the form can say no before the engine has to).
+    const USER_TRACK_MAX = 6;
+    const USER_TRACK_LABEL_MAX = 24;
+    const USER_TRACK_ID_RE = /^[a-z][a-z0-9-]{1,23}$/;
+    const RESERVED_TRACK_IDS = [
+      ...FALLBACK_TRACKS.map((track) => track.id),
+      'off', 'auto', 'on', 'master', 'global', 'all', 'none',
+    ];
+
+    const isUserTrack = (id) => USER_TRACK_BY_ID.has(id);
+
+    /**
+     * A track's family, asked of the live registry rather than of its id. Every
+     * `track === 'percussion'` test in a track-shaped path became this: the
+     * percussion kit is a FAMILY, and since v23 a user track can join it.
+     */
+    const isPercussiveTrack = (id) =>
+      (USER_TRACK_BY_ID.get(id)?.family ?? TRACK_FAMILY[id]) === 'percussive';
+
+    /**
+     * The voice BANK a track plays from. A built-in plays its own — the bank is
+     * named for the track — and a user track plays the stock bank it was made
+     * with (the v10 boundary: no new voice code ships for a user track). Every
+     * table keyed by voice bank (VOICE_LABELS, VOICE_HINTS, the voices module,
+     * SCOPE_FREQ) is read through this rather than by track id.
+     */
+    const voiceSetOf = (id) => USER_TRACK_BY_ID.get(id)?.voiceSet ?? id;
+
+    /**
+     * The class that carries a track's accent colour. Derived from the
+     * registry's own `colourToken` (`--track-pad` → `track-color-pad`,
+     * `--track-user-2` → `track-color-user-2`), so a user track theming itself
+     * and a built-in theming itself are one mechanism, not two.
+     */
+    function trackColourClass(id) {
+      const token = USER_TRACK_BY_ID.get(id)?.colourToken;
+      const name = typeof token === 'string' && /^--track-[a-z0-9-]+$/.test(token)
+        ? token.slice('--track-'.length)
+        : id;
+      return `track-color-${name}`;
+    }
 
     // Voice ids → display names, mirroring the frontmatter's <option> labels
     // (the page never imports engine-voices.js just for names).
@@ -846,7 +918,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     /** A track's lane list, top-down; melodic tracks have exactly one. */
     function laneListFor(track, t) {
-      if (track !== 'percussion') return [{ key: null, label: null, kind: null }];
+      if (!isPercussiveTrack(track)) return [{ key: null, label: null, kind: null }];
       const lanes = Array.isArray(t && t.lanes) ? t.lanes : defaultPercLanes();
       return lanes.map((lane) => ({ key: lane.id, label: lane.label, kind: lane.kind }));
     }
@@ -903,10 +975,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // an alias of sequencers[0] so a pre-v14 engine still sees the one it
     // knows about.
     function defaultSequencer(track) {
-      const steps =
-        track === 'percussion'
-          ? Object.fromEntries(defaultPercLanes().map((lane) => [lane.id, defaultLane(lane.kind)]))
-          : defaultLane(track);
+      const steps = isPercussiveTrack(track)
+        ? Object.fromEntries(defaultPercLanes().map((lane) => [lane.id, defaultLane(lane.kind)]))
+        : defaultLane(track);
       return { mode: 'auto', weights: [1], steps };
     }
 
@@ -1052,6 +1123,55 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       percussion: { mono: false, glide: 0 },
     };
 
+    /**
+     * v23: what a track the page has never heard of starts at. A user track is
+     * polyphonic and unslurred whatever its family — the mono/glide pairs above
+     * are a per-built-in ruling about two specific lines, not a family rule.
+     */
+    const USER_MONO_DEFAULT = { mono: false, glide: 0 };
+    const monoDefaultsFor = (id) => MONO_DEFAULTS[id] || USER_MONO_DEFAULT;
+
+    /**
+     * The settings entry a freshly made user track ships with, matching the
+     * engine's own defaults for one (v23): it sounds at once (the user just
+     * made it), at the built-in starting level, with no voice wander — the
+     * pad/texture 0.15 is a built-in-specific ruling — and with the family's
+     * grid, which for a kit is the three built-in lanes.
+     */
+    function defaultUserTrackSettings(entry) {
+      const percussive = entry.family === 'percussive';
+      return {
+        state: 'on',
+        voice: USER_VOICE_DEFAULTS[entry.voiceSet] || 'warm',
+        level: 0.8,
+        hold: false,
+        randomness: 0.5,
+        vary: defaultVary(),
+        ...(percussive ? {} : { dissonance: 0 }),
+        ...(percussive ? { lanes: defaultPercLanes() } : {}),
+        ...USER_MONO_DEFAULT,
+        swing: null,
+        ...(percussive ? {} : { density: null }),
+        sequencer: {
+          mode: 'auto',
+          weights: [1],
+          steps: percussive
+            ? Object.fromEntries(defaultPercLanes().map((lane) => [lane.id, defaultLane(lane.kind)]))
+            : defaultLane(entry.id),
+        },
+      };
+    }
+
+    /** The voice each stock bank opens on — the engine's DEFAULT_TRACK_VOICES. */
+    const USER_VOICE_DEFAULTS = {
+      pad: 'warm',
+      bass: 'sub',
+      melody: 'pluck',
+      texture: 'sparkle',
+      arp: 'softPluck',
+      percussion: 'soft',
+    };
+
     const DEFAULTS = {
       swing: 0,
       complexity: 0.5,
@@ -1070,6 +1190,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // needs no engine-read shipped value (unlike reverbTail) — it's the
       // contract's own documented default, so it's safe to bake in here.
       harmony: { rhythm: 'auto' },
+      // v23: the ordered identity list of the user's own tracks. Absent/empty
+      // means the built-in six and nothing else, which is every settings blob
+      // written before this window.
+      userTracks: [],
       arp: {
         mode: 'auto',
         pattern: 'up',
@@ -1378,7 +1502,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     function normaliseSequencer(seq, track, lanes) {
       const src = isPlainObject(seq) ? seq : {};
       const steps =
-        track === 'percussion'
+        lanes
           ? (() => {
               const raw = isPlainObject(src.steps) ? src.steps : {};
               const out = {};
@@ -1398,11 +1522,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * is re-pointed at sequencers[0] (the same object, as the engine does)
      * so every v6-era read/write path still works unchanged.
      */
-    function normaliseSequencerList(t, track) {
+    function normaliseSequencerList(t, track, percussive = isPercussiveTrack(track)) {
       const list = Array.isArray(t.sequencers) && t.sequencers.length
         ? t.sequencers
         : [isPlainObject(t.sequencer) ? t.sequencer : {}];
-      const lanes = track === 'percussion' ? t.lanes : null;
+      // Passed in by the load path, which settles a track's family from the
+      // settings object it is repairing — the live registry is not yet in step
+      // with a preset that has only just arrived.
+      const lanes = percussive ? (Array.isArray(t.lanes) ? t.lanes : defaultPercLanes()) : null;
       t.sequencers = list.slice(0, SEQ_MAX).map((seq) => normaliseSequencer(seq, track, lanes));
       const n = t.sequencers.length;
       for (const seq of t.sequencers) {
@@ -1411,6 +1538,61 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         );
       }
       t.sequencer = t.sequencers[0];
+    }
+
+    /**
+     * v23: repair `settings.userTracks` and make sure every surviving entry has
+     * a track to go with it. The engine's own sanitiser is the authority — this
+     * is the page's mirror of it, and it is deliberately the same shape and the
+     * same tolerances, because a settings object that disagrees with the params
+     * the engine accepts is a row with no track behind it.
+     *
+     * An entry that fails is dropped WHOLE, never coerced: its `tracks` entry
+     * then orphans and goes with it, exactly as the engine drops the pair.
+     */
+    function normaliseUserTracks(s) {
+      const source = Array.isArray(s.userTracks) ? s.userTracks : [];
+      const taken = new Set();
+      const out = [];
+      for (const raw of source) {
+        if (out.length >= USER_TRACK_MAX) break;
+        if (!isPlainObject(raw)) continue;
+        const id = typeof raw.id === 'string' ? raw.id : '';
+        if (!USER_TRACK_ID_RE.test(id) || RESERVED_TRACK_IDS.includes(id) || taken.has(id)) continue;
+        const family = raw.family === 'percussive' ? 'percussive' : raw.family === 'melodic' ? 'melodic' : null;
+        const voiceSet = Object.prototype.hasOwnProperty.call(USER_VOICE_DEFAULTS, raw.voiceSet)
+          ? raw.voiceSet : null;
+        if (!family || !voiceSet) continue;
+        if ((family === 'percussive') !== (voiceSet === 'percussion')) continue;
+        const label = typeof raw.label === 'string' ? raw.label.trim().slice(0, USER_TRACK_LABEL_MAX) : '';
+        if (!label) continue;
+        taken.add(id);
+        const entry = { id, label, family, voiceSet };
+        entry.colourToken = typeof raw.colourToken === 'string' && /^--[a-z][a-z0-9-]{1,31}$/.test(raw.colourToken)
+          ? raw.colourToken
+          : `--track-user-${out.length + 1}`;
+        // The manifest is JSON DATA the ENGINE owns the schema for. The page
+        // carries it through untouched rather than re-validating it: two
+        // sanitisers with one schema between them drift, and the engine's is
+        // the one that decides what a manifest means.
+        if (isPlainObject(raw.manifest)) entry.manifest = structuredClone(raw.manifest);
+        out.push(entry);
+      }
+      s.userTracks = out;
+      // Seed first, then drop: an entry with no track gets one built by the
+      // same code path a built-in's is, and a `tracks` key naming no track at
+      // all is an orphan and goes.
+      const wanted = new Set([...TRACK_IDS, ...out.map((entry) => entry.id)]);
+      for (const entry of out) {
+        if (!isPlainObject(s.tracks[entry.id])) s.tracks[entry.id] = defaultUserTrackSettings(entry);
+      }
+      for (const key of Object.keys(s.tracks)) {
+        if (!wanted.has(key)) delete s.tracks[key];
+      }
+      for (const key of Object.keys(s.patches || {})) {
+        if (!wanted.has(key)) delete s.patches[key];
+      }
+      return out;
     }
 
     /**
@@ -1423,8 +1605,32 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       s.swing = clamp(typeof s.swing === 'number' && Number.isFinite(s.swing) ? s.swing : 0, 0, 1);
       s.harmony = isPlainObject(s.harmony) ? s.harmony : {};
       s.harmony.rhythm = CHORD_LENGTHS.includes(s.harmony.rhythm) ? s.harmony.rhythm : 'auto';
-      for (const id of TRACK_IDS) {
+      // v23: identity before anything keyed by it, exactly as the engine's own
+      // sanitiser orders it — the surviving user tracks define the id set the
+      // per-track repair below then runs over, and each one is seeded with a
+      // full entry so no later reader meets a half-built track.
+      const users = normaliseUserTracks(s);
+      const userById = new Map(users.map((entry) => [entry.id, entry]));
+      // Built-ins, then this SETTINGS OBJECT's user tracks — never the live
+      // registry's. A preset that names none is a preset that removes them, and
+      // repairing a track the incoming object does not have is how the load
+      // path used to throw on `s.tracks[id].level`.
+      const ids = [
+        ...TRACK_IDS.filter((id) => !userById.has(id) && !isUserTrack(id)),
+        ...users.map((entry) => entry.id),
+      ];
+      // Family, not id: a user track's dial set follows what it IS, and the
+      // module lists seeded at build time cannot name a track made at runtime.
+      const isPerc = (id) => (userById.has(id)
+        ? userById.get(id).family === 'percussive'
+        : isPercussiveTrack(id));
+      const isTuned = (id) => (userById.has(id) ? !isPerc(id) : TUNED_TRACKS.includes(id));
+      const isSequenced = (id) => (userById.has(id) ? true : SEQ_TRACKS.includes(id));
+      for (const id of ids) {
         const t = s.tracks[id];
+        // Belt and braces behind the id list above: repairing a track that is
+        // not in this object at all is not something to do half of.
+        if (!isPlainObject(t)) continue;
         t.level = normaliseRangeValue(t.level, 0.8);
         t.hold = t.hold === true;
         // Mono is a plain boolean and glide a plain 0–1 number engine-side —
@@ -1433,20 +1639,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         t.glide = clamp(
           typeof t.glide === 'number' && Number.isFinite(t.glide)
             ? t.glide
-            : MONO_DEFAULTS[id].glide,
+            : monoDefaultsFor(id).glide,
           0,
           1
         );
         // Rangeable (v7 addendum) — preserve a valid {min,max}; only a
         // genuinely invalid value falls back to the 0.5 default.
         t.randomness = normaliseRangeValue(t.randomness, 0.5);
-        if (TUNED_TRACKS.includes(id)) t.dissonance = normaliseRangeValue(t.dissonance, 0);
+        if (isTuned(id)) t.dissonance = normaliseRangeValue(t.dissonance, 0);
         else delete t.dissonance;
         // v21 feel params: null is a value here (the Auto detent), so an
         // absent/invalid entry becomes null rather than a number.
-        if (SEQ_TRACKS.includes(id)) t.swing = nullableNumberIn(t.swing, 0, 1);
+        if (isSequenced(id)) t.swing = nullableNumberIn(t.swing, 0, 1);
         else delete t.swing;
-        if (TUNED_TRACKS.includes(id)) t.density = nullableNumberIn(t.density, 0, TRACK_DENSITY_MAX);
+        if (isTuned(id)) t.density = nullableNumberIn(t.density, 0, TRACK_DENSITY_MAX);
         else delete t.density;
         // v21 pad breath: no Auto detent (a plain 0-1 depth), and no baked
         // default here — an absent/invalid value is deleted so the control
@@ -1465,10 +1671,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           t.vary[key] = sanitiseRangeValueIn(vary[key], 0, 1, null);
         }
       }
-      // Lanes first: the percussion step map is keyed by lane id, so the list
-      // has to be repaired before the sequencers that follow it are.
-      s.tracks.percussion.lanes = normalisePercLanes(s.tracks.percussion.lanes);
-      for (const id of SEQ_TRACKS) normaliseSequencerList(s.tracks[id], id);
+      // Lanes first: a kit's step map is keyed by lane id, so the list has to
+      // be repaired before the sequencers that follow it are. Every percussive
+      // track has its own set — nothing is shared with the built-in kit.
+      for (const id of ids) {
+        if (!isPlainObject(s.tracks[id])) continue;
+        if (isPerc(id)) s.tracks[id].lanes = normalisePercLanes(s.tracks[id].lanes);
+        else delete s.tracks[id].lanes;
+      }
+      for (const id of ids) {
+        if (isSequenced(id) && isPlainObject(s.tracks[id])) {
+          normaliseSequencerList(s.tracks[id], id, isPerc(id));
+        }
+      }
       // Legacy boolean mask follows the arp's FIRST sequencer (kept for older
       // engines and for the combined-complexity estimate).
       s.arp.steps = s.tracks.arp.sequencers[0].steps.slice(0, 16).map((st) => !!st.on);
@@ -1766,8 +1981,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         typeof engine.getTracks === 'function' ? engine.getTracks() : null;
       const hasTrackRegistry = Array.isArray(registryTracks) && registryTracks.length > 0;
       if (hasTrackRegistry) {
-        ({ TRACK_IDS, TRACK_LABELS, TUNED_TRACKS, SEQ_TRACKS, SEQ_SINGLE_TRACKS } =
+        ({ TRACK_IDS, TRACK_LABELS, TRACK_FAMILY, TUNED_TRACKS, SEQ_TRACKS, SEQ_SINGLE_TRACKS } =
           trackListsFrom(registryTracks, engineModule));
+      }
+
+      /**
+       * Re-derive every track view from the engine's live registry, and with it
+       * the page's own user-track list. ONE derivation: the registry answers
+       * which tracks exist and in what order, and `settings.userTracks` (the
+       * thing that persists and travels) is read only for the fields the public
+       * five-key view deliberately does not carry. It is passed IN rather than
+       * read from the closure: `settings` is a `let` assigned further down, and
+       * a temporal-dead-zone read is the shipped blank-page bug.
+       */
+      function syncTrackViews(storedUserTracks) {
+        const live = typeof engine.getTracks === 'function' ? engine.getTracks() : null;
+        if (!Array.isArray(live) || !live.length) return;
+        ({ TRACK_IDS, TRACK_LABELS, TRACK_FAMILY, TUNED_TRACKS, SEQ_TRACKS, SEQ_SINGLE_TRACKS } =
+          trackListsFrom(live, engineModule));
+        const stored = new Map(
+          (Array.isArray(storedUserTracks) ? storedUserTracks : []).map((e) => [e.id, e])
+        );
+        USER_TRACKS = live
+          .filter((track) => track.builtin === false)
+          .map((track) => ({
+            id: track.id,
+            label: track.label,
+            family: track.family === 'percussive' ? 'percussive' : 'melodic',
+            // The bank is not in the public view (identity and presentation
+            // only), so it comes from the stored entry, and from the family
+            // when there is none — a kit plays the kit.
+            voiceSet: stored.get(track.id)?.voiceSet
+              ?? (track.family === 'percussive' ? 'percussion' : 'pad'),
+            colourToken: track.colourToken,
+          }));
+        USER_TRACK_BY_ID = new Map(USER_TRACKS.map((entry) => [entry.id, entry]));
       }
 
       // ---- v6 capability detection --------------------------------------
@@ -1785,6 +2033,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         getResolved: typeof engine.getResolved === 'function',
         getStats: typeof engine.getStats === 'function',
         setPowerBudget: typeof engine.setPowerBudget === 'function',
+        // v23: the Add Track surface renders only where the engine can answer
+        // BOTH questions — may I, and do it. A control that is present but does
+        // nothing is the bug the probe exists to prevent.
+        addTrack: typeof engine.canAddTrack === 'function' && typeof engine.addTrack === 'function',
+        removeTrack: typeof engine.removeTrack === 'function',
+        trackManifest: typeof engine.getTrackManifest === 'function',
         swing: false,
         patchPitch: false,
         patchNoise: false,
@@ -1824,24 +2078,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         engineCaps.swing = typeof p.swing === 'number';
         engineCaps.reverbTail = typeof p.reverbTail === 'number';
         if (engineCaps.reverbTail) engineReverbTail = clamp(p.reverbTail, 0.5, 6);
-        const t = isPlainObject(p.tracks) ? p.tracks : {};
-        for (const id of TRACK_IDS) {
-          const entry = isPlainObject(t[id]) ? t[id] : {};
-          // Accept a plain {min,max} RangeValue too (v7), not just a bare
-          // number — a range-shipping engine must not make the knob vanish.
-          engineCaps.randomness[id] = isNumberOrRange(entry.randomness);
-          engineCaps.dissonance[id] = isNumberOrRange(entry.dissonance);
-          engineCaps.vary[id] = isPlainObject(entry.vary);
-          engineCaps.sequencer[id] = isPlainObject(entry.sequencer);
-          engineCaps.sequencers[id] = Array.isArray(entry.sequencers);
-          engineCaps.level[id] = isNumberOrRange(entry.level);
-          // v12 mono/legato and v21 driftRate: all three are plain scalars
-          // engine-side (never RangeValues), so the probe is a type check.
-          engineCaps.mono[id] = typeof entry.mono === 'boolean';
-          engineCaps.glide[id] = typeof entry.glide === 'number';
-          engineCaps.driftRate[id] = typeof entry.driftRate === 'number';
-        }
+        for (const id of TRACK_IDS) probeTrackCaps(id, p);
       } catch {}
+
+      /**
+       * Fill in one track's per-field capability entries from what the engine's
+       * own params actually carry for it. Extracted from the boot loop so a
+       * track made at RUNTIME is probed by the identical code — a user track
+       * whose caps were never filled in is a row with no level knob and no
+       * sequencer, which looks exactly like an engine that cannot do either.
+       */
+      function probeTrackCaps(id, params = null) {
+        let p = params;
+        if (!p) {
+          try {
+            p = engine.getParams() || {};
+          } catch {
+            return;
+          }
+        }
+        const t = isPlainObject(p.tracks) ? p.tracks : {};
+        const entry = isPlainObject(t[id]) ? t[id] : {};
+        // Accept a plain {min,max} RangeValue too (v7), not just a bare
+        // number — a range-shipping engine must not make the knob vanish.
+        engineCaps.randomness[id] = isNumberOrRange(entry.randomness);
+        engineCaps.dissonance[id] = isNumberOrRange(entry.dissonance);
+        engineCaps.vary[id] = isPlainObject(entry.vary);
+        engineCaps.sequencer[id] = isPlainObject(entry.sequencer);
+        engineCaps.sequencers[id] = Array.isArray(entry.sequencers);
+        engineCaps.level[id] = isNumberOrRange(entry.level);
+        // v12 mono/legato and v21 driftRate: all three are plain scalars
+        // engine-side (never RangeValues), so the probe is a type check.
+        engineCaps.mono[id] = typeof entry.mono === 'boolean';
+        engineCaps.glide[id] = typeof entry.glide === 'number';
+        engineCaps.driftRate[id] = typeof entry.driftRate === 'number';
+      }
 
       // v18 patch-schema probe: percussion trades its 3-position Octave switch
       // for a continuous Pitch dial and gains a Noise dial, but ONLY once the
@@ -2161,6 +2432,153 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+      // ---- v23 user tracks: settings → engine, before anything is built ----
+      // `params.userTracks` is the engine's authority on which tracks exist, so
+      // a stored setup (or a share link) that carries one has to reach it BEFORE
+      // the rows, the wiring loops and the editors are built — every one of them
+      // reads TRACK_IDS, and TRACK_IDS is the engine's live list.
+      function pushUserTracks() {
+        if (!engineCaps.trackRegistry) return;
+        try {
+          engine.setParams({ userTracks: structuredClone(settings.userTracks) });
+        } catch {
+          // An engine that predates user tracks drops the key; the page then
+          // has the six it always had, which is the correct degradation.
+        }
+        syncTrackViews(settings.userTracks);
+        // An entry the engine refused (a grammar the page's mirror was more
+        // generous about, the cap) is not this page's track: the settings list
+        // follows the engine's answer, never the other way round.
+        if (settings.userTracks.length !== USER_TRACKS.length) {
+          settings.userTracks = settings.userTracks.filter((entry) => USER_TRACK_BY_ID.has(entry.id));
+        }
+        for (const entry of USER_TRACKS) probeTrackCaps(entry.id);
+      }
+      pushUserTracks();
+
+      // ---- v23 track rows: the SSR six, plus the user's own ----------------
+      // index.astro renders one `.track-item` per BUILT-IN at build time, from
+      // the module registry — a server render cannot know a user's tracks. User
+      // rows are therefore appended CLIENT-side, into the same container and
+      // BELOW the six, so no existing control moves (v18 hardware-panel rule:
+      // an insertion below is not a layout shift of anything above).
+      const trackRowsBox = document.querySelector('.track-rows');
+
+      /**
+       * Build one user track's row, structurally identical to the markup the
+       * build emits for a built-in — same classes, same id patterns, same
+       * order — so every listener, sync pass and query selector on the page
+       * finds exactly what it finds on a built-in row. It carries ONE thing a
+       * built-in row does not: a Remove button, because a built-in cannot go.
+       */
+      function buildTrackRow(track) {
+        if (!trackRowsBox || document.querySelector(`.track-row[data-track="${track.id}"]`)) return;
+        const label = track.label;
+        const item = document.createElement('div');
+        item.className = `track-item ${trackColourClass(track.id)}`;
+        item.dataset.trackItem = track.id;
+
+        const row = document.createElement('div');
+        row.className = 'track-row';
+        row.dataset.track = track.id;
+
+        const lamp = document.createElement('button');
+        lamp.type = 'button';
+        lamp.className = 'track-name track-lamp';
+        lamp.id = `track-lamp-${track.id}`;
+        lamp.setAttribute('aria-label', `${label} state. Press to cycle Off, Auto, On.`);
+        const chip = document.createElement('span');
+        chip.className = 'track-chip lamp-dot';
+        chip.setAttribute('aria-hidden', 'true');
+        const lampText = document.createElement('span');
+        lampText.className = 'lamp-text';
+        lampText.textContent = label;
+        lamp.append(chip, lampText);
+
+        const select = document.createElement('select');
+        select.id = `track-voice-${track.id}`;
+        select.className = 'track-voice';
+        select.setAttribute('aria-label', `${label} voice`);
+        // A user track plays a STOCK bank (the v10 boundary), so its options are
+        // that bank's, named exactly as the built-in that owns it names them.
+        for (const [value, voiceName] of Object.entries(VOICE_LABELS[track.voiceSet] || {})) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = voiceName;
+          select.append(option);
+        }
+
+        const level = document.createElement('div');
+        level.className = 'track-level';
+        level.id = `track-level-${track.id}`;
+
+        const extras = document.createElement('div');
+        extras.className = 'track-extras';
+        extras.id = `track-extras-${track.id}`;
+
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'secondary-button voice-edit-toggle';
+        edit.id = `voice-edit-toggle-${track.id}`;
+        edit.setAttribute('aria-expanded', 'false');
+        edit.setAttribute('aria-controls', `voice-editor-${track.id}`);
+        edit.textContent = 'Edit';
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'round-button track-remove';
+        remove.id = `track-remove-${track.id}`;
+        remove.textContent = '×';
+        remove.setAttribute('aria-label', `Remove ${label}`);
+
+        const foot = document.createElement('span');
+        foot.className = 'track-foot';
+        const resolved = document.createElement('span');
+        resolved.className = 'resolved-readout';
+        resolved.id = `resolved-${track.id}`;
+        resolved.setAttribute('aria-hidden', 'true');
+        const meter = document.createElement('span');
+        meter.className = 'cost-meter';
+        meter.id = `cost-meter-${track.id}`;
+        meter.hidden = true;
+        const fill = document.createElement('span');
+        fill.className = 'cost-meter-fill';
+        meter.append(fill);
+        foot.append(resolved, meter);
+
+        row.append(lamp, select, level, extras, edit, remove, foot);
+
+        const editor = document.createElement('div');
+        editor.className = 'voice-editor module-panel';
+        editor.id = `voice-editor-${track.id}`;
+        editor.hidden = true;
+
+        item.append(row, editor);
+        // Always last: user tracks append after every built-in, in creation
+        // order, which is the order the engine itself keeps them in.
+        trackRowsBox.append(item);
+      }
+
+      /** Drop a user track's row and everything registered against it. */
+      function removeTrackRow(id) {
+        const item = document.querySelector(`[data-track-item="${id}"]`);
+        if (!item) return;
+        // Tear the editor down BEFORE the markup goes: its knob handles, its
+        // scope loop and its extras registration all outlive a bare .remove().
+        try {
+          closeTrackEditor(id);
+        } catch {
+          // A row whose editor was never opened has nothing to close.
+        }
+        item.remove();
+        levelControls.delete(id);
+        extrasInstances.delete(id);
+        focusOpenDisarmed.delete(id);
+        soundingVoice.delete(id);
+      }
+
+      for (const entry of USER_TRACKS) buildTrackRow(entry);
+
       // ---- consent-gated persistence ------------------------------------
 
       const consentSlot = document.getElementById('consent-slot');
@@ -2243,6 +2661,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // a `let` declared later would be a temporal-dead-zone crash (the
       // shipped blank-page bug, 6105e0d).
       let updateFrontScope = () => {};
+      // v23: scope.js reads the registry ONCE, at attach — a track added after
+      // that is not traced and its legend entry never appears. Assigned by the
+      // front-scope block below; a no-op where that block never runs.
+      let refreshScopeRegistry = () => {};
       try {
       const { initVisualiser } = await import('../scripts/visualiser.js');
         visualiserHandle = initVisualiser(canvas, engine);
@@ -2659,10 +3081,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const soundingVoice = new Map();
       const VOICE_LIVE_VALUE = '__live';
 
-      for (const id of TRACK_IDS) {
+      /**
+       * Wire one track row's lamp and voice selector. Extracted from the boot
+       * loop below so a row appended at RUNTIME goes through the identical
+       * path — the pre-mortem's fourth blocker is a user row that looks like a
+       * built-in row and answers to nothing, and the only defence against it is
+       * that there is one construction path, not two.
+       */
+      function wireTrackRowControls(id) {
         const voiceSelect = document.getElementById(`track-voice-${id}`);
         const lamp = document.getElementById(`track-lamp-${id}`);
-        describe(voiceSelect, VOICE_HINTS[id]);
+        describe(voiceSelect, VOICE_HINTS[voiceSetOf(id)]);
         if (lamp) describe(lamp, 'Off never plays · Auto lets the generator decide · On always plays.');
 
         if (lamp) {
@@ -2673,6 +3102,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
 
+        // Only a user track can go: removing a built-in is a programming fault
+        // engine-side, so the page never offers it as an outcome.
+        const remove = document.getElementById(`track-remove-${id}`);
+        if (remove) {
+          remove.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (!engineCaps.removeTrack) return;
+            try {
+              engine.removeTrack(id);
+            } catch {
+              // A built-in, or an id this engine no longer has. Either way the
+              // row goes on standing and nothing is lost.
+            }
+          });
+          describe(remove, `Remove ${TRACK_LABELS[id] || id}. Its notes ring out first.`);
+        }
+
+        // Null-guarded since v23: TRACK_IDS is the ENGINE's live list, and a
+        // preset carrying a user track this build never rendered a row for used
+        // to throw here — inside init(), which is a blank page.
+        if (!voiceSelect) return;
         voiceSelect.addEventListener('change', () => {
           // The dynamic "what you're hearing" option is display-only and
           // disabled, so it can never be the user's pick — but a stray
@@ -2684,9 +3134,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           soundingVoice.delete(id);
           refreshVoiceSelect(id);
           const editor = document.getElementById(`voice-editor-${id}`);
-          if (!editor.hidden) renderVoiceEditor(id);
+          if (editor && !editor.hidden) renderVoiceEditor(id);
         });
       }
+
+      for (const id of TRACK_IDS) wireTrackRowControls(id);
 
       // ---- voice editors (v3 patch model, v5 module look) ---------------
 
@@ -2728,8 +3180,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        */
       function resolveTrackPatch(track, voiceId) {
         const voiceEntry =
-          voicesTable && voicesTable[track] && voicesTable[track][voiceId]
-            ? voicesTable[track][voiceId]
+          voicesTable && voicesTable[voiceSetOf(track)] && voicesTable[voiceSetOf(track)][voiceId]
+            ? voicesTable[voiceSetOf(track)][voiceId]
             : null;
         const defaults = voiceEntry && voiceEntry.defaults ? voiceEntry.defaults : null;
         const base = deepMerge(FALLBACK_PATCH, defaults || {});
@@ -5359,7 +5811,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             s.debounce = null;
             try {
               scopeApi.renderPatchWave(s.canvas, s.getPatch(), {
-                freq: SCOPE_FREQ[track] || 220,
+                freq: SCOPE_FREQ[voiceSetOf(track)] || 220,
               });
             } catch {}
           },
@@ -6816,7 +7268,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // v14 header: track name + "sounding" note, the Off/Auto/On state
         // control (moved out of the single-line row), the dice re-roll and
         // the Randomness mirror.
-        container.classList.add(`track-color-${track}`);
+        container.classList.add(trackColourClass(track));
         const header = document.createElement('div');
         header.className = 've-header';
         const headerTitle = document.createElement('span');
@@ -6856,7 +7308,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // melody/bass/percussion need engine support or the grid is dead.
         const showSeq =
           track === 'arp' ||
-          ((SEQ_SINGLE_TRACKS.includes(track) || track === 'percussion') &&
+          ((SEQ_SINGLE_TRACKS.includes(track) || isPercussiveTrack(track)) &&
             engineCaps.sequencer[track]);
         // Editing the lane list re-keys perKind, so the kit tabs below have to
         // follow it. Assigned once they exist; a no-op until then.
@@ -7072,6 +7524,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function closeTrackEditor(id) {
         const editor = document.getElementById(`voice-editor-${id}`);
         const toggle = document.getElementById(`voice-edit-toggle-${id}`);
+        if (!editor || !toggle) return;
         if (editor.hidden) return;
         editor.hidden = true;
         toggle.setAttribute('aria-expanded', 'false');
@@ -7085,12 +7538,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // scrollY would just scroll the focused control back out of sight.
       function openTrackEditor(id, { restoreScroll = false } = {}) {
         const editor = document.getElementById(`voice-editor-${id}`);
+        const toggle = document.getElementById(`voice-edit-toggle-${id}`);
+        if (!editor || !toggle) return;
         if (!editor.hidden) return; // already the one open
         const scrollY = restoreScroll ? window.scrollY : null;
         for (const other of TRACK_IDS) {
           if (other !== id) closeTrackEditor(other);
         }
-        const toggle = document.getElementById(`voice-edit-toggle-${id}`);
         editor.hidden = false;
         toggle.setAttribute('aria-expanded', 'true');
         renderVoiceEditor(id);
@@ -7111,10 +7565,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return !!(el && el.closest && el.closest('.track-lamp'));
       }
 
-      for (const id of TRACK_IDS) {
+      /** Wire one row's Edit accordion and its focus/click open behaviour. */
+      function wireTrackEditorToggle(id) {
         const toggle = document.getElementById(`voice-edit-toggle-${id}`);
         const editor = document.getElementById(`voice-editor-${id}`);
         const row = document.querySelector(`.track-row[data-track="${id}"]`);
+        if (!toggle || !editor) return;
 
         // Edit button: explicit, secondary affordance — still routes through
         // the same accordion open/close so it can never desync from focus-
@@ -7148,12 +7604,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+      for (const id of TRACK_IDS) wireTrackEditorToggle(id);
+
       // Tracks-panel row instance of the Randomness knob (no dice: that lives
       // in the Edit panel header only).
-      for (const id of TRACK_IDS) {
+      function wireTrackExtras(id) {
         const box = document.getElementById(`track-extras-${id}`);
+        if (!box) return;
         registerExtras(id, buildTrackExtras(box, id));
       }
+
+      for (const id of TRACK_IDS) wireTrackExtras(id);
 
       // The two busiest generative tracks; the power governor's
       // textureDensityScale is applied to what the engine is SENT for these
@@ -7227,10 +7688,264 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return { set: (v) => (input.value = String(readMid(v))) };
       }
 
-      for (const id of TRACK_IDS) {
+      function wireTrackLevel(id) {
         const box = document.getElementById(`track-level-${id}`);
         if (box && engineCaps.level[id]) levelControls.set(id, buildLevelControl(box, id));
       }
+
+      for (const id of TRACK_IDS) wireTrackLevel(id);
+
+      /**
+       * Everything a track row needs to be a live control, in the order the
+       * boot loops do it. THIS is the answer to the pre-mortem's fourth
+       * blocker: a runtime row is not wired by a second, parallel set of
+       * listeners written to match — it is wired by calling the very functions
+       * the build-time rows were wired by.
+       */
+      function attachTrackRow(id) {
+        wireTrackRowControls(id);
+        wireTrackEditorToggle(id);
+        wireTrackExtras(id);
+        wireTrackLevel(id);
+      }
+
+      // The build-time six were wired by the loops above; the rows appended for
+      // a STORED user track were built before those loops ran, so they went
+      // through them too. This is only for rows that appear later.
+      // ---- v23 Add Track --------------------------------------------------
+
+      /** What each engine fault code says to the person who caused it. */
+      const ADD_TRACK_FAULTS = {
+        'bad-label': 'Give the track a name.',
+        'bad-id': 'That name has no letters or digits in it.',
+        'reserved-id': 'That name is taken by a built-in track.',
+        'duplicate-id': 'You already have a track with that name.',
+        'bad-family': 'Pick melodic or percussive.',
+        'bad-voice-set': 'That kind and that voice set do not go together.',
+        'bad-colour-token': 'That colour is not one the theme defines.',
+        cap: `Six of your own is the limit — remove one to add another.`,
+      };
+
+      let addTrackButton = null;
+      let addTrackForm = null;
+      let addTrackName = null;
+      let addTrackNote = null;
+      let addTrackError = null;
+
+      /** Whether there is still room, asked of the engine rather than counted. */
+      function addTrackFault(spec) {
+        if (!engineCaps.addTrack) return 'cap';
+        try {
+          return engine.canAddTrack(spec);
+        } catch {
+          return 'cap';
+        }
+      }
+
+      function refreshAddTrackControl() {
+        if (!addTrackButton) return;
+        const full = addTrackFault(undefined) === 'cap';
+        addTrackButton.disabled = full;
+        // The note is ALWAYS in the document and always occupies its line, so
+        // filling it in cannot move the button above it (v18 hardware panel:
+        // a control never moves or resizes because its text changed).
+        addTrackNote.textContent = full
+          ? ADD_TRACK_FAULTS.cap
+          : `${USER_TRACK_MAX - USER_TRACKS.length} of your own left.`;
+      }
+
+      function setAddTrackFormOpen(open) {
+        if (!addTrackForm) return;
+        addTrackForm.hidden = !open;
+        addTrackButton.setAttribute('aria-expanded', String(open));
+        if (open) {
+          addTrackError.textContent = '';
+          addTrackName.focus();
+          addTrackName.select();
+        }
+      }
+
+      function buildAddTrackControl() {
+        // Probe-gated: the control exists ONLY where the engine can both answer
+        // "may I" and act on it. Against a build without them the tracks panel
+        // is exactly the panel it has always been.
+        if (!engineCaps.addTrack || !trackRowsBox || !trackRowsBox.parentElement) return;
+        const foot = document.createElement('div');
+        foot.className = 'track-add';
+
+        addTrackButton = document.createElement('button');
+        addTrackButton.type = 'button';
+        addTrackButton.id = 'add-track';
+        addTrackButton.className = 'secondary-button track-add-button';
+        addTrackButton.textContent = 'Add track';
+        addTrackButton.setAttribute('aria-expanded', 'false');
+        addTrackButton.setAttribute('aria-controls', 'add-track-form');
+
+        addTrackNote = document.createElement('span');
+        addTrackNote.className = 'track-add-note';
+        addTrackNote.id = 'add-track-note';
+        foot.append(addTrackButton, addTrackNote);
+
+        addTrackForm = document.createElement('form');
+        addTrackForm.className = 'track-add-form';
+        addTrackForm.id = 'add-track-form';
+        addTrackForm.hidden = true;
+
+        const nameLabel = document.createElement('label');
+        nameLabel.className = 'track-add-field';
+        const nameText = document.createElement('span');
+        nameText.textContent = 'Name';
+        addTrackName = document.createElement('input');
+        addTrackName.type = 'text';
+        addTrackName.id = 'add-track-name';
+        addTrackName.maxLength = USER_TRACK_LABEL_MAX;
+        addTrackName.value = 'My track';
+        addTrackName.autocomplete = 'off';
+        nameLabel.append(nameText, addTrackName);
+
+        const kinds = document.createElement('div');
+        kinds.className = 'track-add-kinds';
+        const kindLabel = document.createElement('span');
+        kindLabel.className = 'track-add-kind-label';
+        kindLabel.textContent = 'Kind';
+        kinds.append(kindLabel);
+        for (const [value, text, hint] of [
+          ['melodic', 'Melodic', 'Plays pitches from the current chord.'],
+          ['percussive', 'Percussive', 'Strikes its own kit lanes.'],
+        ]) {
+          const wrap = document.createElement('label');
+          wrap.className = 'track-add-kind';
+          const radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = 'add-track-family';
+          radio.value = value;
+          radio.checked = value === 'melodic';
+          const caption = document.createElement('span');
+          caption.textContent = text;
+          wrap.append(radio, caption);
+          describe(wrap, hint);
+          kinds.append(wrap);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'track-add-actions';
+        const create = document.createElement('button');
+        create.type = 'submit';
+        create.className = 'secondary-button';
+        create.textContent = 'Create';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'secondary-button';
+        cancel.textContent = 'Cancel';
+        actions.append(create, cancel);
+
+        addTrackError = document.createElement('span');
+        addTrackError.className = 'track-add-error';
+        addTrackError.id = 'add-track-error';
+        addTrackError.setAttribute('role', 'status');
+
+        addTrackForm.append(nameLabel, kinds, actions, addTrackError);
+        // Both go BELOW the row list, inside the same panel: an insertion below
+        // is not a layout shift of anything above it.
+        trackRowsBox.after(foot, addTrackForm);
+
+        addTrackButton.addEventListener('click', () => {
+          setAddTrackFormOpen(addTrackForm.hidden);
+        });
+        cancel.addEventListener('click', () => {
+          setAddTrackFormOpen(false);
+          addTrackButton.focus();
+        });
+        addTrackForm.addEventListener('submit', (event) => {
+          event.preventDefault();
+          const family = addTrackForm.querySelector('input[name="add-track-family"]:checked')?.value
+            ?? 'melodic';
+          const spec = { label: addTrackName.value.trim(), family };
+          const fault = addTrackFault(spec);
+          if (fault) {
+            addTrackError.textContent = ADD_TRACK_FAULTS[fault] || 'That track cannot be added.';
+            return;
+          }
+          let made = null;
+          try {
+            made = engine.addTrack(spec);
+          } catch (err) {
+            addTrackError.textContent = ADD_TRACK_FAULTS[err && err.code] || 'That track cannot be added.';
+            return;
+          }
+          setAddTrackFormOpen(false);
+          addTrackName.value = 'My track';
+          // The row is already in the document — adding a track emits `tracks`,
+          // and that is the only thing that builds a row.
+          const lamp = made ? document.getElementById(`track-lamp-${made.id}`) : null;
+          (lamp || addTrackButton).focus();
+        });
+        describe(addTrackButton, 'Make a track of your own. It plays a stock voice set and its own step grid.');
+        refreshAddTrackControl();
+      }
+
+      /**
+       * The engine's registry changed — through Add Track, through a Remove,
+       * or through a preset that carried tracks of its own. ONE handler for all
+       * three: the event is the page's only trigger, so a track that arrives by
+       * a route nobody thought of still lands a working row.
+       */
+      function onRegistryChanged() {
+        let params = null;
+        try {
+          params = engine.getParams();
+        } catch {
+          return;
+        }
+        const before = TRACK_IDS.slice();
+        settings.userTracks = Array.isArray(params.userTracks)
+          ? structuredClone(params.userTracks)
+          : [];
+        syncTrackViews(settings.userTracks);
+        const gone = before.filter((id) => !TRACK_IDS.includes(id));
+        const fresh = TRACK_IDS.filter((id) => !before.includes(id));
+        for (const id of fresh) {
+          // The ENGINE's own entry for the track, not a second guess at it: it
+          // has already seeded the opening grid, the level and the state, and a
+          // page that invented its own would disagree with what is sounding.
+          const entry = USER_TRACK_BY_ID.get(id);
+          const base = entry ? defaultUserTrackSettings(entry) : {};
+          settings.tracks[id] = isPlainObject(params.tracks?.[id])
+            ? deepMerge(base, structuredClone(params.tracks[id]))
+            : base;
+        }
+        // The same repair every load path runs: it drops the orphans a removal
+        // leaves behind and settles the new entries' shapes in one pass.
+        normaliseV6Tracks(settings);
+        for (const id of fresh) probeTrackCaps(id);
+        for (const id of gone) removeTrackRow(id);
+        for (const entry of USER_TRACKS) buildTrackRow(entry);
+        for (const id of fresh) attachTrackRow(id);
+        refreshAddTrackControl();
+        syncTrackStateUI();
+        syncAllTrackExtras();
+        for (const id of fresh) {
+          levelControls.get(id)?.set(settings.tracks[id].level);
+          refreshVoiceSelect(id);
+        }
+        refreshScopeRegistry();
+        updateVisualiserRegistry();
+        persistSettings();
+      }
+
+      /** The piano roll reads the registry at init; nudge it where it can. */
+      function updateVisualiserRegistry() {
+        if (!visualiserHandle) return;
+        try {
+          if (typeof visualiserHandle.refreshTracks === 'function') visualiserHandle.refreshTracks();
+        } catch {
+          // Decoration. A visualiser that cannot re-read the registry keeps
+          // drawing the tracks it knows about, which is not a failure state.
+        }
+      }
+
+      buildAddTrackControl();
+      if (typeof engine.on === 'function') engine.on('tracks', onRegistryChanged);
 
       // ---- v9/v14 power governor + Processor dial --------------------------
       // The dial reads Eco / Low / Med / Full / Auto; power.js owns the tier
@@ -7531,7 +8246,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             for (const id of TRACK_IDS) {
               const button = document.createElement('button');
               button.type = 'button';
-              button.className = `scope-legend-track track-color-${id}`;
+              button.className = `scope-legend-track ${trackColourClass(id)}`;
               const dot = document.createElement('span');
               dot.className = 'scope-legend-dot';
               dot.setAttribute('aria-hidden', 'true');
@@ -7680,6 +8395,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
             syncScopeOptions();
             ensureLegend(ids);
+          };
+
+          // The registry changed under a live trace: drop the attachment and
+          // the legend outright and let the pass above rebuild both. Anything
+          // cheaper leaves the scope tracing a list that no longer exists.
+          refreshScopeRegistry = function refreshScopeRegistryImpl() {
+            detach();
+            legendButtons.clear();
+            scopeLegend.textContent = '';
+            updateFrontScope();
           };
         }
       }
@@ -7985,13 +8710,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       function voiceLabel(track, voiceId) {
-        const found = VOICE_LABELS[track]?.[voiceId];
+        const found = VOICE_LABELS[voiceSetOf(track)]?.[voiceId];
         return found || voiceId;
       }
 
       /** A voice's synthesis class, when engine-voices exports one (v18). */
       function voiceEngineType(track, voiceId) {
-        const entry = voicesTable?.[track]?.[voiceId];
+        const entry = voicesTable?.[voiceSetOf(track)]?.[voiceId];
         const type = entry && typeof entry.engineType === 'string' ? entry.engineType.trim() : '';
         return type ? type[0].toUpperCase() + type.slice(1) : null;
       }
@@ -8009,7 +8734,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function patchIsEdited(track, voiceId) {
         const stored = (settings.patches[track] || {})[voiceId];
         if (!isPlainObject(stored)) return false;
-        const entry = voicesTable?.[track]?.[voiceId];
+        const entry = voicesTable?.[voiceSetOf(track)]?.[voiceId];
         const base = normalisedPatch(deepMerge(FALLBACK_PATCH, (entry && entry.defaults) || {}));
         const live = normalisedPatch(deepMerge(base, stored));
         if (isPlainObject(live.perKind) && Object.keys(live.perKind).length) return true;
@@ -8034,7 +8759,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        */
       function refreshVoiceSelect(track) {
         const select = document.getElementById(`track-voice-${track}`);
-        if (!select) return;
+        if (!select || !settings.tracks[track]) return;
         const chosen = settings.tracks[track].voice;
         const sounding = soundingVoice.get(track) || chosen;
         const edited = patchIsEdited(track, sounding);
@@ -8440,6 +9165,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // lane id, and they are untouched.
         if (isPlainObject(next.tracks) && isPlainObject(next.tracks.percussion)) {
           delete next.tracks.percussion.lanes;
+        }
+        return keepUserTracks(next);
+      }
+
+      /**
+       * Carry the listener's OWN tracks into a params object that has no
+       * opinion about them. A preset and a share link are different: they
+       * declare their track list outright and removing one is what loading them
+       * means. A genre and a Blank slate are not — a genre is a colour applied
+       * to the setup you already have, and "silence everything" is an
+       * instruction about states, not about what exists. Losing a hand-made
+       * track to either would be losing work to a button that never said so.
+       */
+      function keepUserTracks(next) {
+        if (!Array.isArray(settings?.userTracks) || !settings.userTracks.length) return next;
+        next.userTracks = structuredClone(settings.userTracks);
+        if (!isPlainObject(next.tracks)) next.tracks = {};
+        for (const entry of settings.userTracks) {
+          if (!isPlainObject(next.tracks[entry.id]) && isPlainObject(settings.tracks[entry.id])) {
+            next.tracks[entry.id] = structuredClone(settings.tracks[entry.id]);
+          }
         }
         return next;
       }
@@ -9292,6 +10038,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         blank.complexity = 0;
         blank.repetition = 0;
         blank.arp.steps = new Array(16).fill(false);
+        // The user's own tracks survive a Blank slate and are silenced with
+        // everything else — the button empties the piece, it does not delete
+        // the instruments the listener built.
+        keepUserTracks(blank);
         for (const track of Object.keys(blank.tracks)) {
           const t = blank.tracks[track];
           t.state = 'off';
@@ -9564,14 +10314,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         syncTrackStateUI();
         syncAllTrackExtras();
         for (const id of TRACK_IDS) {
-          document.getElementById(`track-voice-${id}`).value = settings.tracks[id].voice;
+          // Every lookup here is guarded since v23: TRACK_IDS is the engine's
+          // live list, so a row can legitimately be a moment behind it (a
+          // preset that has just brought a track in), and a throw inside the
+          // initial sync is a blank page.
+          const select = document.getElementById(`track-voice-${id}`);
+          if (select && settings.tracks[id]) select.value = settings.tracks[id].voice;
           // A loaded preset brings its own patches, so the "Custom (…)"
           // display has to be recomputed, not just the stored selection.
           soundingVoice.delete(id);
           refreshVoiceSelect(id);
-          levelControls.get(id)?.set(settings.tracks[id].level);
+          levelControls.get(id)?.set(settings.tracks[id]?.level);
           const editor = document.getElementById(`voice-editor-${id}`);
-          if (!editor.hidden) renderVoiceEditor(id);
+          if (editor && !editor.hidden) renderVoiceEditor(id);
         }
         updateComplexityDisplay();
         updateFrontScope();
@@ -9586,9 +10341,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       updateTimerUI();
       if (settings.ui.tutorialOpen) setTutorialOpen(true);
       if (sharedParams && shareNote) {
-        shareNote.textContent = routePreset
+        // v23: a shared link can bring tracks this device has never had. They
+        // are created and they sound — through the stock voice set the sender
+        // named, because no user track has voice code of its own to be missing
+        // (the v10 boundary). Saying how many arrived is the whole notice: it
+        // stops the extra rows reading as a bug.
+        const brought = USER_TRACKS.length;
+        const madeNote = brought
+          ? ` Brought ${brought} custom track${brought === 1 ? '' : 's'}, playing stock voices.`
+          : '';
+        shareNote.textContent = (routePreset
           ? `Loaded the ${routePreset.name} preset — Save to keep it.`
-          : 'Loaded shared preset — Save to keep it.';
+          : 'Loaded shared preset — Save to keep it.') + madeNote;
         shareNote.hidden = false;
       }
       if (routePreset) presetName.value = routePreset.name;
@@ -10608,6 +11372,110 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       display: flex;
       flex-direction: column;
       gap: 12px;
+    }
+
+    /* v23 Add Track. Both the footer and the form sit BELOW the row list, so
+       opening either moves nothing above it. The button's own width is fixed
+       and its label never changes — the count and the cap message go in the
+       note, which always occupies its line whether or not it has words in it
+       (the v18 rule: a control never moves or resizes because text changed). */
+    .track-add {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .track-add-button {
+      flex: none;
+      min-width: 110px;
+    }
+
+    .track-add-note {
+      flex: 1;
+      min-height: 1.3em;
+      font-size: 12px;
+      color: var(--secondary);
+    }
+
+    .track-add-button[disabled] {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .track-add-form {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    .track-add-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .track-add-field input {
+      width: 12ch;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .track-add-kinds {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .track-add-kind-label {
+      color: var(--secondary);
+    }
+
+    .track-add-kind {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .track-add-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Full-width so a message never reflows the row of controls above it. */
+    .track-add-error {
+      flex-basis: 100%;
+      min-height: 1.3em;
+      font-size: 12px;
+      color: var(--link);
+    }
+
+    /* Removal is offered on user tracks only — a built-in cannot go, so it
+       never carries the affordance. Fixed size, so no row changes shape. */
+    .track-remove {
+      flex: none;
+      width: 26px;
+      height: 26px;
+      font-size: 15px;
+      line-height: 1;
+      color: var(--secondary);
+    }
+
+    .track-remove:hover {
+      color: var(--text);
     }
 
     /* v18: every dial that belongs to a track — the row's Level/Randomness

@@ -7456,6 +7456,234 @@ test('v23 byte-identity: adding and removing through the API leaves the built-in
   }));
 
 // --------------------------------------------------------------------------
+// User instrument manifests (v23) — JSON data, and only JSON data
+//
+// A manifest declares which of the voice editor's dials a user track shows. It
+// is not code, does not name code and cannot reach any: that is what lets it
+// travel in a preset and a share link while the v10 boundary (user code never
+// travels) stands. These tests hold three lines — what the sanitiser keeps,
+// what it drops the manifest whole over, and that the compiled result is the
+// same `controls`/`defaults` pair the voice library publishes.
+// --------------------------------------------------------------------------
+
+/** A well-formed user track carrying a well-formed manifest. */
+const manifestSpec = (dials, extra = {}) => ({
+  schema: 'ambi4.instrument/1',
+  id: 'drone',
+  label: 'Drone',
+  kind: 'melodic',
+  voiceSet: 'pad',
+  voice: 'warm',
+  dials,
+  ...extra,
+});
+
+const withManifest = (manifest, entry = {}) => sanitiseParams({
+  userTracks: [{ id: 'drone', label: 'Drone', family: 'melodic', voiceSet: 'pad', manifest, ...entry }],
+}).userTracks[0];
+
+const GOOD_DIALS = [
+  { section: 'source', field: 'detune', label: 'Detune', min: -30, max: 30, default: 0, unit: 'ct' },
+  { section: 'adsr', field: 'attack', label: 'Attack', min: 0.01, max: 4, default: 1.2, unit: 's' },
+];
+
+test('v23 manifest: dials naming unknown fields are dropped, out-of-range min/max are clamped, a code-shaped string rejects the manifest', () => {
+  // A dial the engine would silently drop is worse than no dial: the field has
+  // to be one PATCH_SCHEMA actually has.
+  const dropped = withManifest(manifestSpec([
+    ...GOOD_DIALS,
+    { section: 'source', field: 'wobble', label: 'Wobble', min: 0, max: 1, default: 0.5 },
+    { section: 'filter', field: 'type', label: 'Type', min: 0, max: 1, default: 0 },
+    { section: 'nowhere', field: 'cutoff', label: 'Cut', min: 40, max: 90, default: 60 },
+  ])).manifest;
+  assert.deepEqual(dropped.dials.map((dial) => dial.field), ['detune', 'attack'],
+    'a dial naming a field the schema has no coercion for must not be rendered');
+
+  // Out of range is a manifest asking for something reasonable and slightly
+  // wrong — clamped to the schema's own bounds, never rejected.
+  const clamped = withManifest(manifestSpec([
+    { section: 'source', field: 'detune', label: 'Detune', min: -500, max: 500, default: -900 },
+    { section: 'filter', field: 'cutoff', label: 'Cutoff', min: 0, max: 999999, default: 300 },
+  ])).manifest;
+  assert.deepEqual(clamped.dials[0], {
+    section: 'source', field: 'detune', label: 'Detune',
+    min: -50, max: 50, default: -50, curve: 'linear', unit: '', rangeable: true,
+  }, 'detune clamps to the schema\'s own ±50, and the default onto the dial');
+  assert.equal(clamped.dials[1].min, 40);
+  assert.equal(clamped.dials[1].max, 12000);
+
+  // Discrete engine-side stays discrete: a manifest cannot make `octave` take
+  // a {min,max} the sanitiser would then drop.
+  const octave = withManifest(manifestSpec([
+    { section: 'source', field: 'octave', label: 'Octave', min: -9, max: 9, default: 0, rangeable: true },
+  ])).manifest;
+  assert.equal(octave.dials[0].rangeable, false);
+  assert.deepEqual([octave.dials[0].min, octave.dials[0].max], [-2, 2]);
+
+  // Duplicate field within a section: last wins, in its own place.
+  const duped = withManifest(manifestSpec([
+    { section: 'source', field: 'detune', label: 'First', min: -10, max: 10, default: 0 },
+    { section: 'adsr', field: 'attack', label: 'Attack', min: 0.01, max: 4, default: 1 },
+    { section: 'source', field: 'detune', label: 'Second', min: -20, max: 20, default: 5 },
+  ])).manifest;
+  assert.deepEqual(duped.dials.map((dial) => dial.label), ['Attack', 'Second']);
+
+  // Cap: the tail goes, exactly as an over-cap userTracks array drops its own.
+  const many = withManifest(manifestSpec(
+    ['detune', 'octave', 'mix', 'fold', 'pitch', 'noise', 'tilt', 'bandCentre', 'bandWidth',
+      'sweepRate', 'sweepDepth', 'gust', 'gustRate', 'burst', 'burstSharp', 'swell', 'glide',
+      'glideCurve', 'formant1', 'formant2', 'cadence', 'irregular', 'shape1', 'shape2']
+      // Bounds wider than any field's own, so every one of the 24 clamps to its
+      // own full range and survives — the cap is what this is measuring.
+      .map((field, i) => ({ section: 'source', field, label: `D${i}`, min: -1e6, max: 1e6, default: 0 }))
+      .concat([{ section: 'adsr', field: 'attack', label: 'Over', min: 0.01, max: 4, default: 1 }])
+  )).manifest;
+  assert.equal(many.dials.length, 24, 'a manifest carries 24 dials at most');
+  assert.ok(!many.dials.some((dial) => dial.label === 'Over'), 'the cap drops from the tail');
+
+  // A manifest is JSON DATA. Anything that reads like code, ANYWHERE in it,
+  // rejects the WHOLE document — a forgery does not get to keep its good parts.
+  for (const bad of [
+    manifestSpec(GOOD_DIALS, { label: 'Drone', voice: 'warm', note: 'x => x' }),
+    manifestSpec(GOOD_DIALS, { credit: 'import secrets' }),
+    manifestSpec(GOOD_DIALS, { icon: 'data:image/png;base64,AAAA' }),
+    manifestSpec(GOOD_DIALS, { link: 'javascript:alert(1)' }),
+    manifestSpec(GOOD_DIALS, { body: 'function play(){}' }),
+    manifestSpec([{ ...GOOD_DIALS[0], label: '() => 1' }]),
+  ]) {
+    const entry = withManifest(bad);
+    assert.ok(!('manifest' in entry), `a code-shaped manifest survived: ${JSON.stringify(bad).slice(0, 60)}`);
+    assert.equal(entry.id, 'drone', 'rejecting the manifest must not cost the track');
+  }
+  // Ordinary prose that merely CONTAINS those letters is not code.
+  assert.ok(withManifest(manifestSpec([
+    { ...GOOD_DIALS[0], label: 'Important' },
+  ])).manifest, 'a label reading "Important" is not an import statement');
+
+  // Disagreement with the track it belongs to rejects it, and the track lives.
+  for (const bad of [
+    manifestSpec(GOOD_DIALS, { schema: 'ambi4.instrument/2' }),
+    manifestSpec(GOOD_DIALS, { id: 'other' }),
+    manifestSpec(GOOD_DIALS, { label: 'Other' }),
+    manifestSpec(GOOD_DIALS, { kind: 'percussive' }),
+    manifestSpec(GOOD_DIALS, { voiceSet: 'bass' }),
+    manifestSpec(GOOD_DIALS, { voice: '' }),
+    manifestSpec([]),
+    manifestSpec([{ section: 'source', field: 'nope', label: 'X', min: 0, max: 1, default: 0 }]),
+    'not an object',
+  ]) {
+    const entry = withManifest(bad);
+    assert.ok(!('manifest' in entry), `a disagreeing manifest survived: ${JSON.stringify(bad).slice(0, 60)}`);
+    assert.equal(entry.label, 'Drone');
+  }
+});
+
+test('v23 manifest: compiles to a controls/defaults pair the voice-editor shape accepts', () => {
+  const engine = createEngine();
+  engine.setParams({
+    userTracks: [{
+      id: 'drone', label: 'Drone', family: 'melodic', voiceSet: 'pad',
+      manifest: manifestSpec([
+        { section: 'source', field: 'detune', label: 'Detune', min: -30, max: 30, default: 4, unit: 'ct' },
+        { section: 'source', field: 'octave', label: 'Octave', min: -2, max: 2, default: -1 },
+        { section: 'adsr', field: 'attack', label: 'Attack', min: 0.01, max: 4, default: 1.2, unit: 's', curve: 'log' },
+      ]),
+    }],
+  });
+
+  const compiled = engine.getTrackManifest('drone');
+  assert.ok(compiled, 'a user track with a manifest publishes a compiled one');
+  // The exact shape VOICES[track][voiceId] publishes: a section with dials is
+  // the list of its fields, a section with none is false and vanishes.
+  assert.deepEqual(compiled.controls, {
+    source: ['detune', 'octave'],
+    filter: false,
+    adsr: ['attack'],
+    sends: false,
+  });
+  assert.deepEqual(compiled.defaults, {
+    source: { detune: 4, octave: -1 },
+    adsr: { attack: 1.2 },
+  });
+  // The v19 spec shape the sculpting groups already read: `fallback` beside
+  // the default, so units and double-click-to-default work untouched.
+  assert.deepEqual(compiled.dials[2], {
+    section: 'adsr', field: 'attack', label: 'Attack',
+    min: 0.01, max: 4, default: 1.2, fallback: 1.2, curve: 'log', unit: 's', rangeable: true,
+  });
+  assert.equal(compiled.voiceSet, 'pad', 'the caller looks the named voice up to take its engineType');
+  assert.equal(compiled.voice, 'warm');
+
+  // Every section a built-in editor knows about is answered for — an absent
+  // key would read as "render everything", which is not what "no dials" means.
+  assert.deepEqual(Object.keys(compiled.controls), ['source', 'filter', 'adsr', 'sends']);
+
+  // Not for a built-in, not for an unknown id, not for a track without one.
+  assert.equal(engine.getTrackManifest('pad'), null);
+  assert.equal(engine.getTrackManifest('nope'), null);
+  const bare = createEngine();
+  bare.setParams({ userTracks: [{ id: 'bare', label: 'Bare', family: 'melodic', voiceSet: 'pad' }] });
+  assert.equal(bare.getTrackManifest('bare'), null, 'a manifest is OPTIONAL');
+  assert.ok(bare.getParams().tracks.bare, 'a track without one is still a perfectly good track');
+});
+
+test('v23 manifest: round-trips through setParams/getParams, and nothing written back reaches the engine', () => {
+  const manifest = manifestSpec([
+    { section: 'source', field: 'detune', label: 'Detune', min: -30, max: 30, default: 4, unit: 'ct' },
+    { section: 'sends', field: 'reverb', label: 'Space', min: 0, max: 1, default: 0.4 },
+  ]);
+  const engine = createEngine();
+  engine.setParams({
+    userTracks: [{ id: 'drone', label: 'Drone', family: 'melodic', voiceSet: 'pad', manifest }],
+  });
+
+  const first = engine.getParams().userTracks[0].manifest;
+  assert.deepEqual(first.dials.map((dial) => dial.field), ['detune', 'reverb']);
+  // Round trip: what came out goes back in and comes out the same.
+  const second = createEngine();
+  second.setParams(engine.getParams());
+  assert.deepEqual(second.getParams().userTracks[0], engine.getParams().userTracks[0]);
+
+  // MUTATION 1 — getParams() hands out a deep copy. Writing through the entry,
+  // the manifest and a dial must all be invisible to the engine.
+  const handed = engine.getParams();
+  handed.userTracks[0].label = 'Hacked';
+  handed.userTracks[0].manifest.voice = 'glass';
+  handed.userTracks[0].manifest.dials[0].max = 999;
+  handed.userTracks[0].manifest.dials.push({ section: 'adsr', field: 'attack' });
+  const after = engine.getParams().userTracks[0];
+  assert.equal(after.label, 'Drone');
+  assert.equal(after.manifest.voice, 'warm');
+  assert.equal(after.manifest.dials[0].max, 30);
+  assert.equal(after.manifest.dials.length, 2);
+
+  // MUTATION 2 — the compiled view is built fresh every call, so a consumer
+  // that edits its controls list or a dial cannot reach the stored document.
+  const compiled = engine.getTrackManifest('drone');
+  compiled.controls.source.push('mix');
+  compiled.controls.filter = ['cutoff'];
+  compiled.defaults.source.detune = 99;
+  compiled.dials[0].label = 'Nope';
+  const again = engine.getTrackManifest('drone');
+  assert.deepEqual(again.controls.source, ['detune']);
+  assert.equal(again.controls.filter, false);
+  assert.equal(again.defaults.source.detune, 4);
+  assert.equal(again.dials[0].label, 'Detune');
+
+  // MUTATION 3 — the SOURCE object the caller handed to setParams. Editing it
+  // afterwards must not reach into the engine either.
+  manifest.dials[0].label = 'Rewritten';
+  manifest.voice = 'choir';
+  assert.equal(engine.getParams().userTracks[0].manifest.dials[0].label, 'Detune');
+  assert.equal(engine.getParams().userTracks[0].manifest.voice, 'warm');
+
+  // A removed track takes its manifest with it, and a pre-v23 blob is unchanged.
+  engine.removeTrack('drone');
+  assert.equal(engine.getTrackManifest('drone'), null);
+  assert.deepEqual(engine.getParams().userTracks, []);
+});
+
+// --------------------------------------------------------------------------
 // v26 — the hook seed, the master analyser tap, pause
 // --------------------------------------------------------------------------
 

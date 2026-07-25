@@ -4,3 +4,4 @@
 # ("colourToken:" matches the guard's token-assignment shape; values are --track-* vars).
 ^.*colourToken: '--[a-z-]+',?.*$
 ^.*'--custom-drone-colour'.*$
+^.*USER_TRACK_BY_ID.*colourToken.*$
