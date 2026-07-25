@@ -24,6 +24,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
+import { readTutorialSteps, resolveTutorialTargets } from './tutorial-smoke.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = join(repoRoot, 'dist');
@@ -631,6 +632,22 @@ try {
     }
     if (!doc.getElementById('fullscreen-add')) {
       failures.push('the fullscreen host has no "+ the other display" control (#fullscreen-add)');
+    }
+  }
+
+  // Guided tour: every step rings a control, and a step whose selector matches
+  // nothing walks the newcomer past a blank. tests/tutorial-smoke.mjs holds the
+  // whole rule set against the built MARKUP; this is the half only a booted
+  // page can prove — the targets the page script builds itself (Add track)
+  // exist, and exactly once, in the document the visitor actually gets.
+  {
+    const steps = readTutorialSteps();
+    failures.push(...resolveTutorialTargets(steps, doc));
+    for (const [index, step] of steps.entries()) {
+      if (!step.tab) continue;
+      if (!doc.getElementById(`tab-${step.tab}`)) {
+        failures.push(`tutorial step ${index + 1} switches to a tab the page has not got: "${step.tab}"`);
+      }
     }
   }
 

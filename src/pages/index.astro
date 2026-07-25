@@ -10608,6 +10608,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // Each step names the control it is talking about; opening a step
       // switches to the tab that control lives on and rings it. Open state
       // and position persist through prefs like every other UI preference.
+      //
+      // The arc is a first run, in the order a newcomer meets the thing:
+      // Simple tab (start it, steer it, pick a genre) → the two displays that
+      // sit above the tabs → Advanced (tracks, editors, your own tracks) →
+      // sharing it → what this actually is. Every `target` must resolve to
+      // exactly ONE element and every `tab` must be a real tab —
+      // tests/tutorial-smoke.mjs holds both, and page-boot re-checks the
+      // targets against the booted document (some are built by the script).
       const TUTORIAL_STEPS = [
         {
           tab: 'simple',
@@ -10616,18 +10624,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           tab: 'simple',
-          target: '.sliders-module',
-          text: 'These four dials are the whole instrument for most people: Tempo, Complexity, Randomness, Volume. Drag up and down, or click the number under a dial to type one. Double-click any dial to put it back to its default. The same four sit at the foot of the Advanced tab.',
+          target: '#pause-toggle',
+          text: 'Pause holds the piece exactly where it is and becomes Resume — the same bar and the same chord loop carry on, rather than a fresh build. Next, two along, jumps to a new setup: inside a genre it draws another piece from that genre\'s rules, and with no genre it re-rolls the material you already have.',
         },
         {
           tab: 'simple',
-          target: '#randomness-dial',
-          text: 'Randomness at zero means hold: the generator keeps looping exactly what it is playing now. Turn it up and it re-rolls its material more and more often.',
+          target: '#genre-select',
+          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices together, a different piece each time you pick it. Surprise me, at the foot of the list, chooses for you. Favourites keeps the ones you come back to, and each mood you favourite gets its own entry that plays a random favourite from it.',
+        },
+        {
+          tab: 'simple',
+          target: '#panel-simple .sliders-module',
+          text: 'These four dials are the whole instrument for most people: Tempo, Complexity, Randomness, Volume. Drag up and down, or click the number under a dial to type one; double-click puts a dial back to its default. Randomness at zero means hold — the generator keeps looping exactly what it is playing — and turning it up re-rolls its material more and more often.',
+        },
+        {
+          tab: 'simple',
+          target: '#factory-presets',
+          text: 'Factory presets sit under the Simple dials: starting points, not presets in the locked sense — load one and change anything. Hover one to read why it is built the way it is. Each has its own web address, so you can link straight to it. Save your own under Your presets on Advanced.',
+        },
+        {
+          tab: 'simple',
+          target: '.processor-row',
+          text: 'Processor decides how hard this runs. Auto watches the machine and backs off when it gets warm; Eco is the coolest setting.',
+        },
+        {
+          target: '#play-along',
+          text: 'Play along hands the keyboard to one track: z x c v b n m play an octave and q w e r t y u the next, with the black keys above them, and a MIDI instrument plays the same track. Capture writes the rhythm, velocity and note length you play into that track\'s step grid — the pitches come from the piece\'s own harmony — and Undo puts the old grid back.',
+        },
+        {
+          target: '#front-scope-module',
+          text: 'The oscilloscope and the piano roll sit above the tabs, so they stay put while you work. In the legend, a click hides one instrument\'s trace and a double-click solos it; Spread gives each track a line of its own and Total adds the finished mix. The button beside them fills the screen with either display, where a second control brings the other one in below it, and the twisty folds the whole thing away.',
         },
         {
           tab: 'advanced',
           target: '.track-rows',
-          text: 'Six tracks, one line each. The coloured lamp beside the name cycles off, auto and on. The two dials are that track\'s level and its own randomness.',
+          text: 'Six tracks, one line each. The coloured lamp beside the name cycles off, auto and on, the box beside it picks that track\'s voice, and the two dials are its level and its own randomness.',
         },
         {
           tab: 'advanced',
@@ -10640,22 +10671,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           text: 'Give Texture the Coloured noise or Grain cloud voice and its panel grows Spectral, Motion and Burst rows. Wind, rain and surf all live in there — you sculpt them with the dials rather than picking a sample. The Call voice does the same for birdsong: a pitch sweep, two formants and a cadence.',
         },
         {
-          target: '#front-scope-module',
-          text: 'The oscilloscope and the piano roll sit above the tabs, so they stay put while you work. In the legend on the right, a click hides one instrument\'s trace and a double-click solos it. The twisty at the top right folds the whole thing away.',
+          tab: 'advanced',
+          target: '#add-track',
+          text: 'Add track gives you tracks of your own, under the six built-in ones: name it, say whether it is melodic or percussive, and it gets a row, a voice and an editor like the rest. Six of your own is the limit, and only your own can be removed.',
         },
         {
-          tab: 'simple',
-          target: '.factory-presets',
-          text: 'Factory presets sit under the Simple dials: starting points, not presets in the locked sense — load one and change anything. Hover one to read why it is built the way it is. Each has its own web address, so you can link straight to it. Save your own under Your presets on Advanced.',
-        },
-        {
-          tab: 'simple',
-          target: '.processor-row',
-          text: 'Processor decides how hard this runs. Auto watches the machine and backs off when it gets warm; Eco is the coolest setting.',
+          tab: 'advanced',
+          target: '#preset-share',
+          text: 'Share copies a link that carries the whole setup in the address itself — nothing is uploaded, and no code travels with it. Each link works out its own three-word name, shown on the line below, so you can say which link you mean out loud. Save keeps a setup on this device under Your presets.',
         },
         {
           target: null,
-          text: 'Nothing here is AI and nothing is a recording. Every note is worked out as you listen by a few hundred lines of ordinary code running in this tab — the same rules you can see and change on the Advanced tab. Nothing you do is uploaded anywhere.',
+          text: 'Nothing here is AI and nothing is a recording. Every note is worked out as you listen by ordinary code running in this tab — the same rules you can see and change on the Advanced tab. What you make stays on this device unless you hand someone a link.',
         },
       ];
 

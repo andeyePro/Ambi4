@@ -34,7 +34,7 @@
 - [ ] Share tier 2: named links ambi4.work/[name] via Workers KV + submit/approve
 - [ ] Share tier 3: code-bearing presets (sandbox + review gate) — paid
 - [ ] Block editor phase 2: full JS seam editor (>_ icon), "default to code" pref
-- [ ] Greyed (plus)/(pro) editor buttons routing to a subscription page
+- [!] Greyed (plus)/(pro) editor buttons — superseded by the "hidden until purchasable" owner rule; do not build
 - [ ] Arrangement studio: MIDI capture, offline render, mastered binaural/lossless exports
 - [ ] Stereo recording tier polish (wav via offline render; webm live capture shipped free for now)
 - [ ] Standalone one-off-purchase Mac/iOS build (Tauri/Capacitor)
