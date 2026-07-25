@@ -17,9 +17,6 @@
 ### Next build queue (v20 shape model)
 
 ### Next build queue (schema gaps from the preset psychologist)
-- [ ] Harmonic-rhythm control (chords-per-bar / hold-this-chord)
-- [ ] Pad breathing locked to bar phase (Breathe preset premise)
-- [ ] Modes: ionian, mixolydian, phrygian
 
 ### Next build queue
 - [ ] Per-track swing overrides (global swing shipped)

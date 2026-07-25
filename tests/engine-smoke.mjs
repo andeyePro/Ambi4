@@ -217,6 +217,7 @@ const {
   bassGrooveOp,
   BASS_GROOVE_OPS,
   BASS_FEEL_NAMES,
+  HARMONY_RHYTHMS,
 } = engineModule;
 
 /**
@@ -1305,7 +1306,14 @@ test('finish() ends on a tonic bar, fades out and resolves', async () => {
   engine.on('state', (e) => states.push(e));
 
   await engine.start();
-  await advance(5, { step: 0.12, sleep: 16 });
+  // Every track has to be staged in (one per bar, pad first) before the ending
+  // proves anything: what stops at the barline is only interesting once
+  // something other than pad and bass is playing. Waiting on the BARS rather
+  // than on a fixed five seconds of clock is what keeps that true on a loaded
+  // machine, where five mock seconds buys fewer bars than it does on an idle one.
+  const staged = await advanceUntil(() => bars.length > TRACK_ORDER.length, 30,
+    { step: 0.12, sleep: 16 });
+  assert.ok(staged, `only ${bars.length} bars: the piece never finished its staged entry`);
   assert.ok(notes.some((n) => ['melody', 'arp', 'percussion', 'texture'].includes(n.track)),
     'nothing decorative was playing, so there is nothing to prove about the ending');
 
@@ -5675,6 +5683,286 @@ test('v21: density scales an auto track\'s event rate, and null is exactly the o
   }));
 
 // --------------------------------------------------------------------------
+// v21 — harmonic rhythm, pad breath, the three new modes, resolved readouts
+// --------------------------------------------------------------------------
+
+test("v21: harmony.rhythm takes 'auto' or a bar count, and survives a preset round-trip", () => {
+  assert.deepEqual([...HARMONY_RHYTHMS], ['auto', 1, 2, 4, 8]);
+  assert.deepEqual(DEFAULT_PARAMS.harmony, { rhythm: 'auto' }, 'the harmonic rhythm ships on auto');
+
+  const rhythmOf = (rhythm) => sanitiseParams({ harmony: { rhythm } }).harmony.rhythm;
+  assert.equal(rhythmOf(4), 4);
+  assert.equal(rhythmOf('8'), 8, 'a select sends its options as strings');
+  assert.equal(rhythmOf('auto'), 'auto');
+  assert.equal(rhythmOf(3), 'auto', 'a bar count that is not on the dial falls back');
+  assert.equal(rhythmOf(0), 'auto', 'nought bars a chord is not a harmonic rhythm');
+  assert.equal(rhythmOf('nope'), 'auto');
+  assert.equal(sanitiseParams({ harmony: 'four' }).harmony.rhythm, 'auto',
+    'a harmony that is not an object at all falls back to auto');
+
+  const stored = sanitiseParams({ harmony: { rhythm: 2 } });
+  assert.equal(sanitiseParams({ bpm: 90 }, stored).harmony.rhythm, 2,
+    'an unrelated edit dropped the harmonic rhythm');
+  assert.equal(sanitiseParams({ harmony: { rhythm: 'auto' } }, stored).harmony.rhythm, 'auto',
+    'a stored bar count must be releasable back to auto');
+  assert.equal(sanitiseParams({}, { harmony: { rhythm: 99 } }).harmony.rhythm, 'auto',
+    'a corrupt base cannot leak through');
+
+  const engine = createEngine({ harmony: { rhythm: 8 } });
+  assert.equal(engine.getParams().harmony.rhythm, 8, 'getParams did not round-trip harmony.rhythm');
+  const handed = engine.getParams();
+  handed.harmony.rhythm = 1;
+  assert.equal(engine.getParams().harmony.rhythm, 8, 'getParams handed out the engine\'s own harmony object');
+});
+
+/**
+ * Where the chord changed, as POSITIONS in the bar stream rather than bar
+ * numbers: a scheduler that loses time resyncs by advancing the bar count, so
+ * the nth chord event is the nth bar the engine actually realised whatever
+ * number it carries.
+ */
+function chordChangePositions(chords) {
+  const key = (chord) => chord.midis.join(',');
+  const at = [];
+  for (let i = 1; i < chords.length; i++) {
+    if (key(chords[i]) !== key(chords[i - 1])) at.push(i);
+  }
+  return at;
+}
+
+/**
+ * Chord events from a pad-only piece at repetition 1, which is what pins the
+ * hook to its shortest loop (HOOK_MIN_CHORDS) and keeps the window below
+ * inside the FIRST pass — where every slot still has its own degree, inversion
+ * 0 and extension 0, so a chord change is always an audible change of midis.
+ */
+async function chordRun(params, wanted, seed = 7301) {
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 0.6, repetition: 1, structure: 'custom',
+    customStructure: [{ label: 'A', bars: 64, intensity: 1 }],
+    ...params,
+    tracks: { ...tracksAll('off'), pad: { state: 'on', vary: { timing: 0, voice: 0 } } },
+  }, { rng: seededRng(seed) });
+  const chords = [];
+  engine.on('chord', (chord) => chords.push(chord));
+  await engine.start();
+  const enough = await advanceUntil(() => chords.length > wanted, wanted + 40, FAST);
+  engine.stop();
+  assert.ok(enough, `only ${chords.length} chord events, wanted more than ${wanted}`);
+  return chords;
+}
+
+test('v21: a fixed harmony.rhythm holds every chord for exactly that many bars', () => hiddenTab(async () => {
+  for (const bars of [1, 2, 4, 8]) {
+    // The hook is four chords long at repetition 1, so the first pass is
+    // exactly four spans: the changes belong at bars N, 2N, 3N and 4N (the
+    // last being the return to the tonic that starts the second pass).
+    const chords = await chordRun({ harmony: { rhythm: bars } }, bars * 4 + 1);
+    const changes = chordChangePositions(chords).filter((at) => at <= bars * 4);
+    assert.deepEqual(changes, [bars, bars * 2, bars * 3, bars * 4],
+      `harmony.rhythm ${bars} did not hold each chord for ${bars} bars`);
+  }
+}));
+
+test("v21: 'auto' harmonic rhythm is the one-or-two-bar draw it always was", () => hiddenTab(async () => {
+  const spansOf = (chords) => {
+    const at = chordChangePositions(chords).filter((position) => position <= 16);
+    return at.map((position, i) => position - (i ? at[i - 1] : 0));
+  };
+  const declared = await chordRun({ harmony: { rhythm: 'auto' } }, 20);
+  const omitted = await chordRun({}, 20);
+  assert.deepEqual(omitted.map((chord) => chord.name), declared.map((chord) => chord.name),
+    "declaring 'auto' must play exactly what naming no harmonic rhythm at all plays");
+
+  const spans = spansOf(declared);
+  assert.ok(spans.length >= 6, `only ${spans.length} chord spans to judge`);
+  for (const span of spans) {
+    assert.ok(span === 1 || span === 2, `an auto chord span of ${span} bars is neither one nor two`);
+  }
+}));
+
+test('v21: padBreath is a 0–1 depth that ships at the swell the pad always had', () => {
+  assert.equal(DEFAULT_PARAMS.padBreath, 0.28, 'padBreath must ship at the contour the pad already had');
+  assert.equal(sanitiseParams({ padBreath: 0 }).padBreath, 0, 'an explicit 0 is a flat sustain, not a fallback');
+  assert.equal(sanitiseParams({ padBreath: 1 }).padBreath, 1);
+  assert.equal(sanitiseParams({ padBreath: 5 }).padBreath, 1, 'padBreath did not clamp above');
+  assert.equal(sanitiseParams({ padBreath: -1 }).padBreath, 0, 'padBreath did not clamp below');
+  assert.equal(sanitiseParams({ padBreath: 'nope' }).padBreath, DEFAULT_PARAMS.padBreath);
+  const stored = sanitiseParams({ padBreath: 0.6 });
+  assert.equal(sanitiseParams({ bpm: 90 }, stored).padBreath, 0.6, 'an unrelated edit dropped padBreath');
+  assert.equal(createEngine({ padBreath: 0.75 }).getParams().padBreath, 0.75,
+    'getParams did not round-trip padBreath');
+});
+
+test('v21: padBreath 0 flattens the pad contour, and 1 swings it wider than the default',
+  () => hiddenTab(async () => {
+    // Section intensity 1 rules out the breathing REST (its chance is scaled by
+    // 1 - intensity), and an explicit vary.volume 0 rules out velocity jitter,
+    // so the only thing left moving a pad velocity is the swell itself — and
+    // padBreath draws no randomness, so all three runs below make identical
+    // draws off the shared seed and can be compared note for note.
+    const ATTACKS = 24;
+    const velocitiesFor = async (padBreath) => {
+      const engine = createEngine({
+        bpm: 120, speed: 2, complexity: 0.6, repetition: 0.5, structure: 'custom',
+        customStructure: [{ label: 'A', bars: 64, intensity: 1 }],
+        ...(padBreath === undefined ? {} : { padBreath }),
+        tracks: {
+          ...tracksAll('off'),
+          pad: { state: 'on', randomness: 0.5, vary: { volume: 0, timing: 0, voice: 0, pan: 0 } },
+        },
+      }, { rng: seededRng(7401) });
+      const log = record(engine);
+      await engine.start();
+      const enough = await advanceUntil(
+        () => log.notes.filter((n) => n.track === 'pad').length > ATTACKS, 80, FAST,
+      );
+      engine.stop();
+      assert.ok(enough, 'the pad never played enough notes to read its contour');
+      return log.notes.filter((n) => n.track === 'pad').slice(0, ATTACKS).map((n) => n.velocity);
+    };
+    const spread = (values) => Math.max(...values) - Math.min(...values);
+
+    const flat = await velocitiesFor(0);
+    const shipped = await velocitiesFor(undefined);
+    const deep = await velocitiesFor(1);
+
+    // A flat sustain leaves only the two levels the pad itself uses: the
+    // downbeat attack, and the half-bar breath under it.
+    const levels = new Set(flat.map((v) => v.toFixed(9)));
+    assert.ok(levels.size <= 2,
+      `padBreath 0 still produced ${levels.size} distinct velocities — the contour is not flat`);
+    assert.ok(spread(shipped) > spread(flat) * 1.5,
+      `the shipped contour (${spread(shipped).toFixed(3)}) is no wider than a flat one (${spread(flat).toFixed(3)})`);
+    assert.ok(spread(deep) >= spread(shipped),
+      `padBreath 1 (${spread(deep).toFixed(3)}) swings less than the default (${spread(shipped).toFixed(3)})`);
+    assert.equal(shipped.length, flat.length, 'the runs did not stay comparable');
+  }));
+
+test('v21: ionian, mixolydian and phrygian are diatonic, and their chords name themselves honestly', () => {
+  for (const mode of ['ionian', 'mixolydian', 'phrygian']) {
+    const scale = SCALES[mode];
+    assert.equal(scale.length, 7, `${mode} is a seven-note mode`);
+    assert.equal(scale[0], 0, `${mode} starts on its own tonic`);
+    for (let i = 1; i < scale.length; i++) {
+      assert.ok(scale[i] > scale[i - 1] && scale[i] < 12,
+        `${mode} is not a single ascending octave: ${scale.join(',')}`);
+    }
+  }
+  assert.deepEqual(SCALES.ionian, [0, 2, 4, 5, 7, 9, 11]);
+  assert.deepEqual(SCALES.mixolydian, [0, 2, 4, 5, 7, 9, 10], 'mixolydian is ionian with a flat seventh');
+  assert.deepEqual(SCALES.phrygian, [0, 1, 3, 5, 7, 8, 10], 'phrygian is aeolian with a flat second');
+  assert.equal(sanitiseParams({ mode: 'phrygian' }).mode, 'phrygian', 'the sanitiser rejected a new mode');
+
+  /** Every triad the mode stacks on C, named from the semitones it contains. */
+  const triadsOn = (mode, colour = 0) => {
+    const scale = SCALES[mode];
+    return scale.map((_, degree) => {
+      const root = scaleDegreeToMidi(degree, scale, pitchClass('C'), 3);
+      const midis = buildChord(degree, colour).map((d) => scaleDegreeToMidi(d, scale, pitchClass('C'), 3));
+      return nameChord(root % 12, midis.map((midi) => midi - root));
+    });
+  };
+  assert.deepEqual(triadsOn('ionian'), ['C', 'Dm', 'Em', 'F', 'G', 'Am', 'Bdim'],
+    'C ionian must name its own I, IV and V as plain major triads');
+  assert.deepEqual(triadsOn('mixolydian'), ['C', 'Dm', 'Edim', 'F', 'Gm', 'Am', 'A#'],
+    "mixolydian's bVII is a major triad on the flat seventh");
+  assert.deepEqual(triadsOn('phrygian'), ['Cm', 'C#', 'D#', 'Fm', 'Gdim', 'G#', 'A#m'],
+    "phrygian's bII is a major triad on the flat second");
+
+  // With sevenths on, the seventh degree of each mode is half-diminished —
+  // naming it "dim7" would promise a diminished seventh that is not there.
+  assert.equal(triadsOn('ionian', 0.5)[6], 'Bm7b5');
+  assert.equal(triadsOn('ionian', 0.5)[0], 'Cmaj7');
+  assert.equal(triadsOn('mixolydian', 0.5)[0], 'C7', 'mixolydian names its dominant seventh honestly');
+  assert.equal(triadsOn('phrygian', 0.5)[0], 'Cm7');
+});
+
+test('v21: each new mode keeps the tune in its own scale and the bass on the chord root',
+  () => hiddenTab(async () => {
+    for (const mode of ['ionian', 'mixolydian', 'phrygian']) {
+      const scalePcs = new Set(SCALES[mode].map((s) => (s + pitchClass('C')) % 12));
+
+      // The motif: every note it develops is a scale degree, so a mode the
+      // motif system had never seen must still be sung inside its own scale.
+      const tune = await soloRun('melody', { state: 'on', vary: { voice: 0 } },
+        { mode, root: 'C', seconds: 40, seed: 7501, complexity: 0.6 });
+      const melody = tune.notes.filter((n) => n.track === 'melody');
+      assert.ok(melody.length >= 30, `${mode}: only ${melody.length} melody notes to judge`);
+      for (const note of melody) {
+        assert.ok(scalePcs.has(note.midi % 12),
+          `${mode}: the melody sang pitch class ${note.midi % 12}, which is not in the scale`);
+      }
+      assert.ok(melody.some((n) => n.motif === true),
+        `${mode}: no melody bar was derived from the motif cell`);
+
+      // The bass: the root of the chord the pad is voicing, on the downbeat.
+      const log = await hookRun({ seconds: 60, seed: 7502, repetition: 0.8, mode, root: 'C' });
+      const rootPc = padRootPcByBar(log);
+      const bassByBar = log.byBar('bass');
+      const window = [...bassByBar.keys()]
+        .filter((bar) => bar >= 2 && bar <= Math.min(FIRST_PASS_BAR_CEILING, log.bars.length - 2))
+        .sort((a, b) => a - b);
+      let strongBeats = 0;
+      let matches = 0;
+      for (const bar of window) {
+        const downbeat = bassByBar.get(bar).filter((n) => n.offset < 1e-6);
+        const expected = rootPc.get(bar);
+        if (!downbeat.length || expected === undefined) continue;
+        strongBeats += 1;
+        if (downbeat.every((n) => n.midi % 12 === expected)) matches += 1;
+        for (const note of downbeat) {
+          assert.ok(scalePcs.has(note.midi % 12), `${mode}: the bass left the scale`);
+        }
+      }
+      assert.ok(strongBeats >= 5, `${mode}: only ${strongBeats} bars had a bass downbeat and a chord to judge`);
+      assert.ok(matches / strongBeats >= 0.95,
+        `${mode}: bass matched the chord root on only ${((matches / strongBeats) * 100).toFixed(0)}% of ${strongBeats} downbeats`);
+    }
+  }));
+
+test('v21: getResolved() publishes the resolved swing, density and kit lanes', () => hiddenTab(async () => {
+  const engine = createEngine({
+    swing: 0.6,
+    tracks: {
+      ...tracksAll('auto'),
+      percussion: {
+        state: 'auto', swing: 0,
+        lanes: [...PERCUSSION_LANES.map((id) => ({ id })), { id: 'tom', label: 'Tom', kind: 'mid' }],
+      },
+      texture: { state: 'auto', density: 1.5 },
+    },
+  }, { rng: seededRng(7601) });
+  await engine.start();
+  await advance(6, FAST);
+  const resolved = engine.getResolved();
+  engine.stop();
+
+  for (const name of TRACK_ORDER) {
+    const track = resolved.tracks[name];
+    assert.equal(typeof track.swing, 'number', `${name}: no resolved swing`);
+    assert.equal(typeof track.density, 'number', `${name}: no resolved density`);
+    assert.ok(track.swing >= 0 && track.swing <= 1, `${name}: resolved swing ${track.swing} out of range`);
+    assert.ok(track.density >= 0 && track.density <= 2, `${name}: resolved density ${track.density} out of range`);
+  }
+  assert.equal(resolved.tracks.melody.swing, 0.6, 'a following track resolves to the global dial');
+  assert.equal(resolved.tracks.percussion.swing, 0, "a track's own swing wins over the global dial");
+  assert.equal(resolved.tracks.texture.density, 1.5, 'an explicit density must be reported as it stands');
+  assert.equal(resolved.tracks.melody.density, 1, 'a following density resolves to 1');
+
+  assert.deepEqual(resolved.tracks.percussion.lanes.map((lane) => lane.id),
+    [...PERCUSSION_LANES, 'tom'], 'the kit lanes are missing from the readout');
+  assert.equal(resolved.tracks.percussion.lanes[3].kind, 'mid', 'a lane readout must carry its voice kind');
+  for (const name of TRACK_ORDER) {
+    if (name === 'percussion') continue;
+    assert.ok(!('lanes' in resolved.tracks[name]), `${name}: only the kit has lanes`);
+  }
+  resolved.tracks.percussion.lanes[0].id = 'wrecked';
+  assert.equal(engine.getResolved().tracks.percussion.lanes[0].id, PERCUSSION_LANES[0],
+    'getResolved handed out the engine\'s own lane objects');
+}));
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 
@@ -5689,6 +5977,24 @@ async function advance(seconds, { step = 0.08, sleep = 15 } = {}) {
     for (const ctx of liveContexts) ctx.currentTime += step;
     await new Promise((resolve) => setTimeout(resolve, sleep));
   }
+}
+
+/**
+ * Advance the clock until `ready()` holds, up to a `seconds` budget, and
+ * report whether it did. How much music a fixed wall of mock seconds actually
+ * buys depends on how busy the machine is — the scheduler is a real timer
+ * racing a mock clock, and a loaded box loses bars to it — so a test that
+ * needs N bars of piece before it can judge anything must wait for the bars
+ * rather than for the seconds.
+ */
+async function advanceUntil(ready, seconds, { step = 0.08, sleep = 15 } = {}) {
+  const steps = Math.ceil(seconds / step);
+  for (let i = 0; i < steps; i++) {
+    if (ready()) return true;
+    for (const ctx of liveContexts) ctx.currentTime += step;
+    await new Promise((resolve) => setTimeout(resolve, sleep));
+  }
+  return ready();
 }
 
 /**

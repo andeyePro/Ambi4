@@ -412,6 +412,17 @@ const VOICES: Record<string, [string, string][]> = {
         </select>
       </div>
 
+      <div class="control" id="control-chord-length" hidden>
+        <label for="chordLength">Chord length</label>
+        <select id="chordLength">
+          <option value="auto">Auto</option>
+          <option value="1">1 bar</option>
+          <option value="2">2 bars</option>
+          <option value="4">4 bars</option>
+          <option value="8">8 bars</option>
+        </select>
+      </div>
+
       <div id="custom-structure-builder" class="custom-structure module-panel" hidden>
         <span class="panel-label">Structure blocks</span>
         <div id="structure-blocks" class="structure-blocks"></div>
@@ -564,6 +575,9 @@ const VOICES: Record<string, [string, string][]> = {
     const SEQ_GATE_NUDGE = 0.05;
     // v21 per-track density: 1 is the complexity-derived rate, 2 twice it.
     const TRACK_DENSITY_MAX = 2;
+    // v21 chord length (harmony.rhythm): 'auto' lets the hook pick, the rest
+    // are a fixed bars-per-chord count.
+    const CHORD_LENGTHS = ['auto', 1, 2, 4, 8];
     // Probability-group dot colours (v13/v14): group id → hue. Deliberately
     // distinct from the six track accents so a group never reads as a track.
     const GROUP_COLOURS = ['#d98324', '#3f8f6d', '#8a5cd6', '#c2456b', '#3f7fbf', '#9a8f2e'];
@@ -791,6 +805,10 @@ const VOICES: Record<string, [string, string][]> = {
         { label: 'A', bars: 8, intensity: 0.4 },
         { label: 'B', bars: 8, intensity: 0.7 },
       ],
+      // v21 chord length: how many bars the hook holds a chord for. 'auto'
+      // needs no engine-read shipped value (unlike reverbTail) — it's the
+      // contract's own documented default, so it's safe to bake in here.
+      harmony: { rhythm: 'auto' },
       arp: {
         mode: 'auto',
         pattern: 'up',
@@ -1138,6 +1156,8 @@ const VOICES: Record<string, [string, string][]> = {
      */
     function normaliseV6Tracks(s) {
       s.swing = clamp(typeof s.swing === 'number' && Number.isFinite(s.swing) ? s.swing : 0, 0, 1);
+      s.harmony = isPlainObject(s.harmony) ? s.harmony : {};
+      s.harmony.rhythm = CHORD_LENGTHS.includes(s.harmony.rhythm) ? s.harmony.rhythm : 'auto';
       for (const id of TRACK_IDS) {
         const t = s.tracks[id];
         t.level = normaliseRangeValue(t.level, 0.8);
@@ -1163,6 +1183,14 @@ const VOICES: Record<string, [string, string][]> = {
         else delete t.swing;
         if (TUNED_TRACKS.includes(id)) t.density = nullableNumberIn(t.density, 0, TRACK_DENSITY_MAX);
         else delete t.density;
+        // v21 pad breath: no Auto detent (a plain 0-1 depth), and no baked
+        // default here — an absent/invalid value is deleted so the control
+        // falls back to the engine's own shipped depth when it builds.
+        if (id === 'pad' && typeof t.padBreath === 'number' && Number.isFinite(t.padBreath)) {
+          t.padBreath = clamp(t.padBreath, 0, 1);
+        } else {
+          delete t.padBreath;
+        }
         const vary = isPlainObject(t.vary) ? t.vary : {};
         t.vary = defaultVary();
         for (const [key] of VARY_KEYS) {
@@ -1634,6 +1662,57 @@ const VOICES: Record<string, [string, string][]> = {
         }
       }
 
+      // Iteration 4: three more modes, harmony.rhythm (chord length) and the
+      // pad's breath depth — all landing in the engine THIS iteration, so
+      // none of the three trusts a version number. A mode name the sanitiser
+      // doesn't recognise silently falls back to whatever mode it started
+      // from, hence "does the candidate come back unchanged" rather than
+      // "did the call not throw".
+      const NEW_MODES = [
+        ['ionian', 'Ionian (Major)'],
+        ['mixolydian', 'Mixolydian'],
+        ['phrygian', 'Phrygian'],
+      ];
+      engineCaps.modes = {};
+      for (const [id] of NEW_MODES) {
+        try {
+          const probed = sanitiseParams({ mode: id });
+          engineCaps.modes[id] = probed && probed.mode === id;
+        } catch {
+          engineCaps.modes[id] = false;
+        }
+      }
+
+      // harmony.rhythm: 'auto'|1|2|4|8 bars-per-chord. 'auto' would also be
+      // the sanitiser's own fallback for a field it doesn't know, so the
+      // probe uses a non-default candidate — only a real echo proves it.
+      engineCaps.harmonyRhythm = false;
+      try {
+        const probed = sanitiseParams({ harmony: { rhythm: 4 } });
+        engineCaps.harmonyRhythm = isPlainObject(probed?.harmony) && probed.harmony.rhythm === 4;
+      } catch {}
+
+      // Pad breath depth (0-1): scoped to the pad track's own params, the
+      // same shape as driftRate/mono/glide. The page never invents a
+      // starting depth — like reverbTail, it reads the engine's own once the
+      // probe confirms the field survives.
+      engineCaps.padBreath = false;
+      let enginePadBreath = null;
+      {
+        const probedTracks = probeTracks({ pad: { padBreath: 0.4 } });
+        const padOut = probedTracks && isPlainObject(probedTracks.pad) ? probedTracks.pad : null;
+        engineCaps.padBreath = isPlainObject(padOut) && padOut.padBreath === 0.4;
+      }
+      if (engineCaps.padBreath) {
+        try {
+          const p = engine.getParams() || {};
+          const pad = isPlainObject(p.tracks) ? p.tracks.pad : null;
+          if (isPlainObject(pad) && typeof pad.padBreath === 'number') {
+            enginePadBreath = clamp(pad.padBreath, 0, 1);
+          }
+        } catch {}
+      }
+
       const { prefs, consentPrompt } = await loadPrefsModule();
 
       // ---- settings load + legacy migration -----------------------------
@@ -1844,6 +1923,19 @@ const VOICES: Record<string, [string, string][]> = {
       const bpmReadout = document.getElementById('bpm-readout');
       let bpmTypable = null;
       const structureSelect = document.getElementById('structure');
+      const chordLengthControl = document.getElementById('control-chord-length');
+      const chordLengthSelect = document.getElementById('chordLength');
+
+      // Only the modes the engine's own sanitiser just confirmed it accepts
+      // get an <option> at all — an unaccepted value would sit in the list
+      // doing nothing the moment it was picked.
+      for (const [value, label] of NEW_MODES) {
+        if (!engineCaps.modes[value]) continue;
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        modeSelect.append(opt);
+      }
 
       function engineParamsFrom(s) {
         const p = structuredClone(s);
@@ -2728,6 +2820,23 @@ const VOICES: Record<string, [string, string][]> = {
         applyReverbTail();
       }
 
+      // ---- v21 chord length (harmony.rhythm; Advanced tab, near Structure) --
+      if (engineCaps.harmonyRhythm) {
+        if (chordLengthControl) chordLengthControl.hidden = false;
+        chordLengthSelect.value = String(settings.harmony.rhythm);
+        chordLengthSelect.addEventListener('change', () => {
+          const raw = chordLengthSelect.value;
+          const value = raw === 'auto' ? 'auto' : Number(raw);
+          settings.harmony.rhythm = value;
+          engine.setParams({ harmony: { rhythm: value } });
+          persistSettings();
+        });
+        describe(
+          chordLengthSelect,
+          'How many bars the chord progression holds each chord for. Auto lets the hook decide.'
+        );
+      }
+
       const DICE_SVG =
         '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">' +
         '<rect x="3" y="3" width="18" height="18" rx="3"/>' +
@@ -3312,6 +3421,79 @@ const VOICES: Record<string, [string, string][]> = {
         wrap.append(labelRow, input);
         row.append(wrap);
         describe(input, DISSONANCE_HINT);
+      }
+
+      // ---- v21 pad breath (pad editor only) --------------------------------
+      // How deep the pad's own bar-phased swell goes. Not RangeValue-capable
+      // (a plain 0-1 depth) and pad-only — the engine already breathes on its
+      // own bar clock, this just exposes how far.
+      const PAD_BREATH_HINT = 'How much the pad swells with each bar.';
+
+      function buildPadBreathControl(container, track, knobs) {
+        if (track !== 'pad' || !engineCaps.padBreath) return;
+        const shipped = typeof enginePadBreath === 'number' ? enginePadBreath : 0.5;
+        const stored =
+          typeof settings.tracks.pad.padBreath === 'number' && Number.isFinite(settings.tracks.pad.padBreath)
+            ? clamp(settings.tracks.pad.padBreath, 0, 1)
+            : shipped;
+        settings.tracks.pad.padBreath = stored;
+        const commitPadBreath = (v) => {
+          v = clamp(rangeMid(v), 0, 1);
+          settings.tracks.pad.padBreath = v;
+          engine.setParams({ tracks: { pad: { padBreath: v } } });
+          persistSettings();
+        };
+        const row = document.createElement('div');
+        row.className = 'dissonance-row';
+        container.append(row);
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = 'knob-cell pad-breath-knob';
+          row.append(cell);
+          try {
+            const handle = knobApi.createKnob(cell, {
+              label: 'Breath',
+              min: 0,
+              max: 1,
+              value: stored,
+              format: pctFormat,
+              defaultValue: shipped,
+              onInput: commitPadBreath,
+            });
+            describe(handle.el, PAD_BREATH_HINT);
+            if (knobs) knobs.push(handle);
+            return;
+          } catch {
+            cell.remove();
+          }
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'control ve-control';
+        const id = 'pad-breath';
+        const labelRow = document.createElement('div');
+        labelRow.className = 'control-label-row';
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = 'Breath';
+        const readout = document.createElement('span');
+        readout.className = 'value-readout';
+        readout.textContent = pctFormat(stored);
+        labelRow.append(label, readout);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.id = id;
+        input.min = '0';
+        input.max = '1';
+        input.step = '0.01';
+        input.value = String(stored);
+        input.addEventListener('input', () => {
+          const v = parseFloat(input.value);
+          readout.textContent = pctFormat(v);
+          commitPadBreath(v);
+        });
+        wrap.append(labelRow, input);
+        row.append(wrap);
+        describe(input, PAD_BREATH_HINT);
       }
 
       // ---- v6: shared step sequencer ------------------------------------
@@ -6238,6 +6420,7 @@ const VOICES: Record<string, [string, string][]> = {
         buildDissonanceControl(container, track, ed.knobs);
         buildDriftRateControl(container, track, ed.knobs);
         buildFeelRow(container, track, ed.knobs);
+        buildPadBreathControl(container, track, ed.knobs);
 
         // v6 step sequencer at the top of the pulsed tracks' panels. Arp
         // always shows it (on/off degrades to the legacy boolean mask);
@@ -7048,6 +7231,12 @@ const VOICES: Record<string, [string, string][]> = {
           }
           const bits = [`level ${pctFormat(entry.level ?? 0)}`];
           bits.push(entry.held ? 'held' : `random ${pctFormat(entry.randomness ?? 0)}`);
+          // Iteration 4: swing/density resolved values, feature-detected on
+          // the live payload itself — this engine may report them on some
+          // tracks and not others (swing on the pulsed ones, density on the
+          // tuned ones), exactly like `dissonance` above already does.
+          if (typeof entry.swing === 'number') bits.push(`swing ${pctFormat(entry.swing)}`);
+          if (typeof entry.density === 'number') bits.push(`density ${plainFormat(entry.density)}×`);
           readout.textContent = bits.join(' · ');
         }
         // v18: the row's <select> follows the SOUNDING voice too (through its
@@ -8245,6 +8434,7 @@ const VOICES: Record<string, [string, string][]> = {
         rootSelect.value = settings.root;
         modeSelect.value = settings.mode;
         timeSignatureSelect.value = settings.timeSignature;
+        if (engineCaps.harmonyRhythm) chordLengthSelect.value = String(settings.harmony.rhythm);
         syncStructureUI();
         syncArpUI();
         syncTrackStateUI();

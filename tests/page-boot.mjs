@@ -731,6 +731,79 @@ try {
     }
   }
 
+  // ---- iteration 4 probe-gated surfaces ------------------------------------
+  // Same discipline as the v21 block above: ask the engine's own sanitiser the
+  // same question the page does, then assert presence/absence to match — the
+  // control renders once the engine lands the param, and stays absent before
+  // then rather than doing nothing.
+  const NEW_MODE_OPTIONS = [
+    ['ionian', 'Ionian (Major)'],
+    ['mixolydian', 'Mixolydian'],
+    ['phrygian', 'Phrygian'],
+  ];
+  function probeMode(id) {
+    if (typeof sanitise !== 'function') return false;
+    try {
+      const out = sanitise({ mode: id });
+      return Boolean(out && out.mode === id);
+    } catch {
+      return false;
+    }
+  }
+  {
+    const modeSelect = doc.getElementById('mode');
+    if (!modeSelect) {
+      failures.push('the Scale select (#mode) is missing');
+    } else {
+      for (const [id, label] of NEW_MODE_OPTIONS) {
+        const accepted = probeMode(id);
+        const option = Array.from(modeSelect.options).find((o) => o.value === id);
+        if (accepted && !option) {
+          failures.push(`the engine accepts mode "${id}" but the Scale select has no "${label}" option`);
+        } else if (!accepted && option) {
+          failures.push(`a "${id}" Scale option rendered against an engine that drops it`);
+        }
+      }
+    }
+  }
+
+  // Chord length select (harmony.rhythm), near Structure on the Advanced tab.
+  {
+    let engineTakesHarmonyRhythm = false;
+    if (typeof sanitise === 'function') {
+      try {
+        const out = sanitise({ harmony: { rhythm: 4 } });
+        engineTakesHarmonyRhythm = Boolean(out && out.harmony && out.harmony.rhythm === 4);
+      } catch {}
+    }
+    const control = doc.getElementById('control-chord-length');
+    const visible = Boolean(control && !control.hidden);
+    if (engineTakesHarmonyRhythm && !visible) {
+      failures.push('the engine accepts harmony.rhythm but the Chord length select stayed hidden');
+    } else if (!engineTakesHarmonyRhythm && visible) {
+      failures.push('the Chord length select is showing against an engine that drops harmony.rhythm');
+    }
+  }
+
+  // Pad breath depth knob — pad's own editor only, never another track's.
+  {
+    const padProbe = probeTracks({ pad: { padBreath: 0.4 } });
+    const engineTakesPadBreath = Boolean(padProbe && padProbe.pad && padProbe.pad.padBreath === 0.4);
+    const padEditor = await openEditor('pad');
+    const padKnob = () => padEditor.querySelector('.pad-breath-knob, #pad-breath');
+    if (engineTakesPadBreath) {
+      if (!(await waitUntil(() => !!padKnob()))) {
+        failures.push('the engine accepts tracks.pad.padBreath but the pad editor has no Breath control');
+      }
+    } else if (padKnob()) {
+      failures.push('a pad Breath control rendered against an engine that drops padBreath');
+    }
+    const arpEditor = await openEditor('arp');
+    if (arpEditor.querySelector('.pad-breath-knob, #pad-breath')) {
+      failures.push('the arp editor grew a pad Breath control — it is pad-only');
+    }
+  }
+
   // v19 gate: the sculpting surface is only real if the dials actually build.
   // Texture's "Coloured noise" voice declares eleven source fields in its
   // `controls` (octave + the ten sculpting dials), grouped by the page into
