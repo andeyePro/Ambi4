@@ -197,7 +197,35 @@ export const TUNED_TRACKS = Object.freeze(TRACK_ORDER.filter((name) => name !== 
 export const VARY_ASPECTS = Object.freeze(['voice', 'volume', 'pitch', 'timing', 'pan']);
 
 const DEFAULT_TRACK_LEVEL = 0.8;
-const DEFAULT_TRACK_RANDOMNESS = 0.5;
+
+/**
+ * v21: randomness ships as a RANGE — a gentle drift between 0.35 and 0.65
+ * rather than a fixed 0.5. The v8 clarification gated this on the page's
+ * capability probe accepting a RangeValue reply; it does, so the flip ships.
+ * The migration rule is the sanitiser's usual one: only an ABSENT randomness
+ * takes the new default, so every stored number stays the number it was.
+ */
+const DEFAULT_TRACK_RANDOMNESS = Object.freeze({ min: 0.35, max: 0.65 });
+
+/** What an unreadable randomness resolves to — the default range's midpoint. */
+const RANDOMNESS_FALLBACK = (DEFAULT_TRACK_RANDOMNESS.min + DEFAULT_TRACK_RANDOMNESS.max) / 2;
+
+/**
+ * v14 randomness 0 = HOLD, read on the STORED value rather than the resolved
+ * one: a range that reaches zero on some bars would otherwise flicker in and
+ * out of hold as its walk wandered. A number holds at 0; a range holds only
+ * when its whole span is at zero, which this epsilon makes reachable from a
+ * dial that cannot land on exactly 0 twice.
+ */
+const RANDOMNESS_HOLD_EPSILON = 0.001;
+
+/**
+ * v21 driftRate: how fast this track's RangeValue walks move, 0.02–1 scaling
+ * the ±0.15/bar step every walk has taken so far. 1 is that step unchanged, so
+ * a params object that never mentions the field sounds exactly as it did.
+ */
+const DEFAULT_TRACK_DRIFT_RATE = 1;
+const DRIFT_RATE_RANGE = Object.freeze([0.02, 1]);
 
 /**
  * v14 dissonance: how far a tuned track may stray from the chord the group is
@@ -291,7 +319,8 @@ function defaultTracks() {
       state: DEFAULT_TRACK_STATES[name],
       voice: DEFAULT_TRACK_VOICES[name],
       level: DEFAULT_TRACK_LEVEL,
-      randomness: DEFAULT_TRACK_RANDOMNESS,
+      randomness: { ...DEFAULT_TRACK_RANDOMNESS },
+      driftRate: DEFAULT_TRACK_DRIFT_RATE,
       hold: false,
       mono: DEFAULT_TRACK_MONO[name] === true,
       glide: DEFAULT_TRACK_GLIDE[name] ?? 0,
@@ -336,6 +365,13 @@ function deepFreeze(value) {
   return value;
 }
 
+/**
+ * v21 reverbTail bounds, in seconds. 0.5 is a room, 6 is a cathedral; past
+ * that the IR costs more than the effect is worth on a phone, which is the
+ * same argument the power governor's tier cap makes from the other side.
+ */
+export const REVERB_TAIL_RANGE = Object.freeze([0.5, 6]);
+
 export const DEFAULT_PARAMS = Object.freeze({
   speed: 1,
   // v14: straight by default. The dial is global; per-track overrides are a
@@ -348,6 +384,9 @@ export const DEFAULT_PARAMS = Object.freeze({
   timeSignature: '4/4',
   bpm: 60,
   volume: 0.8,
+  // v21: seconds of reverb tail. 4 is the length every version so far has
+  // baked, so a params object that never mentions it sounds unchanged.
+  reverbTail: 4,
   structure: 'auto',
   customStructure: Object.freeze(defaultCustomStructure().map(Object.freeze)),
   arp: Object.freeze({ ...defaultArp(), steps: Object.freeze(new Array(ARP_STEP_COUNT).fill(true)) }),
@@ -365,6 +404,7 @@ const NUMERIC_RANGES = {
   // hardcore/thrash 200+); the speed multiplier reaches further either side.
   bpm: [20, 220],
   volume: [0, 1],
+  reverbTail: REVERB_TAIL_RANGE,
 };
 
 function numberIn(value, range, fallback) {
@@ -398,6 +438,20 @@ export function sanitiseRangeValue(value, lo = 0, hi = 1) {
 }
 
 const copyRangeValue = (v) => (v !== null && typeof v === 'object' ? { ...v } : v);
+
+/**
+ * Whether a randomness value means HOLD. A NUMBER holds at 0 — the v14 rule,
+ * unchanged. A RANGE holds when its top is at zero too (within
+ * RANDOMNESS_HOLD_EPSILON), because a range that can reach any audible value at
+ * all is asking to drift; only a span pinned at the bottom is asking to stop.
+ * Read from the stored value, never the resolved one, so a hold is a state the
+ * user set rather than a bar the walk happened to land on.
+ */
+export function randomnessIsHold(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'object') return value.max <= RANDOMNESS_HOLD_EPSILON;
+  return value <= 0;
+}
 
 /** 16 booleans; short arrays are padded with `true`, long ones truncated. */
 function sanitiseSteps(value, base) {
@@ -589,9 +643,13 @@ function sanitiseTracks(value, base) {
       level: sanitiseRangeValue(partial && partial.level, 0, 1)
         ?? sanitiseRangeValue(baseTrack.level, 0, 1)
         ?? DEFAULT_TRACK_LEVEL,
+      // Migration: the v21 default range only ever reaches a track that has no
+      // randomness of its own — an inherited number is re-clamped, not replaced.
       randomness: sanitiseRangeValue(partial && partial.randomness, 0, 1)
         ?? sanitiseRangeValue(baseTrack.randomness, 0, 1)
-        ?? DEFAULT_TRACK_RANDOMNESS,
+        ?? { ...DEFAULT_TRACK_RANDOMNESS },
+      driftRate: numberIn(partial && partial.driftRate, DRIFT_RATE_RANGE,
+        numberIn(baseTrack.driftRate, DRIFT_RATE_RANGE, DEFAULT_TRACK_DRIFT_RATE)),
       hold: partial && 'hold' in partial ? Boolean(partial.hold) : Boolean(baseTrack.hold),
       mono: partial && 'mono' in partial ? Boolean(partial.mono)
         : 'mono' in baseTrack ? Boolean(baseTrack.mono) : DEFAULT_TRACK_MONO[name] === true,
@@ -743,6 +801,11 @@ const PATCH_SCHEMA = Object.freeze({
     // on a track that plays notes.
     pitch: (v) => sanitiseRangeValue(v, -24, 24),
     noise: (v) => sanitiseRangeValue(v, 0, 1),
+    // v20 shape modifier: a wavefolder on the oscillator sources. 0 is bypass
+    // — the voices add no node for it — and 1 folds the loudest peaks back on
+    // themselves several times over. Rangeable like every other continuous
+    // field, and resolved to a number per bar before any voice sees it.
+    fold: (v) => sanitiseRangeValue(v, 0, 1),
     // v19 noise sculpting: the dials that turn the two texture noise voices
     // into one modular instrument. Every one is continuous and therefore
     // rangeable, and every one is resolved to a number before it reaches a
@@ -2062,11 +2125,16 @@ export function isSupported() {
   return audioContextCtor() !== null;
 }
 
+/** How long a reverb tail swap takes to crossfade (v21). */
+const REVERB_CROSSFADE = 0.5;
+const REVERB_DECAY = 3.2;
+const REVERB_RETURN_LEVEL = 0.9;
+
 /**
  * Procedural impulse response: stereo noise under an exponential decay, with a
  * few milliseconds of fade-in so the reverb blooms instead of cracking.
  */
-function createImpulseResponse(ctx, seconds = 4, decay = 3.2, rng = Math.random) {
+function createImpulseResponse(ctx, seconds = 4, decay = REVERB_DECAY, rng = Math.random) {
   const length = Math.max(1, Math.floor(ctx.sampleRate * seconds));
   const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
   const fadeIn = Math.max(1, ctx.sampleRate * 0.01);
@@ -2097,11 +2165,17 @@ function buildGraph(ctx, rng = Math.random) {
   // The compressor's output route (ctx.destination, or a media element via a
   // MediaStreamDestination on iOS) is wired by the engine, not here.
 
+  // v21: the track sends feed a BUS rather than the convolver itself, so a
+  // reverbTail rebuild can crossfade to a second convolver without touching —
+  // or momentarily silencing — a single send.
+  const reverbBus = ctx.createGain();
+  reverbBus.gain.value = 1;
   const convolver = ctx.createConvolver();
   convolver.normalize = true;
-  convolver.buffer = createImpulseResponse(ctx, 4, 3.2, rng);
+  convolver.buffer = createImpulseResponse(ctx, DEFAULT_PARAMS.reverbTail, REVERB_DECAY, rng);
   const reverbReturn = ctx.createGain();
-  reverbReturn.gain.value = 0.9;
+  reverbReturn.gain.value = REVERB_RETURN_LEVEL;
+  reverbBus.connect(convolver);
   convolver.connect(reverbReturn);
   reverbReturn.connect(master);
 
@@ -2146,7 +2220,7 @@ function buildGraph(ctx, rng = Math.random) {
     tone.connect(dry);
     dry.connect(master);
     tone.connect(reverbSend);
-    reverbSend.connect(convolver);
+    reverbSend.connect(reverbBus);
     // Both sends are always wired: a patch can raise either from zero, so the
     // send level — not the connection — is what decides audibility.
     tone.connect(delaySend);
@@ -2155,7 +2229,12 @@ function buildGraph(ctx, rng = Math.random) {
     tracks[name] = { input, tone, dry, reverbSend, delaySend, analyser };
   }
 
-  return { master, compressor, convolver, delay, feedback, tracks };
+  // `convolver`, `reverbReturn` and `reverbSeconds` are the LIVE tail: a swap
+  // replaces all three, which is why nothing else holds a reference to them.
+  return {
+    master, compressor, reverbBus, convolver, reverbReturn,
+    reverbSeconds: DEFAULT_PARAMS.reverbTail, delay, feedback, tracks,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2198,6 +2277,15 @@ export function createEngine(initialParams, options = {}) {
   let idleSuspended = false;   // the engine suspended the context itself to save power
   let output = null;           // { mode: 'element', streamDest, el } | { mode: 'direct' }
   const liveNotes = new Set(); // { handle, end } cancel handles for sounding notes
+
+  // v21 reverbTail. `reverbBudget` is the governor's cap (Infinity = uncapped);
+  // `reverbTarget` is the tail the live or in-flight IR is for; `reverbFade` is
+  // the outgoing convolver waiting for its crossfade to finish.
+  let reverbBudget = Infinity;
+  let reverbTarget = null;
+  let reverbBuildTimer = null;
+  let reverbFade = null;
+  let reverbFadeTimer = null;
   // v12 mono: the note each monophonic track currently has sounding, so the
   // next one can either slur into it or replace it.
   const monoNotes = new Map(); // track → { entry, handle, freq, until, voice }
@@ -2353,11 +2441,17 @@ export function createEngine(initialParams, options = {}) {
     return position;
   }
 
+  /** v21: this track's walk step, driftRate scaling the ±0.15/bar default. */
+  function walkStep(track) {
+    const config = params.tracks[track];
+    const rate = config && typeof config.driftRate === 'number'
+      ? config.driftRate : DEFAULT_TRACK_DRIFT_RATE;
+    return WALK_STEP * clamp(rate, DRIFT_RATE_RANGE[0], DRIFT_RATE_RANGE[1]);
+  }
+
   function advanceWalks() {
     // v14 random/hold merge: randomness 0 IS a hold, so a track sitting at 0
-    // drifts by nothing at all. Resolved before the loop because reading a
-    // ranged randomness can open a walk of its own, and a Map must not grow
-    // while it is being walked.
+    // drifts by nothing at all.
     const frozen = new Set(TRACK_ORDER.filter(isFrozenTrack));
     for (const [key, position] of walkPhases) {
       // SPEC-CRITIC [hold/prob] → ruling 5: hold freezes every draw the bar
@@ -2365,7 +2459,7 @@ export function createEngine(initialParams, options = {}) {
       // step probability included — therefore sit still until it is released.
       const track = key.slice(0, key.indexOf(':'));
       if (held.has(track) || frozen.has(track)) continue;
-      let next = position + (rng() * 2 - 1) * WALK_STEP;
+      let next = position + (rng() * 2 - 1) * walkStep(track);
       if (next < 0) next = -next;
       if (next > 1) next = 2 - next;
       walkPhases.set(key, clamp(next, 0, 1));
@@ -2408,7 +2502,7 @@ export function createEngine(initialParams, options = {}) {
   /** A track's randomness macro as a number, resolving a v7 range via its walk. */
   function trackRandomness(track) {
     const value = resolveRange(track, 'randomness', params.tracks[track].randomness);
-    return clamp(value ?? DEFAULT_TRACK_RANDOMNESS, 0, 1);
+    return clamp(value ?? RANDOMNESS_FALLBACK, 0, 1);
   }
 
   /**
@@ -2417,9 +2511,14 @@ export function createEngine(initialParams, options = {}) {
    * drives both from the one dial), so this is the half of the merge the
    * engine owes: at 0 a track's own generators stop varying, whether or not
    * anything set hold.
+   *
+   * v21: read from the STORED value (randomnessIsHold), not the resolved one.
+   * The default randomness is a range now, and a range whose walk dipped to
+   * zero for one bar is a quiet bar, not a hold — only a span pinned at the
+   * bottom freezes the track.
    */
   function isFrozenTrack(track) {
-    return trackRandomness(track) <= 0;
+    return randomnessIsHold(params.tracks[track].randomness);
   }
 
   /** A track's dissonance (v14): how far it may stray from the group chord. */
@@ -2913,6 +3012,108 @@ export function createEngine(initialParams, options = {}) {
       graph.tracks[name].reverbSend.gain.setTargetAtTime(reverb, time, constant);
       graph.tracks[name].delaySend.gain.setTargetAtTime(delay, time, constant);
     }
+  }
+
+  // -- reverb tail (v21) -----------------------------------------------------
+
+  /**
+   * The tail actually built: what the user asked for, capped by whatever the
+   * power governor's tier allows. The two COMPOSE rather than override — an eco
+   * tier shortens a 6 s hall to 1 s, and going back to full restores the 6 s
+   * without the user touching the dial.
+   */
+  function effectiveReverbSeconds() {
+    return clamp(Math.min(params.reverbTail, reverbBudget),
+      REVERB_TAIL_RANGE[0], REVERB_TAIL_RANGE[1]);
+  }
+
+  /**
+   * Rebuild the impulse response for the current effective tail, if it differs
+   * from the one already live or in flight.
+   *
+   * The build is deferred by a macrotask rather than run here: an IR is
+   * sampleRate × seconds × 2 samples of noise to generate, and the callers are
+   * a parameter edit and a governor tier change — neither of which can afford
+   * to block, and the second of which arrives on the frame-timing path the
+   * governor is trying to protect. Nothing is disturbed while it runs: the old
+   * convolver keeps rendering until the new one has crossfaded in.
+   */
+  function ensureReverbTail() {
+    if (!ctx || !graph) return;
+    const wanted = effectiveReverbSeconds();
+    if (reverbTarget !== null && Math.abs(wanted - reverbTarget) < 1e-6) return;
+    reverbTarget = wanted;
+    if (reverbBuildTimer !== null) clearTimeout(reverbBuildTimer);
+    reverbBuildTimer = setTimeout(() => {
+      reverbBuildTimer = null;
+      if (!ctx || !graph || reverbTarget === null) return;
+      const seconds = reverbTarget;
+      swapReverb(createImpulseResponse(ctx, seconds, REVERB_DECAY), seconds);
+    }, 0);
+  }
+
+  /**
+   * Crossfade the reverb return from the live convolver to a new one over
+   * REVERB_CROSSFADE seconds. Both hang off the same send bus for the duration,
+   * so the tail changes character without the sends ever passing through
+   * silence — swapping `convolver.buffer` in place, by contrast, cuts whatever
+   * is ringing dead.
+   */
+  function swapReverb(buffer, seconds) {
+    endReverbFade();      // a change mid-crossfade lands the previous one first
+    const next = ctx.createConvolver();
+    next.normalize = true;
+    next.buffer = buffer;
+    const nextReturn = ctx.createGain();
+    nextReturn.gain.value = 0;
+    next.connect(nextReturn);
+    nextReturn.connect(graph.master);
+    graph.reverbBus.connect(next);
+
+    const time = ctx.currentTime;
+    const previous = graph.reverbReturn;
+    const level = REVERB_RETURN_LEVEL;
+    nextReturn.gain.setValueAtTime(0, time);
+    nextReturn.gain.linearRampToValueAtTime(level, time + REVERB_CROSSFADE);
+    previous.gain.cancelScheduledValues(time);
+    previous.gain.setValueAtTime(previous.gain.value, time);
+    // Linear, not exponential: this ramp ends at true zero, which an
+    // exponential one cannot reach.
+    previous.gain.linearRampToValueAtTime(0, time + REVERB_CROSSFADE);
+
+    reverbFade = { convolver: graph.convolver, ret: previous };
+    graph.convolver = next;
+    graph.reverbReturn = nextReturn;
+    graph.reverbSeconds = seconds;
+    reverbFadeTimer = setTimeout(endReverbFade, REVERB_CROSSFADE * 1000);
+  }
+
+  /**
+   * Unwire the outgoing tail once it is silent. Called early only by a second
+   * swap, whose own fade then starts from the same silence — so an early call
+   * is never audible either.
+   */
+  function endReverbFade() {
+    if (reverbFadeTimer !== null) {
+      clearTimeout(reverbFadeTimer);
+      reverbFadeTimer = null;
+    }
+    if (!reverbFade) return;
+    const { convolver, ret } = reverbFade;
+    reverbFade = null;
+    try { graph?.reverbBus.disconnect(convolver); } catch { /* already gone */ }
+    try { convolver.disconnect(); } catch { /* already gone */ }
+    try { ret.disconnect(); } catch { /* already gone */ }
+  }
+
+  /** Forget every reverb node — the context that owned them has gone. */
+  function resetReverbState() {
+    if (reverbBuildTimer !== null) clearTimeout(reverbBuildTimer);
+    if (reverbFadeTimer !== null) clearTimeout(reverbFadeTimer);
+    reverbBuildTimer = null;
+    reverbFadeTimer = null;
+    reverbFade = null;
+    reverbTarget = null;
   }
 
   function applyLevels(rampSeconds) {
@@ -4879,6 +5080,10 @@ export function createEngine(initialParams, options = {}) {
       output = wireOutput();
       try { ctx.onstatechange = handleStateChange; } catch { /* read-only mock */ }
       applySends(0.02);
+      // The graph is built with the default tail; anything else the params (or
+      // the governor) ask for is a rebuild, which this schedules if needed.
+      reverbTarget = graph.reverbSeconds;
+      ensureReverbTail();
     }
     return true;
   }
@@ -4895,6 +5100,7 @@ export function createEngine(initialParams, options = {}) {
     graph = null;
     output = null;
     delayTarget = 0;
+    resetReverbState();
     if (old) {
       try { old.onstatechange = null; } catch { /* best effort */ }
       try {
@@ -5146,6 +5352,7 @@ export function createEngine(initialParams, options = {}) {
     invalidateEditedPlans(partial);
     clearWanderedVoices(partial);
     if (ctx && graph) applyLevels(0.15);
+    ensureReverbTail();
   }
 
   function getParams() {
@@ -5238,9 +5445,12 @@ export function createEngine(initialParams, options = {}) {
   }
 
   /**
-   * Cap the simultaneous polyphony (v9 power governor). Anything unusable —
-   * no argument, a missing or non-finite maxNotes — means "no cap", so a page
-   * that cannot read the governor's sensors never starves the music.
+   * Cap the simultaneous polyphony (v9 power governor), and the reverb tail
+   * with it. Anything unusable — no argument, a missing or non-finite field —
+   * means "no cap" for that field, so a page that cannot read the governor's
+   * sensors never starves the music. `reverbSeconds` is read
+   * FEATURE-TOLERANTLY: a governor too old to publish one leaves the tail
+   * uncapped rather than silencing it.
    */
   function setPowerBudget(budget) {
     const wanted = budget && typeof budget === 'object' ? budget.maxNotes : undefined;
@@ -5248,6 +5458,21 @@ export function createEngine(initialParams, options = {}) {
     maxNotes = wanted !== undefined && wanted !== null && Number.isFinite(num)
       ? Math.max(1, Math.floor(num))
       : Infinity;
+    setReverbSeconds(budget && typeof budget === 'object' ? budget.reverbSeconds : undefined);
+  }
+
+  /**
+   * The governor's reverb cap on its own — power.js documents `reverbSeconds`
+   * as a tier budget field, and this is the hook it names. It CAPS rather than
+   * sets: the tail the listener gets is min(params.reverbTail, this), so a
+   * tier change never overwrites what the user asked for. Anything unusable
+   * lifts the cap.
+   */
+  function setReverbSeconds(seconds) {
+    const num = typeof seconds === 'number' ? seconds : Number(seconds);
+    reverbBudget = seconds !== undefined && seconds !== null && seconds !== ''
+      && Number.isFinite(num) ? num : Infinity;
+    ensureReverbTail();
   }
 
   // Going hidden widens the scheduling horizon; ticking right away closes the
@@ -5277,6 +5502,7 @@ export function createEngine(initialParams, options = {}) {
     getAnalysers,
     getStats,
     setPowerBudget,
+    setReverbSeconds,
     // Post-master mix as a MediaStream (what the listener hears), for
     // page-side MediaRecorder. Null on the direct-output route or pre-start.
     getOutputStream() {

@@ -150,6 +150,35 @@ class MockAudioContext {
 
   createBufferSource() { return makeNode('bufferSource'); }
 
+  createWaveShaper() {
+    const node = makeNode('shaper');
+    let curve = null;
+    let oversample = 'none';
+    Object.defineProperty(node, 'curve', {
+      get: () => curve,
+      set(value) {
+        assert.ok(value instanceof Float32Array, 'shaper.curve: must be a Float32Array');
+        assert.ok(value.length >= 2, 'shaper.curve: too few points');
+        // A shaping curve reaching far past ±1 is a gain stage wearing a
+        // shaper's hat; the exact peak is checked against the stack it was
+        // drawn for in the v20 fold tests below.
+        for (const v of value) {
+          assert.ok(Number.isFinite(v), 'shaper.curve: non-finite point');
+          assert.ok(Math.abs(v) <= 1.5, `shaper.curve: ${v} is a long way outside ±1`);
+        }
+        curve = value;
+      },
+    });
+    Object.defineProperty(node, 'oversample', {
+      get: () => oversample,
+      set(value) {
+        assert.ok(['none', '2x', '4x'].includes(value), `shaper.oversample: ${value}`);
+        oversample = value;
+      },
+    });
+    return node;
+  }
+
   createPeriodicWave(real, imag) {
     assert.ok(real instanceof Float32Array && imag instanceof Float32Array,
       'createPeriodicWave: coefficients must be Float32Arrays');
@@ -587,25 +616,38 @@ const CALL_SOURCE = {
   irregular: { range: [0, 1] },
 };
 
+/**
+ * v20: the shape modifiers. One field so far, and it rides on top of the
+ * ordinary source schema exactly as the v19 families do — but on a different
+ * set of voices, the oscillator stacks.
+ */
+const FOLD_SOURCE = {
+  fold: { range: [0, 1] },
+};
+
 /** Which voices carry which v19 family — the "only on the right voices" rule. */
 const SCULPT_VOICES = [['texture', 'colour'], ['texture', 'cloud']];
 const CALL_VOICES = [['melody', 'call'], ['texture', 'call']];
+/** …and which carry the v20 modifiers: the eight oscillator-stack voices. */
+const FOLD_VOICES = [
+  ['pad', 'warm'], ['pad', 'strings'], ['pad', 'choir'],
+  ['bass', 'sub'], ['bass', 'round'], ['bass', 'breath'],
+  ['melody', 'pluck'], ['arp', 'softPluck'],
+];
 const carries = (list, track, id) => list.some(([t, i]) => t === track && i === id);
 
 function schemaFor(track, id) {
   if (track === 'percussion') return { ...SCHEMA, source: PERCUSSION_SOURCE };
-  if (carries(SCULPT_VOICES, track, id)) {
-    return { ...SCHEMA, source: { ...SCHEMA.source, ...SCULPT_SOURCE } };
-  }
-  if (carries(CALL_VOICES, track, id)) {
-    return { ...SCHEMA, source: { ...SCHEMA.source, ...CALL_SOURCE } };
-  }
-  return SCHEMA;
+  const source = { ...SCHEMA.source };
+  if (carries(SCULPT_VOICES, track, id)) Object.assign(source, SCULPT_SOURCE);
+  if (carries(CALL_VOICES, track, id)) Object.assign(source, CALL_SOURCE);
+  if (carries(FOLD_VOICES, track, id)) Object.assign(source, FOLD_SOURCE);
+  return { ...SCHEMA, source };
 }
 
 /** Every corner of the schema at once, plus the awkward ends of it. */
 const EXTREME = {
-  source: { osc1: 'square', osc2: 'sawtooth', mix: 1, detune: 50, octave: 1 },
+  source: { osc1: 'square', osc2: 'sawtooth', mix: 1, detune: 50, octave: 1, fold: 1 },
   filter: { type: 'lowpass', cutoff: 12000, q: 20, envAmount: 1 },
   adsr: { attack: 8, decay: 8, sustain: 1, release: 12 },
   sends: { reverb: 1, delay: 1 },
@@ -620,7 +662,7 @@ const EXTREMES = [
     sends: { reverb: 0, delay: 0 },
   },
   {
-    source: { osc1: 'triangle', osc2: 'square', mix: 0.5, detune: 25, octave: 0 },
+    source: { osc1: 'triangle', osc2: 'square', mix: 0.5, detune: 25, octave: 0, fold: 0.5 },
     filter: { type: 'bandpass', cutoff: 12000, q: 20, envAmount: 1 },
     adsr: { attack: 0.001, decay: 8, sustain: 1, release: 12 },
     sends: { reverb: 0.5, delay: 0.5 },
@@ -640,6 +682,9 @@ const PARTIALS = [
   { source: { octave: -1 } },
   { source: { shape1: 2.5 } },
   { source: { shape1: 0.25, shape2: 2.75 } },
+  // v20, and the defensive case: `fold` arriving with nothing beside it, which
+  // is what a sanitiser that has just learned the field sends.
+  { source: { fold: 1 } },
   { sends: { reverb: 1 } },
   {},
 ];
@@ -650,7 +695,8 @@ const RUBBISH = [
   'lowpass',
   42,
   { source: 'nonsense', filter: null, adsr: undefined, sends: [] },
-  { source: { osc1: 'moog', osc2: 7, shape1: 'loud', shape2: Infinity, mix: NaN, detune: -20, octave: 4 },
+  { source: { osc1: 'moog', osc2: 7, shape1: 'loud', shape2: Infinity, mix: NaN, detune: -20,
+    octave: 4, fold: 'lots' },
     filter: { type: '', cutoff: Infinity, q: -1, envAmount: 'a lot' },
     adsr: { attack: null, decay: -5, sustain: 12, release: NaN },
     sends: { reverb: 'wet', delay: null } },
@@ -1062,6 +1108,314 @@ test('shape2: null is the single-oscillator setting, even against an osc2 string
 });
 
 // --------------------------------------------------------------------------
+// v20 (1) — the triangle→saw segment is a PEAK SKEW, not a crossfade
+// --------------------------------------------------------------------------
+
+const MORPH_HARMONICS = 32;
+/** Where the peak sits at the top of the segment, per the contract's "~99 %". */
+const SKEW_MAX = 0.99;
+/** The peak position the dial asks for at a point on the triangle→saw segment. */
+const skewAt = (shape) => 0.5 + (SKEW_MAX - 0.5) * (shape - 1);
+
+/**
+ * The closed form, transcribed from the maths and not from the implementation:
+ * a triangle whose peak sits `a` of the way through its rise has
+ *
+ *     b_n = (−1)^(n+1) · 2·sin(nπa) / (n²π²·a·(1−a))
+ *
+ * and every wave on the dial is normalised to unit coefficient power.
+ */
+function skewReference(a) {
+  const b = new Float32Array(MORPH_HARMONICS + 1);
+  let power = 0;
+  for (let n = 1; n <= MORPH_HARMONICS; n++) {
+    b[n] = ((n % 2 ? 1 : -1) * 2 * Math.sin(n * Math.PI * a))
+      / (n * n * Math.PI * Math.PI * a * (1 - a));
+    power += b[n] * b[n];
+  }
+  const norm = 1 / Math.sqrt(power);
+  for (let n = 1; n <= MORPH_HARMONICS; n++) b[n] *= norm;
+  return b;
+}
+
+/** Unit-power coefficients of a canonical shape, for an exact integer check. */
+function canonicalReference(shape) {
+  const b = new Float32Array(MORPH_HARMONICS + 1);
+  let power = 0;
+  for (let n = 1; n <= MORPH_HARMONICS; n++) {
+    if (shape === 0) b[n] = n === 1 ? 1 : 0;
+    else if (shape === 1) b[n] = n % 2 ? (n % 4 === 1 ? 1 : -1) / (n * n) : 0;
+    else if (shape === 2) b[n] = 1 / n;
+    else b[n] = n % 2 ? 1 / n : 0;
+    power += b[n] * b[n];
+  }
+  const norm = 1 / Math.sqrt(power);
+  for (let n = 1; n <= MORPH_HARMONICS; n++) b[n] *= norm;
+  return b;
+}
+
+const assertCoeffs = (actual, expected, tolerance, what) => {
+  for (let n = 1; n <= MORPH_HARMONICS; n++) {
+    assert.ok(Math.abs(actual[n] - expected[n]) <= tolerance,
+      `${what}: harmonic ${n} is ${actual[n]}, expected ${expected[n]}`);
+  }
+};
+
+/** Each harmonic as a fraction of the fundamental — normalisation-independent. */
+const ratios = (imag, upTo) => Array.from({ length: upTo }, (_, i) => imag[i + 1] / imag[1]);
+
+test('v20 skew: the triangle→saw segment matches the closed form at every stop', () => {
+  const ctx = new MockAudioContext();
+  for (const shape of [1.0625, 1.25, 1.5, 1.75, 1.9375]) {
+    assertCoeffs(shapeWave(ctx, shape).imag, skewReference(skewAt(shape)), 2e-6,
+      `shape ${shape} (peak at ${(skewAt(shape) * 100).toFixed(1)} %)`);
+  }
+});
+
+test('v20 skew: a = 0.5 is the symmetric triangle, exactly', () => {
+  const ctx = new MockAudioContext();
+  const half = skewReference(0.5);
+  assertCoeffs(half, canonicalReference(1), 1e-6, 'the skew family at a = 0.5');
+  assertCoeffs(shapeWave(ctx, 1).imag, half, 1e-6, 'the bottom of the segment');
+  for (let n = 2; n <= MORPH_HARMONICS; n += 2) {
+    assert.ok(Math.abs(half[n]) < 1e-9, `a = 0.5 has an even harmonic at ${n}`);
+  }
+});
+
+test('v20 skew: a → 0.99 is the sawtooth spectrum within tolerance', () => {
+  const near = ratios(skewReference(SKEW_MAX), 8);
+  near.forEach((value, i) => {
+    const n = i + 1;
+    assert.ok(Math.abs(value - 1 / n) <= 0.02 / n,
+      `a = ${SKEW_MAX}: harmonic ${n} is ${value.toFixed(5)} of the fundamental, `
+      + `saw wants ${(1 / n).toFixed(5)}`);
+  });
+});
+
+test('v20 skew: the peak travels — even harmonics fill in from nothing to the saw\'s', () => {
+  const ctx = new MockAudioContext();
+  const evenPower = (imag) => {
+    let sum = 0;
+    for (let n = 2; n <= MORPH_HARMONICS; n += 2) sum += imag[n] * imag[n];
+    return sum;
+  };
+  let previous = -1;
+  for (let s = 1; s <= 2.0001; s += 1 / 16) {
+    const power = evenPower(shapeWave(ctx, Math.min(s, 2)).imag);
+    assert.ok(power >= previous - 1e-12,
+      `even-harmonic energy fell back at shape ${s.toFixed(4)} (${power} after ${previous})`);
+    previous = power;
+  }
+  assert.ok(evenPower(shapeWave(ctx, 1).imag) < 1e-9, 'the triangle end is not even-harmonic free');
+  assert.ok(evenPower(shapeWave(ctx, 1.5).imag) > 0.05, 'mid-segment skew grew no even harmonics');
+});
+
+test('v20 skew: the integer stops are untouched — canonical spectra, native types', () => {
+  const ctx = new MockAudioContext();
+  for (const shape of [0, 1, 2, 3]) {
+    assertCoeffs(shapeWave(ctx, shape).imag, canonicalReference(shape), 1e-6, `shape ${shape}`);
+  }
+  // …and a patch parked on one still gets the browser's own oscillator, so a
+  // pre-v20 patch schedules exactly the sources it always did.
+  for (const [shape, type] of [[1, 'triangle'], [2, 'sawtooth']]) {
+    const run = withSeed(33, () => playAndCheck(`pad.warm shape ${shape}`, VOICES.pad.warm,
+      MORPH_NOTE, { patch: { source: { shape1: shape, shape2: shape } } }));
+    assert.equal(run.graph.filter((n) => n.kind === 'oscillator' && n.periodicWave).length, 0,
+      `shape ${shape} built a PeriodicWave instead of the native ${type}`);
+  }
+});
+
+test('v20 skew: the outer two segments are still the linear crossfade', () => {
+  const ctx = new MockAudioContext();
+  // The crossfade is struck on the RAW canonical spectra and normalised after,
+  // so the reference has to be built the same way round.
+  const raw = (shape, n) => {
+    if (shape === 0) return n === 1 ? 1 : 0;
+    if (shape === 1) return n % 2 ? (n % 4 === 1 ? 1 : -1) / (n * n) : 0;
+    if (shape === 2) return 1 / n;
+    return n % 2 ? 1 / n : 0;
+  };
+  for (const [shape, lower] of [[0.5, 0], [2.5, 2]]) {
+    const blended = new Float32Array(MORPH_HARMONICS + 1);
+    for (let n = 1; n <= MORPH_HARMONICS; n++) {
+      blended[n] = (raw(lower, n) + raw(lower + 1, n)) / 2;
+    }
+    assert.deepEqual(ratios(shapeWave(ctx, shape).imag, 8).map((v) => v.toFixed(5)),
+      ratios(blended, 8).map((v) => v.toFixed(5)),
+      `shape ${shape} is no longer the crossfade of its neighbours`);
+  }
+});
+
+// --------------------------------------------------------------------------
+// v20 (2) — source.fold: the wavefolder on the oscillator stacks
+// --------------------------------------------------------------------------
+
+const FOLD_NOTE = MORPH_NOTE;
+/** The dial's own resolution: below half a step, `fold` is off. */
+const FOLD_STEP = 1 / 32;
+
+const shapersOf = (run) => run.graph.filter((n) => n.kind === 'shaper');
+
+/** The gain nodes feeding a shaper, and the peak they sum to in the worst case. */
+function stackPeakInto(run, shaper) {
+  return run.graph
+    .filter((n) => n.kind === 'gain' && n.outputs.includes(shaper))
+    .reduce((sum, n) => sum + n.gain.max, 0);
+}
+
+/** The curve read as a function, the way a WaveShaper reads it. */
+function throughCurve(curve, x) {
+  const at = ((Math.max(-1, Math.min(1, x)) + 1) / 2) * (curve.length - 1);
+  const i = Math.floor(at);
+  const j = Math.min(i + 1, curve.length - 1);
+  return curve[i] + (curve[j] - curve[i]) * (at - i);
+}
+
+/** In and out RMS and peak for a reference sine of amplitude `peak`. */
+function foldResponse(curve, peak) {
+  const samples = 2048;
+  let power = 0;
+  let out = 0;
+  for (let i = 0; i < samples; i++) {
+    const y = throughCurve(curve, peak * Math.sin((2 * Math.PI * (i + 0.5)) / samples));
+    power += y * y;
+    out = Math.max(out, Math.abs(y));
+  }
+  return { rms: Math.sqrt(power / samples) / (peak / Math.SQRT2), peak: out / peak };
+}
+
+const foldPatch = (voice, fold) => ({ ...voice.defaults, source: { ...voice.defaults.source, fold } });
+
+test('v20 fold: 0 is a true bypass — no node, and the unfolded graph', () => {
+  for (const [track, id] of FOLD_VOICES) {
+    const voice = VOICES[track][id];
+    const plain = withSeed(77, () => playAndCheck(`${track}.${id} defaults`, voice, FOLD_NOTE,
+      { patch: voice.defaults }));
+    const zero = withSeed(77, () => playAndCheck(`${track}.${id} fold 0`, voice, FOLD_NOTE,
+      { patch: foldPatch(voice, 0) }));
+    assert.equal(shapersOf(plain).length, 0, `${track}.${id}: the defaults built a wavefolder`);
+    assert.equal(shapersOf(zero).length, 0, `${track}.${id}: fold 0 built a wavefolder`);
+    assert.equal(renderSignature(zero), renderSignature(plain),
+      `${track}.${id}: fold 0 is not the graph the voice has always had`);
+    // Below half a step the dial is off, not nearly off.
+    const nearly = withSeed(77, () => playAndCheck(`${track}.${id} fold 0.01`, voice, FOLD_NOTE,
+      { patch: foldPatch(voice, FOLD_STEP / 3) }));
+    assert.equal(shapersOf(nearly).length, 0, `${track}.${id}: a dial short of one step built a node`);
+  }
+});
+
+test('v20 fold: 1 builds one 2× oversampled shaper between the stack and the amp', () => {
+  for (const [track, id] of FOLD_VOICES) {
+    const voice = VOICES[track][id];
+    const run = withSeed(77, () => playAndCheck(`${track}.${id} fold 1`, voice, FOLD_NOTE,
+      { patch: foldPatch(voice, 1) }));
+    const shapers = shapersOf(run);
+    assert.equal(shapers.length, 1, `${track}.${id}: ${shapers.length} wavefolders for one note`);
+    const [shaper] = shapers;
+    assert.equal(shaper.oversample, '2x', `${track}.${id}: wavefolder is not 2× oversampled`);
+    assert.ok(shaper.curve instanceof Float32Array && shaper.curve.length >= 256,
+      `${track}.${id}: wavefolder has no usable curve`);
+    assert.ok(stackPeakInto(run, shaper) > 0,
+      `${track}.${id}: nothing from the oscillator stack reaches the wavefolder`);
+    assert.equal(shaper.outputs.length, 1, `${track}.${id}: the wavefolder fans out`);
+    // In series, not in parallel: nothing that feeds the folder may also reach
+    // the bus behind it, or half the stack would arrive unfolded.
+    const [target] = shaper.outputs;
+    for (const gain of run.graph.filter((n) => n.outputs.includes(shaper))) {
+      assert.ok(!gain.outputs.includes(target),
+        `${track}.${id}: a layer bypasses the wavefolder into the bus behind it`);
+    }
+  }
+});
+
+test('v20 fold: the curve holds the stack\'s level — RMS in band, peak never above', () => {
+  for (const [track, id] of FOLD_VOICES) {
+    const voice = VOICES[track][id];
+    for (const fold of [FOLD_STEP, 0.25, 0.5, 0.75, 1]) {
+      const run = withSeed(77, () => playAndCheck(`${track}.${id} fold ${fold}`, voice, FOLD_NOTE,
+        { patch: foldPatch(voice, fold) }));
+      const [shaper] = shapersOf(run);
+      const worst = stackPeakInto(run, shaper);
+      const where = `${track}.${id} fold ${fold}`;
+      // 0 to −1.2 dB at the peak the curve is drawn for: the folder never adds
+      // gain, and never drops more than a hair — the same band the morph dial's
+      // RMS normalisation holds. (−1.08 dB is the design figure at fold 1; the
+      // rest is the curve being drawn for a peak quantised a shade downwards.)
+      const design = foldResponse(shaper.curve, Math.min(worst, 1));
+      assert.ok(design.rms >= 0.87 && design.rms <= 1.001,
+        `${where}: level moved to ${(20 * Math.log10(design.rms)).toFixed(2)} dB`);
+      assert.ok(design.peak <= 1.001,
+        `${where}: the folder reaches ${design.peak.toFixed(3)}× the stack's peak`);
+      // A stack whose layers COULD sum past full scale (bass.round's tone and
+      // its octave reach 1.05 on the instants they line up) drives the curve
+      // past the ±1 a WaveShaper's input domain has, and those instants sit on
+      // the far side of the fold. Still no gain, and still under 2 dB.
+      const bound = foldResponse(shaper.curve, worst);
+      assert.ok(bound.rms >= 0.8 && bound.rms <= 1.001,
+        `${where}: at the stack's worst-case peak, level moved to `
+        + `${(20 * Math.log10(bound.rms)).toFixed(2)} dB`);
+    }
+  }
+});
+
+test('v20 fold: the dial folds — harmonics appear, and go on appearing', () => {
+  // bass.sub is two sines: whatever comes out above the second harmonic is the
+  // folder's work and nothing else's.
+  const voice = VOICES.bass.sub;
+  const harmonicsAt = (fold) => {
+    const run = withSeed(77, () => playAndCheck(`bass.sub fold ${fold}`, voice,
+      { midi: 40, freq: null, kind: null, duration: 1.5, when: 0.5, velocity: 0.8, pan: 0 },
+      { patch: foldPatch(voice, fold) }));
+    const [shaper] = shapersOf(run);
+    const peak = stackPeakInto(run, shaper);
+    const samples = 4096;
+    let fundamental = 0;
+    let rest = 0;
+    for (let i = 0; i < samples; i++) {
+      const phase = (2 * Math.PI * i) / samples;
+      const y = throughCurve(shaper.curve, peak * Math.sin(phase));
+      fundamental += (y * Math.sin(phase) * 2) / samples;
+      rest += y * y;
+    }
+    return (rest / samples - (fundamental * fundamental) / 2) / (rest / samples);
+  };
+  const gentle = harmonicsAt(0.25);
+  const full = harmonicsAt(1);
+  assert.ok(gentle > 0 && gentle < 0.05, `a quarter-fold is not gentle (${gentle.toFixed(4)})`);
+  assert.ok(full > 0.4, `a full fold left the tone nearly pure (${full.toFixed(4)})`);
+  assert.ok(full > gentle * 8, 'the dial barely moved between a quarter fold and a full one');
+});
+
+test('v20 fold: curves are quantised to 1/32 and shared, not rebuilt per note', () => {
+  const voice = VOICES.pad.warm;
+  const curveAt = (fold) => shapersOf(withSeed(77, () => playAndCheck(`pad.warm fold ${fold}`,
+    voice, FOLD_NOTE, { patch: foldPatch(voice, fold) })))[0].curve;
+  const half = curveAt(0.5);
+  assert.equal(curveAt(0.5), half, 'a second note at the same fold rebuilt the curve');
+  assert.equal(curveAt(0.5 + FOLD_STEP / 4), half, 'a sub-step nudge is a different curve');
+  assert.notEqual(curveAt(0.5 + FOLD_STEP), half, 'the next step reused the wrong curve');
+});
+
+test('v20 fold: a voice with no fold dial ignores the field entirely', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      if (carries(FOLD_VOICES, track, id)) continue;
+      const voice = VOICES[track][id];
+      const note = honestyNoteFor(track);
+      const plain = withSeed(88, () => playAndCheck(`${track}.${id} defaults`, voice, note,
+        { patch: voice.defaults }));
+      const asked = withSeed(88, () => playAndCheck(`${track}.${id} fold 1`, voice, note,
+        { patch: { ...voice.defaults, source: { ...voice.defaults.source, fold: 1 } } }));
+      assert.equal(shapersOf(asked).length, 0, `${track}.${id}: built a wavefolder it never declared`);
+      assert.equal(renderSignature(asked), renderSignature(plain),
+        `${track}.${id}: an undeclared fold moved the graph`);
+      assert.equal(voice.defaults.source.fold, undefined,
+        `${track}.${id}: publishes a fold dial it does not honour`);
+    }
+  }
+});
+
+// --------------------------------------------------------------------------
 // Voice control metadata (v8): controls declares which patch fields a voice
 // actually honours, so the editor can hide the rest instead of greying them.
 // --------------------------------------------------------------------------
@@ -1074,12 +1428,16 @@ const FILTER_FIELDS = ['type', 'cutoff', 'q', 'envAmount'];
 /** v19: the sculpting and call families are additions, not replacements. */
 const SCULPT_FIELDS = Object.keys(SCULPT_SOURCE);
 const CALL_FIELDS = Object.keys(CALL_SOURCE);
+/** v20: so are the modifiers. */
+const FOLD_FIELDS = Object.keys(FOLD_SOURCE);
 
 function sourceFieldsFor(track, id) {
   if (track === 'percussion') return PERCUSSION_SOURCE_FIELDS;
-  if (carries(SCULPT_VOICES, track, id)) return [...SOURCE_FIELDS, ...SCULPT_FIELDS];
-  if (carries(CALL_VOICES, track, id)) return [...SOURCE_FIELDS, ...CALL_FIELDS];
-  return SOURCE_FIELDS;
+  const fields = [...SOURCE_FIELDS];
+  if (carries(SCULPT_VOICES, track, id)) fields.push(...SCULPT_FIELDS);
+  if (carries(CALL_VOICES, track, id)) fields.push(...CALL_FIELDS);
+  if (carries(FOLD_VOICES, track, id)) fields.push(...FOLD_FIELDS);
+  return fields;
 }
 
 /** true|false|string[] against the field list its group is allowed to name. */
@@ -1158,9 +1516,9 @@ function graphSignature(run) {
   ].join(':')).join('|');
 }
 
-/** The v19 fields that are a plain 0–1 amount, so they share a wild value. */
+/** The v19/v20 fields that are a plain 0–1 amount, so they share a wild value. */
 const UNIT_FIELDS = [
-  'sweepDepth', 'gust', 'burst', 'burstSharp', 'swell', 'glideCurve', 'irregular',
+  'sweepDepth', 'gust', 'burst', 'burstSharp', 'swell', 'glideCurve', 'irregular', 'fold',
 ];
 
 function wildSourceValue(field, base) {

@@ -23,6 +23,7 @@
  * Layout:
  *   1. constants + pure helpers
  *   1b. waveform morphing (the continuous sine→triangle→saw→square dial)
+ *   1c. wavefolding (the `fold` modifier's transfer curve)
  *   2. the per-note rig (node bookkeeping, envelopes, teardown, cancel)
  *   3. building blocks shared by several voices (FM, LFO, drum primitives)
  *   3b. v19 noise sculpting: the primitives the texture noise voices share
@@ -185,7 +186,8 @@ const OSC_TYPES = ['sine', 'triangle', 'sawtooth', 'square'];
  * Fourier sine coefficients for the four canonical shapes, index = harmonic:
  * sine is its fundamental alone, triangle 1/n² on odd harmonics with
  * alternating sign, sawtooth 1/n on every harmonic, square 1/n on odd ones.
- * A fractional shape is a linear blend of the two shapes either side of it.
+ * A fractional shape on the outer two segments is a linear blend of the shapes
+ * either side of it; the middle segment is the v20 skew family below.
  */
 const MORPH_HARMONICS = 32;
 const MORPH_STEP = 1 / 16;   // dial resolution: 49 cached waves span the dial
@@ -201,15 +203,62 @@ const CANONICAL = [0, 1, 2, 3].map((shape) => {
   return b;
 });
 
+/**
+ * v20 peak skew: where the peak of the skewed triangle sits at the top of the
+ * triangle→saw segment. It never reaches 1 — a peak at 1 IS the ramp, which is
+ * the canonical sawtooth waiting at shape 2.
+ */
+const SKEW_MAX = 0.99;
+
+/**
+ * Fourier sine coefficients of a triangle whose peak sits `a` of the way
+ * through its rise — the half-range expansion of the triangular pulse, the
+ * same series a plucked string's initial displacement has:
+ *
+ *     b_n = (−1)^(n+1) · 2·sin(nπa) / (n²π²·a·(1−a))
+ *
+ * `a` = 0.5 is the symmetric triangle exactly (sin(nπ/2) kills every even
+ * harmonic and leaves ±1/n² on the odd ones); as `a` → 1 the sine expands to
+ * sin(nπa) ≈ (−1)^(n+1)·nπ(1−a) and the whole series collapses to 2/(nπ) — the
+ * sawtooth's 1/n. So one closed form walks the segment from triangle to saw
+ * with a real waveform at every point in between, rather than crossfading two
+ * spectra that never describe a shape you could draw.
+ *
+ * The (−1)^(n+1) is a half-period shift and a polarity flip, which no ear can
+ * hear: it costs nothing at a = 0.5 (the even harmonics it touches are zero
+ * there) and buys sign agreement with the canonical sawtooth at the far end,
+ * so the family leaves BOTH ends of the segment in phase with the integer stop
+ * it meets there.
+ */
+function skewHarmonics(a) {
+  const b = new Float32Array(MORPH_HARMONICS + 1);
+  const scale = 2 / (Math.PI * Math.PI * a * (1 - a));
+  for (let n = 1; n <= MORPH_HARMONICS; n++) {
+    b[n] = (n % 2 ? 1 : -1) * scale * Math.sin(n * Math.PI * a) / (n * n);
+  }
+  return b;
+}
+
 const WAVE_CACHE = new WeakMap();
 
 /**
  * A PeriodicWave for any point on the sine(0)→triangle(1)→saw(2)→square(3)
- * dial. The blended coefficients are scaled so their RMS is the same at every
- * point — level loudness across the dial — while the browser's own peak
- * normalisation (left on) keeps the rendered wave in bounds. Quantised to
- * 1/16 of a shape and cached per context, so a swept dial reuses a small
- * fixed set of waves rather than building one per note.
+ * dial. Sine→triangle and saw→square are a linear blend of the two spectra
+ * either side; triangle→saw is the skew family above, its peak travelling from
+ * 50 % to SKEW_MAX of the rise (v20). Either way the coefficients are scaled so
+ * their RMS is the same at every point — level loudness across the dial —
+ * while the browser's own peak normalisation (left on) keeps the rendered wave
+ * in bounds. Quantised to 1/16 of a shape and cached per context, so a swept
+ * dial reuses a small fixed set of waves rather than building one per note.
+ *
+ * Every integer stop is still the canonical spectrum, to the last bit: shape 1
+ * comes out of the blend branch at blend 0, shape 2 belongs to the segment
+ * above it, and both are the browser's own oscillator type anyway (applyShape
+ * never asks for a wave at an integer). A patch saved before v20 therefore
+ * sounds exactly as it did unless it was parked on a FRACTIONAL 1.x — where a
+ * dull crossfade that only ever sounded like a triangle and a saw playing at
+ * once is now one triangle leaning over: the same fundamental, harmonics
+ * filling in evenly, and a distinct hollow-to-reedy travel as the dial rises.
  */
 export function shapeWave(ctx, shape) {
   const s = Math.round(clamp(Number.isFinite(shape) ? shape : 0, 0, 3) / MORPH_STEP) * MORPH_STEP;
@@ -226,10 +275,13 @@ export function shapeWave(ctx, shape) {
   const blend = s - lower;
   const from = CANONICAL[lower];
   const to = CANONICAL[lower + 1];
+  const skew = lower === 1 && blend > 0
+    ? skewHarmonics(0.5 + (SKEW_MAX - 0.5) * blend)
+    : null;
   const imag = new Float32Array(MORPH_HARMONICS + 1);
   let power = 0;
   for (let n = 1; n <= MORPH_HARMONICS; n++) {
-    imag[n] = from[n] * (1 - blend) + to[n] * blend;
+    imag[n] = skew ? skew[n] : from[n] * (1 - blend) + to[n] * blend;
     power += imag[n] * imag[n];
   }
   const norm = 1 / Math.sqrt(power);
@@ -252,6 +304,97 @@ function applyShape(ctx, node, shape) {
   const s = Math.round(clamp(shape, 0, 3) / MORPH_STEP) * MORPH_STEP;
   if (Number.isInteger(s)) node.type = OSC_TYPES[s];
   else node.setPeriodicWave(shapeWave(ctx, s));
+}
+
+// ---------------------------------------------------------------------------
+// 1c. Wavefolding — the v20 `fold` modifier's transfer curve
+// ---------------------------------------------------------------------------
+
+/** Dial resolution, and how many points the shaper's curve is drawn with. */
+const FOLD_STEP = 1 / 32;
+const FOLD_POINTS = 1024;
+/**
+ * How far round the sine the fold dial travels at 1. π turns the transfer
+ * curve back on itself once either side of zero — the peaks of the wave fold
+ * over — which is a wavefolder; much past that and the harmonics land above
+ * anything a 2× oversampled shaper can keep clean.
+ */
+const FOLD_TURN = Math.PI;
+/**
+ * The band of input peaks a curve is drawn for. A divisor, so it needs a floor;
+ * and the ceiling is 1 because a WaveShaper's input domain IS ±1 — drawing the
+ * curve for a stack that sums past full scale would be drawing it for input the
+ * node cannot be handed.
+ */
+const FOLD_MIN_PEAK = 0.25;
+const FOLD_MAX_PEAK = 1;
+/**
+ * How finely the input peak is quantised for the cache. Far finer than the
+ * dial's own step: this one is not a control a listener moves, it is the
+ * voice's own number, and a coarse step here would draw a curve for a stack
+ * several per cent away from the one actually feeding it.
+ */
+const FOLD_PEAK_STEP = 1 / 256;
+
+const FOLD_CURVES = new Map();
+
+/**
+ * The transfer curve of the sine wavefolder, for a stack whose summed peak is
+ * `nominal`:
+ *
+ *     y(x) = C · nominal · sin(θ · x / nominal),  θ = amount · π
+ *
+ * Small θ is the identity line, so the bottom of the dial is continuous with
+ * the bypass at 0; as θ grows the line bends over and finally folds, which
+ * turns a sine into an odd-harmonic tone (at fold 1 a sine comes out with a
+ * third harmonic LOUDER than its fundamental) without the spectral splash a
+ * clipper makes. Reading the input in units of the stack's own peak is what
+ * makes the dial mean the same thing on a voice whose oscillators sum to 1 and
+ * on one that sums to 0.7 — a folder fed a quiet signal otherwise just sits
+ * there being a gain.
+ *
+ * C is the loudness discipline. It is the gain that puts the RMS of a
+ * full-scale sine back exactly where it went in, capped so the curve can never
+ * reach past the peak it was handed: no setting of this dial adds gain, and the
+ * band it holds is 0 to −1.2 dB across the whole travel (the cap bites only in
+ * the top tenth, where the folded wave has genuinely lost energy at the peaks).
+ *
+ * The amount is quantised to the dial's step and the peak far finer, and the
+ * curve is cached against both, the way the morph dial caches its waves: a
+ * swept dial reuses a handful of tables instead of drawing 1024 points per
+ * note. The peak quantises DOWNWARDS — a curve drawn for slightly less than the
+ * stack brings the stack slightly further into the fold, which is quieter;
+ * rounding the other way would hand back a shade of gain.
+ */
+function foldCurve(amount, nominal) {
+  const steps = Math.floor(clamp(nominal, FOLD_MIN_PEAK, FOLD_MAX_PEAK) / FOLD_PEAK_STEP);
+  const peak = steps * FOLD_PEAK_STEP;
+  const key = `${Math.round(amount / FOLD_STEP)}:${steps}`;
+  const hit = FOLD_CURVES.get(key);
+  if (hit) return hit;
+
+  const theta = amount * FOLD_TURN;
+  // RMS of the folded reference sine, and the largest excursion the curve makes
+  // inside ±nominal — the two numbers C is built from. The excursion is exact
+  // rather than sampled: past a quarter turn the curve has reached the top of
+  // the sine and folded back, so 1 is the most it can ever be.
+  let power = 0;
+  const samples = 512;
+  for (let i = 0; i < samples; i++) {
+    const y = Math.sin(theta * Math.sin((2 * Math.PI * (i + 0.5)) / samples));
+    power += y * y;
+  }
+  const rms = Math.sqrt(power / samples);
+  const excursion = theta >= Math.PI / 2 ? 1 : Math.sin(theta);
+  const c = Math.min((1 / Math.SQRT2) / rms, 1 / excursion);
+
+  const curve = new Float32Array(FOLD_POINTS);
+  for (let i = 0; i < FOLD_POINTS; i++) {
+    const x = (2 * i) / (FOLD_POINTS - 1) - 1;
+    curve[i] = c * peak * Math.sin((theta * x) / peak);
+  }
+  FOLD_CURVES.set(key, curve);
+  return curve;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +467,18 @@ function createRig(ctx, destination, note) {
     delay(seconds) {
       const node = ctx.createDelay(Math.max(seconds * 4, 0.2));
       node.delayTime.value = seconds;
+      return keep(node);
+    },
+
+    /**
+     * A fixed waveshaping curve. Oversampled 2×: a folder makes harmonics well
+     * above the input's, and without it the ones past Nyquist come back down
+     * the spectrum as inharmonic grit.
+     */
+    shaper(curve) {
+      const node = ctx.createWaveShaper();
+      node.curve = curve;
+      node.oversample = '2x';
       return keep(node);
     },
 
@@ -837,6 +992,14 @@ const semitoned = (defaults) => defaults.source.pitch !== undefined;
 const sculpted = (defaults) => defaults.source.tilt !== undefined;
 const calling = (defaults) => defaults.source.cadence !== undefined;
 
+/**
+ * True for a v20 voice that offers the shape MODIFIERS — declared the same way
+ * again, by publishing the field. That is the oscillator-stack voices: the ones
+ * whose layers sum at a single point a folder can sit on, and where the stack
+ * IS the sound rather than a garnish on noise or the carrier of an FM pair.
+ */
+const folding = (defaults) => defaults.source.fold !== undefined;
+
 /** The noise-sculpting half of a v19 source, clamped to the schema. */
 const sculptFields = (source, d) => ({
   tilt: inRange(source.tilt, -1, 1, d.source.tilt),
@@ -906,6 +1069,11 @@ function patchFor(defaults, patch) {
         : { octave: oneOf(source.octave, OCTAVES, d.source.octave) }),
       ...(sculpted(d) ? sculptFields(source, d) : {}),
       ...(calling(d) ? callFields(source, d) : {}),
+      // v20 modifier. Read defensively: the engine's sanitiser learns `fold`
+      // in its own time, and until it does the field simply never arrives and
+      // every voice that offers one stays on its published 0 — which is the
+      // bypass, so a patch saved before v20 cannot sound different.
+      ...(folding(d) ? { fold: inRange(source.fold, 0, 1, d.source.fold) } : {}),
     },
     filter: {
       type: oneOf(filter.type, FILTER_TYPES, d.filter.type),
@@ -974,6 +1142,40 @@ function layersFor(p, layers) {
     cents: l.spread * p.source.detune,
   }));
 }
+
+/**
+ * How far the patch is folding, quantised to the dial's step. Zero for a voice
+ * that publishes no `fold`, and for a patch that has not moved it — and zero
+ * has to mean zero, because the bypass below is what keeps an unfolded voice
+ * the exact graph it has always been.
+ */
+function foldOf(p) {
+  if (!p || !Number.isFinite(p.source.fold)) return 0;
+  return Math.round(clamp(p.source.fold, 0, 1) / FOLD_STEP) * FOLD_STEP;
+}
+
+/**
+ * Where an oscillator stack should sum (v20). At fold 0 that is `dest` itself:
+ * a dial at rest builds no node, so an unfolded voice costs nothing and cannot
+ * sound any different from the voice that had no dial at all. Above 0 it is a
+ * wavefolder in front of `dest`, drawn for `nominal` — the peak the stack sums
+ * to, which is what the curve reads its input in units of.
+ *
+ * The folder goes between the stack and the amp envelope, not after it: a
+ * folder is a nonlinearity, so downstream of the envelope every note would fold
+ * differently on the way in and fall back out of the fold on the way out, which
+ * is an attack artefact rather than a timbre.
+ */
+function foldBus(rig, p, dest, nominal) {
+  const amount = foldOf(p);
+  if (amount <= 0) return dest;
+  const shaper = rig.shaper(foldCurve(amount, nominal));
+  shaper.connect(dest);
+  return shaper;
+}
+
+/** The peak an oscillator stack sums to, worst case: every layer in phase. */
+const stackPeak = (layers) => layers.reduce((sum, l) => sum + l.gain, 0);
 
 /**
  * A resonant filter peaks at its cutoff, so a patch winding Q up would walk a
@@ -1083,6 +1285,7 @@ const DEFAULTS = {
     warm: {
       source: {
         osc1: 'sawtooth', osc2: 'triangle', shape1: 2, shape2: 1, mix: 0.52, detune: 8, octave: 0,
+        fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 440, q: 0.7, envAmount: 1 },
       adsr: { attack: 2.4, decay: 0.01, sustain: 1, release: 4.25 },
@@ -1097,6 +1300,7 @@ const DEFAULTS = {
     strings: {
       source: {
         osc1: 'sawtooth', osc2: 'sawtooth', shape1: 2, shape2: 2, mix: 0.4, detune: 14, octave: 0,
+        fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 1080, q: 0.8, envAmount: 0 },
       adsr: { attack: 1.8, decay: 0.01, sustain: 1, release: 3.75 },
@@ -1105,6 +1309,7 @@ const DEFAULTS = {
     choir: {
       source: {
         osc1: 'sawtooth', osc2: 'sawtooth', shape1: 2, shape2: 2, mix: 0.5, detune: 9, octave: 0,
+        fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 1800, q: 0.5, envAmount: 1 },
       adsr: { attack: 2.1, decay: 0.01, sustain: 1, release: 4.25 },
@@ -1115,6 +1320,7 @@ const DEFAULTS = {
     sub: {
       source: {
         osc1: 'sine', osc2: 'sine', shape1: 0, shape2: 0, mix: 0.118, detune: 0, octave: 0,
+        fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 228, q: 0.6, envAmount: 0 },
       adsr: { attack: 0.12, decay: 0.01, sustain: 1, release: 0.75 },
@@ -1123,13 +1329,16 @@ const DEFAULTS = {
     round: {
       source: {
         osc1: 'triangle', osc2: 'sine', shape1: 1, shape2: 0, mix: 0.333, detune: 0, octave: 0,
+        fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 585, q: 1.4, envAmount: 1 },
       adsr: { attack: 0.05, decay: 0.01, sustain: 1, release: 0.55 },
       sends: { reverb: 0.12, delay: 0.05 },
     },
     breath: {
-      source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
+      source: {
+        osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0, fold: 0,
+      },
       filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.18, decay: 0.01, sustain: 1, release: 0.9 },
       sends: { reverb: 0.18, delay: 0.05 },
@@ -1139,6 +1348,7 @@ const DEFAULTS = {
     pluck: {
       source: {
         osc1: 'sawtooth', osc2: 'sawtooth', shape1: 2, shape2: 2, mix: 0.267, detune: 6, octave: 0,
+        fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 3520, q: 4, envAmount: 1 },
       adsr: { attack: 0.006, decay: 1.1, sustain: 0, release: 0.05 },
@@ -1241,6 +1451,7 @@ const DEFAULTS = {
     softPluck: {
       source: {
         osc1: 'triangle', osc2: 'sine', shape1: 1, shape2: 0, mix: 0.167, detune: 0, octave: 0,
+        fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 2640, q: 1.6, envAmount: 1 },
       adsr: { attack: 0.006, decay: 0.47, sustain: 0, release: 0.05 },
@@ -1322,6 +1533,17 @@ Object.freeze(DEFAULTS);
  * percussion's membrane skin — without ever having a second oscillator to
  * blend against.
  *
+ * `fold` (v20) is published, and therefore declared, by exactly the eight
+ * voices whose oscillator layers sum at a point a folder can sit on and where
+ * that sum IS the voice: the seven `source: true` stacks and bass.breath's
+ * single tone. It is deliberately absent everywhere else, and the absences are
+ * the honest ones — an FM pair (bell, crystal, flute, keys) has a carrier a
+ * folder would fight with rather than shape, glass and chimes and marimba are
+ * additive/modal partials with no summing bus of their own, the noise voices
+ * have no oscillator worth folding (wash's anchor is 0.14 of a bed: the same
+ * marginal path shape1 already carries), and a kit's membrane is a bending
+ * skin, not a stack.
+ *
  * `filter` is true only for the six voices whose own cutoff or formants move
  * over the note (`envAmount` scales that movement: 1 in their defaults);
  * every other voice still takes the patch's type/cutoff/q — through
@@ -1357,9 +1579,11 @@ const CONTROLS = {
   bass: {
     sub: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     round: { source: true, filter: true, adsr: true, sends: true },
-    // Single sine layer at spread 0: shape1 and octave move it; mix/detune/
-    // shape2 have no second oscillator or scatter to act on.
-    breath: { source: ['shape1', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    // Single sine layer at spread 0: shape1, fold and octave move it; mix/
+    // detune/shape2 have no second oscillator or scatter to act on.
+    breath: {
+      source: ['shape1', 'octave', 'fold'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true,
+    },
   },
   melody: {
     pluck: { source: true, filter: true, adsr: true, sends: true },
@@ -1560,11 +1784,12 @@ function padWarm(ctx, destination, note, patch) {
     { type: 'triangle', group: 'b', ratio: 1, weight: 0.3, cents: 2, spread: 0.25 },
     { type: 'triangle', group: 'b', ratio: 0.5, weight: 0.22, cents: -3, spread: -0.375 },
   ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
   for (const layer of layers) {
     const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
     const gain = rig.gain(layer.gain);
     osc.connect(gain);
-    gain.connect(amp);
+    gain.connect(stack);
   }
 
   const end = sustainEnv(amp.gain, t, { attack, hold, release, peak: level(PEAK.pad, v) }, p);
@@ -1665,11 +1890,12 @@ function padStrings(ctx, destination, note, patch) {
     { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.2, cents: 7, spread: 0.5 },
     { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.2, cents: 14, spread: 1 },
   ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
   for (const layer of layers) {
     const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents + between(-2, 2));
     const gain = rig.gain(layer.gain);
     osc.connect(gain);
-    gain.connect(amp);
+    gain.connect(stack);
     // Individual drift keeps the unison from locking into a static beat.
     lfo(rig, osc.detune, { t, rate: between(0.09, 0.3), depth: between(1.5, 4) });
   }
@@ -1720,11 +1946,14 @@ function padChoir(ctx, destination, note, patch) {
     { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.34, cents: -9, spread: -1 },
     { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.34, cents: 5, spread: 0.5556 },
   ]);
+  // The fold sits on the voices, not on the breath: folding noise is grit, not
+  // a timbre, and the formants have to see the vowel it makes either way.
+  const stack = foldBus(rig, p, source, stackPeak(layers));
   for (const layer of layers) {
     const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
     const gain = rig.gain(layer.gain);
     osc.connect(gain);
-    gain.connect(source);
+    gain.connect(stack);
     // Vibrato arrives late, the way a held sung note does.
     const depth = lfo(rig, osc.detune, { t, rate: between(4.4, 5.2), depth: 1 });
     depth.gain.setValueAtTime(0, t);
@@ -1779,11 +2008,12 @@ function bassSub(ctx, destination, note, patch) {
     { type: 'sine', group: 'a', ratio: 1, weight: 0.9, cents: 0, spread: 0 },
     { type: 'sine', group: 'b', ratio: 2, weight: 0.12, cents: 0, spread: 1 },
   ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
   for (const layer of layers) {
     const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
     const gain = rig.gain(layer.gain);
     osc.connect(gain);
-    gain.connect(amp);
+    gain.connect(stack);
   }
 
   const peak = level(PEAK.bass, v);
@@ -1816,11 +2046,12 @@ function bassRound(ctx, destination, note, patch) {
     { type: 'triangle', group: 'a', ratio: 1, weight: 0.7, cents: 0, spread: 0 },
     { type: 'sine', group: 'b', ratio: 1, weight: 0.35, cents: 0, spread: 1 },
   ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
   for (const layer of layers) {
     const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
     const gain = rig.gain(layer.gain);
     osc.connect(gain);
-    gain.connect(amp);
+    gain.connect(stack);
   }
 
   const attack = p ? p.adsr.attack : 0.05;
@@ -1857,7 +2088,9 @@ function bassBreath(ctx, destination, note, patch) {
   const osc = rig.osc(tone.type, f * tone.ratio, t, tone.cents);
   const oscGain = rig.gain(tone.gain);
   osc.connect(oscGain);
-  oscGain.connect(amp);
+  // The air is left alone: fold is the tone's dial, and the band of noise over
+  // it is weather, not part of the waveform being bent.
+  oscGain.connect(foldBus(rig, p, amp, stackPeak([tone])));
 
   const air = rig.noise(t, { colour: 'pink' });
   const band = rig.filter('bandpass', clamp(f * 4, 150, 900), 2.5);
@@ -1912,11 +2145,12 @@ function melodyPluck(ctx, destination, note, patch) {
     { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.55, cents: 0, spread: 0 },
     { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.2, cents: 6, spread: 1 },
   ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
   for (const layer of layers) {
     const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
     const gain = rig.gain(layer.gain);
     osc.connect(gain);
-    gain.connect(amp);
+    gain.connect(stack);
   }
 
   // The string tick sits outside the amp envelope — routed through it, the
@@ -2500,11 +2734,12 @@ function arpSoftPluck(ctx, destination, note, patch) {
     { type: 'triangle', group: 'a', ratio: 1, weight: 0.6, cents: 0, spread: 0 },
     { type: 'sine', group: 'b', ratio: 2, weight: 0.12, cents: 0, spread: 1 },
   ]);
+  const stack = foldBus(rig, p, amp, stackPeak(layers));
   for (const layer of layers) {
     const osc = rig.osc(layer.type, f * layer.ratio, t, layer.cents);
     const gain = rig.gain(layer.gain);
     osc.connect(gain);
-    gain.connect(amp);
+    gain.connect(stack);
   }
 
   const decay = clamp(dur * 1.4 + 0.12, 0.16, 0.5);

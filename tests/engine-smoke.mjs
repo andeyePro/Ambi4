@@ -40,8 +40,11 @@ let oscillatorsStarted = 0;
 function makeParam(value) {
   return {
     value,
+    // Every linear ramp asked for, in order — the mock applies a ramp
+    // instantly, so a crossfade is only visible in what was SCHEDULED.
+    ramps: [],
     setValueAtTime(v) { this.value = v; return this; },
-    linearRampToValueAtTime(v) { this.value = v; return this; },
+    linearRampToValueAtTime(v, at) { this.ramps.push({ to: v, at }); this.value = v; return this; },
     exponentialRampToValueAtTime(v) {
       assert.ok(v > 0, 'exponential ramps must never target zero');
       this.value = v;
@@ -59,6 +62,7 @@ function makeNode(kind) {
   const node = {
     kind,
     connections: [],
+    disconnects: [],
     gain: makeParam(1),
     frequency: makeParam(440),
     detune: makeParam(0),
@@ -86,7 +90,13 @@ function makeNode(kind) {
     getFloatTimeDomainData(array) { array.fill(0); },
     setPeriodicWave() {},
     connect(target) { this.connections.push(target); },
-    disconnect() {},
+    // Recorded rather than ignored: v21's reverb swap has to prove it unwires
+    // the outgoing convolver, and a leak there is an audible one (two tails).
+    disconnect(target) {
+      this.disconnects.push(target ?? null);
+      if (target) this.connections = this.connections.filter((n) => n !== target);
+      else this.connections = [];
+    },
     start(t = 0) {
       oscillatorsStarted += 1;
       assert.ok(Number.isFinite(t) && t >= 0, `osc.start time must be finite: ${t}`);
@@ -154,6 +164,8 @@ const engineModule = await import('../src/scripts/ambient-engine.js');
 
 const {
   sanitiseParams,
+  randomnessIsHold,
+  REVERB_TAIL_RANGE,
   quantiseToScale,
   scaleDegreeToMidi,
   generatePhrase,
@@ -1934,9 +1946,10 @@ test('level and randomness take a number or a {min,max} range', () => {
   const base = sanitiseParams({});
   for (const name of TRACK_ORDER) {
     assert.equal(base.tracks[name].level, 0.8, `${name}: level ships at 0.8`);
-    assert.equal(base.tracks[name].randomness, 0.5, `${name}: randomness ships at 0.5`);
-    assert.equal(typeof base.tracks[name].randomness, 'number',
-      `${name}: randomness stays a NUMBER default — no range may ship before the page probe widens`);
+    // v21: the page probe accepts a RangeValue reply (isNumberOrRange), which
+    // was the v8 condition on this flip, so randomness now ships DRIFTING.
+    assert.deepEqual(base.tracks[name].randomness, { min: 0.35, max: 0.65 },
+      `${name}: randomness ships as the gentle default drift`);
   }
 
   const set = (patch) => sanitiseParams({ tracks: { pad: patch } }).tracks.pad;
@@ -1957,7 +1970,7 @@ test('level and randomness take a number or a {min,max} range', () => {
   assert.equal(set({ level: { min: 'a', max: 'b' } }).level, 0.8);
   assert.equal(set({ level: 'nope' }).level, 0.8);
   assert.equal(set({ level: [0.2, 0.6] }).level, 0.8, 'an array is not a range');
-  assert.equal(set({ randomness: {} }).randomness, 0.5);
+  assert.deepEqual(set({ randomness: {} }).randomness, { min: 0.35, max: 0.65 });
 
   // a stored range survives unrelated edits, and getParams hands back a copy
   const engine = createEngine({ tracks: { pad: { level: { min: 0.3, max: 0.7 } } } });
@@ -5035,6 +5048,291 @@ test('v19: adding the fields left every unpatched voice exactly where it was', (
 });
 
 // --------------------------------------------------------------------------
+// v20 — shape modifiers (fold)
+// --------------------------------------------------------------------------
+
+test('v20: fold takes a number or a range, clamps 0–1, and refuses rubbish', () => {
+  const foldOf = (fold) => sanitiseParams({ patches: { pad: { warm: { source: { fold } } } } })
+    .patches.pad?.warm?.source?.fold;
+
+  assert.equal(foldOf(0), 0, 'fold dropped its low bound');
+  assert.equal(foldOf(1), 1, 'fold dropped its high bound');
+  assert.equal(foldOf(0.371), 0.371, 'fold rounded a continuous value');
+  assert.equal(foldOf(9), 1, 'fold did not clamp above');
+  assert.equal(foldOf(-9), 0, 'fold did not clamp below');
+  assert.deepEqual(foldOf({ min: 0.2, max: 0.8 }), { min: 0.2, max: 0.8 }, 'fold refused a range');
+  assert.deepEqual(foldOf({ min: 0.9, max: 0.1 }), { min: 0.1, max: 0.9 },
+    'a reversed fold range is swapped, not rejected');
+  assert.deepEqual(foldOf({ min: -1, max: 4 }), { min: 0, max: 1 }, 'both fold bounds clamp');
+  for (const bad of [NaN, 'hard', null, true, undefined, {}, { min: 0.2 }]) {
+    assert.equal(foldOf(bad), undefined, `fold accepted ${JSON.stringify(bad) ?? String(bad)}`);
+  }
+
+  // An addition, not a replacement: fold sits beside the fields already there,
+  // and a voice nobody edited still grows nothing.
+  assert.deepEqual(
+    sanitiseParams({ patches: { pad: { warm: { source: { shape1: 2, fold: 0.5 } } } } })
+      .patches.pad.warm.source,
+    { shape1: 2, fold: 0.5 }, 'fold displaced a field already in the schema');
+  assert.deepEqual(sanitiseParams({ patches: { pad: { warm: {} } } }).patches, {},
+    'an empty patch started producing a fold default');
+});
+
+test('v20: a ranged fold resolves to a number per bar, inside its bounds', () => hiddenTab(async () => {
+  const pad = spyOnBank(bankFor('pad'));
+  try {
+    const engine = createEngine({
+      bpm: 120,
+      speed: 2,
+      structure: 'drone',
+      complexity: 0.6,
+      tracks: {
+        ...tracksAll('off'),
+        pad: { state: 'on', randomness: 0.7, vary: { voice: 0 }, voice: 'warm' },
+      },
+      patches: { pad: { warm: { source: { fold: { min: 0.2, max: 0.9 } } } } },
+    }, { rng: seededRng(2013) });
+    await engine.start();
+    await advance(20, FAST);
+    engine.stop();
+
+    const folded = pad.plays.filter((play) => play.id === 'warm');
+    assert.ok(folded.length > 4, `the pad only sounded ${folded.length} times`);
+    for (const play of folded) {
+      const value = play.patch.source.fold;
+      assert.equal(typeof value, 'number', 'fold reached a voice unresolved');
+      assert.ok(value >= 0.2 - 1e-6 && value <= 0.9 + 1e-6,
+        `a resolved fold of ${value} is outside its 0.2–0.9 bounds`);
+    }
+    assert.ok(new Set(folded.map((play) => play.patch.source.fold.toFixed(6))).size > 1,
+      'a ranged fold never drifted across bars');
+  } finally {
+    pad.restore();
+  }
+}));
+
+// --------------------------------------------------------------------------
+// v21 — reverbTail, driftRate, the randomness default range
+// --------------------------------------------------------------------------
+
+test('v21: reverbTail is a 0.5–6 s number that ships at 4 and survives a preset round-trip', () => {
+  assert.deepEqual([...REVERB_TAIL_RANGE], [0.5, 6]);
+  assert.equal(sanitiseParams({}).reverbTail, 4, 'reverbTail must ship at the length v2 baked');
+  const tailOf = (reverbTail) => sanitiseParams({ reverbTail }).reverbTail;
+  assert.equal(tailOf(0.5), 0.5);
+  assert.equal(tailOf(6), 6);
+  assert.equal(tailOf(2.25), 2.25);
+  assert.equal(tailOf(99), 6, 'reverbTail did not clamp above');
+  assert.equal(tailOf(0), 0.5, 'reverbTail did not clamp below');
+  assert.equal(tailOf('3'), 3, 'a number-input string still counts');
+  assert.equal(tailOf('nope'), 4, 'junk falls back to the default');
+  assert.equal(tailOf({ min: 1, max: 5 }), 4, 'reverbTail is not rangeable');
+  // Preset capture: it merges like any other top-level number, and getParams
+  // hands it back for the snapshot a preset actually stores.
+  const engine = createEngine({ reverbTail: 1.5 });
+  assert.equal(engine.getParams().reverbTail, 1.5);
+  engine.setParams({ bpm: 90 });
+  assert.equal(engine.getParams().reverbTail, 1.5, 'an unrelated edit dropped reverbTail');
+});
+
+test('v21: a reverbTail change rebuilds the IR asynchronously and crossfades the send', async () => {
+  const engine = createEngine({ reverbTail: 4 });
+  assert.equal(engine.arm(), true);
+  const ctx = liveContexts[liveContexts.length - 1];
+  const bus = reverbBus(ctx);
+
+  const built = reverbTails(ctx);
+  assert.equal(built.length, 1, 'arming built more than one reverb');
+  assert.ok(Math.abs(built[0].seconds - 4) < 0.01, `the shipped IR is ${built[0].seconds} s, not 4`);
+
+  engine.setParams({ reverbTail: 1.5 });
+  assert.equal(reverbTails(ctx).length, 1,
+    'the IR was generated inside setParams — the rebuild must be off the audio path');
+
+  await reverbBuilt();
+  const [old, next] = reverbTails(ctx);
+  assert.ok(next, 'the tail change never built a second convolver');
+  assert.ok(Math.abs(next.seconds - 1.5) < 0.01, `the new IR is ${next.seconds} s, not 1.5`);
+  assert.notEqual(old.convolver, next.convolver, 'the engine swapped a buffer instead of a convolver');
+
+  // Mid-crossfade: both convolvers are live, fed by the one send bus, and the
+  // two returns are ramping past each other over the same half-second.
+  assert.ok(bus.connections.includes(old.convolver) && bus.connections.includes(next.convolver),
+    'the two convolvers do not overlap — the send would gap');
+  assert.equal(old.convolver.disconnects.length, 0, 'the old tail was cut before it had faded');
+  const fadeOut = old.ret.gain.ramps.at(-1);
+  const fadeIn = next.ret.gain.ramps.at(-1);
+  assert.ok(fadeOut && fadeOut.to === 0, 'the old return did not ramp to silence');
+  assert.ok(fadeIn && fadeIn.to > 0, 'the new return did not ramp up');
+  assert.ok(Math.abs(fadeOut.at - fadeIn.at) < 1e-9, 'the two ramps do not land together');
+  assert.ok(Math.abs((fadeOut.at - ctx.currentTime) - 0.5) < 0.05,
+    `the crossfade runs for ${fadeOut.at - ctx.currentTime} s, not ~0.5`);
+
+  await reverbFaded();
+  assert.ok(old.convolver.disconnects.length > 0, 'the faded-out convolver was left connected');
+  assert.ok(old.ret.disconnects.length > 0, 'the faded-out return was left connected');
+  assert.ok(bus.disconnects.includes(old.convolver), 'the send bus still feeds the old tail');
+  assert.ok(bus.connections.includes(next.convolver), 'the send bus lost the live tail');
+  engine.stop();
+});
+
+test('v21: the governor tier caps the tail without overwriting it', async () => {
+  const engine = createEngine({ reverbTail: 6 });
+  assert.equal(typeof engine.setReverbSeconds, 'function',
+    'power.js documents reverbSeconds — the engine must expose the hook it names');
+  assert.equal(engine.arm(), true);
+  const ctx = liveContexts[liveContexts.length - 1];
+  const live = async () => {
+    await reverbBuilt();
+    await reverbFaded();
+    return reverbTails(ctx).at(-1).seconds;
+  };
+
+  assert.ok(Math.abs(await live() - 6) < 0.01, 'the 6 s tail the params asked for was not built');
+
+  // eco: min(6, 1) — the budget wins, and the param is untouched underneath.
+  engine.setPowerBudget({ maxNotes: 8, reverbSeconds: 1 });
+  assert.ok(Math.abs(await live() - 1) < 0.01, 'the tier cap did not shorten the tail');
+  assert.equal(engine.getParams().reverbTail, 6, 'the tier cap overwrote the user\'s reverbTail');
+
+  // A shorter param under the same cap: min(0.75, 1) — the param wins now.
+  engine.setParams({ reverbTail: 0.75 });
+  assert.ok(Math.abs(await live() - 0.75) < 0.01, 'the cap was treated as a floor');
+
+  // Back to full: the 6 s the user asked for comes back on its own.
+  engine.setParams({ reverbTail: 6 });
+  engine.setReverbSeconds(4);
+  assert.ok(Math.abs(await live() - 4) < 0.01, 'setReverbSeconds must cap like the budget field');
+  engine.setPowerBudget({ maxNotes: Infinity });
+  assert.ok(Math.abs(await live() - 6) < 0.01,
+    'a budget with no reverbSeconds must lift the cap, not silence the tail');
+  engine.stop();
+});
+
+test('v21: randomness ships as a range, stored numbers stay numbers, and a zeroed range holds', () => {
+  // The stored form is the user's: only an ABSENT randomness takes the default.
+  const stored = sanitiseParams({ tracks: { pad: { randomness: 0.2 }, bass: { randomness: 0 } } });
+  assert.equal(stored.tracks.pad.randomness, 0.2, 'a stored number was replaced by the new default');
+  assert.equal(stored.tracks.bass.randomness, 0, 'a stored 0 was replaced by the new default');
+  assert.deepEqual(stored.tracks.melody.randomness, { min: 0.35, max: 0.65 },
+    'an absent randomness must take the v21 default range');
+  const merged = sanitiseParams({ bpm: 90 }, stored).tracks;
+  assert.equal(merged.pad.randomness, 0.2, 'an unrelated edit migrated a stored number');
+  assert.equal(typeof merged.pad.randomness, 'number', 'a stored number changed shape');
+
+  // Hold semantics, stated once and shared by every consumer.
+  assert.equal(randomnessIsHold(0), true, 'a number 0 must count as hold');
+  assert.equal(randomnessIsHold(0.001), false, 'only a number 0 holds');
+  assert.equal(randomnessIsHold({ min: 0, max: 0 }), true, 'a zeroed range must count as hold');
+  assert.equal(randomnessIsHold({ min: 0, max: 0.001 }), true,
+    'a range whose top is at the epsilon must count as hold');
+  assert.equal(randomnessIsHold({ min: 0, max: 0.05 }), false,
+    'a range that can reach an audible value is asking to drift, not to hold');
+  assert.equal(randomnessIsHold(DEFAULT_PARAMS.tracks.pad.randomness), false,
+    'the shipped default must not hold every track');
+  assert.equal(randomnessIsHold(null), false);
+  assert.equal(randomnessIsHold(undefined), false);
+});
+
+test('v21: the range default drives every consumer, and a zeroed range freezes the material',
+  () => hiddenTab(async () => {
+    // varyAmount and the live readout both resolve the macro to a NUMBER, and
+    // the number moves — which is the whole point of a default range.
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.5,
+      tracks: { ...tracksAll('off'), pad: { state: 'on' } },
+    }, { rng: seededRng(2107) });
+    await engine.start();
+    const seen = [];
+    for (let i = 0; i < 12; i++) {
+      await advance(1, FAST);
+      seen.push(engine.getResolved().tracks.pad.randomness);
+    }
+    engine.stop();
+    for (const value of seen) {
+      assert.equal(typeof value, 'number', 'the default range reached a consumer unresolved');
+      assert.ok(value >= 0.35 - 1e-6 && value <= 0.65 + 1e-6,
+        `a resolved randomness of ${value} is outside the default 0.35–0.65 drift`);
+    }
+    assert.ok(new Set(seen.map((v) => v.toFixed(9))).size > 1,
+      'the default randomness range never drifted');
+    assert.equal(engine.getResolved().tracks.pad.held, false,
+      'the default range was read as a hold');
+
+    // A zeroed range holds exactly as the number 0 does: byte-identical bars.
+    const rhythm = async (randomness, seed) => {
+      const held = createEngine({
+        bpm: 120, speed: 2, complexity: 0.5, repetition: 0.5, structure: 'custom',
+        customStructure: [{ label: 'A', bars: 16, intensity: 1 }],
+        tracks: { ...tracksAll('off'), bass: { state: 'on', randomness } },
+      }, { rng: seededRng(seed) });
+      const log = record(held);
+      await held.start();
+      await advance(40, FAST);
+      held.stop();
+      const byBar = log.byBar('bass');
+      const bars = [...byBar.keys()].filter((b) => b >= TRACK_ORDER.indexOf('bass') + 2)
+        .sort((a, b) => a - b);
+      assert.ok(bars.length >= 20, `only ${bars.length} bass bars to judge`);
+      return new Set(bars.map((bar) => byBar.get(bar)
+        .map((n) => `${n.offset.toFixed(3)}:${n.velocity.toFixed(4)}:${n.duration.toFixed(4)}`)
+        .join(',')));
+    };
+
+    // Seed 7002 is the one the v14 number-0 hold test uses, so the two forms
+    // are judged against the same piece — and its bar offsets stay clear of the
+    // float boundary that makes a 0.938 read back as 0.937 on some others.
+    assert.equal((await rhythm({ min: 0, max: 0 }, 7002)).size, 1,
+      'a zeroed randomness RANGE did not hold the way the number 0 does');
+    assert.ok((await rhythm({ min: 0, max: 0.6 }, 7102)).size > 1,
+      'a range that only touches zero froze the track');
+  }));
+
+test('v21: driftRate scales a track\'s walk step, and never stops it dead', () => {
+  const rateOf = (driftRate) => sanitiseParams({ tracks: { pad: { driftRate } } }).tracks.pad.driftRate;
+  assert.equal(sanitiseParams({}).tracks.pad.driftRate, 1, 'driftRate must ship at 1');
+  assert.equal(rateOf(0.02), 0.02);
+  assert.equal(rateOf(0.5), 0.5);
+  assert.equal(rateOf(0), 0.02, 'driftRate did not clamp below — 0 is what hold is for');
+  assert.equal(rateOf(9), 1, 'driftRate did not clamp above');
+  assert.equal(rateOf('nope'), 1, 'junk falls back to the default');
+  const stored = sanitiseParams({ tracks: { pad: { driftRate: 0.2 } } });
+  assert.equal(sanitiseParams({ bpm: 90 }, stored).tracks.pad.driftRate, 0.2,
+    'an unrelated edit dropped driftRate');
+});
+
+test('v21: a low driftRate measurably slows the level walk', () => hiddenTab(async () => {
+  const walkOf = async (driftRate, seed) => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+      tracks: {
+        ...tracksAll('off'),
+        pad: { state: 'on', level: { min: 0.2, max: 0.8 }, randomness: 0.5, driftRate },
+      },
+    }, { rng: seededRng(seed) });
+    await engine.start();
+    const gain = trackGains(liveContexts[liveContexts.length - 1]).pad;
+    const values = [];
+    for (let i = 0; i < 16; i++) {
+      await advance(1, FAST);
+      values.push(gain.gain.value);
+    }
+    engine.stop();
+    const steps = values.slice(1).map((v, i) => Math.abs(v - values[i])).filter((d) => d > 0);
+    assert.ok(steps.length > 3, `the level walk only moved ${steps.length} times`);
+    return steps.reduce((a, b) => a + b, 0) / steps.length;
+  };
+
+  // Same seed, same draws: driftRate scales the STEP each draw is worth, so a
+  // tenth of the rate is roughly a tenth of the movement per bar.
+  const full = await walkOf(1, 3101);
+  const slow = await walkOf(0.1, 3101);
+  assert.ok(slow < full * 0.4,
+    `driftRate 0.1 moved ${slow} per bar against ${full} at full rate — not measurably slower`);
+  assert.ok(slow > 0, 'driftRate 0.1 stopped the walk dead; that is what randomness 0 is for');
+}));
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 
@@ -5210,15 +5508,18 @@ function trackGains(ctx) {
 
 /**
  * The engine's per-track send gains, found through the mock's node graph: the
- * gains feeding the convolver are the reverb sends (one per track, in track
+ * gains feeding the reverb BUS are the reverb sends (one per track, in track
  * order), and each track's delay send is the other gain hanging off the same
- * tone filter that feeds the delay line.
+ * tone filter that feeds the delay line. The bus is v21's doing — the sends
+ * used to reach the convolver directly, but a tail rebuild crossfades between
+ * two convolvers and the sends must not know which one is live.
  */
 function sendGains(ctx) {
   const convolver = ctx.nodes.find((n) => n.kind === 'convolver');
   const delayLine = ctx.nodes.find((n) => n.kind === 'delay');
   assert.ok(convolver && delayLine, 'the engine graph has no reverb or delay');
-  const reverbs = ctx.nodes.filter((n) => n.kind === 'gain' && n.connections.includes(convolver));
+  const bus = reverbBus(ctx);
+  const reverbs = ctx.nodes.filter((n) => n.kind === 'gain' && n.connections.includes(bus));
   assert.equal(reverbs.length, TRACK_ORDER.length, 'expected one reverb send per track');
   return Object.fromEntries(TRACK_ORDER.map((name, i) => {
     const reverb = reverbs[i];
@@ -5229,6 +5530,37 @@ function sendGains(ctx) {
     return [name, { reverb, delay }];
   }));
 }
+
+/**
+ * The one gain every track's reverb send feeds: the bus in front of whichever
+ * convolver is live. Searched across every convolver the context has made, so
+ * it still answers after a v21 tail swap has retired the first one.
+ */
+function reverbBus(ctx) {
+  const convolvers = ctx.nodes.filter((n) => n.kind === 'convolver');
+  assert.ok(convolvers.length, 'the engine graph has no reverb');
+  const bus = ctx.nodes.find((n) => n.kind === 'gain'
+    && convolvers.some((c) => n.connections.includes(c)));
+  assert.ok(bus, 'the engine graph has no reverb bus');
+  return bus;
+}
+
+/** Every convolver a context has made, in creation order, with its return gain. */
+function reverbTails(ctx) {
+  return ctx.nodes.filter((n) => n.kind === 'convolver').map((convolver) => ({
+    convolver,
+    ret: convolver.connections.find((n) => n.kind === 'gain'),
+    seconds: convolver.buffer ? convolver.buffer.length / ctx.sampleRate : 0,
+  }));
+}
+
+/**
+ * Wait for a deferred reverb rebuild (a macrotask) and, optionally, for the
+ * crossfade timer that retires the old convolver behind it. Both run on real
+ * wall-clock timers, exactly as the AudioParam ramps do in a real context.
+ */
+const reverbBuilt = () => new Promise((resolve) => setTimeout(resolve, 0));
+const reverbFaded = () => new Promise((resolve) => setTimeout(resolve, 620));
 
 const liveContexts = [];
 const RealCtx = MockAudioContext;
