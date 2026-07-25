@@ -874,3 +874,21 @@ or text change. Every button/label zone is sized to its WIDEST state at build
 time (Play/Finish/Finishing…, armed countdowns, processor status, record
 elapsed); dynamic text changes swap content inside fixed boxes. Any layout
 shift caused by state text is a defect.
+
+## v18 addition — noise voice family (texture track)
+New texture voices, all procedural (zero samples), engineType 'noise':
+- Spectral colours: white, pink, brown (−6 dB/oct), blue, violet, grey
+  (equal-loudness-weighted) — each a steady bed with very slow level breathing;
+  implement via filtered/shaped noise buffers or biquad chains, loudness-matched.
+- Procedural textures: rain (droplet impulse showers through resonant bandpass,
+  density- and brightness-controllable), surf (slow-cycle amplitude-modulated
+  pink bursts with spectral tilt sweep), wind (bandpass-swept brown noise with
+  gust randomness), stream (granular high-passed babble), fan (comb-filtered
+  broadband hum with slight rotation wobble), pulse (soft periodic low thump
+  locked to a slow independent rate param, not the musical tempo).
+- Each exposes applicable controls honestly (controls table): filter/adsr/sends
+  everywhere; per-voice character fields via existing patch fields where they
+  map (cutoff = brightness, noise = density where sensible); document mappings.
+- These serve long-session background listening: perfect loop-free steadiness,
+  no attention-grabbing events at default settings, governor-friendly (≤8
+  nodes per voice steady-state).
