@@ -853,6 +853,87 @@ for (const track of Object.values(DEFAULTS)) {
 }
 Object.freeze(DEFAULTS);
 
+/**
+ * Which of a voice's defaults the voice editor should actually show, derived
+ * from what each play() above genuinely reads off its patch — not aspiration,
+ * the truth of the code. Each field is `true` (every field in that section's
+ * schema applies), `false` (none does), or the subset that does.
+ *
+ * `source` is true only for voices built on layersFor() with both an 'a' and
+ * a 'b' group (shape1/shape2/mix all have two oscillators to move between);
+ * `detune` needs at least one layer with a nonzero `spread`, or a direct read
+ * of `p.source.detune` outside layersFor (glass's partial jitter, bell's
+ * beating partial, chimes' tube scatter); `octave` is honoured by every voice
+ * here, via `shifted()` on its base frequency or membrane()'s own pitch bend,
+ * so it is never absent. `shape1` alone (no shape2/mix/detune) shows up where
+ * a voice reads `p.source.shape1` straight — wash's quiet anchor tone,
+ * percussion's membrane skin — without ever having a second oscillator to
+ * blend against.
+ *
+ * `filter` is true only for the six voices whose own cutoff or formants move
+ * over the note (`envAmount` scales that movement: 1 in their defaults);
+ * every other voice still takes the patch's type/cutoff/q — through
+ * mainFilter() or insertFilter() — it just has nothing for envAmount to bend.
+ *
+ * `adsr` and `sends` are true for all 21: every voice's own output envelope
+ * runs through sustainEnv()/struckEnv(), which is adsrEnv() under any patch,
+ * and sends are the engine's to apply outside play() entirely, so no voice
+ * can decline them.
+ */
+const CONTROLS = {
+  pad: {
+    warm: { source: true, filter: true, adsr: true, sends: true },
+    glass: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    strings: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    choir: { source: true, filter: true, adsr: true, sends: true },
+  },
+  bass: {
+    sub: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    round: { source: true, filter: true, adsr: true, sends: true },
+    // Single sine layer at spread 0: shape1 and octave move it; mix/detune/
+    // shape2 have no second oscillator or scatter to act on.
+    breath: { source: ['shape1', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+  },
+  melody: {
+    pluck: { source: true, filter: true, adsr: true, sends: true },
+    bell: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    flute: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    keys: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+  },
+  texture: {
+    sparkle: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    grains: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    chimes: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    // SPEC-CRITIC: shape1 only reaches the quiet 0.14-weight anchor tone
+    // under the noise sweep — mechanically real, audibly marginal.
+    wash: { source: ['shape1', 'octave'], filter: true, adsr: true, sends: true },
+  },
+  arp: {
+    softPluck: { source: true, filter: true, adsr: true, sends: true },
+    crystal: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    marimba: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+  },
+  percussion: {
+    // membrane() reads shape1+octave for the pitched skin; noiseBurst() (hat/
+    // click layers) has no oscillator and ignores source entirely — a
+    // per-kind partial (real for the kinds that strike a membrane, absent
+    // for the noise-only ones), declared at the voice level as the union.
+    soft: { source: ['shape1', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    hand: { source: ['shape1', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    tick: { source: ['shape1', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+  },
+};
+
+for (const track of Object.values(CONTROLS)) {
+  for (const controls of Object.values(track)) {
+    if (Array.isArray(controls.source)) Object.freeze(controls.source);
+    if (Array.isArray(controls.filter)) Object.freeze(controls.filter);
+    Object.freeze(controls);
+  }
+  Object.freeze(track);
+}
+Object.freeze(CONTROLS);
+
 // ---------------------------------------------------------------------------
 // 4a. Pads — long attacks, long releases, movement in the filter
 // ---------------------------------------------------------------------------
@@ -1858,36 +1939,117 @@ function percTick(ctx, destination, note, patch) {
 
 export const VOICES = {
   pad: {
-    warm: { label: 'Warm', play: padWarm, defaults: DEFAULTS.pad.warm },
-    glass: { label: 'Glass', play: padGlass, defaults: DEFAULTS.pad.glass },
-    strings: { label: 'Strings', play: padStrings, defaults: DEFAULTS.pad.strings },
-    choir: { label: 'Choir', play: padChoir, defaults: DEFAULTS.pad.choir },
+    warm: {
+      label: 'Warm', play: padWarm, defaults: DEFAULTS.pad.warm, controls: CONTROLS.pad.warm,
+    },
+    glass: {
+      label: 'Glass', play: padGlass, defaults: DEFAULTS.pad.glass, controls: CONTROLS.pad.glass,
+    },
+    strings: {
+      label: 'Strings',
+      play: padStrings,
+      defaults: DEFAULTS.pad.strings,
+      controls: CONTROLS.pad.strings,
+    },
+    choir: {
+      label: 'Choir', play: padChoir, defaults: DEFAULTS.pad.choir, controls: CONTROLS.pad.choir,
+    },
   },
   bass: {
-    sub: { label: 'Sub', play: bassSub, defaults: DEFAULTS.bass.sub },
-    round: { label: 'Round', play: bassRound, defaults: DEFAULTS.bass.round },
-    breath: { label: 'Breath', play: bassBreath, defaults: DEFAULTS.bass.breath },
+    sub: {
+      label: 'Sub', play: bassSub, defaults: DEFAULTS.bass.sub, controls: CONTROLS.bass.sub,
+    },
+    round: {
+      label: 'Round', play: bassRound, defaults: DEFAULTS.bass.round, controls: CONTROLS.bass.round,
+    },
+    breath: {
+      label: 'Breath',
+      play: bassBreath,
+      defaults: DEFAULTS.bass.breath,
+      controls: CONTROLS.bass.breath,
+    },
   },
   melody: {
-    pluck: { label: 'Pluck', play: melodyPluck, defaults: DEFAULTS.melody.pluck },
-    bell: { label: 'Bell', play: melodyBell, defaults: DEFAULTS.melody.bell },
-    flute: { label: 'Flute', play: melodyFlute, defaults: DEFAULTS.melody.flute },
-    keys: { label: 'Keys', play: melodyKeys, defaults: DEFAULTS.melody.keys },
+    pluck: {
+      label: 'Pluck',
+      play: melodyPluck,
+      defaults: DEFAULTS.melody.pluck,
+      controls: CONTROLS.melody.pluck,
+    },
+    bell: {
+      label: 'Bell', play: melodyBell, defaults: DEFAULTS.melody.bell, controls: CONTROLS.melody.bell,
+    },
+    flute: {
+      label: 'Flute',
+      play: melodyFlute,
+      defaults: DEFAULTS.melody.flute,
+      controls: CONTROLS.melody.flute,
+    },
+    keys: {
+      label: 'Keys', play: melodyKeys, defaults: DEFAULTS.melody.keys, controls: CONTROLS.melody.keys,
+    },
   },
   texture: {
-    sparkle: { label: 'Sparkle', play: textureSparkle, defaults: DEFAULTS.texture.sparkle },
-    grains: { label: 'Grains', play: textureGrains, defaults: DEFAULTS.texture.grains },
-    chimes: { label: 'Chimes', play: textureChimes, defaults: DEFAULTS.texture.chimes },
-    wash: { label: 'Wash', play: textureWash, defaults: DEFAULTS.texture.wash },
+    sparkle: {
+      label: 'Sparkle',
+      play: textureSparkle,
+      defaults: DEFAULTS.texture.sparkle,
+      controls: CONTROLS.texture.sparkle,
+    },
+    grains: {
+      label: 'Grains',
+      play: textureGrains,
+      defaults: DEFAULTS.texture.grains,
+      controls: CONTROLS.texture.grains,
+    },
+    chimes: {
+      label: 'Chimes',
+      play: textureChimes,
+      defaults: DEFAULTS.texture.chimes,
+      controls: CONTROLS.texture.chimes,
+    },
+    wash: {
+      label: 'Wash', play: textureWash, defaults: DEFAULTS.texture.wash, controls: CONTROLS.texture.wash,
+    },
   },
   arp: {
-    softPluck: { label: 'Soft pluck', play: arpSoftPluck, defaults: DEFAULTS.arp.softPluck },
-    crystal: { label: 'Crystal', play: arpCrystal, defaults: DEFAULTS.arp.crystal },
-    marimba: { label: 'Marimba', play: arpMarimba, defaults: DEFAULTS.arp.marimba },
+    softPluck: {
+      label: 'Soft pluck',
+      play: arpSoftPluck,
+      defaults: DEFAULTS.arp.softPluck,
+      controls: CONTROLS.arp.softPluck,
+    },
+    crystal: {
+      label: 'Crystal',
+      play: arpCrystal,
+      defaults: DEFAULTS.arp.crystal,
+      controls: CONTROLS.arp.crystal,
+    },
+    marimba: {
+      label: 'Marimba',
+      play: arpMarimba,
+      defaults: DEFAULTS.arp.marimba,
+      controls: CONTROLS.arp.marimba,
+    },
   },
   percussion: {
-    soft: { label: 'Soft kit', play: percSoft, defaults: DEFAULTS.percussion.soft },
-    hand: { label: 'Hand drum', play: percHand, defaults: DEFAULTS.percussion.hand },
-    tick: { label: 'Ticks', play: percTick, defaults: DEFAULTS.percussion.tick },
+    soft: {
+      label: 'Soft kit',
+      play: percSoft,
+      defaults: DEFAULTS.percussion.soft,
+      controls: CONTROLS.percussion.soft,
+    },
+    hand: {
+      label: 'Hand drum',
+      play: percHand,
+      defaults: DEFAULTS.percussion.hand,
+      controls: CONTROLS.percussion.hand,
+    },
+    tick: {
+      label: 'Ticks',
+      play: percTick,
+      defaults: DEFAULTS.percussion.tick,
+      controls: CONTROLS.percussion.tick,
+    },
   },
 };

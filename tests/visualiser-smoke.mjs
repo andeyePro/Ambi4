@@ -17,9 +17,12 @@ const test = (name, fn) => tests.push([name, fn]);
 // Minimal 2d context + canvas mock
 // --------------------------------------------------------------------------
 
-function makeCtx2d(calls) {
+// `propWrites`, if passed, collects every property NAME assigned on the 2d
+// context (not just method calls) so tests can assert e.g. 'shadowBlur' is
+// never touched during a normal frame.
+function makeCtx2d(calls, propWrites) {
   const record = (name) => { calls[name] = (calls[name] || 0) + 1; };
-  return {
+  const base = {
     clearRect() { record('clearRect'); },
     fillRect() { record('fillRect'); },
     beginPath() {},
@@ -33,16 +36,18 @@ function makeCtx2d(calls) {
     fillText(text) { record('fillText'); calls.lastText = text; },
     setTransform() {},
     createLinearGradient() { return { addColorStop() {} }; },
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 1,
-    font: '',
-    textAlign: '',
-    textBaseline: '',
   };
+  if (!propWrites) return { ...base, fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '' };
+  return new Proxy(base, {
+    set(target, prop, value) {
+      propWrites.add(prop);
+      target[prop] = value;
+      return true;
+    },
+  });
 }
 
-function makeCanvas(calls) {
+function makeCanvas(calls, opts = {}) {
   const listeners = new Map();
   return {
     width: 600,
@@ -51,7 +56,7 @@ function makeCanvas(calls) {
     clientHeight: 300,
     getContext(kind) {
       if (kind !== '2d') return null;
-      return makeCtx2d(calls);
+      return makeCtx2d(calls, opts.propWrites);
     },
     getBoundingClientRect() {
       return { width: 600, height: 300 };
@@ -204,6 +209,118 @@ test('re-resizes when devicePixelRatio changes between frames', () => {
     if (prevWindow === undefined) delete globalThis.window;
     else globalThis.window = prevWindow;
   }
+});
+
+// --------------------------------------------------------------------------
+// rAF mock with explicit timestamps (for frame-rate-cap / IO gating tests)
+// --------------------------------------------------------------------------
+
+function withMockRaf(fn) {
+  const rafCbs = new Map();
+  let nextId = 1;
+  globalThis.requestAnimationFrame = (cb) => {
+    const id = nextId++;
+    rafCbs.set(id, cb);
+    return id;
+  };
+  globalThis.cancelAnimationFrame = (id) => { rafCbs.delete(id); };
+  const stepFrame = (ts = 0) => {
+    const frames = [...rafCbs.values()];
+    rafCbs.clear();
+    for (const cb of frames) cb(ts);
+  };
+  try {
+    return fn({ rafCbs, stepFrame });
+  } finally {
+    delete globalThis.requestAnimationFrame;
+    delete globalThis.cancelAnimationFrame;
+  }
+}
+
+test('30fps frame-rate cap: a tick 10ms later is skipped, a tick past the budget draws', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const engine = makeEngine();
+    engine.running = true;
+    const inst = initVisualiser(canvas, engine);
+    engine.emit('state', { running: true });
+
+    calls.clearRect = 0;
+    stepFrame(0); // first scheduled tick always draws
+    assert.equal(calls.clearRect, 1);
+    stepFrame(10); // 10ms later — inside the ~33.3ms/30fps budget
+    assert.equal(calls.clearRect, 1, 'must skip a frame inside the 30fps budget');
+    stepFrame(40); // past the budget — draws again
+    assert.equal(calls.clearRect, 2);
+
+    inst.destroy();
+  });
+});
+
+test('never sets shadowBlur/shadowColor during a normal frame', () => {
+  const calls = {};
+  const propWrites = new Set();
+  const canvas = makeCanvas(calls, { propWrites });
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+  for (const track of ['pad', 'bass', 'melody', 'texture', 'arp', 'percussion']) {
+    engine.emit('note', { track, midi: 60, velocity: 0.8, time: 0, duration: 0.3 });
+  }
+  inst.destroy();
+  assert.ok(!propWrites.has('shadowBlur'), 'visualiser must never set ctx.shadowBlur');
+  assert.ok(!propWrites.has('shadowColor'), 'visualiser must never set ctx.shadowColor');
+});
+
+test('caps devicePixelRatio backing-store sizing at 2 even when the browser reports higher', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  const prevWindow = globalThis.window;
+  globalThis.window = { devicePixelRatio: 4 };
+  try {
+    const inst = initVisualiser(canvas, engine);
+    assert.equal(canvas.width, 1200, 'backing store must clamp to dpr 2, not 4');
+    assert.equal(canvas.height, 600);
+    inst.destroy();
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+});
+
+test('IntersectionObserver: stops the rAF loop when fully out of view, resumes on re-entry', () => {
+  withMockRaf(({ rafCbs }) => {
+    let ioCallback = null;
+    const prevIO = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class {
+      constructor(cb) { ioCallback = cb; }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      const calls = {};
+      const canvas = makeCanvas(calls);
+      const engine = makeEngine();
+      engine.running = true;
+      const inst = initVisualiser(canvas, engine);
+      engine.emit('state', { running: true });
+      assert.equal(rafCbs.size, 1, 'a frame must be scheduled while in view');
+
+      ioCallback([{ isIntersecting: false }]);
+      assert.equal(rafCbs.size, 0, 'scrolling fully out of view must stop the loop');
+
+      ioCallback([{ isIntersecting: true }]);
+      assert.equal(rafCbs.size, 1, 'scrolling back into view must resume the loop');
+
+      inst.destroy();
+    } finally {
+      if (prevIO === undefined) delete globalThis.IntersectionObserver;
+      else globalThis.IntersectionObserver = prevIO;
+    }
+  });
 });
 
 test('observes device-pixel-content-box, falling back to plain observe', () => {

@@ -43,6 +43,9 @@ const WINDOW_SECONDS = HISTORY_SECONDS + LOOKAHEAD_SECONDS;
 const MAX_NOTES_PER_TRACK = 400;
 const MAX_MARKERS = 500;
 const REDUCED_MOTION_FPS = 2;
+const TARGET_FPS = 30;
+const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+const MAX_DPR = 2; // retina laptops report 2, but browser zoom can push higher
 const TOP_MARGIN = 16;
 const MIN_LABEL_WIDTH = 36;
 const MAX_LABEL_WIDTH = 74;
@@ -431,7 +434,8 @@ export function initVisualiser(canvas, engine) {
 
   function currentDpr() {
     try {
-      return (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+      const raw = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+      return Math.min(MAX_DPR, raw);
     } catch {
       return 1;
     }
@@ -496,18 +500,44 @@ export function initVisualiser(canvas, engine) {
     // ignore
   }
 
+  // -- viewport gating (IntersectionObserver) -----------------------------
+
+  let inView = true; // no IO support → this axis never pauses the loop
+  let intersectionObserver = null;
+
+  function onIntersect(entries) {
+    try {
+      const entry = entries && entries[entries.length - 1];
+      inView = entry ? !!entry.isIntersecting : true;
+    } catch {
+      inView = true;
+    }
+    if (inView) ensureLoop();
+    else stopLoop();
+  }
+
+  try {
+    if (typeof IntersectionObserver === 'function') {
+      intersectionObserver = new IntersectionObserver(onIntersect, { threshold: 0 });
+      intersectionObserver.observe(canvas);
+    }
+  } catch {
+    intersectionObserver = null;
+  }
+
   // -- render loop -----------------------------------------------------
 
   function ensureLoop() {
-    if (destroyed || rafId !== null || !running || isHidden()) return;
+    if (destroyed || rafId !== null || !running || isHidden() || !inView) return;
     const reqAF = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null;
     if (!reqAF) {
       renderFrame();
       return;
     }
     let lastReducedFrame = 0;
+    let lastFrameTs = -Infinity;
     const loop = (ts) => {
-      if (destroyed || !running || isHidden()) {
+      if (destroyed || !running || isHidden() || !inView) {
         rafId = null;
         return;
       }
@@ -516,7 +546,10 @@ export function initVisualiser(canvas, engine) {
           lastReducedFrame = ts;
           renderFrame();
         }
-      } else {
+      } else if (ts - lastFrameTs >= FRAME_INTERVAL_MS) {
+        // Timestamp-gated: still scheduled every rAF tick (skip frames, not
+        // timers), so we never fall out of sync with the browser's compositor.
+        lastFrameTs = ts;
         renderFrame();
       }
       rafId = reqAF(loop);
@@ -786,6 +819,11 @@ export function initVisualiser(canvas, engine) {
     unsubs.length = 0;
     try {
       if (resizeObserver) resizeObserver.disconnect();
+    } catch {
+      // ignore
+    }
+    try {
+      if (intersectionObserver) intersectionObserver.disconnect();
     } catch {
       // ignore
     }

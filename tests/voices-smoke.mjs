@@ -365,7 +365,7 @@ test('VOICES matches the contract exactly', () => {
       const voice = VOICES[track][id];
       assert.equal(voice.label, label, `${track}.${id}: label`);
       assert.equal(typeof voice.play, 'function', `${track}.${id}: play`);
-      assert.equal(Object.keys(voice).sort().join(','), 'defaults,label,play',
+      assert.equal(Object.keys(voice).sort().join(','), 'controls,defaults,label,play',
         `${track}.${id}: unexpected keys`);
     }
   }
@@ -987,6 +987,154 @@ test('shape2: null is the single-oscillator setting, even against an osc2 string
       'a null shape2 left second-oscillator layers behind');
   }
 });
+
+// --------------------------------------------------------------------------
+// Voice control metadata (v8): controls declares which patch fields a voice
+// actually honours, so the editor can hide the rest instead of greying them.
+// --------------------------------------------------------------------------
+
+const SOURCE_FIELDS = ['shape1', 'shape2', 'mix', 'detune', 'octave'];
+const FILTER_FIELDS = ['type', 'cutoff', 'q', 'envAmount'];
+
+/** true|false|string[] against the field list its group is allowed to name. */
+function checkControlShape(where, value, allowed) {
+  if (typeof value === 'boolean') return;
+  assert.ok(Array.isArray(value), `${where}: ${JSON.stringify(value)} is not true/false/an array`);
+  assert.equal(new Set(value).size, value.length, `${where}: duplicate fields`);
+  for (const field of value) {
+    assert.ok(allowed.includes(field), `${where}: ${field} is not one of ${allowed.join(',')}`);
+  }
+}
+
+const controlsApplies = (declared, field) => (
+  declared === true || (Array.isArray(declared) && declared.includes(field))
+);
+
+test('controls: schema shape, and every applicable field exists in defaults', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const { controls, defaults } = VOICES[track][id];
+      const where = `${track}.${id} controls`;
+      assert.ok(controls && typeof controls === 'object', `${where}: missing`);
+      assert.deepEqual(Object.keys(controls).sort(), ['adsr', 'filter', 'sends', 'source'],
+        `${where}: wrong groups`);
+      checkControlShape(`${where}.source`, controls.source, SOURCE_FIELDS);
+      checkControlShape(`${where}.filter`, controls.filter, FILTER_FIELDS);
+      assert.equal(controls.adsr, true, `${where}.adsr: every voice's own envelope honours a patch`);
+      assert.equal(controls.sends, true, `${where}.sends: the engine applies sends outside play()`);
+      for (const [group, fields] of [['source', SOURCE_FIELDS], ['filter', FILTER_FIELDS]]) {
+        const declared = controls[group];
+        const named = declared === true ? fields : (declared || []);
+        for (const field of named) {
+          assert.ok(field in defaults[group], `${where}.${group}.${field}: not a key in defaults.${group}`);
+        }
+      }
+    }
+  }
+});
+
+/**
+ * envAmount only bends a voice's own filter sweep — cutoffAt()'s exponent or
+ * envDepth()'s LFO/formant scale — and both are read only by the six voices
+ * whose defaults already publish envAmount: 1 (the ones with a filter that
+ * moves at all). Everywhere else envAmount is accepted and ignored, so this
+ * is a straight data-consistency check on the ruling, not a runtime probe.
+ */
+test('controls: filter includes envAmount iff the voice publishes envAmount: 1', () => {
+  for (const [track, patches] of Object.entries(EXPECTED)) {
+    for (const id of Object.keys(patches)) {
+      const { controls, defaults } = VOICES[track][id];
+      const declaresEnvAmount = controlsApplies(controls.filter, 'envAmount');
+      const publishesMover = defaults.filter.envAmount === 1;
+      assert.equal(declaresEnvAmount, publishesMover,
+        `${track}.${id}: envAmount in controls.filter (${declaresEnvAmount}) disagrees `
+        + `with defaults.filter.envAmount === 1 (${publishesMover})`);
+    }
+  }
+});
+
+/** A signature of the whole scheduled graph, sensitive to node kind, type/
+ * PeriodicWave, and every automated param's observed range — so a field with
+ * genuinely zero effect cannot look different by accident, and one that truly
+ * moves the sound cannot look the same by accident. */
+function graphSignature(run) {
+  const r = (v) => Math.round(v * 1e4) / 1e4;
+  return run.graph.map((n) => [
+    n.kind,
+    n.type,
+    n.periodicWave ? `wave(${Array.from(n.periodicWave.imag).map(r).join(',')})` : '',
+    r(n.frequency.min), r(n.frequency.max),
+    r(n.gain.min), r(n.gain.max),
+    r(n.detune.min), r(n.detune.max),
+    r(n.Q.min), r(n.Q.max),
+    r(n.delayTime.min), r(n.delayTime.max),
+  ].join(':')).join('|');
+}
+
+function wildSourceValue(field, base) {
+  if (field === 'shape1' || field === 'shape2') return base === 0 ? 2 : 0;
+  if (field === 'mix') return base > 0.5 ? 0 : 1;
+  if (field === 'detune') return base > 25 ? 0 : 50;
+  return base === 1 ? -1 : 1; // octave
+}
+
+function wildFilterValue(field, base) {
+  if (field === 'type') return base === 'lowpass' ? 'highpass' : 'lowpass';
+  if (field === 'cutoff') return base > 6000 ? 60 : 11000;
+  if (field === 'q') return base > 10 ? 0.2 : 18;
+  return base === 1 ? 0 : 1; // envAmount
+}
+
+function honestyNoteFor(track) {
+  if (track === 'percussion') {
+    // 'low' is the one note.kind every percussion voice strikes a membrane
+    // for; 'mid'/'high' vary per voice, so this is the kind that exercises
+    // source at all — the point of this test is the honesty of the claim,
+    // not a survey of every kind.
+    return { midi: null, freq: null, kind: 'low', duration: 0.25, when: 0.5, velocity: 0.8, pan: 0 };
+  }
+  return attackNote(track);
+}
+
+/**
+ * For every field named in the schema, plays the voice's own defaults against
+ * the same patch with just that one field pushed to a wild, far-from-default
+ * value, and checks the scheduled graph moved iff `controls` says it should.
+ */
+function checkFieldHonesty(track, id, group, fields, wildValueFor) {
+  const voice = VOICES[track][id];
+  const note = honestyNoteFor(track);
+  const seed = 1901;
+  const base = withSeed(seed, () => playAndCheck(`${track}.${id} base`, voice, note,
+    { patch: voice.defaults }));
+  for (const field of fields) {
+    const value = voice.defaults[group][field];
+    if (value === null) continue; // no wild variant of "no second oscillator"
+    const wild = wildValueFor(field, value);
+    const varied = withSeed(seed, () => playAndCheck(`${track}.${id} ${group}.${field}=${wild}`, voice,
+      note, { patch: { ...voice.defaults, [group]: { ...voice.defaults[group], [field]: wild } } }));
+    const identical = graphSignature(base) === graphSignature(varied);
+    const applies = controlsApplies(voice.controls[group], field);
+    if (applies) {
+      assert.ok(!identical,
+        `${track}.${id}: controls.${group} claims ${field} applies, but the graph did not move`);
+    } else {
+      assert.ok(identical,
+        `${track}.${id}: controls.${group} claims ${field} is inapplicable, but the graph moved`);
+    }
+  }
+}
+
+for (const [track, patches] of Object.entries(EXPECTED)) {
+  for (const id of Object.keys(patches)) {
+    test(`controls honesty: ${track}.${id} source`, () => {
+      checkFieldHonesty(track, id, 'source', SOURCE_FIELDS, wildSourceValue);
+    });
+    test(`controls honesty: ${track}.${id} filter`, () => {
+      checkFieldHonesty(track, id, 'filter', FILTER_FIELDS, wildFilterValue);
+    });
+  }
+}
 
 // --------------------------------------------------------------------------
 // Runner

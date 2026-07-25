@@ -399,3 +399,122 @@ Generalise: pulsed tracks `melody`, `bass`, `arp`, `percussion` each get
   keyboard/AT operable) rendered at the top of each of those tracks' Edit panels —
   visually identical treatment so users learn it once; percussion shows 3 lanes,
   melodic tracks one lane.
+
+## v6 amendment 2 — per-track randomisation targets
+
+`tracks[track].vary = { voice, volume, pitch, timing, pan }` — each 0–1 or null
+(default null = "follow this track's `randomness`"); an explicit number overrides the
+macro for that aspect. Sanitiser: clamp/null per field, deep-merge.
+Engine semantics (all bar-quantised where audible):
+- voice: probability per bar of wandering to another of that track's voices (new notes
+  only — per-note synthesis makes this click-free; re-apply defaults.sends on switch;
+  getParams still reports the USER-selected voice, wander is ephemeral).
+- volume: bounded slow random walk on the track gain (±up to ~6 dB at 1.0, centre =
+  configured level) plus per-note velocity jitter.
+- pitch: register/octave wander and passing-note likelihood (scale-aware as ever).
+- timing: humanisation spread ±≤25 ms (respect lookahead).
+- pan: per-note stereo spread width.
+`randomness` remains the macro: it drives every null aspect; explicit aspects ignore it.
+UI: a "Randomise" row of five mini knobs (Voice/Volume/Pitch/Timing/Pan) in each track's
+Edit panel beside the existing Random/Hold/Randomness controls; each knob has an Auto
+detent representing null (left end position, labelled in aria-valuetext); slider fallback.
+
+---
+
+# v7 addendum (range dials: min/max randomisable values; screws removed)
+
+## RangeValue
+
+Designated numeric params accept `number | { min: number, max: number }` (min ≤ max
+enforced, both clamped to the param's range). A range means the EFFECTIVE value drifts
+over time between min and max: engine keeps one bounded random-walk phase per
+(track, param) updated per bar (coherent drift, not per-note white noise), except
+per-note-natured params (velocity already banded; pan spread) which draw per note.
+Sequencer step `prob` becomes rangeable too: the effective probability itself drifts
+between min and max.
+
+Rangeable + DEFAULT RANGE mode (ships as {min,max} in defaults where marked *):
+filter cutoff*, sends reverb/delay, sequencer step prob, track randomness macro.
+Rangeable + default SINGLE: mix, detune, Q, envAmount, ADSR (all four), vary aspects,
+volume knobs. NOT rangeable: shapes (morph dial), octave, filter type, structure/arp
+discrete selects, bpm/speed/timeSignature/root/mode, master volume.
+Sanitisers (engine + voices patch layer) accept both forms everywhere rangeable;
+`number` behaves exactly as today. getParams returns whatever form is stored.
+
+## Dual knob (knob.js)
+
+`createKnob` gains `range: {enabled, value2?}` support: opts `{allowRange?: bool,
+rangeDefault?: bool}`; value may be number or {min,max}. Visual: single mode = current
+pointer; range mode = inner pointer (min) + outer arc pointer (max) with the arc between
+them tinted (--accent-warm at low alpha). CLICK on the knob face toggles single ↔ range
+(preserving values: split → min=max=value; merge → value=(min+max)/2); drag/keys edit
+min (inner) by default, the outer max via a modifier (Shift-drag / Shift-arrows) AND by
+grabbing the outer arc directly; aria: two-thumb pattern (the knob exposes
+aria-valuetext "min X, max Y, drifting" in range mode). onInput receives number or
+{min,max} matching mode. Double-click still resets (to the initial form).
+
+## Screws
+
+The `.screw` decoration is retired — remove usages from pages; the theme keeps (or
+drops) the class definition harmlessly.
+
+---
+
+# v8 addendum (user round 2026-07-25 early)
+
+- Tracks list: per-track VOLUME knob (RangeValue-capable, click toggles min/max drift)
+  visible in the main tracks rows; engine param `tracks[track].level` number|{min,max}
+  0–1 default 0.8, multiplying the track gain (distinct from the vary.volume walk).
+- Voice editor visibility: the per-track editor panel opens when its track row gains
+  focus/selection (click or keyboard), collapsing others (accordion; remembers scroll).
+  Explicit Edit buttons may remain as secondary affordance.
+- Default track states: melody and bass ship state 'off' (defaults change in engine
+  DEFAULT_PARAMS.tracks) until the musicality rework passes the USER's subjective
+  "catchy" gate — that verdict is hard-escalate (user-only), never auto-passed.
+- Bass harmonic contract (musicality rework): bass MUST voice the root of the CURRENT
+  chord the pad/melody/arp share (approach notes only into changes); add a property test
+  (bass note pitch-class == chord root pc on strong beats ≥95% of bars).
+- Structure presets: every preset begins with a staged entry (never all active tracks at
+  bar 0; pad first, others join per activation order across the first section).
+- Voice control metadata: each voice's `defaults` is joined by `controls` — a descriptor
+  of which patch sections/fields genuinely apply (e.g. wash: filter/adsr/sends only).
+  The editor renders ONLY applicable controls; inapplicable = hidden (not greyed).
+
+## v8 clarification — spec-critic rulings (2026-07-25, binding)
+
+Full rulings in docs/spec-rulings-v6-v8.md. Headlines: controls schema uniform
+true|false|string[] per section (adsr/sends always true); gain chain
+TRACK_MIX × clamp(drift(level)×walk,·,1) preserves v5 headroom; randomness stays a
+number default (page probe must widen before any range default ships); sequencer
+grid = sixteenths (6/8→12, accents from pulse starts) EXCEPT the arp lane which is
+indexed by arp-step-within-bar at the current rate; hold freezes the realised bar
+plan but harmony keeps advancing; vary.voice wander is ephemeral and off-state is
+absolute; staging is piece-level (bar 0 = pad only, all presets, even forced-on
+tracks; all eligible by bar 5); tracks-row knob is labelled "Level" (master stays
+"Master volume", vary mini-knob stays "Volume"); tracks.percussion.sequencer is
+authoritative (top-level percussion param accepted as legacy input only); voice
+defaults stay NUMBERS — the engine resolves every RangeValue to a number before
+play(); RangeValue walk: w∈[0,1], ±0.15/bar, effective = min+(max-min)·w.
+
+---
+
+# v9 addendum (performance/thermal — URGENT, user's laptop overheating)
+
+- Visual perf floor (immediate): no shadowBlur in any rAF loop (pre-rendered glow
+  sprite/gradient allowed); visualiser + live scope ≤30 fps active, ≤2 fps hidden-tab
+  (already off), pause via IntersectionObserver when scrolled out; dpr capped at 2.
+- Power governor (src/scripts/power.js): quality tiers eco|low|med|full + auto.
+  Auto senses: PressureObserver (feature-detected), rAF frame-time EMA, audio
+  underrun proxy (ctx.outputLatency drift / currentTime stalls), hardwareConcurrency,
+  deviceMemory, battery discharging. Governor outputs a budget the engine + visuals
+  honour: max simultaneous notes (voice-steal oldest/quietest), reverb IR length
+  (4s/2s/1s/off), texture+arp density scale, visual fps cap, scope on/off.
+- Engine: engine.setPowerBudget(budget) + per-track live stats API
+  engine.getStats() → {perTrack: {activeNotes, nodesEstimate, notesPerMin}, total}
+  for the UI's per-track cost meters.
+- UI: "Processor" dial (Eco–Full + Auto) on the transport panel; per-track cost
+  meter (bar) in the tracks list; the meters and dial are the user-facing story of
+  what is eating CPU.
+- Factory presets: curated preset gallery (name + one-line character) shipping in
+  the page alongside user presets; selecting one = full param snapshot load, fully
+  editable afterwards (no lock-in).

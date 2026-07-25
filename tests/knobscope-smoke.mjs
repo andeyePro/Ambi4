@@ -76,9 +76,12 @@ const mockDocument = {
 // Mock 2d canvas (for scope.js)
 // --------------------------------------------------------------------------
 
-function makeCtx2d(calls) {
+// `propWrites`, if passed, collects every property NAME assigned on the 2d
+// context (not just method calls) so tests can assert e.g. 'shadowBlur' is
+// never touched during a normal frame.
+function makeCtx2d(calls, propWrites) {
   const record = (name) => { calls[name] = (calls[name] || 0) + 1; };
-  return {
+  const base = {
     clearRect() { record('clearRect'); },
     fillRect() { record('fillRect'); },
     beginPath() {},
@@ -87,17 +90,20 @@ function makeCtx2d(calls) {
     stroke() { record('stroke'); },
     fill() { record('fill'); },
     setTransform() {},
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 1,
-    lineJoin: '',
-    lineCap: '',
-    shadowColor: '',
-    shadowBlur: 0,
   };
+  if (!propWrites) {
+    return { ...base, fillStyle: '', strokeStyle: '', lineWidth: 1, lineJoin: '', lineCap: '', shadowColor: '', shadowBlur: 0 };
+  }
+  return new Proxy(base, {
+    set(target, prop, value) {
+      propWrites.add(prop);
+      target[prop] = value;
+      return true;
+    },
+  });
 }
 
-function makeCanvas(calls) {
+function makeCanvas(calls, opts = {}) {
   let ctx = null;
   return {
     width: 600,
@@ -106,7 +112,7 @@ function makeCanvas(calls) {
     clientHeight: 300,
     getContext(kind) {
       if (kind !== '2d') return null;
-      if (!ctx) ctx = makeCtx2d(calls);
+      if (!ctx) ctx = makeCtx2d(calls, opts.propWrites);
       return ctx;
     },
     getBoundingClientRect() {
@@ -298,6 +304,149 @@ test('knob: destroy removes the node + listeners and is idempotent', () => {
 });
 
 // --------------------------------------------------------------------------
+// Knob tests — v7 dual min/max range mode
+// --------------------------------------------------------------------------
+
+// A click = pointerdown + pointerup at (nearly) the same spot, fast.
+function clickKnob(el, x = 50, y = 50) {
+  el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: x, clientY: y });
+  el.dispatch('pointerup', { pointerId: 1, clientX: x, clientY: y });
+}
+
+test('knob v7: number-only knob ignores clicks as mode toggles', () => {
+  const { knob, inputs } = makeTestKnob(); // no allowRange
+  clickKnob(knob.el);
+  assert.equal(knob.el.getAttribute('aria-valuetext'), '5', 'must stay in single mode');
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '5');
+  assert.deepEqual(inputs, [], 'a click on a number-only knob must not emit');
+  knob.destroy();
+});
+
+test('knob v7: allowRange click toggles single ↔ range, preserving values; drags never toggle', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true });
+  const el = knob.el;
+  clickKnob(el); // split: min=max=value
+  assert.deepEqual(inputs, [{ min: 5, max: 5 }]);
+  assert.equal(el.getAttribute('aria-valuetext'), 'min 5, max 5, drifting');
+  el.dispatch('keydown', { key: 'End', shiftKey: true }); // max → 10
+  assert.deepEqual(inputs[1], { min: 5, max: 10 });
+  clickKnob(el); // merge: (5+10)/2 = 7.5 → step 1 quantises to 8
+  assert.equal(inputs[2], 8);
+  assert.equal(el.getAttribute('aria-valuetext'), '8');
+  // A real drag (>5 px between down and up) must NOT toggle the mode.
+  el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 40, clientY: 200 });
+  el.dispatch('pointermove', { clientY: 150 });
+  el.dispatch('pointerup', { pointerId: 1, clientX: 40, clientY: 150 });
+  assert.ok(
+    !el.getAttribute('aria-valuetext').includes('drifting'),
+    'a drag must never toggle into range mode'
+  );
+  assert.equal(typeof inputs[inputs.length - 1], 'number');
+  knob.destroy();
+});
+
+test('knob v7: {min,max} initial value renders range mode', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true, value: { min: 2, max: 8 } });
+  const el = knob.el;
+  assert.equal(el.getAttribute('aria-valuenow'), '2');
+  assert.equal(el.getAttribute('aria-valuetext'), 'min 2, max 8, drifting');
+  assert.equal(el.children[2].textContent, '2 – 8', 'readout shows "min – max"');
+  assert.deepEqual(inputs, []);
+  knob.destroy();
+});
+
+test('knob v7: plain arrows move min, Shift-arrows move max, cross-clamped', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true, value: { min: 4, max: 6 } });
+  const el = knob.el;
+  el.dispatch('keydown', { key: 'ArrowUp' });                 // min 4 → 5
+  el.dispatch('keydown', { key: 'ArrowUp', shiftKey: true }); // max 6 → 7
+  assert.deepEqual(inputs, [{ min: 5, max: 6 }, { min: 5, max: 7 }]);
+  el.dispatch('keydown', { key: 'ArrowUp' }); // min 5 → 6
+  el.dispatch('keydown', { key: 'ArrowUp' }); // min 6 → 7
+  el.dispatch('keydown', { key: 'ArrowUp' }); // min clamps at max: no change, no emit
+  assert.deepEqual(inputs.slice(2), [{ min: 6, max: 7 }, { min: 7, max: 7 }]);
+  el.dispatch('keydown', { key: 'ArrowDown', shiftKey: true }); // max clamps at min: no emit
+  assert.equal(inputs.length, 4);
+  el.dispatch('keydown', { key: 'ArrowDown' });                 // min 7 → 6
+  el.dispatch('keydown', { key: 'ArrowDown', shiftKey: true }); // max 7 → 6
+  assert.deepEqual(inputs.slice(4), [{ min: 6, max: 7 }, { min: 6, max: 6 }]);
+  assert.equal(el.getAttribute('aria-valuetext'), 'min 6, max 6, drifting');
+  knob.destroy();
+});
+
+test('knob v7: onInput payload is a number in single mode, {min,max} in range mode', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true });
+  const el = knob.el;
+  el.dispatch('keydown', { key: 'ArrowUp' }); // single: 5 → 6
+  assert.equal(typeof inputs[0], 'number');
+  assert.equal(inputs[0], 6);
+  clickKnob(el); // → range
+  assert.deepEqual(inputs[1], { min: 6, max: 6 });
+  el.dispatch('wheel', { deltaY: -3, shiftKey: true }); // Shift-wheel edits max
+  assert.deepEqual(inputs[2], { min: 6, max: 7 });
+  el.dispatch('wheel', { deltaY: -3 }); // plain wheel edits min — clamps at max
+  assert.deepEqual(inputs[3], { min: 7, max: 7 });
+  knob.destroy();
+});
+
+test('knob v7: set({min,max}) and set(number) switch mode silently', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true });
+  knob.set({ min: 2, max: 8 });
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 2, max 8, drifting');
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '2');
+  assert.deepEqual(inputs, [], 'set() must not emit');
+  knob.set(4);
+  assert.equal(knob.el.getAttribute('aria-valuetext'), '4');
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '4');
+  assert.deepEqual(inputs, []);
+  knob.destroy();
+});
+
+test('knob v7: dblclick restores the INITIAL value AND mode', () => {
+  // Numeric initial toggled into range → dblclick returns to single 5.
+  const a = makeTestKnob({ allowRange: true });
+  clickKnob(a.knob.el);
+  a.knob.el.dispatch('keydown', { key: 'End', shiftKey: true }); // max → 10
+  a.knob.el.dispatch('dblclick');
+  assert.equal(a.knob.el.getAttribute('aria-valuetext'), '5');
+  assert.equal(a.inputs[a.inputs.length - 1], 5);
+  a.knob.destroy();
+  // Range initial merged to single → dblclick returns to range {2,8}.
+  const b = makeTestKnob({ allowRange: true, value: { min: 2, max: 8 } });
+  clickKnob(b.knob.el); // merge → (2+8)/2 = 5
+  assert.equal(b.inputs[0], 5);
+  b.knob.el.dispatch('dblclick');
+  assert.deepEqual(b.inputs[1], { min: 2, max: 8 });
+  assert.equal(b.knob.el.getAttribute('aria-valuetext'), 'min 2, max 8, drifting');
+  b.knob.el.dispatch('dblclick'); // already at initial form: no extra onInput
+  assert.equal(b.inputs.length, 2);
+  b.knob.destroy();
+});
+
+test('knob v7: aria-valuetext + readout apply the format fn to both ends', () => {
+  const { knob } = makeTestKnob({
+    allowRange: true,
+    value: { min: 2, max: 8 },
+    format: (v) => `${v}Hz`,
+  });
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 2Hz, max 8Hz, drifting');
+  assert.equal(knob.el.children[2].textContent, '2Hz – 8Hz');
+  knob.destroy();
+});
+
+test('knob v7: rangeDefault splits a numeric initial into min=max=value', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true, rangeDefault: true });
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 5, max 5, drifting');
+  assert.equal(knob.el.children[2].textContent, '5 – 5');
+  assert.deepEqual(inputs, []);
+  // dblclick restores the range form (rangeDefault IS the initial mode).
+  knob.el.dispatch('keydown', { key: 'End', shiftKey: true });
+  knob.el.dispatch('dblclick');
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 5, max 5, drifting');
+  knob.destroy();
+});
+
+// --------------------------------------------------------------------------
 // Scope tests — offline path
 // --------------------------------------------------------------------------
 
@@ -419,10 +568,10 @@ function withMockRaf(fn) {
     return id;
   };
   globalThis.cancelAnimationFrame = (id) => { rafCbs.delete(id); };
-  const stepFrame = () => {
+  const stepFrame = (ts = 0) => {
     const frames = [...rafCbs.values()];
     rafCbs.clear();
-    for (const cb of frames) cb(0);
+    for (const cb of frames) cb(ts);
   };
   try {
     return fn({ rafCbs, stepFrame });
@@ -479,6 +628,81 @@ test('scope: live scope works via the byte fallback and pauses when hidden', () 
     scope.attachLiveScope(canvas, null).destroy();
     scope.attachLiveScope(null, makeAnalyser()).destroy();
     scope.attachLiveScope(canvas, {}).destroy();
+  });
+});
+
+test('scope: live scope caps at 30fps — a tick 10ms later is skipped, a tick past the budget draws', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const live = scope.attachLiveScope(canvas, makeAnalyser());
+
+    stepFrame(0); // first scheduled tick always draws
+    assert.ok(calls.stroke > 0, 'expected a drawn frame');
+    const afterFirst = calls.stroke;
+    stepFrame(10); // 10ms later — inside the ~33.3ms/30fps budget
+    assert.equal(calls.stroke, afterFirst, 'must skip a frame inside the 30fps budget');
+    stepFrame(40); // past the budget — draws again
+    assert.ok(calls.stroke > afterFirst, 'must draw once the budget has elapsed');
+
+    live.destroy();
+  });
+});
+
+test('scope: live scope never sets shadowBlur/shadowColor during a normal frame', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const propWrites = new Set();
+    const canvas = makeCanvas(calls, { propWrites });
+    const live = scope.attachLiveScope(canvas, makeAnalyser());
+    stepFrame(0);
+    live.destroy();
+    assert.ok(!propWrites.has('shadowBlur'), 'live scope must never set ctx.shadowBlur');
+    assert.ok(!propWrites.has('shadowColor'), 'live scope must never set ctx.shadowColor');
+  });
+});
+
+test('scope: caps devicePixelRatio backing-store sizing at 2 even when the browser reports higher', () => {
+  const calls = {};
+  const canvas = makeCanvas(calls);
+  const prevWindow = globalThis.window;
+  globalThis.window = { devicePixelRatio: 4 };
+  try {
+    scope.attachLiveScope(canvas, makeAnalyser()).destroy();
+    assert.equal(canvas.width, 1200, 'backing store must clamp to dpr 2, not 4');
+    assert.equal(canvas.height, 600);
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+  }
+});
+
+test('scope: IntersectionObserver stops the live-scope loop when fully out of view, resumes on re-entry', () => {
+  withMockRaf(({ rafCbs }) => {
+    let ioCallback = null;
+    const prevIO = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class {
+      constructor(cb) { ioCallback = cb; }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      const calls = {};
+      const canvas = makeCanvas(calls);
+      const live = scope.attachLiveScope(canvas, makeAnalyser());
+      assert.equal(rafCbs.size, 1, 'a frame must be scheduled while in view');
+
+      ioCallback([{ isIntersecting: false }]);
+      assert.equal(rafCbs.size, 0, 'scrolling fully out of view must stop the loop');
+
+      ioCallback([{ isIntersecting: true }]);
+      assert.equal(rafCbs.size, 1, 'scrolling back into view must resume the loop');
+
+      live.destroy();
+    } finally {
+      if (prevIO === undefined) delete globalThis.IntersectionObserver;
+      else globalThis.IntersectionObserver = prevIO;
+    }
   });
 });
 

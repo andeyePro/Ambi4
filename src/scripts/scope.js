@@ -38,6 +38,11 @@ const OFFLINE_SR = 44100;
 const FALLBACK_SAMPLES = 512;
 const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 const SHAPE_NAMES = { sine: 0, triangle: 1, sawtooth: 2, square: 3 };
+const TARGET_FPS = 30;
+const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+const MAX_DPR = 2; // retina laptops report 2, but browser zoom can push higher
+const GLOW_ALPHA = 0.25;
+const GLOW_LINE_WIDTH = 6;
 
 const FALLBACK_BG = '#161009';
 const FALLBACK_GRID = 'rgba(245, 182, 66, 0.16)';
@@ -300,7 +305,8 @@ function cssColor(canvas, name, fallback) {
 
 function currentDpr() {
   try {
-    return (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const raw = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    return Math.min(MAX_DPR, raw);
   } catch {
     return 1;
   }
@@ -328,11 +334,24 @@ function fitCanvas(canvas, ctx) {
   return { w, h };
 }
 
-function drawScope(canvas, ctx, samples) {
+/** Reads the three scope CSS vars once; callers on a per-frame loop cache this. */
+function readScopeColors(canvas) {
+  return {
+    bg: cssColor(canvas, '--scope-bg', FALLBACK_BG),
+    grid: cssColor(canvas, '--scope-grid', FALLBACK_GRID),
+    trace: cssColor(canvas, '--scope-trace', FALLBACK_TRACE),
+  };
+}
+
+/**
+ * `colors`, if supplied, skips the getComputedStyle reads (attachLiveScope
+ * passes its cached theme colours in on every frame; renderPatchWave's
+ * one-shot static render reads fresh each call).
+ */
+function drawScope(canvas, ctx, samples, colors) {
   const { w, h } = fitCanvas(canvas, ctx);
-  const bg = cssColor(canvas, '--scope-bg', FALLBACK_BG);
-  const grid = cssColor(canvas, '--scope-grid', FALLBACK_GRID);
-  const trace = cssColor(canvas, '--scope-trace', FALLBACK_TRACE);
+  const resolved = colors || readScopeColors(canvas);
+  const { bg, grid, trace } = resolved;
 
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
@@ -358,22 +377,33 @@ function drawScope(canvas, ctx, samples) {
   if (!samples || samples.length < 2) return;
 
   ctx.strokeStyle = trace;
-  ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.shadowColor = trace;
-  ctx.shadowBlur = 6; // subtle phosphor glow
-  ctx.beginPath();
+
   const mid = h / 2;
   const amp = h * TRACE_HEIGHT;
-  for (let i = 0; i < samples.length; i++) {
-    const x = (w * i) / (samples.length - 1);
-    const y = mid - clampRange(samples[i], -1.2, 1.2) * amp;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  const strokeTrace = () => {
+    ctx.beginPath();
+    for (let i = 0; i < samples.length; i++) {
+      const x = (w * i) / (samples.length - 1);
+      const y = mid - clampRange(samples[i], -1.2, 1.2) * amp;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  };
+
+  // Phosphor glow without per-frame shadowBlur: shadowBlur forces the canvas
+  // backend to rasterise a soft-mask blur on every draw call; a wide,
+  // low-alpha underlay stroke of the same trace is two ordinary path
+  // strokes instead, at a fraction of the cost, same look.
+  ctx.globalAlpha = GLOW_ALPHA;
+  ctx.lineWidth = GLOW_LINE_WIDTH;
+  strokeTrace();
+
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2;
+  strokeTrace();
 }
 
 function observeResize(canvas, callback) {
@@ -495,6 +525,25 @@ export function attachLiveScope(canvas, analyser) {
     }
   }
 
+  // -- theme colours: read once, refresh only on an actual theme flip -----
+  // (drawScope used to call getComputedStyle 3x per frame at up to 30fps;
+  // caching turns that into 1x per attach + 1x per prefers-color-scheme flip.)
+  let themeColors = readScopeColors(canvas);
+  let themeMedia = null;
+  function onThemeChange() {
+    themeColors = readScopeColors(canvas);
+  }
+  try {
+    themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+    if (typeof themeMedia.addEventListener === 'function') {
+      themeMedia.addEventListener('change', onThemeChange);
+    } else if (typeof themeMedia.addListener === 'function') {
+      themeMedia.addListener(onThemeChange);
+    }
+  } catch {
+    themeMedia = null;
+  }
+
   function readSamples() {
     const size = analyser.fftSize || (analyser.frequencyBinCount ? analyser.frequencyBinCount * 2 : 1024);
     if (useFloat) {
@@ -525,25 +574,56 @@ export function attachLiveScope(canvas, analyser) {
 
   function drawFrame() {
     try {
-      drawScope(canvas, ctx, triggeredWindow(readSamples()));
+      drawScope(canvas, ctx, triggeredWindow(readSamples()), themeColors);
     } catch {
       // never let a draw error kill the loop
     }
   }
 
+  // -- viewport gating (IntersectionObserver) ------------------------------
+
+  let inView = true; // no IO support → this axis never pauses the loop
+  let intersectionObserver = null;
+
+  function onIntersect(entries) {
+    try {
+      const entry = entries && entries[entries.length - 1];
+      inView = entry ? !!entry.isIntersecting : true;
+    } catch {
+      inView = true;
+    }
+    if (inView) ensureLoop();
+    else stopLoop();
+  }
+
+  try {
+    if (typeof IntersectionObserver === 'function') {
+      intersectionObserver = new IntersectionObserver(onIntersect, { threshold: 0 });
+      intersectionObserver.observe(canvas);
+    }
+  } catch {
+    intersectionObserver = null;
+  }
+
   function ensureLoop() {
-    if (destroyed || rafId !== null || isHidden()) return;
+    if (destroyed || rafId !== null || isHidden() || !inView) return;
     const reqAF = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null;
     if (!reqAF) {
       drawFrame(); // no rAF (bare Node): single static frame
       return;
     }
-    const loop = () => {
-      if (destroyed || isHidden()) {
+    let lastFrameTs = -Infinity;
+    const loop = (ts) => {
+      if (destroyed || isHidden() || !inView) {
         rafId = null;
         return;
       }
-      drawFrame();
+      if (ts - lastFrameTs >= FRAME_INTERVAL_MS) {
+        // Timestamp-gated: still scheduled every rAF tick (skip frames, not
+        // timers), so we never fall out of sync with the compositor.
+        lastFrameTs = ts;
+        drawFrame();
+      }
       rafId = reqAF(loop);
     };
     rafId = reqAF(loop);
@@ -592,6 +672,22 @@ export function attachLiveScope(canvas, analyser) {
       try {
         if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
           document.removeEventListener('visibilitychange', onVisibilityChange);
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        if (intersectionObserver) intersectionObserver.disconnect();
+      } catch {
+        // ignore
+      }
+      try {
+        if (themeMedia) {
+          if (typeof themeMedia.removeEventListener === 'function') {
+            themeMedia.removeEventListener('change', onThemeChange);
+          } else if (typeof themeMedia.removeListener === 'function') {
+            themeMedia.removeListener(onThemeChange);
+          }
         }
       } catch {
         // ignore

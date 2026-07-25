@@ -1,21 +1,39 @@
 /**
- * knob.js — 1970s hi-fi rotary knob control, rendered with SVG (v5 contract).
+ * knob.js — 1970s hi-fi rotary knob control, rendered with SVG (v5 contract
+ * plus the v7 dual-range addendum).
  *
  * export function createKnob(container, { label, min, max, value, step?, marks?,
- *   format?, onInput }) => { el, set(value), destroy() }
+ *   format?, onInput, allowRange?, rangeDefault? }) => { el, set(value), destroy() }
  *
  * 270° sweep (-135°..+135°) with a tick ring (minor ticks plus major marks at
  * `marks` values, or quartiles by default), an engraved pointer line on a
  * circular face, the label below and a formatted value readout beneath that.
  * All colours come from the theme tokens (--knob-face, --knob-ring,
- * --knob-pointer, --tick, --tick-major, --label-font, --secondary) with
- * sensible fallbacks, so the knob renders before the theme lands.
+ * --knob-pointer, --tick, --tick-major, --accent-warm, --label-font,
+ * --secondary) with sensible fallbacks, so the knob renders before the theme
+ * lands.
  *
  * Interaction: pointer-capture vertical drag (hold Shift for 10× finer
  * control), wheel (non-passive, small steps), full keyboard on the focusable
  * knob (role="slider": arrows ±step, PgUp/PgDn ±10 steps, Home/End), and
  * double-click resets to the INITIAL value. `step` is optional — without it
  * the knob is continuous and keys move by (max-min)/200.
+ *
+ * v7 range mode: `value` accepts number | {min,max}. With `allowRange`, a
+ * CLICK on the face (pointerup within 5 px and 300 ms of pointerdown, so
+ * drags never toggle) switches single ↔ range — split keeps the value
+ * (min=max=value), merge takes (min+max)/2. Range mode draws the engraved
+ * inner pointer for min, a short accent pointer riding the ring for max, and
+ * tints the arc between them with --accent-warm at low alpha. Plain
+ * drag/wheel/arrows edit min; Shift selects max instead (fine-drag is a
+ * single-mode nicety only); pointerdown within ~12° of the max pointer grabs
+ * max regardless of Shift; the moving thumb clamps at the other. The knob
+ * stays ONE tab stop: PgUp/PgDn/Home/End act on the last-edited thumb
+ * (default min) and aria-valuetext reads "min X, max Y, drifting". onInput
+ * emits a number in single mode and {min,max} in range mode; set() accepts
+ * both and switches mode to match silently; `rangeDefault` starts a plain
+ * numeric value split (min=max=value); double-click restores the INITIAL
+ * value AND mode.
  *
  * The value scale is strictly linear between min and max. Log-feel (e.g. a
  * filter-cutoff dial) is the CALLER's job: pass a mapped domain (such as
@@ -31,6 +49,11 @@ const START_DEG = -135;
 const SWEEP_DEG = 270;
 const MINOR_TICKS = 25;
 const DRAG_RANGE_PX = 200; // pixels of vertical travel for the full sweep
+
+// v7 range-mode interaction thresholds
+const CLICK_SLOP_PX = 5; // pointerup within this distance of pointerdown …
+const CLICK_MS = 300; //    … and this fast = a click (mode toggle)
+const MAX_GRAB_DEG = 12; // pointerdown within this many degrees grabs the max thumb
 
 // viewBox geometry (100×100 face area; label/value live in HTML below it)
 const CX = 50;
@@ -48,6 +71,7 @@ const RING_STROKE = 'var(--knob-ring, #8d8578)';
 const POINTER_STROKE = 'var(--knob-pointer, #f2e8d5)';
 const TICK_STROKE = 'var(--tick, var(--secondary, #8a8378))';
 const TICK_MAJOR_STROKE = 'var(--tick-major, var(--text, #6b6257))';
+const ACCENT_WARM = 'var(--accent-warm, #c98a4b)';
 const LABEL_COLOR = 'var(--secondary, #5a5a5f)';
 const VALUE_COLOR = 'var(--text, #2e2e33)';
 const LABEL_FONT =
@@ -90,6 +114,8 @@ export function createKnob(container, options) {
   const wheelStep = step || range / 100;
   const onInput = typeof opts.onInput === 'function' ? opts.onInput : null;
   const format = typeof opts.format === 'function' ? opts.format : null;
+  const allowRange = !!opts.allowRange;
+  const rangeDefault = !!opts.rangeDefault;
 
   function fmt(v) {
     if (format) {
@@ -111,8 +137,26 @@ export function createKnob(container, options) {
     return +x.toPrecision(12);
   }
 
-  let value = quantise(toFinite(opts.value, (min + max) / 2));
+  // In range mode `value` is the min thumb and `valueMax` the max thumb; in
+  // single mode `value` is the whole state (valueMax just trails it).
+  let mode = 'single';
+  let value;
+  let valueMax;
+  if (opts.value != null && typeof opts.value === 'object') {
+    const a = quantise(toFinite(opts.value.min, (min + max) / 2));
+    const b = quantise(toFinite(opts.value.max, (min + max) / 2));
+    mode = 'range';
+    value = Math.min(a, b);
+    valueMax = Math.max(a, b);
+  } else {
+    value = quantise(toFinite(opts.value, (min + max) / 2));
+    valueMax = value;
+    if (rangeDefault) mode = 'range';
+  }
+  const initialMode = mode;
   const initialValue = value;
+  const initialValueMax = valueMax;
+  let activeThumb = 'min'; // last-edited thumb; target of PgUp/PgDn/Home/End
 
   // -- build the DOM -------------------------------------------------------
 
@@ -170,6 +214,16 @@ export function createKnob(container, options) {
   }
   svg.appendChild(ticks);
 
+  // Range tint: an arc riding the ring between the min and max angles,
+  // recomputed in updateView(). Hidden in single mode.
+  const rangeArc = document.createElementNS(SVG_NS, 'path');
+  rangeArc.setAttribute('stroke-width', '5');
+  rangeArc.setAttribute('stroke-linecap', 'round');
+  rangeArc.style.fill = 'none';
+  rangeArc.style.stroke = ACCENT_WARM;
+  rangeArc.style.opacity = '0.35';
+  svg.appendChild(rangeArc);
+
   const ring = document.createElementNS(SVG_NS, 'circle');
   ring.setAttribute('cx', String(CX));
   ring.setAttribute('cy', String(CY));
@@ -210,6 +264,28 @@ export function createKnob(container, options) {
   pointer.style.stroke = POINTER_STROKE;
   pointerGroup.appendChild(pointer);
   svg.appendChild(pointerGroup);
+
+  // Max thumb: a short accent pointer straddling the ring (range mode only).
+  const maxPointerGroup = document.createElementNS(SVG_NS, 'g');
+  const maxGroove = document.createElementNS(SVG_NS, 'line');
+  maxGroove.setAttribute('x1', String(CX));
+  maxGroove.setAttribute('y1', String(CY - RING_R - 5));
+  maxGroove.setAttribute('x2', String(CX));
+  maxGroove.setAttribute('y2', String(CY - RING_R + 5));
+  maxGroove.setAttribute('stroke-width', '3.2');
+  maxGroove.setAttribute('stroke-linecap', 'round');
+  maxGroove.style.stroke = 'rgba(0, 0, 0, 0.35)';
+  maxPointerGroup.appendChild(maxGroove);
+  const maxPointer = document.createElementNS(SVG_NS, 'line');
+  maxPointer.setAttribute('x1', String(CX));
+  maxPointer.setAttribute('y1', String(CY - RING_R - 5));
+  maxPointer.setAttribute('x2', String(CX));
+  maxPointer.setAttribute('y2', String(CY - RING_R + 5));
+  maxPointer.setAttribute('stroke-width', '2');
+  maxPointer.setAttribute('stroke-linecap', 'round');
+  maxPointer.style.stroke = ACCENT_WARM;
+  maxPointerGroup.appendChild(maxPointer);
+  svg.appendChild(maxPointerGroup);
   root.appendChild(svg);
 
   const labelEl = document.createElement('div');
@@ -232,26 +308,73 @@ export function createKnob(container, options) {
   valueEl.style.textAlign = 'center';
   root.appendChild(valueEl);
 
+  function degFor(v) {
+    return START_DEG + (SWEEP_DEG * (v - min)) / range;
+  }
+
   function updateView() {
-    const deg = START_DEG + (SWEEP_DEG * (value - min)) / range;
+    const deg = degFor(value);
     pointerGroup.setAttribute('transform', `rotate(${+deg.toFixed(2)} ${CX} ${CY})`);
-    root.setAttribute('aria-valuenow', String(value));
-    root.setAttribute('aria-valuetext', fmt(value));
-    valueEl.textContent = fmt(value);
+    if (mode === 'range') {
+      const maxDeg = degFor(valueMax);
+      maxPointerGroup.setAttribute('transform', `rotate(${+maxDeg.toFixed(2)} ${CX} ${CY})`);
+      maxPointerGroup.style.display = '';
+      const a = polar(RING_R, deg);
+      const b = polar(RING_R, maxDeg);
+      const largeArc = maxDeg - deg > 180 ? 1 : 0;
+      rangeArc.setAttribute('d', `M ${a.x} ${a.y} A ${RING_R} ${RING_R} 0 ${largeArc} 1 ${b.x} ${b.y}`);
+      rangeArc.style.display = '';
+      root.setAttribute('aria-valuenow', String(value));
+      root.setAttribute('aria-valuetext', `min ${fmt(value)}, max ${fmt(valueMax)}, drifting`);
+      valueEl.textContent = `${fmt(value)} – ${fmt(valueMax)}`;
+    } else {
+      maxPointerGroup.style.display = 'none';
+      rangeArc.style.display = 'none';
+      root.setAttribute('aria-valuenow', String(value));
+      root.setAttribute('aria-valuetext', fmt(value));
+      valueEl.textContent = fmt(value);
+    }
+  }
+
+  function emit() {
+    if (!onInput) return;
+    try {
+      onInput(mode === 'range' ? { min: value, max: valueMax } : value);
+    } catch {
+      // a listener error must never break the knob
+    }
   }
 
   function commit(v, fireInput) {
-    const next = quantise(v);
+    let next = quantise(v);
+    if (mode === 'range' && next > valueMax) next = valueMax;
     if (next === value) return;
     value = next;
     updateView();
-    if (fireInput && onInput) {
-      try {
-        onInput(value);
-      } catch {
-        // a listener error must never break the knob
-      }
+    if (fireInput) emit();
+  }
+
+  function commitMax(v, fireInput) {
+    let next = quantise(v);
+    if (next < value) next = value;
+    if (next === valueMax) return;
+    valueMax = next;
+    updateView();
+    if (fireInput) emit();
+  }
+
+  function toggleMode() {
+    if (mode === 'single') {
+      mode = 'range';
+      valueMax = value; // split: min=max=value
+    } else {
+      mode = 'single';
+      value = quantise((value + valueMax) / 2); // merge: midpoint
     }
+    activeThumb = 'min';
+    dragRaw = value;
+    updateView();
+    emit();
   }
 
   // -- interaction ---------------------------------------------------------
@@ -265,12 +388,51 @@ export function createKnob(container, options) {
   let dragging = false;
   let lastY = 0;
   let dragRaw = value; // continuous accumulator so `step` quantisation can't stall a drag
+  let dragThumb = 'min';
+  let pressed = false;
+  let pressX = NaN;
+  let pressY = NaN;
+  let pressTime = 0;
+
+  /** Pointer angle (deg, 0 = top, clockwise) relative to the face centre. */
+  function pointerDeg(e) {
+    if (!e || typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return null;
+    if (typeof root.getBoundingClientRect !== 'function') return null;
+    let rect;
+    try {
+      rect = root.getBoundingClientRect();
+    } catch {
+      return null;
+    }
+    if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.top) || !(rect.width > 0)) {
+      return null;
+    }
+    // The SVG face is a square spanning the root's width, at its top.
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.width / 2;
+    return (Math.atan2(e.clientX - cx, cy - e.clientY) * 180) / Math.PI;
+  }
 
   function onPointerDown(e) {
     if (e && e.button != null && e.button !== 0) return;
     dragging = true;
     lastY = e && typeof e.clientY === 'number' ? e.clientY : 0;
-    dragRaw = value;
+    pressed = true;
+    pressX = e && typeof e.clientX === 'number' ? e.clientX : NaN;
+    pressY = e && typeof e.clientY === 'number' ? e.clientY : NaN;
+    pressTime = Date.now();
+    dragThumb = 'min';
+    if (mode === 'range') {
+      const deg = pointerDeg(e);
+      if (deg != null) {
+        let diff = deg - degFor(valueMax);
+        while (diff > 180) diff -= 360;
+        while (diff < -180) diff += 360;
+        if (Math.abs(diff) <= MAX_GRAB_DEG) dragThumb = 'max'; // grab the outer thumb directly
+      }
+      if (dragThumb !== 'max' && e && e.shiftKey) dragThumb = 'max';
+    }
+    dragRaw = dragThumb === 'max' ? valueMax : value;
     try {
       if (e && e.pointerId != null && typeof root.setPointerCapture === 'function') {
         root.setPointerCapture(e.pointerId);
@@ -285,14 +447,24 @@ export function createKnob(container, options) {
     if (!dragging || !e || typeof e.clientY !== 'number') return;
     const dy = lastY - e.clientY; // drag up = increase
     lastY = e.clientY;
-    const fine = e.shiftKey ? 0.1 : 1;
+    // In range mode Shift selects the max thumb instead of fine control.
+    const fine = mode !== 'range' && e.shiftKey ? 0.1 : 1;
     dragRaw += dy * (range / DRAG_RANGE_PX) * fine;
-    if (dragRaw < min) dragRaw = min;
-    else if (dragRaw > max) dragRaw = max;
+    const lo = mode === 'range' && dragThumb === 'max' ? value : min;
+    const hi = mode === 'range' && dragThumb === 'min' ? valueMax : max;
+    if (dragRaw < lo) dragRaw = lo;
+    else if (dragRaw > hi) dragRaw = hi;
+    if (mode === 'range') {
+      activeThumb = dragThumb;
+      if (dragThumb === 'max') {
+        commitMax(dragRaw, true);
+        return;
+      }
+    }
     commit(dragRaw, true);
   }
 
-  function onPointerUp(e) {
+  function endPointer(e) {
     dragging = false;
     dragRaw = value;
     try {
@@ -304,30 +476,66 @@ export function createKnob(container, options) {
     }
   }
 
+  function onPointerUp(e) {
+    const wasPress = pressed;
+    pressed = false;
+    endPointer(e);
+    if (!allowRange || !wasPress || !e) return;
+    const dx = typeof e.clientX === 'number' ? e.clientX - pressX : NaN;
+    const dy = typeof e.clientY === 'number' ? e.clientY - pressY : NaN;
+    const dist = Math.sqrt(dx * dx + dy * dy); // NaN when coords were missing → not a click
+    if (dist <= CLICK_SLOP_PX && Date.now() - pressTime < CLICK_MS) toggleMode();
+  }
+
+  function onPointerCancel(e) {
+    pressed = false;
+    endPointer(e);
+  }
+
   function onWheel(e) {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     const dy = e && typeof e.deltaY === 'number' ? e.deltaY : 0;
     if (!dy) return;
+    const dir = dy < 0 ? 1 : -1;
+    if (mode === 'range') {
+      const target = e && e.shiftKey ? 'max' : 'min';
+      activeThumb = target;
+      if (target === 'max') commitMax(valueMax + dir * wheelStep, true);
+      else commit(value + dir * wheelStep, true);
+      return;
+    }
     const fine = e && e.shiftKey ? 0.1 : 1;
-    commit(value + (dy < 0 ? 1 : -1) * wheelStep * fine, true);
+    commit(value + dir * wheelStep * fine, true);
   }
 
   function onKeyDown(e) {
+    const key = e && e.key;
+    const isRange = mode === 'range';
+    const shifted = !!(e && e.shiftKey);
+    let target = 'min';
+    if (isRange) {
+      const isArrow =
+        key === 'ArrowUp' || key === 'ArrowRight' || key === 'ArrowDown' || key === 'ArrowLeft';
+      // Arrows: plain=min, Shift=max. PgUp/PgDn/Home/End: the active thumb
+      // (last edited, default min); Shift still forces max.
+      target = shifted ? 'max' : isArrow ? 'min' : activeThumb;
+    }
+    const cur = target === 'max' ? valueMax : value;
     let next = null;
-    switch (e && e.key) {
+    switch (key) {
       case 'ArrowUp':
       case 'ArrowRight':
-        next = value + keyStep;
+        next = cur + keyStep;
         break;
       case 'ArrowDown':
       case 'ArrowLeft':
-        next = value - keyStep;
+        next = cur - keyStep;
         break;
       case 'PageUp':
-        next = value + keyStep * 10;
+        next = cur + keyStep * 10;
         break;
       case 'PageDown':
-        next = value - keyStep * 10;
+        next = cur - keyStep * 10;
         break;
       case 'Home':
         next = min;
@@ -339,19 +547,31 @@ export function createKnob(container, options) {
         return;
     }
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
-    commit(next, true);
+    if (isRange) activeThumb = target;
+    if (target === 'max') commitMax(next, true);
+    else commit(next, true);
   }
 
   function onDoubleClick(e) {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
-    dragRaw = initialValue;
-    commit(initialValue, true);
+    const changed =
+      mode !== initialMode ||
+      value !== initialValue ||
+      (initialMode === 'range' && valueMax !== initialValueMax);
+    mode = initialMode;
+    value = initialValue;
+    valueMax = initialValueMax;
+    activeThumb = 'min';
+    dragRaw = value;
+    if (!changed) return;
+    updateView();
+    emit();
   }
 
   listen('pointerdown', onPointerDown);
   listen('pointermove', onPointerMove);
   listen('pointerup', onPointerUp);
-  listen('pointercancel', onPointerUp);
+  listen('pointercancel', onPointerCancel);
   listen('wheel', onWheel, { passive: false });
   listen('keydown', onKeyDown);
   listen('dblclick', onDoubleClick);
@@ -367,9 +587,22 @@ export function createKnob(container, options) {
 
   return {
     el: root,
-    /** Update the knob silently — no onInput. */
+    /** Update the knob silently — no onInput. Accepts number | {min,max}; the mode follows. */
     set(v) {
-      commit(v, false);
+      if (v != null && typeof v === 'object') {
+        const a = quantise(toFinite(v.min, value));
+        const b = quantise(toFinite(v.max, value));
+        mode = 'range';
+        value = Math.min(a, b);
+        valueMax = Math.max(a, b);
+        activeThumb = 'min';
+        updateView();
+      } else {
+        const wasRange = mode === 'range';
+        mode = 'single';
+        commit(v, false);
+        if (wasRange) updateView(); // commit may early-return; the mode switch must still render
+      }
       dragRaw = value;
     },
     destroy() {
