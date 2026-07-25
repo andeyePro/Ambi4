@@ -14,12 +14,6 @@
 - [ ] Premium tier: define the offer
 - [ ] Transport buttons: review which (if any) demote to Advanced-only (one-line gate ready)
 
-### In flight (overnight wave 2)
-- [ ] Psychology-grounded factory presets (src/data/factory-presets.json)
-- [ ] Block editor v1 (pattern blocks, tie-to-beat links)
-- [ ] Preset URL routes (ambi4.work/[slug]) + presets below Simple dials
-- [ ] Knob push-through min/max; piano-roll chord de-overlap
-
 ### Next build queue (v20 shape model)
 - [ ] Skew-based tri→saw morph (peak-travel PeriodicWave) + Fold (wavefolder) modifier dial
 
