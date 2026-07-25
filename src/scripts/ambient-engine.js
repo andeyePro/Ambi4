@@ -174,6 +174,21 @@ export const VARY_ASPECTS = Object.freeze(['voice', 'volume', 'pitch', 'timing',
 const DEFAULT_TRACK_LEVEL = 0.8;
 const DEFAULT_TRACK_RANDOMNESS = 0.5;
 
+/**
+ * v12 mono/legato. A monophonic track sounds one note at a time: the note in
+ * progress is released the instant the next one starts, which is what turns a
+ * generative line from an overlapping wash into something singable — and costs
+ * fewer nodes, not more. `glide` 0–1 maps onto GLIDE_RANGE seconds of
+ * portamento for the voices that can slur (a sustaining voice retunes; a
+ * struck one re-strikes, because its attack IS the note).
+ *
+ * The two melodic lines ship mono; pad, texture, arp and percussion do not —
+ * a chord and a drum kit are polyphonic by nature.
+ */
+const DEFAULT_TRACK_MONO = Object.freeze({ melody: true, bass: true });
+const DEFAULT_TRACK_GLIDE = Object.freeze({ melody: 0.3, bass: 0.15 });
+const GLIDE_RANGE = Object.freeze([0.02, 0.12]);
+
 /** The step a legacy `arp.steps` boolean expands to, and every lane's default. */
 const DEFAULT_STEP = Object.freeze({ on: true, prob: 1, vmin: 0.5, vmax: 0.9 });
 
@@ -219,7 +234,15 @@ function defaultSequencer(track) {
  * over a phrase. Every other track (and every other aspect) still defaults to
  * null = "follow this track's randomness".
  */
-const DEFAULT_VARY_VOICE = Object.freeze({ pad: 0.15, texture: 0.15 });
+const DEFAULT_VARY_VOICE = Object.freeze({
+  pad: 0.15,
+  texture: 0.15,
+  // v12: the bass explicitly does NOT wander. Following the randomness macro
+  // sent it onto the breath voice every few bars, whose pink-noise layer reads
+  // as wind following each note — a fault, not a colour, at the bottom of the
+  // mix. An explicit 0 beats the macro; a user who wants the wander can ask.
+  bass: 0,
+});
 
 function defaultVary(track) {
   return Object.fromEntries(VARY_ASPECTS.map((aspect) => [
@@ -236,6 +259,8 @@ function defaultTracks() {
       level: DEFAULT_TRACK_LEVEL,
       randomness: DEFAULT_TRACK_RANDOMNESS,
       hold: false,
+      mono: DEFAULT_TRACK_MONO[name] === true,
+      glide: DEFAULT_TRACK_GLIDE[name] ?? 0,
       vary: defaultVary(name),
     };
     if (SEQUENCED_TRACKS.includes(name)) track.sequencer = defaultSequencer(name);
@@ -456,6 +481,10 @@ function sanitiseTracks(value, base) {
         ?? sanitiseRangeValue(baseTrack.randomness, 0, 1)
         ?? DEFAULT_TRACK_RANDOMNESS,
       hold: partial && 'hold' in partial ? Boolean(partial.hold) : Boolean(baseTrack.hold),
+      mono: partial && 'mono' in partial ? Boolean(partial.mono)
+        : 'mono' in baseTrack ? Boolean(baseTrack.mono) : DEFAULT_TRACK_MONO[name] === true,
+      glide: numberIn(partial && partial.glide, [0, 1],
+        numberIn(baseTrack.glide, [0, 1], DEFAULT_TRACK_GLIDE[name] ?? 0)),
       vary: sanitiseVary(partial && partial.vary, baseTrack.vary),
     };
     if (SEQUENCED_TRACKS.includes(name)) {
@@ -570,9 +599,12 @@ const PATCH_SCHEMA = Object.freeze({
     shape1: (v) => patchNumber(v, 0, 3),
     shape2: (v) => (v === null ? null : patchNumber(v, 0, 3)),
     mix: (v) => patchNumber(v, 0, 1),
-    detune: (v) => patchNumber(v, 0, 50),
+    // Bipolar since v12: the dial detunes flat as readily as sharp, and the
+    // octave switch reaches two either way. Defaults are unchanged, so every
+    // stored patch keeps sounding exactly as it did.
+    detune: (v) => patchNumber(v, -50, 50),
     octave: (v) => {
-      const num = patchNumber(v, -1, 1);
+      const num = patchNumber(v, -2, 2);
       return num === undefined ? undefined : Math.round(num);
     },
   }),
@@ -827,8 +859,83 @@ export function generateProgression(scaleLength, complexity = 0.5, rng = Math.ra
 //   inversions  0–2, how many chord tones are rotated an octave up (voicing)
 //   extensions  -1/0/+1, a colour nudge on top of the piece's complexity
 
+/**
+ * The memory both the hook and the melody's motif are built on. It keeps a
+ * handful of variants, ranked by a deliberately crude salience — how long a
+ * shape survived untouched, how hot the section it played under — and draws
+ * one back on request. De-duplicating on a caller-supplied key is what stops
+ * one shape filling every slot; a `key` is a variant's identity, so storing
+ * the same shape twice only ever raises its salience.
+ *
+ * v12 generalises this out of the v11 hook rather than giving the motif a
+ * second, parallel implementation: the ear-worm mechanism is the same
+ * mechanism whether what returns is a chord loop or a tune.
+ */
+export function createVariantBank({ size = 6, clone = (variant) => variant } = {}) {
+  let entries = [];
+  return {
+    get entries() { return entries; },
+    get length() { return entries.length; },
+    clear() { entries = []; },
+
+    /** Keep `variant` under `key`, dropping the least salient once full. */
+    store(key, variant, salience, extra = null) {
+      const known = entries.find((entry) => entry.key === key);
+      if (known) {
+        known.salience = Math.max(known.salience, salience);
+        if (extra) Object.assign(known, extra);
+        return known;
+      }
+      const entry = { ...(extra ?? {}), key, variant: clone(variant), salience };
+      entries.push(entry);
+      if (entries.length > size) {
+        let worst = 0;
+        for (let i = 1; i < entries.length; i++) {
+          if (entries[i].salience < entries[worst].salience) worst = i;
+        }
+        entries.splice(worst, 1);
+      }
+      return entry;
+    },
+
+    find(predicate) {
+      return entries.find(predicate) ?? null;
+    },
+
+    /**
+     * A weighted draw over everything except what is playing now — recalling
+     * the shape already sounding is not a return, so an empty field means no
+     * recall this time and the caller carries on.
+     */
+    recall(currentKey, weight, rng = Math.random) {
+      const candidates = entries.filter((entry) => entry.key !== currentKey);
+      if (!candidates.length) return null;
+      const weights = candidates.map((entry) => Math.max(0.05, weight(entry)));
+      const total = weights.reduce((sum, value) => sum + value, 0);
+      let r = rng() * total;
+      let chosen = candidates[candidates.length - 1];
+      for (let i = 0; i < candidates.length; i++) {
+        r -= weights[i];
+        if (r <= 0) { chosen = candidates[i]; break; }
+      }
+      return chosen;
+    },
+  };
+}
+
 export const HOOK_MIN_CHORDS = 4;
 export const HOOK_MAX_CHORDS = 8;
+
+const HOOK_BANK_SIZE = 6;         // ear-worms kept; the least salient is dropped
+const HOOK_RECALL_MIN = 4;        // loop passes between recalls, at repetition 1
+const HOOK_RECALL_SPAN = 4;       // extra passes the cycle can run to at repetition 0
+const HOOK_SNAPSHOT_EVERY = 3;    // passes between bank snapshots
+const HOOK_STABLE_TO_BANK = 2;    // passes unmutated that make a variant worth keeping
+const HOOK_HOT_INTENSITY = 0.7;   // section intensity that makes a pass worth keeping
+
+const MOTIF_BANK_SIZE = 6;        // cells kept, ranked the same way hooks are
+const PHRASE_BARS = 4;            // bars per melodic phrase: statement, two developments, cadence
+const MELODY_BAND = 14;           // semitones either side of the octave-4 root the tune may use
 
 /**
  * Establish a hook from the same diatonic walk the engine has always used, so
@@ -982,6 +1089,195 @@ export function generatePhrase({
     }
   }
   return { bars, notes };
+}
+
+// -- the motif (v12) --------------------------------------------------------
+//
+// A tune is not a stream of well-chosen notes, it is one small idea heard
+// again. The motif is that idea: a 3–5 note cell with a fixed rhythm and a
+// fixed contour, stated at the top of every phrase and DEVELOPED rather than
+// re-rolled — repeated, moved onto another tone of the chord under it, pushed
+// off the beat, turned upside down, run backwards. The rhythm is what survives
+// every one of those, which is what makes the cell recognisable after it has
+// been transposed and inverted.
+//
+// Degrees are scale steps RELATIVE to the chord root, exactly as phrases have
+// always been, so a cell stays consonant wherever the hook takes it.
+
+export const MOTIF_MIN_NOTES = 3;
+export const MOTIF_MAX_NOTES = 5;
+
+/** The developments a motif can undergo. `repeat` is the statement itself. */
+export const MOTIF_OPS = Object.freeze([
+  'repeat', 'transpose', 'displace', 'invert', 'retrograde',
+]);
+
+/** Onset spacings a cell is built from, opened up by complexity. */
+const MOTIF_GAPS = Object.freeze([
+  [1, 1, 1.5, 2],        // calm: crotchets and longer
+  [0.5, 1, 1, 1.5],      // middling: a quaver pair inside a walking line
+  [0.5, 0.5, 0.75, 1],   // busy: quavers, with the occasional dotted lean
+]);
+
+/**
+ * Build a cell. Contour comes from one of four shapes so the line has a
+ * direction rather than a wander; intervals are scale STEPS, and at most one
+ * of them is a leap — stepwise motion is what makes a tune hummable, and a
+ * single leap is what stops it being a scale.
+ */
+export function buildMotif({
+  beatsPerBar: barBeats = 4,
+  complexity = 0.5,
+  scaleLength = 5,
+  rng = Math.random,
+} = {}) {
+  const c = clamp(complexity, 0, 1);
+  const wanted = clamp(
+    Math.round(MOTIF_MIN_NOTES + c * (MOTIF_MAX_NOTES - MOTIF_MIN_NOTES)),
+    MOTIF_MIN_NOTES, MOTIF_MAX_NOTES,
+  );
+  const gaps = MOTIF_GAPS[c < 0.35 ? 0 : c < 0.7 ? 1 : 2];
+
+  const beats = [0];
+  let at = 0;
+  for (let i = 1; i < wanted; i++) {
+    at += pick(gaps, rng);
+    if (at > barBeats - 0.25 + 1e-9) break;
+    beats.push(at);
+  }
+  const count = beats.length;
+  const lengths = beats.map((beat, i) => (i + 1 < count
+    ? beats[i + 1] - beat
+    : clamp(barBeats - beat, 0.5, 2)));
+
+  const shape = pick(['rise', 'fall', 'arch', 'dip'], rng);
+  const turn = Math.max(1, Math.floor(count / 2));
+  // One leap per cell at most, and only sometimes: a cell of pure steps is a
+  // perfectly good tune, a cell of pure leaps is a fanfare nobody can sing.
+  const leapAt = rng() < 0.7 ? 1 + (Math.floor(rng() * Math.max(1, count - 1)) % Math.max(1, count - 1)) : -1;
+  const steps = [0];
+  for (let i = 1; i < count; i++) {
+    const up = shape === 'rise' ? 1
+      : shape === 'fall' ? -1
+        : shape === 'arch' ? (i <= turn ? 1 : -1)
+          : (i <= turn ? -1 : 1);
+    const size = i === leapAt ? (rng() < 0.35 ? 3 : 2) : 1;
+    steps.push(clamp(steps[i - 1] + up * size, -scaleLength, scaleLength * 2));
+  }
+
+  return { steps, beats, lengths, shape };
+}
+
+export function cloneMotif(motif) {
+  return {
+    steps: [...motif.steps],
+    beats: [...motif.beats],
+    lengths: [...motif.lengths],
+    shape: motif.shape,
+  };
+}
+
+/** A cell's identity — pitch shape and rhythm together, which is what an ear keeps. */
+export function motifKey(motif) {
+  return `${motif.steps.join(',')}|${motif.beats.join(',')}`;
+}
+
+/** The chord tone nearest a scale degree, in any octave. Where a phrase lands. */
+export function nearestChordTone(degree, scaleLength = 5) {
+  let best = 0;
+  let distance = Infinity;
+  for (let octave = -2; octave <= 2; octave++) {
+    for (const tone of [0, 2, 4]) {
+      const candidate = tone + octave * scaleLength;
+      const away = Math.abs(candidate - degree);
+      // A tie resolves towards the home octave: a cadence has two equally near
+      // chord tones about as often as not, and the one that keeps the line
+      // where it has been singing beats the one an octave away.
+      if (away < distance || (away === distance && Math.abs(candidate) < Math.abs(best))) {
+        distance = away;
+        best = candidate;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * One development of a cell. Every branch keeps the rhythm except `displace`,
+ * which keeps everything BUT the rhythm's position — between them the ear can
+ * always find the cell again.
+ *
+ * - repeat      the statement, untouched
+ * - transpose   the whole cell onto another tone of the chord under it
+ * - displace    the same cell, pushed later in the bar
+ * - invert      the contour mirrored about its first note
+ * - retrograde  the pitches run backwards over the same rhythm
+ */
+export function developMotif(motif, op, {
+  beatsPerBar: barBeats = 4, scaleLength = 5, rng = Math.random,
+} = {}) {
+  const cell = cloneMotif(motif);
+  if (op === 'transpose') {
+    const shift = pick([2, 4, -scaleLength, scaleLength, 2, 4], rng);
+    cell.steps = cell.steps.map((step) => step + shift);
+    return cell;
+  }
+  if (op === 'displace') {
+    const by = pick([0.5, 1, 0.5], rng);
+    const beats = [];
+    const steps = [];
+    const lengths = [];
+    for (let i = 0; i < cell.beats.length; i++) {
+      const beat = cell.beats[i] + by;
+      if (beat > barBeats - 0.25 + 1e-9) break;
+      beats.push(beat);
+      steps.push(cell.steps[i]);
+      lengths.push(Math.min(cell.lengths[i], barBeats - beat));
+    }
+    // A displacement that pushed everything off the end is no development at
+    // all; the statement is better than silence.
+    if (beats.length < 2) return cell;
+    cell.beats = beats;
+    cell.steps = steps;
+    cell.lengths = lengths;
+    return cell;
+  }
+  if (op === 'invert') {
+    const pivot = cell.steps[0];
+    cell.steps = cell.steps.map((step) => 2 * pivot - step);
+    return cell;
+  }
+  if (op === 'retrograde') {
+    cell.steps = [...cell.steps].reverse();
+    return cell;
+  }
+  return cell;
+}
+
+/**
+ * A bar of bass rhythm (v12, tightening the v8 harmonic contract). `starts`
+ * are the bar's felt pulses: the pattern may play on any of them, and when it
+ * does the note is the ROOT of the chord — the pitch class every other track
+ * is voicing. Between the pulses it may take the fifth or the octave, which is
+ * colour rather than harmony and so cannot muddy the chord.
+ *
+ * The result is a PATTERN, not a bar: the engine draws it once per section and
+ * repeats it, which is the difference between a bass line and a bass noise.
+ */
+export function buildBassPattern({
+  starts = [0, 1, 2, 3], beats = 4, intensity = 0.5, complexity = 0.5, rng = Math.random,
+} = {}) {
+  const density = clamp(0.2 + clamp(intensity, 0, 1) * 0.5 + clamp(complexity, 0, 1) * 0.3, 0, 1);
+  const steps = [{ beat: starts[0] ?? 0, tone: 'root' }];
+  for (let i = 1; i < starts.length; i++) {
+    if (rng() < density) steps.push({ beat: starts[i], tone: 'root' });
+  }
+  for (let beat = 0.5; beat < beats - 1e-9; beat += 1) {
+    if (starts.some((start) => Math.abs(start - beat) < 1e-9)) continue;
+    if (rng() >= density * 0.4) continue;
+    steps.push({ beat, tone: rng() < 0.65 ? 'fifth' : 'octave' });
+  }
+  return steps.sort((a, b) => a.beat - b.beat);
 }
 
 // -- song structure ---------------------------------------------------------
@@ -1393,6 +1689,9 @@ export function createEngine(initialParams, options = {}) {
   let idleSuspended = false;   // the engine suspended the context itself to save power
   let output = null;           // { mode: 'element', streamDest, el } | { mode: 'direct' }
   const liveNotes = new Set(); // { handle, end } cancel handles for sounding notes
+  // v12 mono: the note each monophonic track currently has sounding, so the
+  // next one can either slur into it or replace it.
+  const monoNotes = new Map(); // track → { entry, handle, freq, until, voice }
 
   // Graceful ending state
   let finishRequest = null;    // { promise, resolve, fadeSeconds } while finishing
@@ -1423,7 +1722,7 @@ export function createEngine(initialParams, options = {}) {
   let hookPass = 0;            // completed loop passes since the hook was established
   let hookStable = 0;          // passes the current variant has survived unmutated
   let hookRecallAt = 0;        // the pass at which the next recall is due
-  let hookBank = [];           // [{ key, variant, salience, pass }] — the ear-worms
+  const hookBank = createVariantBank({ size: HOOK_BANK_SIZE, clone: cloneHook });
   let hookSectionPending = false; // a section changed: re-pick a variant at the next pass
   let chordDegree = 0;
   let chordInversion = 0;
@@ -1434,15 +1733,24 @@ export function createEngine(initialParams, options = {}) {
   let padSwellPhase = 0;       // position in the pad's four-bar dynamic contour
   let padRested = false;       // the chord span just gone was a rest
 
-  // Melodic state
-  let phraseBank = [];
-  let currentPhrase = null;
-  let phraseBarIndex = 0;
-  let phraseBarsLeft = 0;
+  // Melodic state — the v12 motif: one cell per section, developed bar by bar,
+  // banked and recalled through the same machinery as the hook.
+  let motif = null;              // the cell every melody bar is a development of
+  let motifPhrase = 0;           // phrases the current cell has been heard through
+  let motifSalience = 0;         // phrases it has survived without being replaced
+  let motifSectionPending = false; // a section changed: re-pick a cell at the next phrase
+  let motifPending = null;       // a cell the hook's recall asked the melody to bring back
+  let phraseBar = 0;             // bar within the current phrase
+  const motifBank = createVariantBank({ size: MOTIF_BANK_SIZE, clone: cloneMotif });
+
+  // The bass's per-section rhythm, drawn once per section rather than per bar.
+  let bassPattern = null;
+  let bassPatternKey = '';
 
   // Realised bar plans (see planFor): every random draw a bar needs is made
   // once, at the barline, so hold can replay a bar identically.
-  let melodyPlan = [];
+  let melodyPlan = { motifDerived: false, notes: [] };
+  let melodyShift = 0;         // the bar's octave transposition into the register band
   let texturePlan = [];
   let arpPlan = null;
   let percussionPlan = [];
@@ -1666,14 +1974,19 @@ export function createEngine(initialParams, options = {}) {
           // with it — recalling the old ear-worm is precisely what a re-roll is
           // asking not to hear.
           hook = null;
-          hookBank = [];
+          hookBank.clear();
           chordBarsLeft = 0;
+          // The bass's own re-roll is its rhythm; the pattern is redrawn for
+          // the section it is in.
+          bassPattern = null;
+          bassPatternKey = '';
           break;
         case 'melody':
-          phraseBank = [];
-          currentPhrase = null;
-          phraseBarsLeft = 0;
-          phraseBarIndex = 0;
+          motifBank.clear();
+          motif = null;
+          motifPending = null;
+          motifPhrase = 0;
+          phraseBar = 0;
           break;
         case 'arp':
           autoArpSteps = null;
@@ -1760,8 +2073,15 @@ export function createEngine(initialParams, options = {}) {
     const constant = Math.max(rampSeconds / 3, 0.02);
     for (const name of TRACK_ORDER) {
       const track = graph.tracks[name];
-      const level = isActive(name) ? trackGain(name) : SILENCE;
-      track.input.gain.setTargetAtTime(Math.max(level, SILENCE), time, constant);
+      // A track switched off stops SCHEDULING; what is already sounding rings
+      // out on its own release rather than being pulled out from under the
+      // listener. Muting therefore waits until the tail is gone, which the next
+      // bar's pass picks up — nothing here ever cancels a live note.
+      const level = isActive(name) ? trackGain(name)
+        : hasSoundingNotes(name, time) ? null : SILENCE;
+      if (level !== null) {
+        track.input.gain.setTargetAtTime(Math.max(level, SILENCE), time, constant);
+      }
       const brightness = clamp(TRACK_MIX[name].tone * (0.55 + intensity * 0.75), 300, 18000);
       track.tone.frequency.setTargetAtTime(brightness, time, constant);
     }
@@ -1902,6 +2222,15 @@ export function createEngine(initialParams, options = {}) {
       }
     }
     liveNotes.clear();
+    monoNotes.clear();
+  }
+
+  /** Whether a track still has a note ringing (tail included) at `at`. */
+  function hasSoundingNotes(track, at) {
+    for (const entry of liveNotes) {
+      if (entry.track === track && entry.end > at) return true;
+    }
+    return false;
   }
 
   /** Notes whose audible span covers `at` — the polyphony the CPU pays for now. */
@@ -1972,6 +2301,36 @@ export function createEngine(initialParams, options = {}) {
     if (stale) times.splice(0, stale);
   }
 
+  /** Whether a track sounds one note at a time (v12). */
+  const isMono = (track) => params.tracks[track].mono === true;
+
+  /** A track's portamento, in seconds: the 0–1 param across GLIDE_RANGE. */
+  function glideSeconds(track) {
+    const amount = clamp(Number(params.tracks[track].glide) || 0, 0, 1);
+    return GLIDE_RANGE[0] + (GLIDE_RANGE[1] - GLIDE_RANGE[0]) * amount;
+  }
+
+  /**
+   * Release the note a mono track is replacing, AT the new onset rather than
+   * now: the lookahead schedules a bar before it sounds, so cancelling on the
+   * spot would leave a hole where the rest of the previous note should be.
+   */
+  function releaseMono(previous, at) {
+    // Same trim as a legato handover: the note stops here, whatever span it
+    // was scheduled with.
+    if (previous.note) {
+      previous.note.duration = Math.max(0.02, at - previous.note.when);
+    }
+    if (previous.handle) {
+      try {
+        previous.handle.cancel(at);
+      } catch {
+        // A note that will not cancel is still just one note.
+      }
+    }
+    liveNotes.delete(previous.entry);
+  }
+
   function playNote(track, note) {
     const midi = note.midi ?? null;
     // Timing humanisation can pull a note behind its grid position, so it is
@@ -1993,44 +2352,88 @@ export function createEngine(initialParams, options = {}) {
     const voice = voiceFor(track);
     if (voice) {
       stealForBudget(full.when);
+      // v12 mono: one sounding note per track. The note in progress is offered
+      // to the voice as `legatoFrom` — a sustaining voice slurs into it and
+      // says so, anything else re-strikes and the engine releases the old note
+      // at the new onset. Either way the track never stacks.
+      const mono = midi !== null && isMono(track);
+      const previous = mono ? monoNotes.get(track) : null;
+      const reachable = previous && previous.until >= full.when - 1e-6
+        && previous.voice === effectiveVoice(track);
+      if (reachable) {
+        full.legatoFrom = {
+          freq: previous.freq,
+          handle: previous.handle,
+          glide: glideSeconds(track),
+        };
+      }
       try {
         const handle = voice.play(ctx, graph.tracks[track].input, full, patchFor(track));
-        // Every note is booked, handle or not: the cost meters count them all.
-        // A handle also lets stop() and the power budget hard-stop the note —
-        // a suspended context would otherwise freeze its tail, which
-        // resurrects, possibly in an old key, on the next start().
+        const cancellable = handle && typeof handle.cancel === 'function' ? handle : null;
         pruneLiveNotes();
-        liveNotes.add({
-          track,
-          handle: handle && typeof handle.cancel === 'function' ? handle : null,
-          velocity: full.velocity,
-          when: full.when,
-          until: full.when + full.duration,
-          end: full.when + full.duration + CANCEL_TAIL,
-        });
+        if (reachable && handle && handle.legato === true) {
+          // The voice took the sounding note over: nothing was born, so the
+          // note already on the books simply rings on at the new pitch.
+          previous.entry.until = full.when + full.duration;
+          previous.entry.end = previous.entry.until + CANCEL_TAIL;
+          previous.entry.velocity = full.velocity;
+          previous.entry.handle = cancellable ?? previous.entry.handle;
+          previous.handle = previous.entry.handle;
+          previous.freq = full.freq;
+          previous.until = previous.entry.until;
+          liveNotes.add(previous.entry);
+          // The note that was sounding is over AS A NOTE at the handover, even
+          // though the sound carries on: trimming the span it was scheduled
+          // with keeps anything counting concurrent notes (the power budget's
+          // ledger, the cost meters) honest about a mono track sounding one.
+          previous.note.duration = Math.max(0.02, full.when - previous.note.when);
+          previous.note = full;
+        } else {
+          if (previous) releaseMono(previous, full.when);
+          // Every note is booked, handle or not: the cost meters count them
+          // all. A handle also lets stop() and the power budget hard-stop the
+          // note — a suspended context would otherwise freeze its tail, which
+          // resurrects, possibly in an old key, on the next start().
+          const entry = {
+            track,
+            handle: cancellable,
+            velocity: full.velocity,
+            when: full.when,
+            until: full.when + full.duration,
+            end: full.when + full.duration + CANCEL_TAIL,
+          };
+          liveNotes.add(entry);
+          if (mono) {
+            monoNotes.set(track, {
+              entry,
+              note: full,
+              handle: cancellable,
+              freq: full.freq,
+              until: entry.until,
+              voice: effectiveVoice(track),
+            });
+          }
+        }
       } catch {
         // A broken voice loses its note, not the whole performance.
       }
     }
     recordNote(track, full.when);
-    emit('note', {
+    const event = {
       track,
       midi: full.midi,
       kind: full.kind,
       velocity: full.velocity,
       time: full.when,
       duration: full.duration,
-    });
+    };
+    // The motif-derivation flag rides on the notes it describes, which is the
+    // only place outside the engine it could honestly be observed.
+    if (typeof note.motif === 'boolean') event.motif = note.motif;
+    emit('note', event);
   }
 
   // -- harmony: the hook -----------------------------------------------------
-
-  const HOOK_BANK_SIZE = 6;         // ear-worms kept; the least salient is dropped
-  const HOOK_RECALL_MIN = 4;        // loop passes between recalls, at repetition 1
-  const HOOK_RECALL_SPAN = 4;       // extra passes the cycle can run to at repetition 0
-  const HOOK_SNAPSHOT_EVERY = 3;    // passes between bank snapshots
-  const HOOK_STABLE_TO_BANK = 2;    // passes unmutated that make a variant worth keeping
-  const HOOK_HOT_INTENSITY = 0.7;   // section intensity that makes a pass worth keeping
 
   /** Establish the loop and arm the first recall cycle. */
   function establishHook() {
@@ -2044,7 +2447,7 @@ export function createEngine(initialParams, options = {}) {
     hookFresh = true;
     hookPass = 0;
     hookStable = 0;
-    hookBank = [];
+    hookBank.clear();
     hookSectionPending = false;
     hookRecallAt = nextRecallPass();
   }
@@ -2076,21 +2479,7 @@ export function createEngine(initialParams, options = {}) {
     const hot = intensity >= HOOK_HOT_INTENSITY;
     const due = hookPass % HOOK_SNAPSHOT_EVERY === 0;
     if (!due && hookStable < HOOK_STABLE_TO_BANK && !hot) return;
-    const salience = hookStable + (hot ? 2 : 0);
-    const key = hookKey(hook);
-    const known = hookBank.find((entry) => entry.key === key);
-    if (known) {
-      known.salience = Math.max(known.salience, salience);
-      return;
-    }
-    hookBank.push({ key, variant: cloneHook(hook), salience });
-    if (hookBank.length > HOOK_BANK_SIZE) {
-      let worst = 0;
-      for (let i = 1; i < hookBank.length; i++) {
-        if (hookBank[i].salience < hookBank[worst].salience) worst = i;
-      }
-      hookBank.splice(worst, 1);
-    }
+    hookBank.store(hookKey(hook), hook, hookStable + (hot ? 2 : 0));
   }
 
   /**
@@ -2101,20 +2490,18 @@ export function createEngine(initialParams, options = {}) {
    * candidate: an empty field means no recall this pass.
    */
   function recallHook(intensity) {
-    const playing = hookKey(hook);
-    const candidates = hookBank.filter((entry) => entry.key !== playing);
-    if (!candidates.length) return false;
-    const weights = candidates.map((entry) => Math.max(0.05,
-      0.5 + entry.salience * 0.25 + (intensity - 0.5) * 2 * hookEnergy(entry.variant)));
-    const total = weights.reduce((sum, weight) => sum + weight, 0);
-    let r = rng() * total;
-    let chosen = candidates[candidates.length - 1];
-    for (let i = 0; i < candidates.length; i++) {
-      r -= weights[i];
-      if (r <= 0) { chosen = candidates[i]; break; }
-    }
+    const chosen = hookBank.recall(hookKey(hook), (entry) => (
+      0.5 + entry.salience * 0.25 + (intensity - 0.5) * 2 * hookEnergy(entry.variant)
+    ), rng);
+    if (!chosen) return false;
     hook = cloneHook(chosen.variant);
     hookStable = 0;
+    // Joint recall (v12): a motif banked against this exact hook variant comes
+    // back with it, so the tune and the chords that carried it return together
+    // rather than as two unrelated returns. The melody adopts it at its next
+    // phrase boundary — mid-phrase would break the cell it is in the middle of.
+    const paired = motifBank.find((entry) => entry.hookKey === chosen.key);
+    if (paired) motifPending = cloneMotif(paired.variant);
     return true;
   }
 
@@ -2172,33 +2559,95 @@ export function createEngine(initialParams, options = {}) {
     chordExtension = hook.extensions[hookIndex];
   }
 
-  function choosePhrase() {
-    const bars = rng() < 0.5 || params.complexity < 0.3 ? 1 : 2;
-    if (phraseBank.length && rng() < params.repetition) {
-      const stored = pick(phraseBank, rng);
-      if (rng() < params.complexity * 0.4) {
-        // transpose the stored phrase within the scale for gentle variation
-        const shift = pick([-2, -1, 1, 2], rng);
-        return {
-          bars: stored.bars,
-          notes: stored.notes.map((n) => ({ ...n, degree: n.degree + shift })),
-        };
-      }
-      return stored;
-    }
-    const phrase = generatePhrase({
+  // -- the melody's motif ----------------------------------------------------
+
+  /** Write a fresh cell for the section that is starting. */
+  function establishMotif() {
+    motif = buildMotif({
       beatsPerBar: beatsPerBar(params.timeSignature),
-      bars,
       complexity: params.complexity,
       scaleLength: scale().length,
-      // vary.pitch buys extra stepwise motion on top of the complexity-derived
-      // likelihood, which is the "note-choice spread" half of the macro.
-      passing: clamp(params.complexity * 0.55 + varyAmount('melody', 'pitch') * 0.3, 0, 0.9),
       rng,
     });
-    phraseBank.push(phrase);
-    if (phraseBank.length > 8) phraseBank.shift();
-    return phrase;
+    motifSalience = 0;
+  }
+
+  function adoptMotif(cell) {
+    motif = cloneMotif(cell);
+    motifSalience = 0;
+  }
+
+  /**
+   * Keep the cell that is playing, ranked the way a hook variant is: phrases
+   * survived, plus a bonus for having carried a hot section. The hook variant
+   * it was heard against rides along, which is what lets a hook recall bring
+   * its tune back with it.
+   */
+  function bankMotif(intensity) {
+    if (!motif) return;
+    const hot = intensity >= HOOK_HOT_INTENSITY;
+    if (motifPhrase % HOOK_SNAPSHOT_EVERY !== 0 && motifSalience < HOOK_STABLE_TO_BANK && !hot) return;
+    motifBank.store(motifKey(motif), motif, motifSalience + (hot ? 2 : 0), {
+      hookKey: hook ? hookKey(hook) : '',
+    });
+  }
+
+  /** Bring a banked cell back, favouring the busy ones as the piece lifts. */
+  function recallMotif(intensity) {
+    const chosen = motifBank.recall(motif ? motifKey(motif) : '', (entry) => (
+      0.5 + entry.salience * 0.25 + (intensity - 0.5) * entry.variant.steps.length * 0.2
+    ), rng);
+    if (!chosen) return false;
+    adoptMotif(chosen.variant);
+    return true;
+  }
+
+  /**
+   * End of a phrase: bank what deserves it, then decide what the next phrase
+   * sings — the tune a hook recall asked for, a new cell for a new section, or
+   * the same cell again. At most one of those, so the melody never changes
+   * identity twice in a row.
+   */
+  function completeMelodyPhrase(intensity) {
+    motifPhrase += 1;
+    bankMotif(intensity);
+    if (motifPending) {
+      adoptMotif(motifPending);
+      motifPending = null;
+      motifSectionPending = false;
+      return;
+    }
+    if (motifSectionPending) {
+      motifSectionPending = false;
+      // A section wants its own idea: a banked one if the ear has heard it
+      // before, otherwise something new.
+      if (!(rng() < params.repetition && recallMotif(intensity))) establishMotif();
+      return;
+    }
+    motifSalience += 1;
+  }
+
+  /**
+   * The phrase clock, stepped once a bar. An 'off' melody costs nothing: no
+   * cell, no draws, no development running silently in the background.
+   */
+  function advanceMelodyPhrase(intensity) {
+    if (params.tracks.melody.state === 'off') return;
+    if (!motif) {
+      establishMotif();
+      phraseBar = 0;
+      return;
+    }
+    // A held melody loops the phrase it is on rather than moving the cell on.
+    if (held.has('melody')) {
+      phraseBar = (phraseBar + 1) % PHRASE_BARS;
+      return;
+    }
+    phraseBar += 1;
+    if (phraseBar >= PHRASE_BARS) {
+      phraseBar = 0;
+      completeMelodyPhrase(intensity);
+    }
   }
 
   /** The current chord, voiced upward from `baseOctave` with no crossings. */
@@ -2322,26 +2771,72 @@ export function createEngine(initialParams, options = {}) {
     return { manual: true, steps };
   }
 
+  /**
+   * The bass's rhythm for the section it is in (v12). Drawn ONCE per section
+   * rather than per bar: a bass line that re-rolls its rhythm every bar is a
+   * random walk, not a groove. Every felt pulse it plays on takes the root —
+   * that is the v8 harmonic contract — and the fifth and the octave are only
+   * ever allowed between the pulses.
+   */
+  function ensureBassPattern() {
+    const key = [
+      currentSection.label, round3(sectionIntensity()), params.timeSignature,
+      round3(params.complexity), round3(trackRandomness('bass')),
+    ].join(':');
+    if (bassPattern && bassPatternKey === key) return bassPattern;
+    bassPatternKey = key;
+    bassPattern = buildBassPattern({
+      starts: bar.starts,
+      beats: bar.beats,
+      intensity: sectionIntensity(),
+      complexity: params.complexity,
+      rng,
+    });
+    return bassPattern;
+  }
+
   function planBass() {
     if (isManual('bass')) return planBassManual();
+    const pattern = ensureBassPattern();
     return {
       manual: false,
-      twoNotes: rng() < 0.25 + params.complexity * 0.3 + sectionIntensity() * 0.2,
-      fifth: rng() < 0.6,
-      jitters: [velocityJitter('bass'), velocityJitter('bass')],
-      nudges: [timingNudge('bass'), timingNudge('bass')],
+      steps: pattern.map((step, i) => ({
+        beat: step.beat,
+        tone: step.tone,
+        velocity: clamp((step.tone === 'root' ? 0.8 : 0.62) * velocityJitter('bass'), 0.05, 1),
+        nudge: timingNudge('bass'),
+        accent: i === 0,
+      })),
     };
   }
 
+  /**
+   * The chord the hook turns to next, or null at a pass boundary where a
+   * mutation or a recall may still rewrite it. Only a known next chord earns
+   * an approach note: a leading tone into the wrong chord is a wrong note.
+   */
+  function nextChordAhead() {
+    if (!hook || hookFresh) return null;
+    const at = hookIndex + 1;
+    if (at >= hook.degrees.length) return null;
+    const n = scale().length;
+    return ((hook.degrees[at] % n) + n) % n;
+  }
+
   function scheduleBass(time, barDuration, plan) {
-    const root = scaleDegreeToMidi(chordDegree, scale(), pitchClass(params.root), 2);
-    const fifth = () => quantiseToScale(root + 7, scale(), pitchClass(params.root));
+    const rootPc = pitchClass(params.root);
+    const root = scaleDegreeToMidi(chordDegree, scale(), rootPc, 2);
+    // A perfect fifth above the root, NOT the scale's fifth degree: in a
+    // pentatonic or whole-tone mode the fifth degree is not seven semitones up,
+    // and what a bass line wants under a chord is the chord's own fifth
+    // reinforcing the root, not a melodic scale tone.
+    const fifth = root + 7;
     if (plan.manual) {
       plan.steps.forEach((step, i) => {
         // A step rings until the next one, so a sparse grid still sustains.
         const next = i + 1 < plan.steps.length ? plan.steps[i + 1].beat : bar.beats;
         playNote('bass', {
-          midi: step.fifth ? fifth() : root,
+          midi: step.fifth ? fifth : root,
           when: time + step.beat * bar.secPerBeat + step.nudge,
           duration: Math.max(0.08, (next - step.beat) * bar.secPerBeat * 0.9),
           velocity: step.velocity,
@@ -2349,51 +2844,63 @@ export function createEngine(initialParams, options = {}) {
       });
       return;
     }
-    if (!plan.twoNotes) {
-      playNote('bass', {
-        midi: root,
-        when: time + plan.nudges[0],
-        duration: barDuration * 0.9,
-        velocity: 0.8 * plan.jitters[0],
-      });
-      return;
+
+    const midiOf = (tone) => (tone === 'fifth' ? fifth : tone === 'octave' ? root + 12 : root);
+    const events = plan.steps.map((step) => ({ ...step, midi: midiOf(step.tone) }));
+
+    // The approach: on a bar that turns to a new chord, the last off-beat note
+    // leans towards where the harmony is going — the chord tone available here
+    // that is nearest the root the next bar lands on. It RE-PITCHES a note the
+    // pattern was already going to play rather than adding one, so the section
+    // keeps its rhythm, and it only ever takes an off-beat, so every felt pulse
+    // still voices the root.
+    const last = events[events.length - 1];
+    const target = chordBarsLeft <= 0 && last && !isStrongBeat(last.beat)
+      ? nextChordAhead() : null;
+    if (target !== null) {
+      const to = scaleDegreeToMidi(target, scale(), rootPc, 2);
+      const options = [root, fifth, root + 12];
+      last.midi = options.reduce(
+        (best, midi) => (Math.abs(midi - to) < Math.abs(best - to) ? midi : best),
+      );
     }
-    playNote('bass', {
-      midi: root,
-      when: time + plan.nudges[0],
-      duration: barDuration * 0.45,
-      velocity: 0.8 * plan.jitters[0],
+
+    const overlap = params.tracks.bass.mono ? 1.02 : 0.95;
+    events.forEach((event, i) => {
+      const next = i + 1 < events.length ? events[i + 1].beat : bar.beats;
+      playNote('bass', {
+        midi: event.midi,
+        when: time + event.beat * bar.secPerBeat + event.nudge,
+        duration: Math.max(0.1, (next - event.beat) * bar.secPerBeat * overlap),
+        velocity: event.velocity,
+      });
     });
-    // Second note is usually the fifth above, snapped back into the mode.
-    playNote('bass', {
-      midi: plan.fifth ? fifth() : root,
-      when: time + barDuration * 0.5 + plan.nudges[1],
-      duration: barDuration * 0.45,
-      velocity: 0.7 * plan.jitters[1],
-    });
+    if (!events.length) {
+      // A pattern that emptied itself still owes the bar its root.
+      playNote('bass', { midi: root, when: time, duration: barDuration * 0.95, velocity: 0.8 });
+    }
   }
 
   /**
-   * One bar of the current phrase, thinned and panned up front. Degrees stay
-   * RELATIVE to the chord, so a held melody keeps tracking the progression.
+   * The degrees a manual grid draws on: this bar's development of the cell, so
+   * a user-sequenced rhythm still hears the tune argue with itself. A melody
+   * with no cell yet falls back to the chord tones — the grid is about rhythm,
+   * so it must never run out of notes to place.
    */
-  /**
-   * The degrees this bar of the phrase offers a manual grid, in phrase order.
-   * A bar the phrase says nothing about borrows the whole phrase, and a phrase
-   * that has gone silent falls back to the chord tones — the grid is about
-   * rhythm, so it must never run out of notes to place.
-   */
-  function phraseDegrees() {
-    if (!currentPhrase || !currentPhrase.notes.length) return [0, 2, 4];
-    const thisBar = currentPhrase.notes.filter((note) => note.bar === phraseBarIndex);
-    return (thisBar.length ? thisBar : currentPhrase.notes).map((note) => note.degree);
+  function manualDegrees() {
+    if (!motif || !motif.steps.length) return [0, 2, 4];
+    return developMotif(motif, phraseOp(), {
+      beatsPerBar: beatsPerBar(params.timeSignature),
+      scaleLength: scale().length,
+      rng,
+    }).steps;
   }
 
-  /** Manual melody: the grid gates when, the phrase still supplies the pitches. */
+  /** Manual melody: the grid gates when, the motif still supplies the pitches. */
   function planMelodyManual() {
     const lane = sequencerFor('melody').steps;
     const slots = sequencerStepsPerBar(params.timeSignature);
-    const degrees = phraseDegrees();
+    const degrees = manualDegrees();
     const notes = [];
     let taken = 0;
     for (let i = 0; i < slots; i++) {
@@ -2410,28 +2917,149 @@ export function createEngine(initialParams, options = {}) {
         nudge: timingNudge('melody'),
       });
     }
-    return notes;
+    // The cadence rule applies whoever owns the rhythm: the last note of a
+    // phrase, or of a section, lands on a chord tone.
+    const last = notes[notes.length - 1];
+    if (last && (phraseBar === PHRASE_BARS - 1 || sectionEndsThisBar())) {
+      last.degree = nearestChordTone(last.degree, scale().length);
+      last.octave = 0;
+    }
+    // The pitches came off the cell even though the rhythm is the user's grid.
+    return { motifDerived: Boolean(motif) && notes.length > 0, notes };
   }
 
+  /**
+   * Which development this bar of the phrase states. Bar 0 is always the
+   * statement — a listener cannot learn a cell that never comes back plain —
+   * and the last bar of a phrase stays close to it so the cadence is
+   * recognisable. The middle is where the piece argues with itself, and
+   * repetition decides how hard.
+   */
+  function phraseOp() {
+    if (phraseBar === 0) return 'repeat';
+    const wander = 1 - params.repetition;
+    if (phraseBar === PHRASE_BARS - 1) return rng() < 0.55 + params.repetition * 0.3 ? 'repeat' : 'transpose';
+    const weights = [
+      ['repeat', 0.5 + params.repetition * 0.9],
+      ['transpose', 1.1],
+      ['displace', 0.3 + wander * 0.5],
+      ['invert', (0.12 + wander * 0.5) * (0.4 + params.complexity)],
+      ['retrograde', (0.1 + wander * 0.45) * (0.4 + params.complexity)],
+    ];
+    const total = weights.reduce((sum, [, weight]) => sum + weight, 0);
+    let r = rng() * total;
+    for (const [op, weight] of weights) {
+      r -= weight;
+      if (r <= 0) return op;
+    }
+    return 'repeat';
+  }
+
+  /** Whether the bar being planned is the last of its section. */
+  function sectionEndsThisBar() {
+    const preset = resolveStructure(params.structure, params.complexity, params.customStructure);
+    const next = sectionAtBar(preset, structureBar + 1, params.customStructure);
+    return next.label !== currentSection.label;
+  }
+
+  const emptyMelodyPlan = () => ({ motifDerived: false, notes: [] });
+
+  /**
+   * One octave transposition for the WHOLE bar, chosen so the cell sits inside
+   * the register band. Folding note by note would keep every note in range and
+   * destroy the tune doing it: a rising cell whose top note wrapped would come
+   * out as a rising pair and a plunge. Moving the cell bodily keeps its
+   * contour, which is the half of a motif an ear actually remembers.
+   */
+  function melodyOctave(plan) {
+    if (!plan.notes.length) return 0;
+    const centre = scaleDegreeToMidi(0, bar.scale, bar.rootPc, 4);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const note of plan.notes) {
+      const midi = scaleDegreeToMidi(chordDegree + note.degree, bar.scale, bar.rootPc, 4);
+      if (midi < lo) lo = midi;
+      if (midi > hi) hi = midi;
+    }
+    let best = 0;
+    let cost = Infinity;
+    for (let shift = -3; shift <= 3; shift++) {
+      // How far outside the band the cell would hang, either end.
+      const over = Math.max(0, centre - MELODY_BAND - (lo + shift * 12))
+        + Math.max(0, (hi + shift * 12) - centre - MELODY_BAND);
+      // Ties go to the smaller move, and to staying put over moving at all.
+      if (over < cost || (over === cost && Math.abs(shift) < Math.abs(best))) {
+        cost = over;
+        best = shift;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * One bar of the melody: a development of the cell, with its own breathing.
+   * Degrees stay RELATIVE to the chord, so a held bar keeps tracking the hook
+   * and a transposition genuinely lands on the chord under it.
+   */
   function planMelody(intensity) {
     if (isManual('melody')) return planMelodyManual();
-    if (!currentPhrase) return [];
+    if (!motif) return emptyMelodyPlan();
+    const barBeats = beatsPerBar(params.timeSignature);
+    const scaleLength = scale().length;
+    const op = phraseOp();
+    const spread = trackRandomness('melody');
+    // Phrase breathing: a bar the melody sits out. Only ever mid-phrase — the
+    // statement and the cadence are the two bars the phrase is made of.
+    const resting = phraseBar > 0 && phraseBar < PHRASE_BARS - 1
+      && rng() < (0.1 + spread * 0.18) * (1 - intensity * 0.6);
+    if (resting) return emptyMelodyPlan();
+
+    const cell = developMotif(motif, op, { beatsPerBar: barBeats, scaleLength, rng });
+    // A calm section shortens the cell from its tail rather than punching holes
+    // through it: the head of a motif is what makes the motif recognisable.
+    const keep = intensity >= 0.5 || cell.beats.length <= 3
+      ? cell.beats.length
+      : cell.beats.length - 1;
+    const cadence = phraseBar === PHRASE_BARS - 1 || sectionEndsThisBar();
+    const ornamentChance = params.complexity * 0.3 * (0.4 + spread);
+    // vary.pitch moves the WHOLE cell an octave, once per bar, never one note
+    // of it: a register jump inside a motif is heard as a wrong note, because
+    // the contour is most of what the ear is holding on to.
+    const octave = octaveWander('melody');
+
     const notes = [];
-    for (const note of currentPhrase.notes) {
-      if (note.bar !== phraseBarIndex) continue;
-      // Quieter sections thin the line out rather than muting it.
-      if (rng() > 0.55 + intensity * 0.45) continue;
+    for (let i = 0; i < keep; i++) {
+      const beat = cell.beats[i];
+      const last = i === keep - 1;
+      // A cadence lands on a chord tone: that is what makes an ending sound
+      // like one, whether it ends a phrase or a section.
+      const degree = last && cadence ? nearestChordTone(cell.steps[i], scaleLength) : cell.steps[i];
+      const room = i === 0 ? beat : beat - cell.beats[i - 1];
+      if (i > 0 && room >= 0.5 && rng() < ornamentChance) {
+        // A grace note leaning into the beat. Ornament, not motif: it decorates
+        // the cell without displacing any of it.
+        notes.push({
+          beat: beat - 0.25,
+          degree: degree + (rng() < 0.5 ? -1 : 1),
+          duration: 0.25,
+          velocity: 0.4 * velocityJitter('melody'),
+          pan: between(-0.25, 0.25, rng) + panSpread('melody'),
+          octave: 0,
+          nudge: timingNudge('melody'),
+        });
+      }
       notes.push({
-        beat: note.beat,
-        degree: note.degree,
-        duration: note.duration,
-        velocity: note.velocity * velocityJitter('melody'),
+        beat,
+        degree,
+        // The head of the cell is accented every time it comes round: the ear
+        // has to be told where the idea starts.
+        duration: last && cadence ? Math.max(cell.lengths[i], 1) : cell.lengths[i],
+        velocity: (i === 0 ? 0.78 : 0.6) * (0.75 + intensity * 0.3) * velocityJitter('melody'),
         pan: between(-0.25, 0.25, rng) + panSpread('melody'),
-        octave: octaveWander('melody'),
         nudge: timingNudge('melody'),
       });
     }
-    return notes;
+    return { motifDerived: notes.length > 0, notes, octave };
   }
 
   /** Texture is pure drift: scale degrees rather than chord tones, one draw per pulse. */
@@ -2549,10 +3177,10 @@ export function createEngine(initialParams, options = {}) {
     chordBarsLeft = 0;
     arpPlan = null;
     percussionPlan = [];
-    melodyPlan = [];
+    melodyPlan = emptyMelodyPlan();
     texturePlan = [];
-    currentPhrase = null;
-    phraseBarsLeft = 0;
+    motif = null;
+    phraseBar = 0;
     const rootPc = pitchClass(params.root);
     const hold = Math.max(bar.duration, finishRequest ? finishRequest.fadeSeconds : FINISH_FADE);
 
@@ -2643,16 +3271,20 @@ export function createEngine(initialParams, options = {}) {
     currentBarNumber = barIndex;
     currentBarTime = time;
     if (params.timeSignature !== bankTimeSignature) {
-      // Stored percussion patterns carry pulse indexes, and stored phrases
-      // carry beat positions, from the metre they were made in; replayed in a
-      // shorter metre their out-of-range events are silently dropped and the
-      // track thins out. Start both banks afresh in the new metre. A frozen bar
-      // plan is grid-bound the same way, so hold re-freezes in the new metre.
+      // Stored percussion patterns carry pulse indexes, and motif cells and
+      // bass patterns carry beat positions, from the metre they were made in;
+      // replayed in a shorter metre their out-of-range events are silently
+      // dropped and the track thins out. Start them all afresh in the new
+      // metre. A frozen bar plan is grid-bound the same way, so hold re-freezes
+      // in the new metre.
       bankTimeSignature = params.timeSignature;
       percussionBank = [];
-      phraseBank = [];
-      currentPhrase = null;
-      phraseBarsLeft = 0;
+      motifBank.clear();
+      motif = null;
+      motifPending = null;
+      phraseBar = 0;
+      bassPattern = null;
+      bassPatternKey = '';
       frozenPlans.clear();
     }
     const pulses = TIME_SIGNATURES[params.timeSignature];
@@ -2704,8 +3336,12 @@ export function createEngine(initialParams, options = {}) {
     if (changed || !sectionAnnounced) {
       sectionAnnounced = true;
       // A section change picks the hook variant that suits the new intensity —
-      // at the next pass boundary, never mid-loop, so the loop stays a loop.
-      if (changed) hookSectionPending = true;
+      // at the next pass boundary, never mid-loop, so the loop stays a loop —
+      // and, in the same spirit, its own motif at the next phrase boundary.
+      if (changed) {
+        hookSectionPending = true;
+        if (section.label !== currentSection.label) motifSectionPending = true;
+      }
       currentSection = section;
       emit('section', {
         label: section.label,
@@ -2763,28 +3399,16 @@ export function createEngine(initialParams, options = {}) {
       scheduleBass(time, bar.duration, planFor('bass', undefined, planBass));
     }
 
-    if (phraseBarsLeft <= 0) {
-      if (held.has('melody') && currentPhrase) {
-        // A held melody loops the phrase it is on rather than drawing a new one.
-        phraseBarsLeft = currentPhrase.bars;
-        phraseBarIndex = 0;
-      } else {
-        currentPhrase = choosePhrase();
-        phraseBarsLeft = currentPhrase.bars;
-        phraseBarIndex = 0;
-      }
-    } else {
-      phraseBarIndex += 1;
-    }
-    phraseBarsLeft -= 1;
+    advanceMelodyPhrase(intensity);
 
-    // Each bar of a multi-bar phrase freezes separately, so a held melody loops
-    // at the phrase's own length instead of collapsing to one bar. A manual
-    // grid has no such length — the lane IS the material and it is bar-anchored
-    // — so it freezes as one plan that repeats every bar.
+    // Each bar of the phrase freezes separately, so a held melody loops at the
+    // phrase's own length instead of collapsing to one bar. A manual grid has
+    // no such length — the lane IS the material and it is bar-anchored — so it
+    // freezes as one plan that repeats every bar.
     melodyPlan = isActive('melody')
-      ? planFor('melody', isManual('melody') ? undefined : phraseBarIndex,
-        () => planMelody(intensity)) : [];
+      ? planFor('melody', isManual('melody') ? undefined : phraseBar,
+        () => planMelody(intensity)) : emptyMelodyPlan();
+    melodyShift = melodyOctave(melodyPlan);
     texturePlan = isActive('texture')
       ? planFor('texture', undefined, () => planTexture(intensity)) : [];
     arpPlan = isActive('arp')
@@ -2806,24 +3430,40 @@ export function createEngine(initialParams, options = {}) {
     const to = from + length;
 
     if (isActive('melody')) {
-      for (const note of melodyPlan) {
+      // v12 register band: ±14 semitones around the root in octave 4. A tune
+      // that wanders octaves is a texture; a tune that stays inside a singer's
+      // range is a tune.
+      const centre = scaleDegreeToMidi(0, bar.scale, bar.rootPc, 4);
+      // Monophonic notes are trimmed to the gap before the next one: a mono
+      // line that let its notes run past each other would spend its life
+      // cutting itself off. Polyphonic melody keeps the wash it always had.
+      const mono = params.tracks.melody.mono === true;
+      const overlap = mono ? 1.02 : 1.6;
+      for (const note of melodyPlan.notes) {
         if (note.beat < from || note.beat >= to) continue;
+        const gap = mono
+          ? melodyPlan.notes.reduce(
+            (room, other) => (other.beat > note.beat + 1e-9
+              ? Math.min(room, other.beat - note.beat) : room),
+            bar.beats - note.beat,
+          )
+          : Infinity;
         const at = time + (note.beat - from) * bar.secPerBeat + (note.nudge ?? 0);
         let midi = scaleDegreeToMidi(
           chordDegree + note.degree, bar.scale, bar.rootPc, 4,
-        );
-        // keep the melody in octaves 4–5
-        while (midi > 83) midi -= 12;
-        while (midi < 60) midi += 12;
-        // The register wander is applied AFTER the fold, or the fold would
-        // simply undo it; the wider guard is the melody's absolute range.
-        midi = clamp(midi + 12 * (note.octave ?? 0), 48, 95);
+        ) + 12 * (melodyShift + (melodyPlan.octave ?? 0) + (note.octave ?? 0));
+        // The band is a last guard behind the bar's own transposition, and it
+        // FOLDS by octaves rather than clamping: clamping would land the note
+        // on the band edge, which is not necessarily a note of the scale.
+        while (midi > centre + MELODY_BAND) midi -= 12;
+        while (midi < centre - MELODY_BAND) midi += 12;
         playNote('melody', {
           midi,
           when: at,
-          duration: clamp(note.duration * bar.secPerBeat * 1.6, 0.6, 3),
+          duration: clamp(Math.min(note.duration, gap) * bar.secPerBeat * overlap, 0.1, 3),
           velocity: note.velocity,
           pan: note.pan,
+          motif: melodyPlan.motifDerived === true,
         });
       }
     }
@@ -3260,7 +3900,6 @@ export function createEngine(initialParams, options = {}) {
       playOutputElement();
 
       isRunning = true;
-      phraseBarsLeft = 0;
       chordBarsLeft = 0;
       pulseIndex = 0;
       barIndex = 0;
@@ -3272,8 +3911,18 @@ export function createEngine(initialParams, options = {}) {
       arpCursor = 0;
       arpPlan = null;
       percussionPlan = [];
-      melodyPlan = [];
+      melodyPlan = emptyMelodyPlan();
       texturePlan = [];
+      motif = null;
+      motifPending = null;
+      motifPhrase = 0;
+      motifSalience = 0;
+      motifSectionPending = false;
+      phraseBar = 0;
+      motifBank.clear();
+      bassPattern = null;
+      bassPatternKey = '';
+      monoNotes.clear();
       // A performance starts from a fresh set of decisions: no frozen bar from
       // the last run, and drift walks that begin wherever this run takes them.
       walkPhases.clear();

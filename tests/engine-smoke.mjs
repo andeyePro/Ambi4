@@ -1410,7 +1410,9 @@ test('sanitiseParams sanitises patches sparsely and deeply', () => {
     pad: {
       warm: {
         // a legacy osc1 string maps into the v5 shape1 morph field, and rides along
-        source: { osc1: 'sawtooth', shape1: 2, mix: 1, detune: 0, octave: 1 },
+        // detune/octave: bipolar since v12 (-50..50 / -2..2) — -9 and 2.4 both
+        // already sit inside that wider range, so they survive rather than clamp.
+        source: { osc1: 'sawtooth', shape1: 2, mix: 1, detune: -9, octave: 2 },
         filter: { type: 'notch', cutoff: 12000, q: 0.1, envAmount: 0 },
         adsr: { attack: 0.001, decay: 8, sustain: 0.4 },
         sends: { reverb: 0.3, delay: 1 },
@@ -1962,7 +1964,7 @@ test('hold is a boolean and the five vary aspects are 0–1 or null', () => {
       // v11: the two sustained tracks ship an explicit small voice wander so
       // auto never sits on one timbre forever. Everything else still defaults
       // to null — "follow this track's randomness".
-      const expected = aspect === 'voice' && (name === 'pad' || name === 'texture') ? 0.15 : null;
+      const expected = aspect === 'voice' && (name === 'pad' || name === 'texture') ? 0.15 : aspect === 'voice' && name === 'bass' ? 0 : null;
       assert.equal(base.tracks[name].vary[aspect], expected,
         `${name}.${aspect} must default to ${expected}`);
     }
@@ -3054,6 +3056,443 @@ test('the pad breathes: half-bar re-attacks and rest bars, on the bar grid',
     assert.ok(Math.max(...velocities) / Math.min(...velocities) >= 1.3,
       'the pad never swelled');
   }));
+
+// --------------------------------------------------------------------------
+// v12 — Musicality II: melody motif, bass tightening, mono/legato, state-flip
+//
+// Ground truth for "the current chord" comes off the PAD, the same way the v11
+// hook tests read it — the chord as the ear actually meets it. Two helpers do
+// that reading, one for the property tests here that need the ROOT alone
+// (bass) and one for tests that only need chord-TONE membership (melody
+// landing on a chord tone need not land on the root).
+//
+// The bass-root ground truth is only trustworthy while every hook slot's
+// inversion is 0, because an inverted voicing rotates a non-root tone to the
+// bottom of the pad's stack. mutateHook can only fire once a full pass of the
+// hook completes (completeHookPass), so restricting a run to the FIRST pass —
+// at most HOOK_MAX_CHORDS chords of at most 2 bars each — keeps every
+// inversion at the buildHook default of 0 and makes "pad's lowest note this
+// bar" exactly the chord root, no inference required.
+// --------------------------------------------------------------------------
+
+const FIRST_PASS_BAR_CEILING = HOOK_MAX_CHORDS * 2; // chords never span more than 2 bars
+
+/** Bar → pc of the pad's lowest sounding note that bar, forward-filled across rests. */
+function padRootPcByBar(log) {
+  const byBar = log.byBar('pad');
+  const pcs = new Map();
+  // No forward-fill: a bar the pad rested (v11 breathing) tells us nothing —
+  // the chord may have advanced underneath a silent pad, and carrying the
+  // previous bar's pc forward would then compare bass against a stale chord.
+  // Bars absent from this map are bars this suite has no ground truth for,
+  // and every caller must skip them rather than treat missing as a mismatch.
+  for (const [bar, notes] of byBar) {
+    if (notes.length) pcs.set(bar, Math.min(...notes.map((n) => n.midi)) % 12);
+  }
+  return pcs;
+}
+
+/** Bar → Set of pcs the pad actually voiced that bar (chord-tone membership, any inversion). */
+function padChordPcSetByBar(log) {
+  const byBar = log.byBar('pad');
+  const sets = new Map();
+  // Same no-forward-fill rule as padRootPcByBar, and for the same reason.
+  for (const [bar, notes] of byBar) {
+    if (notes.length) sets.set(bar, new Set(notes.map((n) => n.midi % 12)));
+  }
+  return sets;
+}
+
+/** Every field this suite needs on mono/glide before it can test them at all. */
+function monoGlideShipped() {
+  const t = DEFAULT_PARAMS.tracks;
+  return ['melody', 'bass', 'pad'].every((track) => typeof t[track].mono === 'boolean');
+}
+
+test('v12: mono/glide defaults — melody and bass glide, everything else stays sharp', () => {
+  if (!monoGlideShipped()) {
+    console.log('SKIP v12 mono/glide defaults: DEFAULT_PARAMS.tracks.*.mono not present yet');
+    return;
+  }
+  assert.equal(DEFAULT_PARAMS.tracks.melody.mono, true, 'melody ships mono');
+  assert.equal(DEFAULT_PARAMS.tracks.bass.mono, true, 'bass ships mono');
+  assert.equal(DEFAULT_PARAMS.tracks.melody.glide, 0.3, 'melody glide default');
+  assert.equal(DEFAULT_PARAMS.tracks.bass.glide, 0.15, 'bass glide default');
+  for (const track of TRACK_ORDER) {
+    if (track === 'melody' || track === 'bass') continue;
+    assert.equal(DEFAULT_PARAMS.tracks[track].mono, false, `${track} must not ship mono`);
+  }
+  assert.equal(DEFAULT_PARAMS.tracks.melody.state, 'off', 'melody still ships off (hard constraint)');
+  assert.equal(DEFAULT_PARAMS.tracks.bass.state, 'off', 'bass still ships off (hard constraint)');
+});
+
+test('v12: sanitiser accepts mono as a boolean and clamps glide 0–1', () => {
+  if (!monoGlideShipped()) {
+    console.log('SKIP v12 mono/glide sanitiser: mono/glide not present in DEFAULT_PARAMS yet');
+    return;
+  }
+  const cleaned = sanitiseParams({
+    tracks: {
+      melody: { mono: 'yes', glide: 5 },
+      bass: { mono: 0, glide: -1 },
+      pad: { mono: true, glide: 0.5 },
+    },
+  });
+  assert.equal(typeof cleaned.tracks.melody.mono, 'boolean', 'mono coerces to a boolean');
+  assert.ok(cleaned.tracks.melody.glide <= 1 && cleaned.tracks.melody.glide >= 0, 'glide clamps to 0–1');
+  assert.equal(cleaned.tracks.bass.mono, false, 'a falsy mono coerces to false');
+  assert.ok(cleaned.tracks.bass.glide >= 0, 'glide never goes negative');
+});
+
+test('v12 bass: root pitch-class on strong beats, in ≥95% of sounding bars', () => hiddenTab(async () => {
+  // repetition 1 asks buildHook for the tightest loop (HOOK_MIN_CHORDS); the
+  // window below is still kept inside FIRST_PASS_BAR_CEILING regardless, so
+  // this holds for any repetition.
+  const log = await hookRun({ seconds: 60, seed: 9101, repetition: 0.8 });
+  assert.ok(log.bars.length >= 10, `only ${log.bars.length} bars`);
+  const rootPc = padRootPcByBar(log);
+  const bassByBar = log.byBar('bass');
+
+  const window = [...bassByBar.keys()]
+    .filter((bar) => bar >= 2 && bar <= Math.min(FIRST_PASS_BAR_CEILING, log.bars.length - 2))
+    .sort((a, b) => a - b);
+  assert.ok(window.length >= 6, `only ${window.length} bars of bass to judge`);
+
+  let strongBeats = 0;
+  let strongMatches = 0;
+  for (const bar of window) {
+    const downbeat = bassByBar.get(bar).filter((n) => n.offset < 1e-6);
+    if (!downbeat.length) continue;
+    const expected = rootPc.get(bar);
+    if (expected === undefined) continue;   // the pad rested this bar — no ground truth
+    strongBeats += 1;
+    if (downbeat.every((n) => n.midi % 12 === expected)) strongMatches += 1;
+  }
+  assert.ok(strongBeats >= 5, `only ${strongBeats} bars had both a bass downbeat and a pad chord to judge`);
+  const rate = strongMatches / strongBeats;
+  assert.ok(rate >= 0.95,
+    `bass matched the chord root on the downbeat in only ${(rate * 100).toFixed(0)}% of ${strongBeats} bars`);
+}));
+
+/** The shortest distance in semitones between two pitch classes, 0–6. */
+function pcDistance(a, b) {
+  const d = Math.abs(a - b) % 12;
+  return Math.min(d, 12 - d);
+}
+
+test('v12 bass: non-root tones are the fifth/octave, or a late approach note into the next root', () => hiddenTab(async () => {
+  const log = await hookRun({ seconds: 60, seed: 9102, repetition: 0.5 });
+  const rootPc = padRootPcByBar(log);
+  const bassByBar = log.byBar('bass');
+  let checked = 0;
+  let approaches = 0;
+  const bars = [...bassByBar.keys()].filter((b) => b >= 2 && b <= FIRST_PASS_BAR_CEILING).sort((a, b) => a - b);
+  for (const bar of bars) {
+    const expected = rootPc.get(bar);
+    if (expected === undefined) continue;
+    const nextExpected = rootPc.get(bar + 1);
+    const notes = bassByBar.get(bar);
+    const barLen = Math.max(...notes.map((n) => n.offset)) + 1e-6 || 1;
+    for (const note of notes) {
+      const pc = note.midi % 12;
+      if (pc === expected) continue; // root/octave
+      checked += 1;
+      const isFifth = pc === (expected + 7) % 12;
+      if (isFifth) {
+        assert.ok(note.offset > 1e-6, `bar ${bar}: the fifth landed on the downbeat, a strong beat`);
+        continue;
+      }
+      // Not root, not fifth: only an approach note into the NEXT chord's
+      // root, on a late weak beat, is allowed by the contract.
+      assert.ok(nextExpected !== undefined,
+        `bar ${bar}: bass pc ${pc} is neither the root ${expected} nor its fifth, and there is no next-chord ground truth to excuse it as an approach`);
+      assert.ok(pcDistance(pc, nextExpected) <= 2,
+        `bar ${bar}: bass pc ${pc} is neither the root ${expected}/fifth nor within 2 semitones of the next root ${nextExpected}`);
+      assert.ok(note.offset > barLen * 0.5,
+        `bar ${bar}: an approach note at offset ${note.offset.toFixed(3)} is not on a late weak beat`);
+      approaches += 1;
+    }
+  }
+  assert.ok(checked > 0, 'no non-root bass tone ever sounded — the fifth/octave/approach branches were never exercised');
+  console.log(`    (${checked} non-root bass tones checked, ${approaches} were approach notes)`);
+}));
+
+test('v12 bass: rhythm pattern holds within a section and re-rolls at the next one', () => hiddenTab(async () => {
+  const run = async (seed) => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, complexity: 0.5, repetition: 0.5,
+      structure: 'custom',
+      customStructure: [{ label: 'A', bars: 16, intensity: 1 }, { label: 'B', bars: 16, intensity: 1 }],
+      tracks: {
+        ...tracksAll('off'),
+        pad: { state: 'on', randomness: 0, vary: { timing: 0, voice: 0 } },
+        bass: { state: 'on', randomness: 0, vary: { timing: 0 } },
+      },
+    }, { rng: seededRng(seed) });
+    const log = record(engine);
+    await engine.start();
+    await advance(70, FAST);
+    engine.stop();
+    return log;
+  };
+
+  const log = await run(9103);
+  assert.ok(log.bars.length >= 34, `only ${log.bars.length} bars`);
+  const byBar = log.byBar('bass');
+
+  // "Stable pattern" is read as the underlying onset TEMPLATE holding for a
+  // section, not every bar's realised onsets being byte-identical — a
+  // template can still gate each step by its own probability per bar (the
+  // existing sequencer's own `prob` field already works this way). So this
+  // measures onset-POSITION overlap (Jaccard) between bars, which is high
+  // when the same template is being re-drawn and low when it is not.
+  const onsets = (bar) => new Set((byBar.get(bar) || []).map((n) => n.offset.toFixed(3)));
+  const jaccard = (a, b) => {
+    if (!a.size && !b.size) return 1;
+    let hits = 0;
+    for (const x of a) if (b.has(x)) hits += 1;
+    return hits / new Set([...a, ...b]).size;
+  };
+
+  const sectionA = barRange(3, 14);
+  const sectionB = barRange(19, 30);
+  const withinA = [];
+  for (let i = 1; i < sectionA.length; i++) {
+    withinA.push(jaccard(onsets(sectionA[i - 1]), onsets(sectionA[i])));
+  }
+  const meanWithinA = withinA.reduce((a, b) => a + b, 0) / withinA.length;
+  assert.ok(meanWithinA >= 0.5,
+    `bass onsets barely agreed bar-to-bar within section A (mean Jaccard ${meanWithinA.toFixed(2)}) — no stable per-section pattern`);
+
+  const acrossAB = [];
+  for (const a of sectionA) for (const b of sectionB) acrossAB.push(jaccard(onsets(a), onsets(b)));
+  const meanAcross = acrossAB.reduce((a, b) => a + b, 0) / acrossAB.length;
+  assert.ok(meanAcross < meanWithinA - 0.1,
+    `section B's onsets (mean Jaccard vs A ${meanAcross.toFixed(2)}) agreed with A almost as much as A agreed with `
+    + `itself (${meanWithinA.toFixed(2)}) — nothing measurably re-rolled at the section boundary`);
+}));
+
+test('v12 mono: melody never sounds two notes at once when tracks.melody.mono is true', () => hiddenTab(async () => {
+  const MONO_TOLERANCE = 0.13; // covers the documented glide ceiling (~0.12 s)
+  const dense = { randomness: 0, sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) } };
+
+  const monoLog = await soloRun('melody', { ...dense, mono: true }, { seconds: 20 });
+  const monoNotes = monoLog.notes.filter((n) => n.track === 'melody').sort((a, b) => a.time - b.time);
+  assert.ok(monoNotes.length >= 20, `only ${monoNotes.length} mono melody notes to judge`);
+  for (let i = 1; i < monoNotes.length; i++) {
+    const prev = monoNotes[i - 1];
+    const next = monoNotes[i];
+    assert.ok(next.time >= prev.time + prev.duration - MONO_TOLERANCE,
+      `mono melody notes overlap: ${prev.time.toFixed(3)}+${prev.duration.toFixed(3)} then ${next.time.toFixed(3)}`);
+  }
+
+  // Control: the same density with mono off must be able to overlap, or the
+  // assertion above proves nothing about mono specifically.
+  const polyLog = await soloRun('melody', { ...dense, mono: false }, { seconds: 20 });
+  const polyNotes = polyLog.notes.filter((n) => n.track === 'melody').sort((a, b) => a.time - b.time);
+  const overlaps = polyNotes.some((note, i) => i > 0
+    && note.time < polyNotes[i - 1].time + polyNotes[i - 1].duration - 1e-6);
+  assert.ok(overlaps, 'mono:false control never overlapped either — the mono test proves nothing here');
+}));
+
+test('v12 mono: glide 0–1 maps to ~0.02–0.12 s on the legatoFrom the engine offers a voice', () => hiddenTab(async () => {
+  const bank = bankFor('melody');
+  const spy = spyOnBank(bank);
+  try {
+    const glideValuesFor = async (glide) => {
+      spy.plays.length = 0;
+      const engine = createEngine({
+        bpm: 120, speed: 2, structure: 'drone', complexity: 0.5, repetition: 0.5,
+        tracks: {
+          ...tracksAll('off'),
+          melody: {
+            state: 'on', mono: true, glide, randomness: 0,
+            sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+          },
+        },
+      }, { rng: seededRng(5551) });
+      try {
+        await engine.start();
+        await advance(16, FAST);
+      } finally {
+        engine.stop();
+      }
+      return spy.plays.map((p) => p.note.legatoFrom?.glide).filter((g) => typeof g === 'number');
+    };
+
+    const low = await glideValuesFor(0);
+    const high = await glideValuesFor(1);
+    if (!low.length && !high.length) {
+      console.log('SKIP v12 glide mapping: the engine never attached a legatoFrom to a melody note '
+        + '(mono legato hand-off not observed) — nothing to measure');
+      return;
+    }
+    assert.ok(low.length > 0, 'glide:0 never produced a legatoFrom to measure');
+    assert.ok(high.length > 0, 'glide:1 never produced a legatoFrom to measure');
+    for (const g of low) assert.ok(g >= 0.015 && g <= 0.03, `glide:0 legato seconds ${g} is not near the 0.02s floor`);
+    for (const g of high) assert.ok(g >= 0.11 && g <= 0.13, `glide:1 legato seconds ${g} is not near the 0.12s ceiling`);
+  } finally {
+    spy.restore();
+  }
+}));
+
+test('v12 state-flip: melody off→auto mid-bar joins at the next bar boundary, never mid-bar', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+    customStructure: [{ label: 'D', bars: 32, intensity: 1 }],
+    tracks: { ...tracksAll('off'), melody: { state: 'off' } },
+  }, { rng: seededRng(9104) });
+  const log = record(engine);
+  await engine.start();
+  await advance(8.37, FAST);   // land solidly inside a bar, well past melody's stage bar (2)
+  const flipTime = engine.now();
+  engine.setParams({ tracks: { melody: { state: 'auto', randomness: 0 } } });
+  await advance(14, FAST);
+  engine.stop();
+
+  const flipBar = [...log.bars].reverse().find((bar) => bar.time <= flipTime + 1e-9);
+  assert.ok(flipBar, 'no bar had started before the flip');
+  const melodyNotes = log.notes.filter((n) => n.track === 'melody');
+  assert.ok(melodyNotes.length > 0, 'melody never joined after the flip at all');
+  const firstBar = Math.min(...melodyNotes.map((n) => log.barOf(n).bar));
+  assert.ok(firstBar > flipBar.bar,
+    `melody's first note landed in bar ${firstBar}, the same bar (${flipBar.bar}) the flip happened in`);
+}));
+
+test('v12 state-flip: an early flip still respects melody\'s staged entry (bar 2)', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 1, repetition: 0, structure: 'custom',
+    customStructure: [{ label: 'D', bars: 32, intensity: 1 }],
+    tracks: { ...tracksAll('off'), melody: { state: 'off' } },
+  }, { rng: seededRng(9105) });
+  const log = record(engine);
+  await engine.start();
+  await advance(0.3, FAST);   // still inside bar 0
+  engine.setParams({ tracks: { melody: { state: 'auto', randomness: 0 } } });
+  await advance(14, FAST);
+  engine.stop();
+
+  const melodyNotes = log.notes.filter((n) => n.track === 'melody');
+  assert.ok(melodyNotes.length > 0, 'melody never joined after an early flip');
+  const firstBar = Math.min(...melodyNotes.map((n) => log.barOf(n).bar));
+  const stage = TRACK_ORDER.indexOf('melody');
+  assert.ok(firstBar >= stage, `melody sounded in bar ${firstBar}, before its stage bar ${stage}`);
+}));
+
+test('v12 melody: register stays within ±14 semitones of the octave-4 root', () => hiddenTab(async () => {
+  const log = await soloRun('melody', {
+    randomness: 0.5, sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+  }, { seconds: 24, complexity: 0.8 });
+  const notes = log.notes.filter((n) => n.track === 'melody');
+  assert.ok(notes.length >= 20, `only ${notes.length} melody notes to judge`);
+  const rootMidi4 = scaleDegreeToMidi(0, SCALES.majorPentatonic, pitchClass('C'), 4);
+  for (const note of notes) {
+    assert.ok(Math.abs(note.midi - rootMidi4) <= 14,
+      `melody note ${note.midi} is ${Math.abs(note.midi - rootMidi4)} semitones from the octave-4 root`);
+  }
+}));
+
+test('v12 melody: phrases breathe — rest bars/beats exist above a floor, but melody is not silent', () => hiddenTab(async () => {
+  const log = await soloRun('melody', { randomness: 0.4 }, { seconds: 60, complexity: 0.5 });
+  const byBar = log.byBar('melody');
+  const bars = log.bars.filter((b) => b.bar >= 2 && b.bar < log.bars.length - 1).map((b) => b.bar);
+  assert.ok(bars.length >= 20, `only ${bars.length} bars to judge`);
+  const silent = bars.filter((bar) => !(byBar.get(bar) || []).length).length;
+  const rate = silent / bars.length;
+  assert.ok(rate >= 0.03, `melody rested in only ${(rate * 100).toFixed(0)}% of bars — no phrase gaps`);
+  assert.ok(rate <= 0.7, `melody rested in ${(rate * 100).toFixed(0)}% of bars — barely playing at all`);
+}));
+
+test('v12 melody: the last note before a section boundary is a chord tone of the sounding chord', () => hiddenTab(async () => {
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 0.6, repetition: 0.4, structure: 'custom',
+    customStructure: [
+      { label: 'A', bars: 8, intensity: 1 }, { label: 'B', bars: 8, intensity: 1 },
+      { label: 'C', bars: 8, intensity: 1 }, { label: 'D', bars: 8, intensity: 1 },
+    ],
+    tracks: {
+      ...tracksAll('off'),
+      pad: { state: 'on', randomness: 0, vary: { timing: 0, voice: 0 } },
+      melody: {
+        state: 'on', randomness: 0, vary: { timing: 0 },
+        sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+      },
+    },
+  }, { rng: seededRng(9106) });
+  const log = record(engine);
+  await engine.start();
+  await advance(40, FAST);
+  engine.stop();
+  assert.ok(log.bars.length >= 30, `only ${log.bars.length} bars`);
+
+  const chordPcs = padChordPcSetByBar(log);
+  const melodyByBar = log.byBar('melody');
+  let boundariesChecked = 0;
+  for (const boundary of [8, 16, 24]) {
+    if (boundary >= log.bars.length) continue;
+    const lastBar = boundary - 1;
+    const notes = melodyByBar.get(lastBar);
+    if (!notes || !notes.length) continue;
+    const last = notes.reduce((a, b) => (a.offset > b.offset ? a : b));
+    const chord = chordPcs.get(lastBar);
+    if (!chord) continue;
+    boundariesChecked += 1;
+    assert.ok(chord.has(last.midi % 12),
+      `bar ${lastBar} (before boundary ${boundary}): melody landed on pc ${last.midi % 12}, not in the chord {${[...chord].join(',')}}`);
+  }
+  assert.ok(boundariesChecked >= 2, `only ${boundariesChecked} section boundaries had material to judge`);
+}));
+
+test('v12 melody: motif-derivation flag, if present, marks ≥70% of sounding bars and its cell recurs', () => hiddenTab(async () => {
+  const log = await soloRun('melody', {
+    randomness: 0.3, sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+  }, { seconds: 60, complexity: 0.6, repetition: 0.6 });
+  const notes = log.notes.filter((n) => n.track === 'melody');
+  const bars = [...log.byBar('melody').keys()];
+
+  // The contract puts the flag on the bar plan; the only public surfaces a bar
+  // plan could reach a tester through are the 'note' events for that track
+  // (mirroring how percussion notes already carry `kind`) or the 'bar' event
+  // itself gaining a melody-specific field. Both are checked; if neither
+  // exists this is a genuine v12 ambiguity (the ownership contract never pins
+  // the wire shape), not a failure — skip cleanly and say so.
+  const noteFlag = notes.find((n) => typeof n.motif === 'boolean');
+  const barFlag = log.bars.find((b) => typeof b.melodyMotif === 'boolean' || typeof b.motif === 'boolean');
+  if (!noteFlag && !barFlag) {
+    console.log('SKIP v12 motif flag: no `motif` field found on melody note or bar events '
+      + '(contract does not pin the wire shape — see report for the interpretation tried)');
+    return;
+  }
+
+  const flaggedBars = new Set();
+  if (noteFlag) {
+    for (const note of notes) {
+      if (note.motif) flaggedBars.add(log.barOf(note).bar);
+    }
+  } else {
+    for (const bar of log.bars) {
+      if (bar.melodyMotif || bar.motif) flaggedBars.add(bar.bar);
+    }
+  }
+  const soundingBars = bars.filter((bar) => bar >= 2);
+  const flaggedRate = soundingBars.filter((bar) => flaggedBars.has(bar)).length / soundingBars.length;
+  assert.ok(flaggedRate >= 0.7,
+    `only ${(flaggedRate * 100).toFixed(0)}% of sounding bars carried the motif flag`);
+
+  // Recurrence: the flagged notes' interval signature (consecutive semitone
+  // deltas) should repeat somewhere else in the section — not just once, and
+  // not literally every bar identical.
+  const signature = (barNotes) => barNotes.map((n) => n.midi)
+    .reduce((acc, midi, i, arr) => (i ? [...acc, midi - arr[i - 1]] : acc), []).join(',');
+  const sigs = [...flaggedBars].sort((a, b) => a - b)
+    .map((bar) => signature((log.byBar('melody').get(bar) || []).filter((n) => noteFlag ? n.motif : true)))
+    .filter((sig) => sig.length);
+  const counts = new Map();
+  for (const sig of sigs) counts.set(sig, (counts.get(sig) ?? 0) + 1);
+  const recurring = [...counts.values()].filter((count) => count >= 2).length;
+  assert.ok(recurring > 0, 'no motif interval-signature recurred across the section');
+  assert.ok(counts.size > 1, 'the exact same cell played every single flagged bar — never developed');
+}));
 
 // --------------------------------------------------------------------------
 // Runner

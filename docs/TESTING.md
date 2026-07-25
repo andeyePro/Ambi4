@@ -103,3 +103,11 @@ The six most valuable things to tell the orchestrator:
 - [ ] Step sequencers at the top of Melody/Bass/Arp/Percussion editors (Auto/Manual): click cells on/off, drag vertically for the velocity band, [ ] or , . for probability. Percussion has three lanes; the Arp lane length follows its rate.
 - [ ] Voice editors open when a track row gains focus; only applicable knobs show per voice (e.g. Wash shows no oscillator section).
 - [ ] Heat check: leave it playing 10 min - the machine should run much cooler than the previous build (30 fps visuals, no glow blur).
+
+## v12 delta — UI round (2026-07-25)
+- [ ] Double-click ANY knob resets it to its declared default — a voice-editor knob resets to that VOICE's own factory value (not just whatever value it happened to load with, e.g. from a saved preset); a track's Level/Randomness knob resets to 80%/50%.
+- [ ] Voice editor Detune stays 0-50 cents (unipolar, no negative) and Octave stays -1/0/+1 — both intentionally NOT widened this round (the engine only accepts those ranges; a wider dial would silently clamp).
+- [ ] Track rows: the track name is now a lamp button — click it (or Tab to it + Enter/Space) to cycle Off -> Auto -> On; the dot goes dark/grey/lit to match. The existing Off/Auto/On pill control still works and stays in sync both ways.
+- [ ] Structure block labels in the custom builder now read "Section A", "Section B" etc, not a bare letter.
+- [ ] Voice editor Shape 1 / Shape 2 dials show sine/triangle/saw/square waveform icons at the four marks, and the readout shows the icon(s) too (one icon on a canonical shape, two either side of "~" mid-morph).
+- [ ] Simple tab is now five dials: Speed, Complexity, Repetition, Randomness, Master volume. Randomness is new — turning it sets ALL SIX tracks' randomness at once; if tracks disagree (e.g. you'd tweaked one individually) the dial shows their average and clicking it can switch to a drifting min-max range (per-track randomness supports that; Complexity/Repetition don't, so clicking them does nothing — expected, the engine only takes a single number for those two). Interlinks still work: dragging Speed moves the Advanced-tab BPM field and vice versa; dragging Complexity snaps structure/arp/track-states back to Auto.

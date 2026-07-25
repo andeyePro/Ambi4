@@ -3,7 +3,8 @@
  * plus the v7 dual-range addendum).
  *
  * export function createKnob(container, { label, min, max, value, step?, marks?,
- *   format?, onInput, allowRange?, rangeDefault? }) => { el, set(value), destroy() }
+ *   format?, onInput, allowRange?, rangeDefault?, defaultValue? }) =>
+ *   { el, set(value), destroy() }
  *
  * 270° sweep (-135°..+135°) with a tick ring (minor ticks plus major marks at
  * `marks` values, or quartiles by default), an engraved pointer line on a
@@ -16,8 +17,14 @@
  * Interaction: pointer-capture vertical drag (hold Shift for 10× finer
  * control), wheel (non-passive, small steps), full keyboard on the focusable
  * knob (role="slider": arrows ±step, PgUp/PgDn ±10 steps, Home/End), and
- * double-click resets to the INITIAL value. `step` is optional — without it
- * the knob is continuous and keys move by (max-min)/200.
+ * double-click resets to the DECLARED DEFAULT. `step` is optional — without
+ * it the knob is continuous and keys move by (max-min)/200.
+ *
+ * `defaultValue` (number | {min,max}, optional): the value/mode double-click
+ * restores. When omitted, double-click falls back to the pre-v12 behaviour
+ * of restoring the INITIAL value/mode the knob was constructed with. A range
+ * `defaultValue` collapses a scalar `value` on reset (and vice versa) exactly
+ * like the initial-value case already did.
  *
  * v7 range mode: `value` accepts number | {min,max}. With `allowRange`, a
  * CLICK on the face (pointerup within 5 px and 300 ms of pointerdown, so
@@ -38,6 +45,17 @@
  * The value scale is strictly linear between min and max. Log-feel (e.g. a
  * filter-cutoff dial) is the CALLER's job: pass a mapped domain (such as
  * min=log2(40), max=log2(12000)) and unmap in `format`/`onInput`.
+ *
+ * v12 glyph options (both optional, both trusted page-authored inline SVG
+ * markup — never end-user input):
+ *   `markGlyphs`: { [String(markValue)]: svgMarkup } — draws that markup in
+ *     place of the plain tick line at a major mark (e.g. a waveform icon at
+ *     the shape dial's canonical 0/1/2/3 marks). Marks without an entry keep
+ *     the ordinary tick.
+ *   `glyph(value, valueMax?)`: returns svgMarkup | null, rendered ahead of
+ *     the text in the value readout (e.g. a shape icon, or a pair for a
+ *     fractional morph). The glyph node carries no text of its own, so the
+ *     readout's `.textContent` is unchanged from the no-glyph case.
  *
  * No imports; import-safe in bare Node — every DOM access happens inside
  * createKnob(), nothing at module scope touches document/window.
@@ -156,6 +174,28 @@ export function createKnob(container, options) {
   const initialMode = mode;
   const initialValue = value;
   const initialValueMax = valueMax;
+
+  // v12: the dblclick reset target defaults to the initial value/mode, but a
+  // declared `defaultValue` overrides it — this is what lets a voice-patch
+  // knob reset to the VOICE's default (not just whatever the patch happened
+  // to load with).
+  let resetMode = initialMode;
+  let resetValue = initialValue;
+  let resetValueMax = initialValueMax;
+  if (opts.defaultValue != null) {
+    if (typeof opts.defaultValue === 'object') {
+      const a = quantise(toFinite(opts.defaultValue.min, (min + max) / 2));
+      const b = quantise(toFinite(opts.defaultValue.max, (min + max) / 2));
+      resetMode = 'range';
+      resetValue = Math.min(a, b);
+      resetValueMax = Math.max(a, b);
+    } else {
+      resetValue = quantise(toFinite(opts.defaultValue, (min + max) / 2));
+      resetValueMax = resetValue;
+      resetMode = 'single';
+    }
+  }
+
   let activeThumb = 'min'; // last-edited thumb; target of PgUp/PgDn/Home/End
 
   // -- build the DOM -------------------------------------------------------
@@ -208,9 +248,24 @@ export function createKnob(container, options) {
   if (!markValues.length) {
     markValues = [min, min + range * 0.25, min + range * 0.5, min + range * 0.75, max];
   }
+  // v12: a caller may supply a small glyph (trusted, page-authored inline
+  // SVG markup) to draw at a major mark instead of the plain tick line —
+  // used for the shape dial's sine/triangle/saw/square icons. Keyed by
+  // String(markValue); marks without an entry keep the plain tick.
+  const markGlyphs = opts.markGlyphs && typeof opts.markGlyphs === 'object' ? opts.markGlyphs : null;
   for (const mv of markValues) {
     const deg = START_DEG + (SWEEP_DEG * (mv - min)) / range;
-    ticks.appendChild(tickLine(TICK_MAJOR_IN, TICK_MAJOR_OUT, deg, TICK_MAJOR_STROKE, 1.8));
+    const glyphMarkup = markGlyphs ? markGlyphs[String(mv)] : null;
+    if (glyphMarkup) {
+      const p = polar(TICK_MAJOR_OUT + 4, deg);
+      const g = document.createElementNS(SVG_NS, 'g');
+      g.setAttribute('transform', `translate(${p.x} ${p.y})`);
+      g.style.color = TICK_MAJOR_STROKE;
+      g.innerHTML = glyphMarkup;
+      ticks.appendChild(g);
+    } else {
+      ticks.appendChild(tickLine(TICK_MAJOR_IN, TICK_MAJOR_OUT, deg, TICK_MAJOR_STROKE, 1.8));
+    }
   }
   svg.appendChild(ticks);
 
@@ -312,6 +367,32 @@ export function createKnob(container, options) {
     return START_DEG + (SWEEP_DEG * (v - min)) / range;
   }
 
+  // v12: an optional `glyph(value, valueMax)` renders trusted inline SVG
+  // markup ahead of the text readout (e.g. a waveform icon, or a pair for a
+  // fractional morph) — the glyph node carries no text, so el.children[2]
+  // .textContent stays exactly `fmt(...)`, same as the no-glyph path.
+  const glyphFn = typeof opts.glyph === 'function' ? opts.glyph : null;
+  function setValueText(text) {
+    if (!glyphFn) {
+      valueEl.textContent = text;
+      return;
+    }
+    valueEl.textContent = '';
+    let markup = null;
+    try {
+      markup = glyphFn(value, mode === 'range' ? valueMax : undefined);
+    } catch {
+      markup = null;
+    }
+    if (markup) {
+      const g = document.createElement('span');
+      g.className = 'knob-value-glyph';
+      g.innerHTML = markup;
+      valueEl.appendChild(g);
+    }
+    valueEl.appendChild(document.createTextNode(text));
+  }
+
   function updateView() {
     const deg = degFor(value);
     pointerGroup.setAttribute('transform', `rotate(${+deg.toFixed(2)} ${CX} ${CY})`);
@@ -326,13 +407,13 @@ export function createKnob(container, options) {
       rangeArc.style.display = '';
       root.setAttribute('aria-valuenow', String(value));
       root.setAttribute('aria-valuetext', `min ${fmt(value)}, max ${fmt(valueMax)}, drifting`);
-      valueEl.textContent = `${fmt(value)} – ${fmt(valueMax)}`;
+      setValueText(`${fmt(value)} – ${fmt(valueMax)}`);
     } else {
       maxPointerGroup.style.display = 'none';
       rangeArc.style.display = 'none';
       root.setAttribute('aria-valuenow', String(value));
       root.setAttribute('aria-valuetext', fmt(value));
-      valueEl.textContent = fmt(value);
+      setValueText(fmt(value));
     }
   }
 
@@ -555,12 +636,12 @@ export function createKnob(container, options) {
   function onDoubleClick(e) {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     const changed =
-      mode !== initialMode ||
-      value !== initialValue ||
-      (initialMode === 'range' && valueMax !== initialValueMax);
-    mode = initialMode;
-    value = initialValue;
-    valueMax = initialValueMax;
+      mode !== resetMode ||
+      value !== resetValue ||
+      (resetMode === 'range' && valueMax !== resetValueMax);
+    mode = resetMode;
+    value = resetValue;
+    valueMax = resetValueMax;
     activeThumb = 'min';
     dragRaw = value;
     if (!changed) return;

@@ -22,12 +22,12 @@ const test = (name, fn) => tests.push([name, fn]);
 
 function mockElement(tag) {
   const listeners = new Map(); // type -> Set<fn>
-  return {
+  let textContentValue = '';
+  const el = {
     tagName: tag,
     children: [],
     attributes: {},
     style: {},
-    textContent: '',
     className: '',
     parentNode: null,
     setAttribute(k, v) { this.attributes[k] = String(v); },
@@ -58,6 +58,28 @@ function mockElement(tag) {
     releasePointerCapture() {},
     focus() {},
   };
+  // Real elements' `.textContent` setter clears every child (including text
+  // nodes) before the new string becomes the sole content — knob.js's v12
+  // glyph readout relies on that (setValueText re-renders from scratch each
+  // call). A plain stored field wouldn't replicate the "clears children"
+  // half of that contract, so this is a real accessor.
+  Object.defineProperty(el, 'textContent', {
+    get() {
+      if (this.children.length) {
+        return this.children.map((c) => (c.nodeType === 3 ? c.textContent : c.textContent || '')).join('');
+      }
+      return textContentValue;
+    },
+    set(v) {
+      this.children.length = 0;
+      textContentValue = String(v);
+    },
+  });
+  return el;
+}
+
+function mockTextNode(text) {
+  return { nodeType: 3, textContent: String(text) };
 }
 
 const docListeners = new Map(); // document-level (visibilitychange etc.)
@@ -65,6 +87,7 @@ const mockDocument = {
   hidden: false,
   createElement: (tag) => mockElement(tag),
   createElementNS: (_ns, tag) => mockElement(tag),
+  createTextNode: (text) => mockTextNode(text),
   addEventListener(type, fn) {
     if (!docListeners.has(type)) docListeners.set(type, new Set());
     docListeners.get(type).add(fn);
@@ -467,6 +490,110 @@ test('knob v7: rangeDefault splits a numeric initial into min=max=value', () => 
   knob.el.dispatch('keydown', { key: 'End', shiftKey: true });
   knob.el.dispatch('dblclick');
   assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 5, max 5, drifting');
+  knob.destroy();
+});
+
+// --------------------------------------------------------------------------
+// Knob tests — v12 declared defaultValue + glyphs
+// --------------------------------------------------------------------------
+
+test('knob v12: defaultValue overrides dblclick reset target (single mode)', () => {
+  const { knob, inputs } = makeTestKnob({ value: 5, defaultValue: 2 });
+  knob.el.dispatch('keydown', { key: 'End' }); // → 10
+  knob.el.dispatch('dblclick');
+  assert.equal(knob.el.getAttribute('aria-valuenow'), '2', 'must reset to defaultValue, not initial 5');
+  assert.deepEqual(inputs, [10, 2]);
+  knob.el.dispatch('dblclick'); // already at default: no extra onInput
+  assert.deepEqual(inputs, [10, 2]);
+  knob.destroy();
+});
+
+test('knob v12: defaultValue as {min,max} switches mode+values on dblclick', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true, value: 5, defaultValue: { min: 1, max: 3 } });
+  knob.el.dispatch('keydown', { key: 'End' }); // single → 10
+  knob.el.dispatch('dblclick');
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 1, max 3, drifting');
+  assert.deepEqual(inputs[inputs.length - 1], { min: 1, max: 3 });
+  knob.destroy();
+});
+
+test('knob v12: a scalar defaultValue collapses a range-mode knob back to single', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true, value: { min: 2, max: 8 }, defaultValue: 4 });
+  knob.el.dispatch('keydown', { key: 'ArrowUp', shiftKey: true }); // max 8 → 9, still range
+  knob.el.dispatch('dblclick');
+  assert.equal(knob.el.getAttribute('aria-valuetext'), '4');
+  assert.equal(inputs[inputs.length - 1], 4);
+  knob.destroy();
+});
+
+test('knob v12: omitted defaultValue keeps the pre-v12 initial-value/mode reset', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true, value: { min: 2, max: 8 } });
+  knob.el.dispatch('keydown', { key: 'ArrowUp' }); // still range, min moves
+  knob.el.dispatch('dblclick');
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 2, max 8, drifting');
+  assert.deepEqual(inputs[inputs.length - 1], { min: 2, max: 8 });
+  knob.destroy();
+});
+
+test('knob v12: markGlyphs draws a glyph group at a matching major mark, plain ticks elsewhere', () => {
+  const container = mockElement('div');
+  const knob = createKnob(container, {
+    label: 'Shape',
+    min: 0,
+    max: 3,
+    value: 0,
+    marks: [0, 1, 2, 3],
+    markGlyphs: { '0': '<path d="M0 0"/>', '2': '<path d="M2 2"/>' },
+  });
+  const svg = knob.el.children[0];
+  const ticksGroup = svg.children.find((c) => c.tagName === 'g' && !c.attributes.transform);
+  const glyphNodes = ticksGroup.children.filter((c) => c.tagName === 'g' && c.attributes.transform);
+  assert.equal(glyphNodes.length, 2, 'exactly the two marks with a markGlyphs entry get a glyph <g>');
+  assert.ok(glyphNodes.every((g) => typeof g.innerHTML === 'string' && g.innerHTML.startsWith('<path')));
+  const lineTicks = ticksGroup.children.filter((c) => c.tagName === 'line');
+  // 25 minor ticks + 2 plain major ticks (marks 1 and 3, which have no glyph)
+  assert.equal(lineTicks.length, 25 + 2);
+  knob.destroy();
+});
+
+test('knob v12: glyph(value) prepends a no-text glyph span; readout text is unchanged', () => {
+  const { knob } = makeTestKnob({
+    min: 0,
+    max: 3,
+    value: 1,
+    step: null,
+    format: (v) => `v${Math.round(v)}`,
+    glyph: (v) => `<svg><path d="glyph-${Math.round(v)}"/></svg>`,
+  });
+  const valueEl = knob.el.children[2];
+  assert.equal(valueEl.children.length, 2, 'a glyph span plus the text node');
+  const glyphSpan = valueEl.children[0];
+  assert.equal(glyphSpan.className, 'knob-value-glyph');
+  assert.ok(glyphSpan.innerHTML.includes('glyph-1'));
+  const textNode = valueEl.children[1];
+  assert.equal(textNode.textContent, 'v1');
+  assert.equal(knob.el.getAttribute('aria-valuetext'), 'v1', 'aria-valuetext is unaffected by the glyph');
+  knob.destroy();
+});
+
+test('knob v12: glyph returning null draws no glyph span, just the text node', () => {
+  const { knob } = makeTestKnob({ value: 5, glyph: () => null });
+  const valueEl = knob.el.children[2];
+  assert.equal(valueEl.children.length, 1);
+  assert.equal(valueEl.children[0].textContent, '5');
+  knob.destroy();
+});
+
+test('knob v12: a throwing glyph() degrades to text-only, never breaks the knob', () => {
+  const { knob } = makeTestKnob({
+    value: 5,
+    glyph: () => {
+      throw new Error('boom');
+    },
+  });
+  const valueEl = knob.el.children[2];
+  assert.equal(valueEl.children.length, 1);
+  assert.equal(valueEl.children[0].textContent, '5');
   knob.destroy();
 });
 

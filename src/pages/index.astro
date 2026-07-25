@@ -183,27 +183,27 @@ const VOICES: Record<string, [string, string][]> = {
 
     <section id="panel-simple" role="tabpanel" aria-labelledby="tab-simple" tabindex="0">
       <div class="module-panel sliders-module">
-        <div class="control">
+        <div class="control simple-dial">
           <div class="control-label-row">
             <label for="speed" class="panel-label">Speed</label>
             <span class="end-label">Slower &ndash; Faster</span>
           </div>
-          <input type="range" id="speed" min="0" max="1" step="0.001" value="0.5" />
+          <div class="dial-slot" id="speed-dial"></div>
         </div>
 
-        <div class="control">
+        <div class="control simple-dial">
           <div class="control-label-row">
             <label for="complexity" class="panel-label">Complexity</label>
             <span class="end-label">Calm &ndash; Complex</span>
           </div>
-          <input type="range" id="complexity" min="0" max="1" step="0.01" value="0.5" />
+          <div class="dial-slot" id="complexity-dial"></div>
         </div>
 
-        <div class="control">
+        <div class="control simple-dial">
           <div class="control-label-row">
             <label for="repetition" class="panel-label">Repetition</label>
           </div>
-          <input type="range" id="repetition" min="0" max="1" step="0.01" value="0.5" />
+          <div class="dial-slot" id="repetition-dial"></div>
           <div class="tri-label" aria-hidden="true">
             <span>Random</span>
             <span>Evolving</span>
@@ -211,11 +211,18 @@ const VOICES: Record<string, [string, string][]> = {
           </div>
         </div>
 
-        <div class="control">
+        <div class="control simple-dial">
+          <div class="control-label-row">
+            <label for="randomness" class="panel-label">Randomness</label>
+          </div>
+          <div class="dial-slot" id="randomness-dial"></div>
+        </div>
+
+        <div class="control simple-dial">
           <div class="control-label-row">
             <label for="volume" class="panel-label">Master volume</label>
           </div>
-          <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8" />
+          <div class="dial-slot" id="volume-dial"></div>
         </div>
       </div>
     </section>
@@ -227,7 +234,15 @@ const VOICES: Record<string, [string, string][]> = {
           {TRACKS.map(([id, label]) => (
             <div class="track-item">
               <div class="track-row" data-track={id}>
-                <span class="track-name">{label}</span>
+                <button
+                  type="button"
+                  class="track-name track-lamp"
+                  id={`track-lamp-${id}`}
+                  aria-label={`${label} state. Press to cycle Off, Auto, On.`}
+                >
+                  <span class="lamp-dot" aria-hidden="true"></span>
+                  <span class="lamp-text">{label}</span>
+                </button>
                 <div class="segmented track-state" role="radiogroup" aria-label={`${label} state`}>
                   <input type="radio" name={`track-state-${id}`} id={`track-${id}-off`} value="off" />
                   <label for={`track-${id}-off`}>Off</label>
@@ -724,6 +739,37 @@ const VOICES: Record<string, [string, string][]> = {
     const SHAPE_LABELS = ['Sine', 'Tri', 'Saw', 'Sq'];
     const SHAPE_FROM_STRING = { sine: 0, triangle: 1, sawtooth: 2, square: 3 };
 
+    // v12: mini waveform glyphs for the shape dials — inline SVG paths on a
+    // 24×24 canvas, stroked in currentColor so they pick up the theme's
+    // tick/text colour wherever they're placed (ring mark or readout).
+    const SHAPE_GLYPH_PATHS = [
+      // sine
+      '<path d="M1 12 C4 3 8 3 12 12 C16 21 20 21 23 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+      // triangle
+      '<path d="M1 12 L6.5 3 L12 12 L17.5 21 L23 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+      // sawtooth
+      '<path d="M2 20 L11 4 L11 20 L20 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+      // square
+      '<path d="M2 20 L2 4 L11 4 L11 20 L20 20 L20 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    ];
+
+    function shapeGlyphSvg(index, size) {
+      const i = clamp(Math.round(index), 0, 3);
+      return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${SHAPE_GLYPH_PATHS[i]}</svg>`;
+    }
+
+    // Passed to knob.js's `markGlyphs`: one entry per canonical mark value.
+    const SHAPE_MARK_GLYPHS = { 0: shapeGlyphSvg(0, 12), 1: shapeGlyphSvg(1, 12), 2: shapeGlyphSvg(2, 12), 3: shapeGlyphSvg(3, 12) };
+
+    // Passed to knob.js's `glyph`: one icon on a canonical mark, a pair either
+    // side of the "~" for a fractional morph (mirrors shapeFormat's text rule).
+    function shapeGlyph(v) {
+      const c = clamp(v, 0, 3);
+      const r = Math.round(c);
+      if (Math.abs(c - r) < 0.05) return shapeGlyphSvg(r, 16);
+      return shapeGlyphSvg(Math.floor(c), 14) + shapeGlyphSvg(Math.ceil(c), 14);
+    }
+
     function readShape(source, n) {
       const shape = source[`shape${n}`];
       if (typeof shape === 'number' && Number.isFinite(shape)) return clamp(shape, 0, 3);
@@ -962,10 +1008,15 @@ const VOICES: Record<string, [string, string][]> = {
         (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform || ''));
       if (isIOS) document.getElementById('ios-silent-hint').hidden = false;
 
-      const speedInput = document.getElementById('speed');
-      const complexityInput = document.getElementById('complexity');
-      const repetitionInput = document.getElementById('repetition');
-      const volumeInput = document.getElementById('volume');
+      // v12: the Simple tab's five dials (Speed/Complexity/Repetition/
+      // Randomness/Volume) are built further down, once knobApi has loaded —
+      // `.set(v)` normalises knob-vs-slider-fallback for every call site
+      // above that point (setTempo, updateComplexityDisplay, syncUIFromSettings).
+      let speedDial = null;
+      let complexityDial = null;
+      let repetitionDial = null;
+      let randomnessDial = null;
+      let volumeDial = null;
       const rootSelect = document.getElementById('root');
       const modeSelect = document.getElementById('mode');
       const timeSignatureSelect = document.getElementById('timeSignature');
@@ -1028,7 +1079,7 @@ const VOICES: Record<string, [string, string][]> = {
         const shown = parts.length
           ? parts.reduce((s, p) => s + p, 0) / parts.length
           : settings.complexity;
-        complexityInput.value = String(clamp(shown, 0, 1));
+        complexityDial?.set(clamp(shown, 0, 1));
       }
 
       // ---- tempo (one value, two views) ---------------------------------
@@ -1038,58 +1089,25 @@ const VOICES: Record<string, [string, string][]> = {
         settings.bpm = bpm;
         bpmInput.value = String(bpm);
         bpmValue.textContent = String(bpm);
-        if (!skipSpeedThumb) speedInput.value = String(speedTFromBpm(bpm));
+        if (!skipSpeedThumb) speedDial?.set(speedTFromBpm(bpm));
         engine.setParams({ bpm, speed: 1 });
         persistSettings();
       }
-
-      speedInput.addEventListener('input', () => {
-        // Don't rewrite the thumb the user is dragging.
-        setTempo(bpmFromSpeedT(parseFloat(speedInput.value)), { skipSpeedThumb: true });
-      });
 
       bpmInput.addEventListener('input', () => {
         setTempo(parseInt(bpmInput.value, 10));
       });
 
-      // ---- simple sliders -----------------------------------------------
+      // ---- simple dials (built once knobApi has loaded, further down) ---
+      // Commit bodies for Complexity/Repetition/Volume/Randomness live next
+      // to buildSimpleDial(); this is the fan-out helper Randomness needs.
 
-      complexityInput.addEventListener('input', () => {
-        // Moving the complexity slider is an explicit "let the engine
-        // decide" gesture: structure, arp mode and every track state return
-        // to Auto, then the new complexity is sent.
-        const value = parseFloat(complexityInput.value);
-        settings.complexity = value;
-        settings.structure = 'auto';
-        settings.arp.mode = 'auto';
-        for (const id of TRACK_IDS) settings.tracks[id].state = 'auto';
-        syncStructureUI();
-        syncArpUI();
-        syncTrackStateUI();
-        const trackStates = {};
-        for (const id of TRACK_IDS) trackStates[id] = { state: 'auto' };
-        engine.setParams({
-          complexity: value,
-          structure: 'auto',
-          arp: { mode: 'auto' },
-          tracks: trackStates,
-        });
-        persistSettings();
-      });
-
-      repetitionInput.addEventListener('input', () => {
-        const value = parseFloat(repetitionInput.value);
-        settings.repetition = value;
-        engine.setParams({ repetition: value });
-        persistSettings();
-      });
-
-      volumeInput.addEventListener('input', () => {
-        const value = parseFloat(volumeInput.value);
-        settings.volume = value;
-        engine.setParams({ volume: value });
-        persistSettings();
-      });
+      function meanRandomness() {
+        const vals = TRACK_IDS.map((id) =>
+          rangeMid(sanitiseRangeValueIn(settings.tracks[id].randomness, 0, 1, 0.5))
+        );
+        return vals.reduce((a, b) => a + b, 0) / vals.length;
+      }
 
       for (const [select, key] of [
         [rootSelect, 'root'],
@@ -1163,10 +1181,22 @@ const VOICES: Record<string, [string, string][]> = {
       // A default-off track (v8: melody/bass ship silent) needs its state
       // obvious at a glance, not just implied by which segmented pill is
       // lit — data-track-state drives a textual "— Off" cue in CSS so the
-      // listener isn't left wondering why a track is silent.
+      // listener isn't left wondering why a track is silent. v12: the same
+      // data-track-state attribute also drives the track-row lamp's dot
+      // colour (off/auto/on), so the row's aria-label is refreshed here too.
+      const TRACK_STATE_TEXT = { off: 'Off', auto: 'Auto', on: 'On' };
+
       function syncTrackOffIndicator(id) {
         const row = document.querySelector(`.track-row[data-track="${id}"]`);
-        if (row) row.dataset.trackState = settings.tracks[id].state;
+        const state = settings.tracks[id].state;
+        if (row) row.dataset.trackState = state;
+        const lamp = document.getElementById(`track-lamp-${id}`);
+        if (lamp) {
+          lamp.setAttribute(
+            'aria-label',
+            `${TRACK_LABELS[id]} state: ${TRACK_STATE_TEXT[state] || state}. Press to cycle Off, Auto, On.`
+          );
+        }
       }
 
       function syncTrackStateUI() {
@@ -1178,18 +1208,38 @@ const VOICES: Record<string, [string, string][]> = {
         updateComplexityDisplay();
       }
 
+      // v12: single commit path for a track's state — the segmented radios
+      // AND the track-row lamp button both funnel through this, so they can
+      // never desync from one another.
+      const TRACK_STATE_CYCLE = ['off', 'auto', 'on'];
+
+      function setTrackState(id, state) {
+        settings.tracks[id].state = state;
+        engine.setParams({ tracks: { [id]: { state } } });
+        updateComplexityDisplay();
+        syncTrackOffIndicator(id);
+        persistSettings();
+      }
+
       for (const id of TRACK_IDS) {
         const stateRadios = document.querySelectorAll(`input[name="track-state-${id}"]`);
         const voiceSelect = document.getElementById(`track-voice-${id}`);
+        const lamp = document.getElementById(`track-lamp-${id}`);
 
         for (const radio of stateRadios) {
           radio.addEventListener('change', () => {
             if (!radio.checked) return;
-            settings.tracks[id].state = radio.value;
-            engine.setParams({ tracks: { [id]: { state: radio.value } } });
-            updateComplexityDisplay();
-            syncTrackOffIndicator(id);
-            persistSettings();
+            setTrackState(id, radio.value);
+          });
+        }
+
+        if (lamp) {
+          lamp.addEventListener('click', () => {
+            const cur = settings.tracks[id].state;
+            const next = TRACK_STATE_CYCLE[(TRACK_STATE_CYCLE.indexOf(cur) + 1) % TRACK_STATE_CYCLE.length];
+            const radio = document.getElementById(`track-${id}-${next}`);
+            if (radio) radio.checked = true;
+            setTrackState(id, next);
           });
         }
 
@@ -1238,6 +1288,168 @@ const VOICES: Record<string, [string, string][]> = {
       // ---- v6: per-track Random / Hold / Randomness + vary targets ------
 
       const pctFormat = (v) => `${Math.round(v * 100)}%`;
+
+      // ---- v12: Simple tab music-box dials --------------------------------
+      // knob.js when available, native <input type=range> fallback when not
+      // (per-dial: whichever built cleanly). Both paths funnel into the same
+      // commit callback, so there's exactly one source of truth per dial —
+      // no shadow/dual-wiring, no reentrancy to reason about.
+      function buildSimpleDial(dialId, opts, commit) {
+        const box = document.getElementById(dialId);
+        if (!box) return { set() {} };
+        if (knobApi) {
+          try {
+            const handle = knobApi.createKnob(box, { ...opts, onInput: commit });
+            return {
+              set: (v) => {
+                try {
+                  handle.set?.(v);
+                } catch {}
+              },
+            };
+          } catch {
+            box.innerHTML = '';
+          }
+        }
+        const input = document.createElement('input');
+        input.type = 'range';
+        if (opts.id) input.id = opts.id;
+        input.min = String(opts.min);
+        input.max = String(opts.max);
+        if (opts.step) input.step = String(opts.step);
+        const initial = typeof opts.value === 'object' ? (opts.value.min + opts.value.max) / 2 : opts.value;
+        input.value = String(initial);
+        box.append(input);
+        input.addEventListener('input', () => commit(parseFloat(input.value)));
+        return {
+          set: (v) => {
+            input.value = String(typeof v === 'object' ? (v.min + v.max) / 2 : v);
+          },
+        };
+      }
+
+      speedDial = buildSimpleDial(
+        'speed-dial',
+        {
+          id: 'speed',
+          label: 'Speed',
+          min: 0,
+          max: 1,
+          step: 0.001,
+          value: speedTFromBpm(settings.bpm),
+          format: (t) => `${Math.round(bpmFromSpeedT(t))} bpm`,
+          defaultValue: speedTFromBpm(DEFAULTS.bpm),
+        },
+        (t) => setTempo(bpmFromSpeedT(t), { skipSpeedThumb: true })
+      );
+
+      complexityDial = buildSimpleDial(
+        'complexity-dial',
+        {
+          id: 'complexity',
+          label: 'Complexity',
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: settings.complexity,
+          format: pctFormat,
+          defaultValue: DEFAULTS.complexity,
+        },
+        (value) => {
+          // Moving Complexity is an explicit "let the engine decide" gesture:
+          // structure, arp mode and every track state return to Auto, then
+          // the new complexity is sent.
+          settings.complexity = value;
+          settings.structure = 'auto';
+          settings.arp.mode = 'auto';
+          for (const id of TRACK_IDS) settings.tracks[id].state = 'auto';
+          syncStructureUI();
+          syncArpUI();
+          syncTrackStateUI();
+          const trackStates = {};
+          for (const id of TRACK_IDS) trackStates[id] = { state: 'auto' };
+          engine.setParams({
+            complexity: value,
+            structure: 'auto',
+            arp: { mode: 'auto' },
+            tracks: trackStates,
+          });
+          persistSettings();
+        }
+      );
+
+      repetitionDial = buildSimpleDial(
+        'repetition-dial',
+        {
+          id: 'repetition',
+          label: 'Repetition',
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: settings.repetition,
+          format: pctFormat,
+          defaultValue: DEFAULTS.repetition,
+        },
+        (value) => {
+          settings.repetition = value;
+          engine.setParams({ repetition: value });
+          persistSettings();
+        }
+      );
+
+      // Randomness fans OUT to every track's tracks[t].randomness (a genuine
+      // RangeValue field per-track, per the v7 default-RANGE list) and reads
+      // back the mean — mixed per-track values converge to a display-only
+      // average, never silently overwritten until the user actually turns
+      // this dial. Complexity/Repetition above stay single-value: the
+      // engine's top-level params (ambient-engine.js NUMERIC_RANGES) only
+      // accept plain numbers, so a "drifting range" affordance there would
+      // visually claim drift the engine silently ignores — deviated from
+      // the addendum's "click toggles range on complexity/repetition" line
+      // for that reason.
+      randomnessDial = buildSimpleDial(
+        'randomness-dial',
+        {
+          id: 'randomness',
+          label: 'Randomness',
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: meanRandomness(),
+          format: pctFormat,
+          allowRange: true,
+          defaultValue: DEFAULTS.tracks.pad.randomness,
+        },
+        (value) => {
+          const trackStates = {};
+          for (const id of TRACK_IDS) {
+            settings.tracks[id].randomness = value;
+            trackStates[id] = { randomness: value };
+          }
+          engine.setParams({ tracks: trackStates });
+          syncAllTrackExtras();
+          persistSettings();
+        }
+      );
+
+      volumeDial = buildSimpleDial(
+        'volume-dial',
+        {
+          id: 'volume',
+          label: 'Master volume',
+          min: 0,
+          max: 1,
+          step: 0.01,
+          value: settings.volume,
+          format: pctFormat,
+          defaultValue: DEFAULTS.volume,
+        },
+        (value) => {
+          settings.volume = value;
+          engine.setParams({ volume: value });
+          persistSettings();
+        }
+      );
 
       const DICE_SVG =
         '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">' +
@@ -1324,6 +1536,9 @@ const VOICES: Record<string, [string, string][]> = {
             settings.tracks[track].randomness = v;
             engine.setParams({ tracks: { [track]: { randomness: v } } });
             syncTrackExtras(track, inst);
+            // Keep the Simple tab's fan-out Randomness dial's mean display
+            // current when a single track's own knob moves it independently.
+            randomnessDial?.set(meanRandomness());
             persistSettings();
           };
           if (knobApi) {
@@ -1339,6 +1554,7 @@ const VOICES: Record<string, [string, string][]> = {
                 format: pctFormat,
                 allowRange: true,
                 rangeDefault: true,
+                defaultValue: DEFAULTS.tracks[track].randomness,
                 onInput: onValue,
               });
               if (knobs) knobs.push(handle);
@@ -1418,6 +1634,9 @@ const VOICES: Record<string, [string, string][]> = {
                 value: raw,
                 marks: [0],
                 format: varyFormat,
+                // DEFAULTS.tracks[*].vary is all-null (the Auto detent, raw 0)
+                // for every track/key — dblclick returns to "follows Randomness".
+                defaultValue: 0,
                 onInput: (v) => commitVary(varyValueFromRaw(v)),
               });
               if (knobs) knobs.push(handle);
@@ -2485,7 +2704,11 @@ const VOICES: Record<string, [string, string][]> = {
 
       // Knob-based editor (v5 module look). Throws only if createKnob does —
       // the caller catches and falls back to buildSliderEditor.
-      function buildKnobEditor(container, patch, commit, knobs, controls) {
+      // v12: `defaults` is the voice's own default Patch (base = deepMerge
+      // (FALLBACK_PATCH, voice.defaults) in renderVoiceEditor) — every knob's
+      // `defaultValue` comes from it, so double-click resets to what the
+      // VOICE ships with, not just whatever the patch happened to load with.
+      function buildKnobEditor(container, patch, commit, knobs, controls, defaults) {
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -2523,8 +2746,10 @@ const VOICES: Record<string, [string, string][]> = {
         // `value`/the value onValue receives may be number|{min,max} — the
         // log map is monotonic over the (positive) domains this is used for,
         // so mapping each thumb independently preserves min ≤ max. `knobOpts`
-        // carries allowRange/rangeDefault through to createKnob.
-        function addLogKnob(row, label, min, max, value, format, onValue, knobOpts) {
+        // carries allowRange/rangeDefault through to createKnob. v12:
+        // `defaultLinear` (optional, same domain as `value`) is mapped through
+        // the same toLog and passed on as the knob's `defaultValue`.
+        function addLogKnob(row, label, min, max, value, format, onValue, knobOpts, defaultLinear) {
           const toLog = (v) => valueToLog(clamp(v, min, max), min, max);
           const fromLog = (t) => logToValue(clamp(t, 0, 1), min, max);
           return addKnob(row, {
@@ -2534,6 +2759,7 @@ const VOICES: Record<string, [string, string][]> = {
             value: mapRV(value, toLog),
             format: (t) => format(fromLog(t)),
             onInput: (t) => onValue(mapRV(t, fromLog)),
+            ...(defaultLinear != null ? { defaultValue: mapRV(defaultLinear, toLog) } : {}),
             ...knobOpts,
           });
         }
@@ -2547,7 +2773,10 @@ const VOICES: Record<string, [string, string][]> = {
             max: 3,
             value: readShape(patch.source, 1) ?? 0,
             marks: SHAPE_MARKS,
+            markGlyphs: SHAPE_MARK_GLYPHS,
+            glyph: shapeGlyph,
             format: shapeFormat,
+            defaultValue: readShape(defaults.source, 1) ?? 0,
             onInput: (v) => {
               writeShape(patch.source, 1, v);
               commit();
@@ -2558,6 +2787,7 @@ const VOICES: Record<string, [string, string][]> = {
         // Osc 2's "off" affordance: a toggle beside its dial (shape2 null).
         if (source && allowed(sourceSpec, 'shape2')) {
           let lastShape2 = readShape(patch.source, 2);
+          const shape2Default = readShape(defaults.source, 2);
           const osc2Cell = document.createElement('div');
           osc2Cell.className = 'knob-cell knob-cell-toggle';
           const osc2Toggle = document.createElement('button');
@@ -2575,7 +2805,14 @@ const VOICES: Record<string, [string, string][]> = {
             max: 3,
             value: lastShape2 ?? 0,
             marks: SHAPE_MARKS,
+            markGlyphs: SHAPE_MARK_GLYPHS,
+            glyph: shapeGlyph,
             format: shapeFormat,
+            // Only a voice whose own default has osc2 ON declares a dial
+            // default here — an off-by-default voice has no canonical "on"
+            // shape to reset to, so the knob falls back to its own initial
+            // (0) while the cell is reachable at all (i.e. toggled on).
+            ...(shape2Default != null ? { defaultValue: shape2Default } : {}),
             onInput: (v) => {
               lastShape2 = clamp(v, 0, 3);
               writeShape(patch.source, 2, lastShape2);
@@ -2609,12 +2846,18 @@ const VOICES: Record<string, [string, string][]> = {
             value: sanitiseRangeValueIn(patch.source.mix, 0, 1, 0.5),
             format: plainFormat,
             allowRange: true,
+            defaultValue: defaults.source.mix,
             onInput: (v) => {
               patch.source.mix = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
             },
           });
         }
+        // v12: the engine sanitiser (ambient-engine.js PATCH_SCHEMA) clamps
+        // detune to [0,50] — no negative cents accepted — so detune STAYS
+        // unipolar here rather than the ±50 the addendum sketches; shipping
+        // a bipolar dial would silently clamp away the negative half at the
+        // engine. Flagged for the engine agent as a possible follow-up.
         if (source && allowed(sourceSpec, 'detune')) {
           addKnob(source, {
             label: 'Detune',
@@ -2624,12 +2867,18 @@ const VOICES: Record<string, [string, string][]> = {
             value: sanitiseRangeValueIn(patch.source.detune, 0, 50, 4),
             format: (v) => `${Math.round(v)} ct`,
             allowRange: true,
+            defaultValue: defaults.source.detune,
             onInput: (v) => {
               patch.source.detune = mapRV(v, (x) => Math.round(clamp(x, 0, 50)));
               commit();
             },
           });
         }
+        // v12: octave ships ±1, not the addendum's sketched ±2 — both the
+        // engine sanitiser (patchNumber(v, -1, 1)) and every voice's own
+        // OCTAVES = [-1, 0, 1] (engine-voices.js) clamp there; a ±2 dial
+        // would silently round-trip through Math.round(clamp(v,-1,1)) and
+        // never actually reach ±2.
         if (source && allowed(sourceSpec, 'octave')) {
           addKnob(source, {
             label: 'Octave',
@@ -2639,6 +2888,7 @@ const VOICES: Record<string, [string, string][]> = {
             value: clamp(patch.source.octave, -1, 1),
             marks: [-1, 0, 1],
             format: (v) => (v > 0 ? `+${Math.round(v)}` : String(Math.round(v))),
+            defaultValue: defaults.source.octave,
             onInput: (v) => {
               patch.source.octave = Math.round(clamp(v, -1, 1));
               commit();
@@ -2657,6 +2907,7 @@ const VOICES: Record<string, [string, string][]> = {
             value: Math.max(0, FILTER_ORDER.indexOf(patch.filter.type)),
             marks: [0, 1, 2, 3],
             format: (v) => FILTER_DIAL_LABELS[Math.round(clamp(v, 0, 3))],
+            defaultValue: Math.max(0, FILTER_ORDER.indexOf(defaults.filter.type)),
             onInput: (v) => {
               patch.filter.type = FILTER_ORDER[Math.round(clamp(v, 0, 3))];
               commit();
@@ -2678,7 +2929,8 @@ const VOICES: Record<string, [string, string][]> = {
               patch.filter.cutoff = mapRV(v, Math.round);
               commit();
             },
-            { allowRange: true, rangeDefault: true }
+            { allowRange: true, rangeDefault: true },
+            defaults.filter.cutoff
           );
         }
         if (filter && allowed(filterSpec, 'q')) {
@@ -2690,6 +2942,7 @@ const VOICES: Record<string, [string, string][]> = {
             value: sanitiseRangeValueIn(patch.filter.q, 0.1, 20, 0.7),
             format: plainFormat,
             allowRange: true,
+            defaultValue: defaults.filter.q,
             onInput: (v) => {
               patch.filter.q = mapRV(v, (x) => clamp(x, 0.1, 20));
               commit();
@@ -2704,6 +2957,7 @@ const VOICES: Record<string, [string, string][]> = {
             value: sanitiseRangeValueIn(patch.filter.envAmount, 0, 1, 0.3),
             format: plainFormat,
             allowRange: true,
+            defaultValue: defaults.filter.envAmount,
             onInput: (v) => {
               patch.filter.envAmount = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
@@ -2725,7 +2979,8 @@ const VOICES: Record<string, [string, string][]> = {
               patch.adsr.attack = v;
               commit();
             },
-            { allowRange: true }
+            { allowRange: true },
+            defaults.adsr.attack
           );
         }
         if (env && allowed(adsrSpec, 'decay')) {
@@ -2740,7 +2995,8 @@ const VOICES: Record<string, [string, string][]> = {
               patch.adsr.decay = v;
               commit();
             },
-            { allowRange: true }
+            { allowRange: true },
+            defaults.adsr.decay
           );
         }
         if (env && allowed(adsrSpec, 'sustain')) {
@@ -2751,6 +3007,7 @@ const VOICES: Record<string, [string, string][]> = {
             value: sanitiseRangeValueIn(patch.adsr.sustain, 0, 1, 0.7),
             format: plainFormat,
             allowRange: true,
+            defaultValue: defaults.adsr.sustain,
             onInput: (v) => {
               patch.adsr.sustain = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
@@ -2769,7 +3026,8 @@ const VOICES: Record<string, [string, string][]> = {
               patch.adsr.release = v;
               commit();
             },
-            { allowRange: true }
+            { allowRange: true },
+            defaults.adsr.release
           );
         }
 
@@ -2786,6 +3044,7 @@ const VOICES: Record<string, [string, string][]> = {
             format: plainFormat,
             allowRange: true,
             rangeDefault: true,
+            defaultValue: defaults.sends.reverb,
             onInput: (v) => {
               patch.sends.reverb = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
@@ -2801,6 +3060,7 @@ const VOICES: Record<string, [string, string][]> = {
             format: plainFormat,
             allowRange: true,
             rangeDefault: true,
+            defaultValue: defaults.sends.delay,
             onInput: (v) => {
               patch.sends.delay = mapRV(v, (x) => clamp(x, 0, 1));
               commit();
@@ -2897,7 +3157,7 @@ const VOICES: Record<string, [string, string][]> = {
         let knobsBuilt = false;
         if (knobApi) {
           try {
-            buildKnobEditor(container, patch, commit, ed.knobs, controls);
+            buildKnobEditor(container, patch, commit, ed.knobs, controls, base);
             knobsBuilt = true;
           } catch {
             for (const k of ed.knobs) {
@@ -3036,6 +3296,7 @@ const VOICES: Record<string, [string, string][]> = {
               value: settings.tracks[track].level,
               format: pctFormat,
               allowRange: true,
+              defaultValue: DEFAULTS.tracks[track].level,
               onInput: commitLevel,
             });
             return {
@@ -3089,7 +3350,7 @@ const VOICES: Record<string, [string, string][]> = {
           for (const l of blockLabels) {
             const opt = document.createElement('option');
             opt.value = l;
-            opt.textContent = l;
+            opt.textContent = `Section ${l}`;
             if (l === block.label) opt.selected = true;
             labelSelect.append(opt);
           }
@@ -3796,9 +4057,10 @@ const VOICES: Record<string, [string, string][]> = {
       function syncUIFromSettings() {
         bpmInput.value = String(settings.bpm);
         bpmValue.textContent = String(settings.bpm);
-        speedInput.value = String(speedTFromBpm(settings.bpm));
-        repetitionInput.value = String(settings.repetition);
-        volumeInput.value = String(settings.volume);
+        speedDial?.set(speedTFromBpm(settings.bpm));
+        repetitionDial?.set(settings.repetition);
+        volumeDial?.set(settings.volume);
+        randomnessDial?.set(meanRandomness());
         rootSelect.value = settings.root;
         modeSelect.value = settings.mode;
         timeSignatureSelect.value = settings.timeSignature;
@@ -4091,6 +4353,29 @@ const VOICES: Record<string, [string, string][]> = {
       font-size: 14px;
     }
 
+    /* v12: Simple tab — five music-box dials in a row (knob.js path), each
+       a generously-sized knob per the theme's --knob-size token; the
+       slider fallback (knob.js absent) keeps the pre-v12 vertical stack
+       look via the shared .control/input[type=range] rules above. */
+    .sliders-module {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+      gap: 24px 16px;
+    }
+
+    .simple-dial {
+      flex: 1 1 130px;
+      max-width: 220px;
+      margin-bottom: 0;
+      --knob-size: 96px;
+    }
+
+    .dial-slot {
+      display: flex;
+      justify-content: center;
+    }
+
     .tri-label span:nth-child(2) {
       text-align: center;
     }
@@ -4249,6 +4534,52 @@ const VOICES: Record<string, [string, string][]> = {
       font-weight: 600;
     }
 
+    /* v12: track-name is now a lamp button — off/auto/on lamp dot (black/
+       grey/white) + the track name, cycling state on click, native <button>
+       so it's keyboard-operable for free. */
+    .track-lamp {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: 84px;
+      border: none;
+      background: none;
+      padding: 3px 4px;
+      margin: -3px -4px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+      text-align: left;
+    }
+
+    .track-lamp:hover {
+      background: var(--panel-inset, rgba(255, 255, 255, 0.08));
+    }
+
+    .track-lamp:focus-visible {
+      outline: 3px solid var(--link);
+      outline-offset: 2px;
+    }
+
+    .lamp-dot {
+      width: 10px;
+      height: 10px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      border: 1px solid var(--panel-edge, var(--border));
+      background: var(--knob-face);
+    }
+
+    .track-row[data-track-state='auto'] .lamp-dot {
+      background: var(--tick);
+    }
+
+    .track-row[data-track-state='on'] .lamp-dot {
+      background: var(--knob-pointer);
+      box-shadow: 0 0 4px var(--knob-pointer);
+    }
+
     /* v8: melody/bass ship state 'off' — a textual cue (not colour alone)
        so a silent track is obviously wake-able, not just quietly missing. */
     .track-row[data-track-state='off'] .track-name {
@@ -4388,6 +4719,17 @@ const VOICES: Record<string, [string, string][]> = {
 
     .knob-cell-toggle {
       align-self: center;
+    }
+
+    /* v12: shape-dial glyph readout (knob.js's `glyph` option) — icon(s)
+       inline before the text, coloured with the readout's own text colour. */
+    .knob-value-glyph {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      margin-right: 4px;
+      vertical-align: middle;
+      color: var(--text);
     }
 
     .osc2-toggle[aria-pressed='true'] {

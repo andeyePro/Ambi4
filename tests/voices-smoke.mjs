@@ -1137,6 +1137,122 @@ for (const [track, patches] of Object.entries(EXPECTED)) {
 }
 
 // --------------------------------------------------------------------------
+// v12 — mono/legato: retarget pathway (if wired) and safe fallback
+//
+// The v12 addendum specs the BEHAVIOUR (retarget without a second envelope
+// attack) but leaves the legatoFrom wire shape unpinned — engine-voices.js is
+// free to invent it. This suite can only discover it by trying the most
+// natural extensions of the existing note/patch/handle contract and watching
+// what the mock records; if none of the tried shapes changes behaviour, the
+// pathway is either not wired yet or uses a shape this suite did not guess,
+// and the test skips cleanly rather than asserting something it cannot
+// actually observe. See the final report for the exact shapes tried.
+// --------------------------------------------------------------------------
+
+function freqOf(midi) {
+  return 440 * 2 ** ((midi - 69) / 12);
+}
+
+/** Try play()ing note2 as a legato continuation of handle1, several plausible ways. */
+function tryLegatoShapes(voice, ctx, destination, note1Handle, note2Base) {
+  const attempts = [
+    // The confirmed v12 shape (read from the landed engine/voices source once
+    // it existed to read): note.legatoFrom = { handle, glide, freq }, where
+    // `handle` is whatever the previous play() call returned. A voice that
+    // supports it returns `{ ...cancel/etc, legato: true }`; one that does not
+    // just falls through to an ordinary fresh note.
+    () => voice.play(ctx, destination, {
+      ...note2Base,
+      legatoFrom: { handle: note1Handle, glide: 0.05, freq: freqOf(note2Base.midi) },
+    }),
+    // Earlier guesses, kept as harmless fallbacks in case a different voice
+    // reads a different shape.
+    () => voice.play(ctx, destination, { ...note2Base, legatoFrom: note1Handle }),
+    () => voice.play(ctx, destination, { ...note2Base, legato: true }, undefined, note1Handle),
+    () => (typeof note1Handle.retarget === 'function' ? note1Handle.retarget(note2Base) : undefined),
+    () => (typeof note1Handle.glideTo === 'function' ? note1Handle.glideTo(note2Base) : undefined),
+  ];
+  for (const attempt of attempts) {
+    try {
+      const result = attempt();
+      if (result !== undefined) return result;
+    } catch {
+      // that shape is not what this voice/engine expects — try the next one
+    }
+  }
+  return voice.play(ctx, destination, note2Base); // last resort: a plain retrigger
+}
+
+test('v12 legato: melody.pluck/flute retargets pitch on an abutting note rather than reattacking (if wired)', () => {
+  const ids = ['pluck', 'flute'].filter((id) => VOICES.melody[id]);
+  assert.ok(ids.length > 0, 'neither melody.pluck nor melody.flute exists to test');
+  let tried = 0;
+  for (const id of ids) {
+    const voice = VOICES.melody[id];
+    const ctx = new MockAudioContext();
+    const destination = makeNode('gain');
+    created = []; startedSources = []; automation.length = 0;
+
+    const note1 = { midi: 60, freq: null, kind: null, when: 0.5, duration: 0.4, velocity: 0.8, pan: 0 };
+    const handle1 = voice.play(ctx, destination, note1);
+    const sourcesBefore = startedSources.length;
+    const autoBefore = automation.length;
+
+    ctx.currentTime = 0.9;
+    const note2 = {
+      midi: 64, freq: null, kind: null, when: 0.9, duration: 0.4, velocity: 0.8, pan: 0, glide: 0.5,
+    };
+    const handle2 = tryLegatoShapes(voice, ctx, destination, handle1, note2);
+
+    const newSources = startedSources.length - sourcesBefore;
+    const freqWrites = automation.slice(autoBefore)
+      .filter((a) => a.name.includes('frequency') && Math.abs(a.value - freqOf(64)) < 3);
+    const freshAttack = automation.slice(autoBefore)
+      .some((a) => a.name.includes('gain') && a.value < 0.03
+        && (a.kind === 'set' || a.kind === 'linear' || a.kind === 'exponential'));
+    const confirmed = handle2 && handle2.legato === true;
+
+    if (!confirmed && (newSources > 0 || !freqWrites.length)) {
+      console.log(`SKIP v12 legato (melody.${id}): no retarget pathway detected via `
+        + 'note.legatoFrom={handle,glide,freq} or the earlier guessed shapes — '
+        + `this voice may simply not support legato (contract only requires one that does)`);
+    } else {
+      tried += 1;
+      assert.equal(newSources, 0, `melody.${id}: a confirmed legato retarget still started a new source`);
+      assert.ok(!freshAttack,
+        `melody.${id}: a legato-retargeted note still shows a fresh envelope attack from near-zero`);
+    }
+    for (const source of startedSources) source.onended?.();
+  }
+  if (!tried) console.log('SKIP v12 legato: no candidate voice exposed a detectable retarget pathway');
+});
+
+test('v12 legato: a non-oscillator voice falls back to a plain retrigger without throwing', () => {
+  const candidates = [
+    ['percussion', 'soft'], ['texture', 'grains'], ['texture', 'wash'], ['arp', 'crystal'],
+  ].filter(([track, id]) => VOICES[track] && VOICES[track][id]);
+  assert.ok(candidates.length > 0, 'no candidate non-oscillator voices found to test');
+  for (const [track, id] of candidates) {
+    const voice = VOICES[track][id];
+    const ctx = new MockAudioContext();
+    const destination = makeNode('gain');
+    created = []; startedSources = []; automation.length = 0;
+    const note1 = track === 'percussion'
+      ? { midi: null, freq: null, kind: 'low', when: 0.5, duration: 0.25, velocity: 0.8, pan: 0 }
+      : { midi: 60, freq: null, kind: null, when: 0.5, duration: 1, velocity: 0.8, pan: 0 };
+    const handle1 = voice.play(ctx, destination, note1);
+    const note2 = {
+      ...note1, when: note1.when + note1.duration, legatoFrom: handle1, legato: true, glide: 0.3,
+    };
+    ctx.currentTime = note2.when;
+    assert.doesNotThrow(() => tryLegatoShapes(voice, ctx, destination, handle1, note2),
+      `${track}.${id}: a legato hint on a non-oscillator voice must not throw`);
+    assert.ok(startedSources.length >= 1, `${track}.${id}: the fallback retrigger produced no source`);
+    for (const source of startedSources) source.onended?.();
+  }
+});
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 

@@ -267,7 +267,11 @@ function createRig(ctx, destination, note) {
   const nodes = [];
   const sources = [];
   let cleaned = false;
+  let cancelled = false;
   let pending = 0;
+  // v12 legato: what a mono track needs to retune this note instead of
+  // striking a new one. Null until the voice declares itself glide-able.
+  let held = null;
 
   const out = ctx.createGain();
   out.gain.value = 1;
@@ -329,8 +333,18 @@ function createRig(ctx, destination, note) {
       node.frequency.value = Math.max(frequency, 0.01);
       if (detune) node.detune.value = detune;
       node.start(start);
-      sources.push({ node, start, stop: null });
+      // Every oscillator is assumed to track the note's pitch — carriers,
+      // partials and FM modulators all do. The exceptions are control-rate
+      // sources, which unpitch() takes back out.
+      sources.push({ node, start, stop: null, base: Math.max(frequency, 0.01), pitched: true });
       return keep(node);
+    },
+
+    /** Declare an oscillator a control signal: a glide must not retune it. */
+    unpitch(node) {
+      const entry = entryFor(node);
+      if (entry) entry.pitched = false;
+      return node;
     },
 
     noise(start, { colour = 'white', rate = 1 } = {}) {
@@ -340,8 +354,22 @@ function createRig(ctx, destination, note) {
       node.playbackRate.value = rate;
       // A random read offset stops repeated bursts sounding like the same clip.
       node.start(start, Math.random() * 1.5);
-      sources.push({ node, start, stop: null });
+      sources.push({ node, start, stop: null, base: 0, pitched: false });
       return keep(node);
+    },
+
+    /**
+     * Declare this note glide-able (v12). `freq` is the pitch every registered
+     * oscillator was tuned from, `amp` the output envelope param, `level` the
+     * value it holds through the note, `release` its fade and `until` the time
+     * that hold ends — past which there is no sustain left to retune.
+     *
+     * A struck voice (sustain 0) simply never calls this: its identity IS the
+     * attack, so a mono track re-strikes it rather than sliding it.
+     */
+    legato({ freq, amp, level: holdLevel, release, until }) {
+      if (!(holdLevel > SILENCE * 2) || !Number.isFinite(freq) || freq <= 0) return;
+      held = { freq, amp, level: holdLevel, release: Math.max(release, 0.01), until };
     },
 
     /** Retire one source early — used by grains and one-shot transients. */
@@ -368,28 +396,123 @@ function createRig(ctx, destination, note) {
         };
       }
       if (!sources.length) cleanup();
-      return { cancel };
+      return handle();
     },
   };
 
-  function cancel() {
-    if (cleaned) return;
-    const now = ctx.currentTime;
-    const current = Math.max(out.gain.value, SILENCE);
-    out.gain.cancelScheduledValues(now);
-    out.gain.setValueAtTime(current, now);
-    out.gain.exponentialRampToValueAtTime(SILENCE, now + CANCEL_FADE);
+  const handle = () => ({ cancel, glide });
 
-    const end = now + CANCEL_FADE + 0.01;
+  /**
+   * Take this still-sounding note over at a new pitch (v12 mono legato):
+   * every pitched oscillator slides to the new frequency over `glide` seconds
+   * and the amp envelope is re-held rather than re-struck, so the line is one
+   * continuous sound. Returns a handle for the note that now sounds, or null
+   * when there is nothing left to take over — the caller then plays normally.
+   */
+  function glide({ freq, when, duration, glide: seconds }) {
+    if (cleaned || cancelled || !held) return null;
+    if (!Number.isFinite(freq) || freq <= 0) return null;
+    const at = Math.max(Number.isFinite(when) ? when : ctx.currentTime, ctx.currentTime);
+    // Past the hold the envelope is already releasing: re-opening it there
+    // would step the gain back up, which is a click, not a slur.
+    if (at > held.until + 1e-6) return null;
+
+    // setTargetAtTime is asymptotic, so a third of the asked-for glide as the
+    // time constant lands the pitch ~95 % of the way there in the time asked.
+    const constant = Math.max(Number.isFinite(seconds) ? seconds : 0.05, 0.005) / 3;
+    const ratio = freq / held.freq;
     for (const source of sources) {
-      const at = Math.max(end, source.start + 0.005);
-      if (source.stopTime !== undefined && source.stopTime <= at) continue;
-      source.stopTime = at;
-      source.node.stop(at);
+      if (!source.pitched) continue;
+      source.node.frequency.setTargetAtTime(Math.max(source.base * ratio, 0.01), at, constant);
+      source.base *= ratio;
+    }
+    held.freq = freq;
+
+    const sustainEnd = at + Math.max(Number.isFinite(duration) ? duration : 0.3, 0.02);
+    held.amp.cancelScheduledValues(at);
+    held.amp.setValueAtTime(held.level, at);
+    held.amp.setValueAtTime(held.level, sustainEnd);
+    // An RC release rather than a ramp to a floor: the envelope is being
+    // re-held here, not re-struck, and a target decay cannot collide with
+    // whatever the next takeover schedules on top of it. A fifth of the
+    // release as the time constant puts it ~43 dB down by the source stop.
+    held.amp.setTargetAtTime(SILENCE, sustainEnd, held.release / 5);
+    held.until = sustainEnd;
+
+    // Web Audio lets a later stop() supersede an earlier one that has not yet
+    // fired, which is what keeps the sources alive through the new note.
+    const stopAt = sustainEnd + held.release + 0.05;
+    for (const source of sources) {
+      if (source.stopTime !== undefined && source.stopTime >= stopAt) continue;
+      source.stopTime = stopAt;
+      source.node.stop(stopAt);
+    }
+    // `legato: true` is how the engine knows no new note was born and the one
+    // it already has on the books is the one now sounding.
+    return { ...handle(), legato: true };
+  }
+
+  function cancel(at) {
+    if (cleaned || cancelled) return;
+    cancelled = true;
+    const now = ctx.currentTime;
+    // A mono track releases the note it is replacing AT the new onset, which
+    // the lookahead puts in the future; a bare cancel() still means "now".
+    const from = Math.max(Number.isFinite(at) ? at : now, now);
+    const current = Math.max(out.gain.value, SILENCE);
+    out.gain.cancelScheduledValues(from);
+    out.gain.setValueAtTime(current, from);
+    out.gain.exponentialRampToValueAtTime(SILENCE, from + CANCEL_FADE);
+
+    const end = from + CANCEL_FADE + 0.01;
+    for (const source of sources) {
+      const at2 = Math.max(end, source.start + 0.005);
+      if (source.stopTime !== undefined && source.stopTime <= at2) continue;
+      source.stopTime = at2;
+      source.node.stop(at2);
     }
   }
 
   return rig;
+}
+
+/**
+ * The legato pathway a sustaining voice offers the engine: when a mono track
+ * hands over its previous note, retune that note instead of starting one.
+ * Returns the handle of the note now sounding, or null to play normally.
+ */
+function takeOver(ctx, note, freq) {
+  const from = note && note.legatoFrom;
+  if (!from || typeof from !== 'object') return null;
+  // The engine hands over `{ freq, handle, glide }`; a bare handle is accepted
+  // too, so a caller that only has the previous note's handle still works.
+  const previous = typeof from.glide === 'function' ? from : from.handle;
+  if (!previous || typeof previous.glide !== 'function') return null;
+  return previous.glide({
+    freq,
+    when: timeOf(ctx, note),
+    duration: durOf(note, 1),
+    glide: typeof from.glide === 'number' ? from.glide : 0.05,
+  });
+}
+
+/**
+ * The level a sustaining envelope actually holds. A patch asking for sustain 0
+ * turns the voice struck, and a struck note has no sustain to slide.
+ */
+const heldLevel = (peak, p) => (p ? peak * p.adsr.sustain : peak);
+
+/**
+ * Close a sustaining voice off: publish the hold a legato glide would need to
+ * reopen, then hand back the note's handle. `end` is what sustainEnv()
+ * returned, so `end - release` is the moment the hold gives way to the fade.
+ */
+function finishSustained(rig, {
+  amp, freq, peak, release, end, p,
+}) {
+  const fade = p ? p.adsr.release : release;
+  rig.legato({ freq, amp, level: heldLevel(peak, p), release: fade, until: end - fade });
+  return rig.finish(end + 0.05);
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +536,8 @@ function fm(rig, carrier, { t, freq, ratio, index, decay, floor = 0.02 }) {
 
 /** A low-frequency oscillator wired into an AudioParam. Returns the depth gain. */
 function lfo(rig, param, { t, rate, depth }) {
-  const osc = rig.osc('sine', rate, t);
+  // Control rate, not note pitch: a legato glide must leave this where it is.
+  const osc = rig.unpitch(rig.osc('sine', rate, t));
   const amount = rig.gain(depth);
   osc.connect(amount);
   amount.connect(param);
@@ -479,7 +603,8 @@ function noiseBurst(rig, dest, {
  */
 
 const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch'];
-const OCTAVES = [-1, 0, 1];
+// v12: two octaves either way, and detune reaches flat as well as sharp.
+const OCTAVES = [-2, -1, 0, 1, 2];
 
 const oneOf = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
 const inRange = (value, lo, hi, fallback) => (
@@ -528,7 +653,7 @@ function patchFor(defaults, patch) {
       osc1: OSC_TYPES[clamp(Math.round(shape1), 0, 3)],
       osc2: shape2 === null ? null : OSC_TYPES[clamp(Math.round(shape2), 0, 3)],
       mix: inRange(source.mix, 0, 1, d.source.mix),
-      detune: inRange(source.detune, 0, 50, d.source.detune),
+      detune: inRange(source.detune, -50, 50, d.source.detune),
       octave: oneOf(source.octave, OCTAVES, d.source.octave),
     },
     filter: {
@@ -1004,7 +1129,7 @@ function padGlass(ctx, destination, note, patch) {
   // Slightly stretched partials: harmonic enough to be a chord tone, detuned
   // enough to ring like struck glass. The patch's detune is that scatter — the
   // stack is additive, so osc types and mix have nothing to bite on here.
-  const jitter = p ? p.source.detune : 4;
+  const jitter = Math.abs(p ? p.source.detune : 4);
   const partials = [[1, 0.4], [2, 0.2], [3.01, 0.14], [4.98, 0.09], [6.97, 0.05]];
   partials.forEach(([ratio, mix], i) => {
     const start = t + i * 0.28;
@@ -1162,10 +1287,14 @@ function padChoir(ctx, destination, note, patch) {
 
 /** Sub: a single sine with a whisper of second harmonic for small speakers. */
 function bassSub(ctx, destination, note, patch) {
-  const rig = createRig(ctx, destination, note);
   const p = patchFor(DEFAULTS.bass.sub, patch);
-  const t = timeOf(ctx, note);
   const f = shifted(p, freqOf(note, 65));
+  // A mono track hands its previous note over rather than stacking a new one.
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
   const v = velOf(note);
   const dur = durOf(note, 2);
 
@@ -1194,16 +1323,20 @@ function bassSub(ctx, destination, note, patch) {
     gain.connect(amp);
   }
 
-  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak: level(PEAK.bass, v) }, p);
-  return rig.finish(end + 0.05);
+  const peak = level(PEAK.bass, v);
+  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
 }
 
 /** Round: triangle body with a soft filter fall — plucked, but with no edge. */
 function bassRound(ctx, destination, note, patch) {
-  const rig = createRig(ctx, destination, note);
   const p = patchFor(DEFAULTS.bass.round, patch);
-  const t = timeOf(ctx, note);
   const f = shifted(p, freqOf(note, 65));
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
   const v = velOf(note);
   const dur = durOf(note, 2);
 
@@ -1230,18 +1363,20 @@ function bassRound(ctx, destination, note, patch) {
   const attack = p ? p.adsr.attack : 0.05;
   const release = p ? p.adsr.release : 0.55;
   const hold = Math.max(0.1, dur - attack);
-  const end = sustainEnv(amp.gain, t, {
-    attack, hold, release, peak: level(PEAK.bass * 0.95, v),
-  }, p);
-  return rig.finish(end + 0.05);
+  const peak = level(PEAK.bass * 0.95, v);
+  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
 }
 
 /** Breath: a clean fundamental with a slow band of air swelling over it. */
 function bassBreath(ctx, destination, note, patch) {
-  const rig = createRig(ctx, destination, note);
   const p = patchFor(DEFAULTS.bass.breath, patch);
-  const t = timeOf(ctx, note);
   const f = shifted(p, freqOf(note, 65));
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
   const v = velOf(note);
   const dur = durOf(note, 2);
 
@@ -1275,14 +1410,15 @@ function bassBreath(ctx, destination, note, patch) {
     attack: attack * 2.5,
     hold: Math.max(0.05, hold - attack * 1.5),
     release,
-    peak: 0.12 + 0.1 * v,
+    // Well under the tone: at the bottom of the mix a band of noise riding a
+    // sustained note is heard as wind behind it, not as breath in it.
+    peak: 0.08 + 0.06 * v,
   });
   lfo(rig, band.frequency, { t, rate: 0.23, depth: f * 0.5 });
 
-  const end = sustainEnv(amp.gain, t, {
-    attack, hold, release, peak: level(PEAK.bass * 0.95, v),
-  }, p);
-  return rig.finish(end + 0.05);
+  const peak = level(PEAK.bass * 0.95, v);
+  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
 }
 
 // ---------------------------------------------------------------------------
@@ -1377,12 +1513,17 @@ function melodyBell(ctx, destination, note, patch) {
 
 /** Flute: near-sine tone with breath noise and vibrato that arrives late. */
 function melodyFlute(ctx, destination, note, patch) {
-  const rig = createRig(ctx, destination, note);
   // A blown tone with its octave and its breath: nothing here is an oscillator
   // stack, so osc types, mix and detune have no meaning. Octave does.
   const p = patchFor(DEFAULTS.melody.flute, patch);
-  const t = timeOf(ctx, note);
   const f = shifted(p, freqOf(note, 440));
+  // The one melody voice that sustains, so the one that can be slurred: a
+  // struck voice's identity is its attack, and sliding it would erase the line.
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
   const v = velOf(note);
   const dur = durOf(note, 1);
 
@@ -1416,18 +1557,21 @@ function melodyFlute(ctx, destination, note, patch) {
   band.connect(airGain);
   airGain.connect(amp);
   // Breath peaks with the onset and settles back, as it does on a real blow.
-  const breathPeak = Math.max(0.1 + 0.12 * v, SILENCE * 2);
-  const breathSustain = Math.max(0.035 + 0.05 * v, SILENCE * 2);
+  const breathPeak = Math.max(0.07 + 0.08 * v, SILENCE * 2);
+  const breathSustain = Math.max(0.025 + 0.035 * v, SILENCE * 2);
   airGain.gain.setValueAtTime(SILENCE, t);
   airGain.gain.exponentialRampToValueAtTime(breathPeak, t + attack * 0.6);
   airGain.gain.exponentialRampToValueAtTime(breathSustain, t + attack + Math.min(0.25, hold * 0.5));
   airGain.gain.setValueAtTime(breathSustain, t + attack + hold);
   airGain.gain.exponentialRampToValueAtTime(SILENCE, t + attack + hold + release);
 
-  const end = sustainEnv(amp.gain, t, {
-    attack, hold, release, peak: level(PEAK.melody * 1.05, v),
-  }, p);
-  return rig.finish(end + 0.05);
+  // Loudness match, not peak match: the flute HOLDS its level where pluck,
+  // bell and keys decay away from theirs, so an equal peak reads several dB
+  // louder over the note. 0.62 of the track reference lands its sustained
+  // level in the same place as its struck neighbours' average.
+  const peak = level(PEAK.melody * 0.62, v);
+  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
 }
 
 /** Keys: electric-piano tine — sine carrier, self-ratio FM, velocity brightness. */
@@ -1581,7 +1725,7 @@ function textureChimes(ctx, destination, note, patch) {
   // which is why the stack shimmers instead of fusing into one pitch.
   const partials = [[1, 0.42, 1], [2.76, 0.26, 0.7], [5.4, 0.16, 0.45], [8.93, 0.09, 0.28]];
   const life = clamp(dur * 1.2 + 1.5, 3, 7);
-  const jitter = p ? p.source.detune : 3;
+  const jitter = Math.abs(p ? p.source.detune : 3);
   let end = t;
   for (const [ratio, mix, span] of partials) {
     const osc = rig.osc('sine', f * ratio, t, between(-jitter, jitter));
