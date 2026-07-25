@@ -222,6 +222,7 @@ const {
   BASS_FEEL_NAMES,
   BASS_GHOST_CEILING,
   HARMONY_RHYTHMS,
+  setGenreTable,
 } = engineModule;
 
 /**
@@ -740,6 +741,73 @@ test('sanitiseParams clamps, validates and ignores unknown keys', () => {
   assert.equal(rescued.mode, DEFAULT_PARAMS.mode);
   assert.equal(rescued.volume, DEFAULT_PARAMS.volume);
 });
+
+test('v26 genre tag: slug-shaped, inert, and never lost by an unrelated edit', () => {
+  assert.equal(DEFAULT_PARAMS.genre, null, 'a params object ships with no genre');
+
+  assert.equal(sanitiseParams({ genre: 'deep-house' }).genre, 'deep-house');
+  assert.equal(sanitiseParams({ genre: '  Lofi-Beats ' }).genre, 'lofi-beats',
+    'a tag is trimmed and lowercased, the way a slug is written');
+  // Shape is the boundary that matters: a tag can arrive from a share link.
+  assert.equal(sanitiseParams({ genre: 'not a slug' }).genre, null);
+  assert.equal(sanitiseParams({ genre: '../etc/passwd' }).genre, null);
+  assert.equal(sanitiseParams({ genre: '-leading' }).genre, null);
+  assert.equal(sanitiseParams({ genre: 'x'.repeat(33) }).genre, null);
+  assert.equal(sanitiseParams({ genre: 7 }).genre, null);
+
+  const tagged = sanitiseParams({ genre: 'bossa' });
+  assert.equal(sanitiseParams({ bpm: 120 }, tagged).genre, 'bossa',
+    'an unrelated edit must not strip the tag');
+  assert.equal(sanitiseParams({ genre: 'not a slug' }, tagged).genre, 'bossa',
+    'an unusable tag keeps the stored one');
+  assert.equal(sanitiseParams({ genre: null }, tagged).genre, null,
+    'an explicit null clears the tag');
+});
+
+test('v26 setGenreTable filters the tag against the page\'s own registry', () => {
+  try {
+    assert.deepEqual(setGenreTable(['deep-house', { slug: 'Ambient' }, 'deep-house', 77]),
+      ['deep-house', 'ambient'], 'the table takes slugs or genre files, de-duplicated');
+    assert.equal(sanitiseParams({ genre: 'ambient' }).genre, 'ambient');
+    assert.equal(sanitiseParams({ genre: 'jungle' }).genre, null,
+      'with a table registered, an unknown slug is refused like any unknown enum');
+
+    // A registered table also re-filters an inherited tag, so a stale genre
+    // cannot ride in through the base.
+    const stale = { ...DEFAULT_PARAMS, genre: 'jungle' };
+    assert.equal(sanitiseParams({ bpm: 90 }, stale).genre, null);
+
+    assert.deepEqual(setGenreTable(null), [], 'an empty list clears the table');
+    assert.equal(sanitiseParams({ genre: 'jungle' }).genre, 'jungle',
+      'with no table the engine is data-agnostic and keeps any slug-shaped tag');
+  } finally {
+    setGenreTable(null);
+  }
+});
+
+test('v26 genre tag survives the engine and changes nothing about the piece',
+  () => hiddenTab(async () => {
+    const params = {
+      bpm: 120, speed: 2, complexity: 0.8, repetition: 0.4, structure: 'journey',
+      tracks: tracksAll('on'),
+    };
+    const capture = async (extra) => {
+      const engine = createEngine({ ...params, ...extra }, { rng: seededRng(5150) });
+      const log = record(engine);
+      await engine.start();
+      await advance(12, FAST);
+      const tag = engine.getParams().genre;
+      engine.stop();
+      return { tag, notes: log.notes.map((n) => `${n.track}|${n.midi}|${tick(n.time)}`) };
+    };
+    const plain = await capture({});
+    const tagged = await capture({ genre: 'techno-tools' });
+    assert.equal(plain.tag, null);
+    assert.equal(tagged.tag, 'techno-tools', 'getParams hands the tag back');
+    assert.ok(plain.notes.length > 20, `only ${plain.notes.length} notes`);
+    assert.deepEqual(tagged.notes, plain.notes,
+      'the tag is inert: the engine must play exactly the same piece with it');
+  }));
 
 test('sanitiseParams validates structure and custom blocks', () => {
   assert.equal(sanitiseParams({ structure: 'journey' }).structure, 'journey');

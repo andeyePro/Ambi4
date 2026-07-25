@@ -238,32 +238,73 @@ const VOICES: Record<string, [string, string][]> = {
          above the tab strip, at the piano roll's own full width, and only the
          control surfaces below switch with Simple|Advanced. The module carries
          no title: the twisty at its top right is the only chrome, and the word
-         "Oscilloscope" appears beside it just when the body is collapsed. -->
-    <div class="module-panel scope-module" id="front-scope-module" hidden>
-      <div class="scope-module-head">
-        <span id="front-scope-note" class="value-readout scope-note"></span>
-        <button
-          type="button"
-          id="front-scope-toggle"
-          class="scope-collapse"
-          aria-label="Oscilloscope"
-          aria-expanded="true"
-          aria-controls="front-scope-body"
-        >
-          <span class="scope-collapse-word" id="front-scope-word" aria-hidden="true" hidden>Oscilloscope</span>
-          <span class="scope-twisty" aria-hidden="true"></span>
-        </button>
-      </div>
-      <div id="front-scope-body">
-        <canvas id="front-scope" class="front-scope" aria-label="Live oscilloscope of the selected tracks"></canvas>
-        <div id="front-scope-legend" class="scope-legend" role="group" aria-label="Tracks shown on the oscilloscope"></div>
+         "Oscilloscope" appears beside it just when the body is collapsed.
+         v26: no faceplate either — the canvas is a bare display like the piano
+         roll, and the whole chrome (note, legend, options, fullscreen, twisty)
+         floats OVER its top edge rather than boxing it in. Collapsed, the
+         overlay drops back into the flow so the word and twisty survive the
+         display going away. -->
+    <div class="scope-module" id="front-scope-module" hidden>
+      <div class="scope-stage">
+        <div id="front-scope-body" class="scope-body">
+          <canvas id="front-scope" class="front-scope" aria-label="Live oscilloscope of the selected tracks"></canvas>
+        </div>
+        <div class="scope-overlay" id="front-scope-overlay">
+          <span id="front-scope-note" class="value-readout scope-note"></span>
+          <div id="front-scope-legend" class="scope-legend" role="group" aria-label="Tracks shown on the oscilloscope"></div>
+          <div class="scope-controls">
+            <button
+              type="button"
+              id="front-scope-spread"
+              class="scope-option"
+              aria-pressed="false"
+              hidden
+            >Spread</button>
+            <button
+              type="button"
+              id="front-scope-total"
+              class="scope-option scope-option-total"
+              aria-pressed="false"
+              hidden
+            >Total</button>
+            <button
+              type="button"
+              id="front-scope-fullscreen"
+              class="stage-fs-button"
+              aria-pressed="false"
+              aria-label="Full screen oscilloscope"
+            >&#9187;</button>
+            <button
+              type="button"
+              id="front-scope-toggle"
+              class="scope-collapse"
+              aria-label="Oscilloscope"
+              aria-expanded="true"
+              aria-controls="front-scope-body"
+            >
+              <span class="scope-collapse-word" id="front-scope-word" aria-hidden="true" hidden>Oscilloscope</span>
+              <span class="scope-twisty" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <canvas
-      id="track-visualiser"
-      aria-label="Live visualisation of each track's activity"
-    ></canvas>
+    <div class="roll-stage" id="roll-stage">
+      <canvas
+        id="track-visualiser"
+        aria-label="Live visualisation of each track's activity"
+      ></canvas>
+      <div class="roll-overlay">
+        <button
+          type="button"
+          id="roll-fullscreen"
+          class="stage-fs-button"
+          aria-pressed="false"
+          aria-label="Full screen piano roll"
+        >&#9187;</button>
+      </div>
+    </div>
 
     <div id="consent-slot"></div>
 
@@ -340,41 +381,67 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
-      <div class="control simple-dial" id="dial-repetition">
-        <div class="control-label-row">
-          <label for="repetition" class="panel-label">Repetition</label>
-        </div>
-        <div class="dial-slot" id="repetition-dial">
-          <span class="dial-mid" aria-hidden="true">Evolving</span>
-          <span class="dial-ends" aria-hidden="true">
-            <span class="dial-end dial-end-low">Random</span>
-            <span class="dial-end dial-end-high">Repetitive</span>
-          </span>
-        </div>
-      </div>
+      <!-- v26 layout rule: dials pack HORIZONTALLY. The four main dials and
+           Repetition / Swing / Reverb tail are one wrapping row of identically
+           sized cells, not seven controls on seven lines. Hidden members drop
+           out of the grid, so an engine without swing or reverb tail simply
+           gives a shorter row. -->
+      <div class="module-panel sliders-module" id="advanced-dials">
+        <span class="panel-label">Main dials</span>
+        <div class="advanced-dial-row">
+          {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => (
+            <div class="control simple-dial" id={`dial-${id}-adv`}>
+              <div class="control-label-row">
+                <label for={`${id}-adv`} class="panel-label">{label}</label>
+              </div>
+              <div class="dial-slot" id={`${id}-dial-adv`}>
+                {midMark && <span class="dial-mid" aria-hidden="true">{midMark}</span>}
+                <span class="dial-ends" aria-hidden="true">
+                  <span class="dial-end dial-end-low">{lowMark}</span>
+                  <span class="dial-end dial-end-high">{highMark}</span>
+                </span>
+              </div>
+            </div>
+          ))}
 
-      <div class="control simple-dial" id="dial-swing" hidden>
-        <div class="control-label-row">
-          <label for="swing" class="panel-label">Swing</label>
-        </div>
-        <div class="dial-slot" id="swing-dial">
-          <span class="dial-ends" aria-hidden="true">
-            <span class="dial-end dial-end-low">Straight</span>
-            <span class="dial-end dial-end-high">Swung</span>
-          </span>
-        </div>
-      </div>
+          <div class="control simple-dial" id="dial-repetition">
+            <div class="control-label-row">
+              <label for="repetition" class="panel-label">Repetition</label>
+            </div>
+            <div class="dial-slot" id="repetition-dial">
+              <span class="dial-mid" aria-hidden="true">Evolving</span>
+              <span class="dial-ends" aria-hidden="true">
+                <span class="dial-end dial-end-low">Random</span>
+                <span class="dial-end dial-end-high">Repetitive</span>
+              </span>
+            </div>
+          </div>
 
-      <div class="control simple-dial" id="dial-reverb-tail" hidden>
-        <div class="control-label-row">
-          <label for="reverbTail" class="panel-label">Reverb tail</label>
+          <div class="control simple-dial" id="dial-swing" hidden>
+            <div class="control-label-row">
+              <label for="swing" class="panel-label">Swing</label>
+            </div>
+            <div class="dial-slot" id="swing-dial">
+              <span class="dial-ends" aria-hidden="true">
+                <span class="dial-end dial-end-low">Straight</span>
+                <span class="dial-end dial-end-high">Swung</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="control simple-dial" id="dial-reverb-tail" hidden>
+            <div class="control-label-row">
+              <label for="reverbTail" class="panel-label">Reverb tail</label>
+            </div>
+            <div class="dial-slot" id="reverb-tail-dial">
+              <span class="dial-ends" aria-hidden="true">
+                <span class="dial-end dial-end-low">Room</span>
+                <span class="dial-end dial-end-high">Cathedral</span>
+              </span>
+            </div>
+          </div>
         </div>
-        <div class="dial-slot" id="reverb-tail-dial">
-          <span class="dial-ends" aria-hidden="true">
-            <span class="dial-end dial-end-low">Room</span>
-            <span class="dial-end dial-end-high">Cathedral</span>
-          </span>
-        </div>
+        <p class="hint">Tempo, Complexity, Randomness and Volume are the same four values as the Simple tab &mdash; two views, one setting.</p>
       </div>
 
       <div class="control">
@@ -458,26 +525,6 @@ const VOICES: Record<string, [string, string][]> = {
         <p class="hint">Submitting opens our contact form prefilled with the preset; if that doesn&rsquo;t load, copy the JSON and send it however suits.</p>
       </fieldset>
 
-      <div class="module-panel sliders-module" id="advanced-dials">
-        <span class="panel-label">Main dials</span>
-        <div class="advanced-dial-row">
-          {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => (
-            <div class="control simple-dial" id={`dial-${id}-adv`}>
-              <div class="control-label-row">
-                <label for={`${id}-adv`} class="panel-label">{label}</label>
-              </div>
-              <div class="dial-slot" id={`${id}-dial-adv`}>
-                {midMark && <span class="dial-mid" aria-hidden="true">{midMark}</span>}
-                <span class="dial-ends" aria-hidden="true">
-                  <span class="dial-end dial-end-low">{lowMark}</span>
-                  <span class="dial-end dial-end-high">{highMark}</span>
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <p class="hint">The same four values as the Simple tab &mdash; two views, one setting.</p>
-      </div>
     </section>
   </div>
 
@@ -493,6 +540,18 @@ const VOICES: Record<string, [string, string][]> = {
       <button type="button" id="tutorial-next" class="secondary-button">Next</button>
     </div>
   </aside>
+
+  <!-- v26 fullscreen host. The oscilloscope and the piano roll are MOVED in
+       here (and back out on exit) rather than duplicated, so each keeps its
+       canvas bitmap, its listeners and its module handle; the modules resize
+       themselves off their own ResizeObserver. -->
+  <div id="fullscreen-stage" class="fullscreen-stage" hidden>
+    <div class="fullscreen-bar">
+      <button type="button" id="fullscreen-add" class="secondary-button fullscreen-add" hidden></button>
+      <button type="button" id="fullscreen-exit" class="secondary-button" aria-label="Leave full screen">Exit (Esc)</button>
+    </div>
+    <div id="fullscreen-slots" class="fullscreen-slots"></div>
+  </div>
 
   <p id="generator-unavailable" hidden>
     Sorry &mdash; this browser can&rsquo;t run the generator (Web Audio isn&rsquo;t
@@ -957,6 +1016,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         tutorialStep: 0,
         scopeOpen: true,
         scopeTracks: null,
+        // v26 scope options; both only take effect where the scope module
+        // and (for the total trace) the engine can honour them.
+        scopeSpread: false,
+        scopeTotal: false,
       },
     };
 
@@ -3245,13 +3308,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const DRIFT_HINT =
         'How fast this track’s min–max dials drift between their two ends. Low is a slow creep; 1 is the normal rate.';
 
-      function buildDriftRateControl(parent, track, knobs) {
+      // v26: every feel dial this track owns lands in ONE row (the caller's),
+      // so drift rate can never be stranded on a line of its own — the
+      // percussion editor's drift/swing pair was the named offender.
+      function buildDriftRateControl(container, track, knobs) {
         if (!engineCaps.driftRate[track]) return;
-        // Same row treatment as Dissonance so the two sit on one baseline
-        // (v18 layout contract) whether one of them renders or both do.
-        const container = document.createElement('div');
-        container.className = 'dissonance-row drift-row';
-        parent.append(container);
         const commitDrift = (v) => {
           const value = clamp(rangeMid(v), 0.02, 1);
           settings.tracks[track].driftRate = value;
@@ -3396,13 +3457,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(input, hint);
       }
 
-      function buildFeelRow(container, track, knobs) {
+      function buildFeelRow(row, track, knobs) {
         const wantsSwing = SEQ_TRACKS.includes(track) && engineCaps.trackSwing[track];
         const wantsDensity = TUNED_TRACKS.includes(track) && engineCaps.trackDensity[track];
         if (!wantsSwing && !wantsDensity) return;
-        const row = document.createElement('div');
-        row.className = 'dissonance-row feel-row';
-        container.append(row);
         if (wantsSwing) {
           buildFeelControl(row, track, knobs, {
             key: 'swing',
@@ -3433,7 +3491,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const DISSONANCE_HINT =
         'How far this instrument may stray from the group chord. 0 keeps strictly to it.';
 
-      function buildDissonanceControl(container, track, knobs) {
+      function buildDissonanceControl(row, track, knobs) {
         if (!engineCaps.dissonance[track]) return;
         const commitDissonance = (v) => {
           v = sanitiseRangeValueIn(v, 0, 1, 0);
@@ -3442,9 +3500,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           persistSettings();
         };
         const value = sanitiseRangeValueIn(settings.tracks[track].dissonance, 0, 1, 0);
-        const row = document.createElement('div');
-        row.className = 'dissonance-row';
-        container.append(row);
         if (knobApi) {
           const cell = document.createElement('div');
           cell.className = 'knob-cell dissonance-knob';
@@ -3502,7 +3557,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // own bar clock, this just exposes how far.
       const PAD_BREATH_HINT = 'How much the pad swells with each bar.';
 
-      function buildPadBreathControl(container, track, knobs) {
+      function buildPadBreathControl(row, track, knobs) {
         if (track !== 'pad' || !engineCaps.padBreath) return;
         const shipped = typeof enginePadBreath === 'number' ? enginePadBreath : 0.5;
         const stored =
@@ -3516,9 +3571,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           engine.setParams({ tracks: { pad: { padBreath: v } } });
           persistSettings();
         };
-        const row = document.createElement('div');
-        row.className = 'dissonance-row';
-        container.append(row);
         if (knobApi) {
           const cell = document.createElement('div');
           cell.className = 'knob-cell pad-breath-knob';
@@ -5174,6 +5226,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
         wrap.append(row, input);
         parent.append(wrap);
+        return input;
       }
 
       function veSelect(parent, labelText, { options, value, onChange }) {
@@ -5195,6 +5248,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         select.addEventListener('change', () => onChange(select.value));
         wrap.append(label, select);
         parent.append(wrap);
+        return select;
       }
 
       const OSC_TYPES = [
@@ -5497,19 +5551,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             },
           });
         }
+        // Same v26 linkage the knob editor makes: no second oscillator, no
+        // balance to set between them.
+        let osc2Enabled = null;
+        let syncMixControl = () => {};
         if (source && controlsFieldAllowed(sourceSpec, 'shape2')) {
           const initialShape2 = readShape(patch.source, 2);
-          veSelect(source, 'Osc 2', {
+          osc2Enabled = initialShape2 !== null;
+          const osc2Control = veSelect(source, 'Osc 2', {
             options: [['none', 'None'], ...OSC_TYPES],
             value: initialShape2 === null ? 'none' : SHAPE_NAMES[Math.round(initialShape2)],
             onChange: (v) => {
               writeShape(patch.source, 2, v === 'none' ? null : SHAPE_FROM_STRING[v]);
+              osc2Enabled = v !== 'none';
+              syncMixControl();
               commit();
             },
           });
+          if (osc2Control) describe(osc2Control, 'Adds a second oscillator; Mix balances the two.');
         }
         if (source && controlsFieldAllowed(sourceSpec, 'mix')) {
-          veRange(source, 'Mix', {
+          const mixControl = veRange(source, 'Mix', {
             min: 0,
             max: 1,
             step: 0.01,
@@ -5519,6 +5581,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               commit();
             },
           });
+          const mixWrap = mixControl ? mixControl.closest('.control') : null;
+          if (osc2Enabled !== null && mixWrap) {
+            syncMixControl = () => {
+              mixWrap.hidden = !osc2Enabled;
+            };
+            syncMixControl();
+          }
         }
         if (source && controlsFieldAllowed(sourceSpec, 'detune')) {
           const bipolar = engineCaps.patchDetuneBipolar;
@@ -5918,9 +5987,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
 
+        // v26: Mix is the osc1↔osc2 BALANCE, so it means nothing with one
+        // source — it hides and re-shows with the Osc 2 toggle. `null` here is
+        // "this voice has no Osc 2 control at all", which leaves Mix alone.
+        let osc2Enabled = null;
+        let syncMixCell = () => {};
+
         // Osc 2's "off" affordance: a toggle beside its dial (shape2 null).
         if (source && allowed(sourceSpec, 'shape2')) {
           let lastShape2 = readShape(patch.source, 2);
+          osc2Enabled = lastShape2 !== null;
           const shape2Default = readShape(defaults.source, 2);
           const osc2Cell = document.createElement('div');
           osc2Cell.className = 'knob-cell knob-cell-toggle';
@@ -5932,6 +6008,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           osc2Toggle.setAttribute('aria-label', 'Oscillator 2 on');
           osc2Cell.append(osc2Toggle);
           source.append(osc2Cell);
+          describe(osc2Toggle, 'Adds a second oscillator; Mix balances the two.');
 
           const shape2Knob = addKnob(source, {
             label: 'OSC 2',
@@ -5961,6 +6038,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const on = osc2Toggle.getAttribute('aria-pressed') !== 'true';
             osc2Toggle.setAttribute('aria-pressed', String(on));
             shape2Knob.cell.hidden = !on;
+            osc2Enabled = on;
+            syncMixCell();
             if (on) {
               if (lastShape2 === null) lastShape2 = 0;
               writeShape(patch.source, 2, lastShape2);
@@ -5975,7 +6054,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
 
         if (source && allowed(sourceSpec, 'mix')) {
-          addKnob(source, {
+          const mixKnob = addKnob(source, {
             label: 'Mix',
             field: 'source.mix',
             min: 0,
@@ -5989,6 +6068,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               commit();
             },
           });
+          // Visibility only — patch.source.mix is left exactly as it was, so
+          // re-enabling Osc 2 brings the stored balance back untouched.
+          if (osc2Enabled !== null && mixKnob) {
+            syncMixCell = () => {
+              mixKnob.cell.hidden = !osc2Enabled;
+            };
+            syncMixCell();
+          }
         }
         // v12 shipped this unipolar because the sanitiser clamped detune to
         // [0,50]; it has taken -50..50 since v18, and the boot probe says so
@@ -6492,10 +6579,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // melodic tracks: a kit has no pitch to slur between.
         if (TUNED_TRACKS.includes(track)) buildMonoGlide(extrasBox, track, ed.knobs);
         buildVaryRow(container, track, ed.knobs);
-        buildDissonanceControl(container, track, ed.knobs);
-        buildDriftRateControl(container, track, ed.knobs);
-        buildFeelRow(container, track, ed.knobs);
-        buildPadBreathControl(container, track, ed.knobs);
+        // v26: ONE aligned row for this track's feel dials — Dissonance,
+        // Drift rate, Swing, Density, Breath — however few of them this
+        // track and this engine build actually have.
+        const feelRow = document.createElement('div');
+        feelRow.className = 'dissonance-row feel-row';
+        container.append(feelRow);
+        buildDissonanceControl(feelRow, track, ed.knobs);
+        buildDriftRateControl(feelRow, track, ed.knobs);
+        buildFeelRow(feelRow, track, ed.knobs);
+        buildPadBreathControl(feelRow, track, ed.knobs);
+        if (!feelRow.childElementCount) feelRow.remove();
 
         // v6 step sequencer at the top of the pulsed tracks' panels. Arp
         // always shows it (on/off degrades to the legacy boolean mask);
@@ -7006,6 +7100,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const scopeToggle = document.getElementById('front-scope-toggle');
         const scopeWord = document.getElementById('front-scope-word');
         const scopeNote = document.getElementById('front-scope-note');
+        const scopeOverlay = document.getElementById('front-scope-overlay');
+        const scopeSpreadButton = document.getElementById('front-scope-spread');
+        const scopeTotalButton = document.getElementById('front-scope-total');
+        const scopeFullscreenButton = document.getElementById('front-scope-fullscreen');
         const available =
           !!scopeModule &&
           !!scopeCanvas &&
@@ -7018,6 +7116,105 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           scopeModule.hidden = false;
           let handle = null;
           let attachedKey = '';
+          // v26 scope options. Both are HANDLE capabilities the scope module
+          // may not have landed yet, so neither button shows until an attach
+          // has proved the method is there — a toggle that does nothing is
+          // worse than no toggle.
+          let spreadSupported = false;
+          let totalSupported = false;
+          const spreadOn = () => settings.ui.scopeSpread === true;
+          const totalOn = () => settings.ui.scopeTotal === true;
+
+          /**
+           * The white "total" trace taps the POST-EFFECTS master output. The
+           * engine currently publishes per-track analysers only, so this asks
+           * getAnalysers() for a master key and then the accessor that would
+           * carry one; with neither, the Total toggle never renders.
+           *
+           * Owed by the engine's next pass: a master/compressor-output
+           * analyser, as `getMasterAnalyser()` or a 'master' key on
+           * getAnalysers(). Nothing here changes when it lands.
+           */
+          function masterAnalyser() {
+            try {
+              const map = typeof engine.getAnalysers === 'function' ? engine.getAnalysers() : null;
+              if (map) {
+                for (const key of ['master', 'total', 'output']) {
+                  if (map[key]) return map[key];
+                }
+              }
+            } catch {}
+            try {
+              const node = engine.getMasterAnalyser?.();
+              if (node) return node;
+            } catch {}
+            return null;
+          }
+
+          const applyScopeOptions = () => {
+            if (!handle) return;
+            try {
+              handle.setSpread?.(spreadOn());
+            } catch {}
+            try {
+              handle.setTotalVisible?.(totalSupported && totalOn());
+            } catch {}
+          };
+
+          const syncScopeOptions = () => {
+            const open = settings.ui.scopeOpen !== false;
+            if (scopeSpreadButton) {
+              scopeSpreadButton.hidden = !spreadSupported || !open;
+              scopeSpreadButton.setAttribute('aria-pressed', String(spreadOn()));
+            }
+            if (scopeTotalButton) {
+              scopeTotalButton.hidden = !totalSupported || !open;
+              scopeTotalButton.setAttribute('aria-pressed', String(totalOn()));
+            }
+            if (scopeFullscreenButton && !scopeFullscreenButton.dataset.unsupported) {
+              scopeFullscreenButton.hidden = !open;
+            }
+          };
+
+          /**
+           * The overlay sits ON the display. Where the scope module can say how
+           * much of its own top edge it draws into (getLayout), the overlay is
+           * pushed clear of it rather than guessing; an older module reports
+           * nothing and the overlay stays flush with the top.
+           */
+          const applyOverlayLayout = () => {
+            if (!scopeOverlay) return;
+            let top = 0;
+            try {
+              const layout =
+                handle && typeof handle.getLayout === 'function' ? handle.getLayout() : null;
+              const reported = layout ? (layout.insetTop ?? layout.padTop ?? layout.top) : null;
+              if (Number.isFinite(reported) && reported > 0) top = reported;
+            } catch {}
+            scopeOverlay.style.top = top ? `${Math.round(top)}px` : '';
+          };
+
+          if (scopeSpreadButton) {
+            scopeSpreadButton.addEventListener('click', () => {
+              settings.ui.scopeSpread = !spreadOn();
+              persistSettings();
+              applyScopeOptions();
+              syncScopeOptions();
+            });
+            describe(
+              scopeSpreadButton,
+              'Give each track its own flat line to wobble on, stacked up the display.'
+            );
+          }
+          if (scopeTotalButton) {
+            scopeTotalButton.addEventListener('click', () => {
+              settings.ui.scopeTotal = !totalOn();
+              persistSettings();
+              applyScopeOptions();
+              syncScopeOptions();
+            });
+            describe(scopeTotalButton, 'Add a white trace of the finished mix, effects and all.');
+          }
           // Set while a legend gesture is being applied, so the persist +
           // re-render it triggers can never be mistaken for a fresh gesture.
           let applyingSelection = false;
@@ -7139,8 +7336,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const open = settings.ui.scopeOpen !== false;
             scopeBody.hidden = !open;
             scopeToggle.setAttribute('aria-expanded', String(open));
-            // Collapsed is the one state that shows the module's name.
+            // Collapsed is the one state that shows the module's name — and
+            // the one state where the overlay drops back into the flow,
+            // because there is no display left underneath it.
             if (scopeWord) scopeWord.hidden = open;
+            scopeModule.classList.toggle('scope-collapsed', !open);
+            syncScopeOptions();
             const ids = selectedTracks();
 
             const allowed = powerBudget ? powerBudget.scopeEnabled !== false : true;
@@ -7194,6 +7395,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               }
             }
             detach();
+            const total = masterAnalyser();
             try {
               handle = scopeApi.attachMultiScope(scopeCanvas, engine, {
                 tracks: ids,
@@ -7201,14 +7403,139 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 onSelectionChange: (next) => {
                   if (Array.isArray(next)) applySelection(next);
                 },
+                // v26 options. A scope build that predates them ignores the
+                // extra keys; the setters below are what actually prove it
+                // can honour either one.
+                spread: spreadOn(),
+                totalVisible: totalOn(),
+                ...(total ? { totalAnalyser: total } : {}),
               });
             } catch {
               handle = null;
             }
-            if (handle) attachedKey = key;
-            else scopeNote.textContent = 'unavailable';
+            if (handle) {
+              attachedKey = key;
+              spreadSupported = typeof handle.setSpread === 'function';
+              totalSupported = typeof handle.setTotalVisible === 'function' && !!total;
+              applyScopeOptions();
+              applyOverlayLayout();
+            } else {
+              scopeNote.textContent = 'unavailable';
+            }
+            syncScopeOptions();
             ensureLegend(ids);
           };
+        }
+      }
+
+      // ---- v26 fullscreen for the two displays ---------------------------
+      // Both the oscilloscope and the piano roll carry a ⛶. Whichever one is
+      // pressed goes fullscreen alone, and a "+ the other" control then
+      // stacks the second below it. The modules are MOVED into the fullscreen
+      // host and put back on exit rather than duplicated, so each keeps its
+      // canvas bitmap, its listeners and its live handle; both redraw at the
+      // new size (and dpr) off their own ResizeObserver. Esc, the browser's
+      // own exit affordance and the Exit button all land in one place.
+      {
+        const stage = document.getElementById('fullscreen-stage');
+        const slots = document.getElementById('fullscreen-slots');
+        const addButton = document.getElementById('fullscreen-add');
+        const exitButton = document.getElementById('fullscreen-exit');
+        const DISPLAYS = [
+          {
+            id: 'scope',
+            label: 'oscilloscope',
+            el: document.getElementById('front-scope-module'),
+            button: document.getElementById('front-scope-fullscreen'),
+          },
+          {
+            id: 'roll',
+            label: 'piano roll',
+            el: document.getElementById('roll-stage'),
+            button: document.getElementById('roll-fullscreen'),
+          },
+        ].filter((display) => display.el && display.button);
+
+        const supported =
+          !!stage &&
+          !!slots &&
+          !!addButton &&
+          !!exitButton &&
+          typeof stage.requestFullscreen === 'function' &&
+          typeof document.exitFullscreen === 'function';
+
+        if (!supported) {
+          for (const display of DISPLAYS) {
+            display.button.hidden = true;
+            display.button.dataset.unsupported = '';
+          }
+        } else {
+          // A comment node marks where each borrowed module came from, so the
+          // order they were taken in cannot affect where they go back.
+          const markers = new Map();
+          let shown = [];
+
+          const moveIn = (display) => {
+            if (shown.includes(display.id) || !display.el.parentNode) return;
+            const marker = document.createComment(`fullscreen:${display.id}`);
+            display.el.parentNode.insertBefore(marker, display.el);
+            markers.set(display.id, marker);
+            slots.append(display.el);
+            shown.push(display.id);
+          };
+
+          const restoreAll = () => {
+            for (const [id, marker] of markers) {
+              const display = DISPLAYS.find((entry) => entry.id === id);
+              if (display && marker.parentNode) marker.parentNode.replaceChild(display.el, marker);
+            }
+            markers.clear();
+            shown = [];
+          };
+
+          const missingDisplay = () => DISPLAYS.find((display) => !shown.includes(display.id));
+
+          const syncChrome = () => {
+            const active = document.fullscreenElement === stage;
+            stage.hidden = !active;
+            const missing = missingDisplay();
+            addButton.hidden = !active || !missing;
+            if (missing) addButton.textContent = `+ ${missing.label}`;
+            for (const display of DISPLAYS) {
+              display.button.setAttribute('aria-pressed', String(active && shown[0] === display.id));
+            }
+          };
+
+          for (const display of DISPLAYS) {
+            display.button.addEventListener('click', () => {
+              if (document.fullscreenElement === stage) {
+                Promise.resolve(document.exitFullscreen()).catch(() => {});
+                return;
+              }
+              stage.hidden = false;
+              moveIn(display);
+              syncChrome();
+              Promise.resolve(stage.requestFullscreen()).catch(() => {
+                restoreAll();
+                syncChrome();
+              });
+            });
+            describe(display.button, `Show the ${display.label} full screen.`);
+          }
+
+          addButton.addEventListener('click', () => {
+            const missing = missingDisplay();
+            if (missing) moveIn(missing);
+            syncChrome();
+          });
+          exitButton.addEventListener('click', () => {
+            Promise.resolve(document.exitFullscreen()).catch(() => {});
+          });
+          document.addEventListener('fullscreenchange', () => {
+            if (document.fullscreenElement !== stage) restoreAll();
+            syncChrome();
+          });
+          syncChrome();
         }
       }
 
@@ -8965,10 +9292,91 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       display: block;
       width: 100%;
       height: 200px;
-      margin-bottom: 20px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--bg);
+    }
+
+    /* v26: the piano roll's own stage, so it has something to hang a
+       fullscreen button off and something to hand to requestFullscreen.
+       visualiser.js inserts its lamp host between this and the canvas. */
+    .roll-stage {
+      position: relative;
+      margin-bottom: 20px;
+    }
+
+    .roll-overlay {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      display: flex;
+      gap: 6px;
+    }
+
+    .stage-fs-button {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--secondary);
+      padding: 0 7px;
+      min-height: 24px;
+      line-height: 1;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .stage-fs-button:hover {
+      color: var(--text);
+      border-color: var(--link);
+    }
+
+    /* The fullscreen host. Off-screen duty only: everything inside it is
+       borrowed from the page and put back on exit. */
+    .fullscreen-stage {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+      height: 100%;
+      padding: 8px;
+      background: var(--bg);
+    }
+
+    .fullscreen-stage[hidden] {
+      display: none;
+    }
+
+    .fullscreen-bar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex: none;
+    }
+
+    .fullscreen-slots {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    /* Each borrowed module takes an equal share of the height, and its canvas
+       fills that share — the modules redraw off their own ResizeObserver. */
+    .fullscreen-slots > * {
+      flex: 1 1 0;
+      min-height: 0;
+      margin-bottom: 0;
+    }
+
+    /* Down through whatever nesting each module keeps (the scope's collapse
+       body; the lamp host visualiser.js wraps its canvas in) to the canvas. */
+    .fullscreen-slots .scope-stage,
+    .fullscreen-slots .scope-body,
+    .fullscreen-slots .front-scope,
+    .fullscreen-slots .roll-stage > :not(.roll-overlay),
+    .fullscreen-slots #track-visualiser {
+      height: 100%;
     }
 
     /* -- tabs -- */
@@ -9600,32 +10008,104 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       color: var(--accent-warm, #d98324);
     }
 
-    /* -- v13/v18 front-page oscilloscope (above the tabs, full width) --
-          No title: the twisty top right is the only chrome, and the word
-          "Oscilloscope" appears next to it only while the body is collapsed. */
+    /* -- v13/v18/v26 front-page oscilloscope (above the tabs, full width) --
+          No title and, since v26, no faceplate: the display is bare, exactly
+          like the piano roll below it, and every piece of chrome (note,
+          legend, options, fullscreen, twisty) floats over the display's top
+          edge. Collapsed, the overlay returns to the flow — otherwise the
+          twisty would vanish with the canvas it was sitting on. */
 
     .scope-module {
       margin-bottom: 20px;
     }
 
-    .scope-module-head {
+    .scope-stage {
+      position: relative;
+    }
+
+    .scope-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
       display: flex;
-      align-items: baseline;
-      gap: 12px;
-      min-height: 18px;
-      margin-bottom: 8px;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 8px;
+      /* A scrim, so a trace running along the top edge can't make the legend
+         unreadable; it fades out well above the middle of the display. */
+      background: linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--scope-bg, #10140f) 85%, transparent),
+        transparent
+      );
+      border-radius: var(--radius) var(--radius) 0 0;
+      pointer-events: none;
+    }
+
+    .scope-overlay > * {
+      pointer-events: auto;
+    }
+
+    .scope-module.scope-collapsed .scope-overlay {
+      position: static;
+      padding: 0;
+      background: none;
+    }
+
+    /* Collapsed there is no trace to key, so the legend goes with the display
+       (it stays in the DOM — it is still the selection state). */
+    .scope-module.scope-collapsed .scope-legend {
+      display: none;
+    }
+
+    .scope-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+      flex: none;
+    }
+
+    .scope-option {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--secondary);
+      padding: 2px 9px;
+      font-family: var(--label-font, inherit);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      min-height: 24px;
+    }
+
+    .scope-option[aria-pressed='true'] {
+      border-color: var(--link);
+      color: var(--text);
+    }
+
+    .scope-option-total[aria-pressed='true'] {
+      border-color: #fff;
+      color: #fff;
+    }
+
+    .scope-option:focus-visible,
+    .stage-fs-button:focus-visible {
+      outline: 2px solid var(--link);
+      outline-offset: 2px;
     }
 
     .scope-note {
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       font-size: 11px;
     }
 
     .scope-collapse {
       display: inline-flex;
-      align-items: baseline;
+      align-items: center;
       gap: 8px;
-      margin-left: auto;
       background: none;
       border: 0;
       padding: 0;
@@ -9657,25 +10137,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       outline-offset: 3px;
     }
 
+    /* v26: same treatment as #track-visualiser — a bare display, one hairline
+       edge and nothing else around it. */
     .front-scope {
       display: block;
       width: 100%;
-      height: 120px;
+      height: 160px;
       background: var(--scope-bg, #10140f);
-      border: 1px solid var(--panel-edge, var(--border));
+      border: 1px solid var(--border);
       border-radius: var(--radius);
     }
 
-    /* v18 legend: right-aligned under the trace, one key per track in that
-       track's own colour. Single click toggles a trace, double click solos.
-       Styled here for BOTH legends — scope.js's DOM legend and the page's own
-       fallback build the same three class names. */
+    /* v18 legend: one key per track in that track's own colour. Single click
+       toggles a trace, double click solos. Styled here for BOTH legends —
+       scope.js's DOM legend and the page's own fallback build the same three
+       class names. v26: it rides the display's top edge instead of sitting
+       under it, so it right-aligns into the space the note leaves. */
     .scope-legend {
       display: flex;
       flex-wrap: wrap;
       justify-content: flex-end;
+      align-content: flex-start;
       gap: 4px 6px;
-      margin-top: 8px;
+      flex: 1 1 auto;
+      min-width: 0;
     }
 
     .scope-legend-track {
@@ -10305,10 +10790,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     /* -- v14: dissonance dial, factory presets, tutorial panel -- */
 
+    /* v26: the ONE feel row per editor. Fixed-width cells on a wrapping flex
+       line, aligned at the top so every face hangs from the same baseline and
+       the text under it stays below (v18 dial contract) — a long read-out can
+       never shove its neighbour up. */
     .dissonance-row {
       display: flex;
+      flex-wrap: wrap;
       align-items: flex-start;
+      gap: 12px 8px;
       margin-bottom: 16px;
+      --knob-size: 72px;
+    }
+
+    .dissonance-row > .knob-cell {
+      width: calc(var(--knob-size, 72px) + 12px);
+    }
+
+    /* The slider fallback has no square face to align, so it takes a readable
+       width and wraps onto the next line rather than squeezing the dials. */
+    .dissonance-row > .ve-control {
+      flex: 1 1 200px;
+      margin-bottom: 0;
     }
 
     .dissonance-knob {

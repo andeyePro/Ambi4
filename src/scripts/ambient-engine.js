@@ -563,6 +563,59 @@ export const HARMONY_RHYTHMS = Object.freeze(['auto', 1, 2, 4, 8]);
  */
 const DEFAULT_PAD_BREATH = 0.28;
 
+/**
+ * v26 genre tag. `params.genre` is the slug of the genre a params object was
+ * COMPILED from (src/data/genres/[slug].json, expanded page-side by
+ * src/scripts/genre-compiler.js) and nothing more: the engine never reads it
+ * while it plays, because everything a genre asks for has already been written
+ * into the params it arrived with. Carrying the tag is what lets a UI, a share
+ * link or a preset say which genre a piece came from without the engine having
+ * to ship — or parse — a byte of genre data.
+ *
+ * `setGenreTable(list)` hands the engine the slugs the PAGE knows about, and
+ * that is the whole registry: with a table set, an unknown slug is refused like
+ * any other unknown enum value; with no table set the engine stays
+ * data-agnostic and keeps any slug-shaped string as an opaque tag. SHAPE, not
+ * membership, is the boundary that matters — a slug can arrive from a share
+ * link — so it is character-checked and length-capped either way.
+ */
+const GENRE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const GENRE_SLUG_MAX = 32;
+
+/** null = no registry provided: any slug-shaped tag is kept. */
+let genreTable = null;
+
+/**
+ * Register the genres this page knows about — slugs, or the genre files
+ * themselves. An empty list (or null) clears the table back to data-agnostic.
+ * Returns the table as it now stands, which is what a caller checks a load
+ * against.
+ */
+export function setGenreTable(list) {
+  const slugs = [];
+  for (const entry of Array.isArray(list) ? list : []) {
+    const slug = genreSlugShape(typeof entry === 'string' ? entry : entry && entry.slug);
+    if (slug !== undefined && !slugs.includes(slug)) slugs.push(slug);
+  }
+  genreTable = slugs.length ? new Set(slugs) : null;
+  return slugs;
+}
+
+/** A slug-shaped string, lowercased and trimmed; undefined for anything else. */
+function genreSlugShape(value) {
+  if (typeof value !== 'string') return undefined;
+  const slug = value.trim().toLowerCase();
+  if (!slug || slug.length > GENRE_SLUG_MAX || !GENRE_SLUG.test(slug)) return undefined;
+  return slug;
+}
+
+/** A usable genre tag: slug-shaped, and known when a table has been registered. */
+function genreSlug(value) {
+  const slug = genreSlugShape(value);
+  if (slug === undefined) return undefined;
+  return genreTable && !genreTable.has(slug) ? undefined : slug;
+}
+
 export const DEFAULT_PARAMS = Object.freeze({
   speed: 1,
   // v14: straight by default. The dial is global; per-track overrides are a
@@ -573,6 +626,8 @@ export const DEFAULT_PARAMS = Object.freeze({
   root: 'C',
   mode: 'majorPentatonic',
   timeSignature: '4/4',
+  // v26: which genre this params object was compiled from, or null for none.
+  genre: null,
   bpm: 60,
   volume: 0.8,
   // v21: seconds of reverb tail. 4 is the length every version so far has
@@ -1305,6 +1360,10 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
   out.timeSignature = oneOf(at('timeSignature'), Object.keys(TIME_SIGNATURES),
     oneOf(from.timeSignature, Object.keys(TIME_SIGNATURES), DEFAULT_PARAMS.timeSignature));
+  // An explicit null clears the tag; anything unusable keeps the stored one, so
+  // an unrelated edit can never silently strip a piece's genre.
+  out.genre = at('genre') === null ? null
+    : genreSlug(at('genre')) ?? genreSlug(from.genre) ?? null;
   out.harmony = sanitiseHarmony(at('harmony'), from.harmony);
   out.structure = oneOf(at('structure'), STRUCTURES, oneOf(from.structure, STRUCTURES, 'auto'));
   out.customStructure = sanitiseCustomStructure(at('customStructure'), from.customStructure);
@@ -2001,7 +2060,7 @@ export const BASS_GHOST_CEILING = 0.34;
  * relationship to the kick — a fraction behind it, all night — so this is a
  * per-groove constant rather than a per-note draw, and it never runs early.
  */
-const BASS_POCKET = 0.022;
+export const BASS_POCKET = 0.022;
 
 /** The shortest note the bass will play, and the shortest bass line worth one. */
 const BASS_MIN_NOTE = 0.06;

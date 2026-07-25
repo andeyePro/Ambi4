@@ -15,6 +15,11 @@
 - [ ] Premium tier: define the offer
 - [ ] Transport buttons: review which (if any) demote to Advanced-only (one-line gate ready)
 
+### Next build queue (engine gaps from v26)
+- [ ] Master/total analyser (engine) so the scope's white Total trace can ship
+- [ ] Hook-seed param so genre chord DEGREES reach the audio (compiler currently maps only length/colour/rhythm/mode)
+- [ ] Genre UI: dropdown + surprise-me + favourites (mood groups, hide-non-favourites), Pause, Fast-forward, weighted initial-load genre pick
+
 ### Next build queue
 - [ ] Playlists rebuild: verified PD/CC0 artwork, broader instrumental artists, Ambi4-made playlist categories
 - [ ] Web Analytics privacy-page line (andeye.com/privacy mention of Cloudflare cookie-less beacon)
