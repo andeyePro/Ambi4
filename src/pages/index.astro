@@ -593,7 +593,8 @@ const VOICES: Record<string, [string, string][]> = {
        canvas bitmap, its listeners and its module handle; the modules resize
        themselves off their own ResizeObserver. -->
   <div id="fullscreen-stage" class="fullscreen-stage" hidden>
-    <div class="fullscreen-bar">
+    <button type="button" id="fullscreen-menu" class="fullscreen-menu" aria-label="Show the full-screen menu" aria-expanded="true">&#9776;</button>
+    <div class="fullscreen-bar" id="fullscreen-bar">
       <button type="button" id="fullscreen-add" class="secondary-button fullscreen-add" hidden></button>
       <button type="button" id="fullscreen-exit" class="secondary-button" aria-label="Leave full screen">Exit (Esc)</button>
     </div>
@@ -7685,6 +7686,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const slots = document.getElementById('fullscreen-slots');
         const addButton = document.getElementById('fullscreen-add');
         const exitButton = document.getElementById('fullscreen-exit');
+        const bar = document.getElementById('fullscreen-bar');
+        const menuButton = document.getElementById('fullscreen-menu');
         const DISPLAYS = [
           {
             id: 'scope',
@@ -7771,12 +7774,51 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const missing = missingDisplay();
             if (missing) moveIn(missing);
             syncChrome();
+            armMenuCollapse();
           });
           exitButton.addEventListener('click', () => {
             Promise.resolve(document.exitFullscreen()).catch(() => {});
           });
+
+          // v27 owner request: the menu slides out to a subtle ☰ in the top
+          // right. It shows on entry (so Exit and "+ the other" are seen to
+          // exist), glides away after a beat, and ☰ brings it back — the bar
+          // overlays the displays, so nothing resizes either way.
+          const MENU_LINGER_MS = 2600;
+          let menuTimer = null;
+          const collapseMenu = () => {
+            if (bar) bar.dataset.collapsed = '';
+            menuButton?.setAttribute('aria-expanded', 'false');
+          };
+          const revealMenu = () => {
+            if (bar) delete bar.dataset.collapsed;
+            menuButton?.setAttribute('aria-expanded', 'true');
+          };
+          const armMenuCollapse = () => {
+            clearTimeout(menuTimer);
+            menuTimer = setTimeout(collapseMenu, MENU_LINGER_MS);
+          };
+          menuButton?.addEventListener('click', () => {
+            if (bar && bar.dataset.collapsed !== undefined) {
+              revealMenu();
+              armMenuCollapse();
+            } else {
+              clearTimeout(menuTimer);
+              collapseMenu();
+            }
+          });
+          bar?.addEventListener('pointerenter', () => clearTimeout(menuTimer));
+          bar?.addEventListener('pointerleave', armMenuCollapse);
+
           document.addEventListener('fullscreenchange', () => {
-            if (document.fullscreenElement !== stage) restoreAll();
+            if (document.fullscreenElement !== stage) {
+              restoreAll();
+              clearTimeout(menuTimer);
+              revealMenu(); // reset for the next entry
+            } else {
+              revealMenu();
+              armMenuCollapse();
+            }
             syncChrome();
           });
           syncChrome();
@@ -10070,6 +10112,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* The fullscreen host. Off-screen duty only: everything inside it is
        borrowed from the page and put back on exit. */
     .fullscreen-stage {
+      position: relative;
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -10083,11 +10126,47 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       display: none;
     }
 
+    /* v27: the menu OVERLAYS the displays (absolute, not in-flow) so sliding
+       it away never resizes a canvas — the panel rule. It glides out to the
+       right, leaving only the subtle ☰ in the corner. */
     .fullscreen-bar {
+      position: absolute;
+      top: 8px;
+      right: 48px;
+      z-index: 4;
       display: flex;
       justify-content: flex-end;
       gap: 8px;
-      flex: none;
+      transition: transform 0.4s ease, opacity 0.4s ease;
+    }
+
+    .fullscreen-bar[data-collapsed] {
+      transform: translateX(calc(100% + 56px));
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .fullscreen-menu {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 5;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: var(--secondary);
+      font-size: 16px;
+      line-height: 32px;
+      opacity: 0.25;
+      cursor: pointer;
+      transition: opacity 0.3s ease;
+    }
+
+    .fullscreen-menu:hover,
+    .fullscreen-menu:focus-visible {
+      opacity: 0.85;
     }
 
     .fullscreen-slots {

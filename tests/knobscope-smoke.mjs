@@ -2303,6 +2303,51 @@ test('multiScope v26: spread mode draws a small canvas id label per band and ski
   });
 });
 
+test('multiScope v27: clicking a spread label hides all labels; any click brings them back; overlay mode is untouched', () => {
+  withMockRaf(({ stepFrame }) => {
+    const calls = {};
+    const listeners = {};
+    const canvas = makeCanvas(calls);
+    canvas.addEventListener = (type, fn) => { listeners[type] = fn; };
+    canvas.removeEventListener = (type) => { delete listeners[type]; };
+    const analysers = {
+      pad: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+      bass: makeCustomAnalyser({ sample: (i) => Math.sin(i / 4) * 0.3 }),
+    };
+    const engine = makeMockEngine({ analysers });
+    const live = scope.attachMultiScope(canvas, engine, { tracks: ['pad', 'bass'], spread: true });
+    stepFrame(0);
+    assert.deepEqual(calls.fillTexts, ['pad', 'bass'], 'labels drawn before any click');
+    assert.equal(live.getSpreadLabelsHidden(), false, 'labels start visible');
+
+    // click inside the first band's label strip (top-left corner)
+    listeners.click({ offsetX: 10, offsetY: 5 });
+    calls.fillTexts = [];
+    stepFrame(40);
+    assert.deepEqual(calls.fillTexts, [], 'label click: no labels drawn');
+    assert.equal(live.getSpreadLabelsHidden(), true, 'labels reported hidden');
+
+    // any click restores — even far from a label
+    listeners.click({ offsetX: 500, offsetY: 250 });
+    calls.fillTexts = [];
+    stepFrame(80);
+    assert.deepEqual(calls.fillTexts, ['pad', 'bass'], 'any click brings the labels back');
+
+    // a click NOT on a label, while visible, changes nothing
+    listeners.click({ offsetX: 500, offsetY: 250 });
+    assert.equal(live.getSpreadLabelsHidden(), false, 'off-label click while visible is inert');
+
+    // leaving spread mode resets: hidden labels return with overlay mode
+    listeners.click({ offsetX: 10, offsetY: 5 });
+    assert.equal(live.getSpreadLabelsHidden(), true);
+    live.setSpread(false);
+    assert.equal(live.getSpreadLabelsHidden(), false, 'overlay mode clears the hidden state');
+
+    live.destroy();
+    assert.equal(listeners.click, undefined, 'destroy removes the click listener');
+  });
+});
+
 test('multiScope v26: setSpread(bool) is runtime-switchable — overlay ↔ spread without re-attaching', () => {
   withMockRaf(({ stepFrame }) => {
     const calls = {};
