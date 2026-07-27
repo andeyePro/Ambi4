@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-07-27
+
+- [x] **v0.0.35 — the two randomness dials come apart, and share links learn their own version** —
+  Three things, all of them things that were quietly wrong.
+
+  **Share payload versioning.** Links have shipped since v0.0.33 carrying the raw settings
+  tree, base64url'd, with no schema field at all. An older client meeting a newer link
+  therefore dropped every key it did not recognise and played a *different piece* — under the
+  *right* three-word name, because the name is a hash of the payload bytes. Silent divergence
+  with a matching identity is the worst failure a serverless share scheme can have. The payload
+  now carries `v: 1`, read and stripped on decode so it can never reach the settings tree;
+  an absent `v` reads as version 0, so every link minted before today keeps working untouched;
+  and a link from a newer build now says so in the arrival note instead of pretending. One-time
+  cost, taken deliberately: the same settings hash to different words than they did yesterday.
+
+  **Randomness and Repetition de-fused on Advanced.** The owner reported that cranking
+  Repetition dragged Randomness from 96% to ~46%. It did: the Advanced Randomness dial was a
+  `buildMirroredDial` view of the *Simple tab's fused macro*, so it wrote
+  `repetition = 1 − randomness` plus every track's randomness, and displayed
+  `(1 − repetition + mean(randomness)) / 2` — two engine params that share no code path,
+  presented as one control. Advanced now has its own **Variation** dial writing only per-track
+  randomness and reading `trackRandomnessValue()`, and **Reprise** owning `repetition` alone.
+  Simple keeps its fused macro on purpose: one knob for "how much does this change" is what
+  makes the Simple tab simple.
+
+  **Names and end-marks.** Repetition → **Reprise** (Rarely ↔ Always), Advanced Randomness →
+  **Variation** (Hold ↔ Vary), each with its own marks instead of the mirror-image word sets
+  (Repetitive/Evolving/Random against Random/Evolving/Repetitive) that made the pair read as
+  one dial in the first place. Reprise rather than Recall because in every mixer and synth
+  "recall" means restoring saved settings, and this app has presets and share links. "Never"
+  was dropped as an end-mark because it is untrue — at Reprise 0 the hook still loops every
+  eight chords. Wire keys are frozen: `randomness` and `repetition` stay the serialised names
+  forever; these are labels only.
+
+  Advanced also now opens with the main dials **above** the Tracks list, so tempo is where a
+  Simple-tab user expects to find it.
+
+  Scope set by a Fable review of the whole v0.0.35–v0.1.0 span, which found the original
+  v0.0.35 was four plan phases plus eight unrelated UI items plus two new engine params plus an
+  unresolved owner gate. Its findings are folded into TODO.md and
+  `docs/dial-control-plane-plan.md`; the share-versioning gap above was its most serious catch.
+  All suites green: engine 222, voices 283, knob/scope 106, visualiser 45, blocks 41,
+  governor 12, prefs 22, share-name 13, genre 29, tutorial 8+8, page-boot.
+
+
 ## 2026-07-25
 
 - [x] **v0.0.34 — the guided tour tells the truth again** — TUTORIAL_STEPS rewritten 10→14 for the shipped product (genres + Surprise me + favourites + Pause/Next, play-along + Capture, spread/fullscreen displays, Add Track, share flow with its three-word name); the closing step's stale claims corrected. New tutorial-smoke suite (every step's target resolves to exactly one element in the BUILT page, tabs real, copy brand-free UK English, arc Simple→Advanced→share; 8 checks + 8 mutations bit) + a page-boot tutorial gate for script-built targets. TODO: greyed paid-button item struck as superseded by the hidden-until-purchasable rule.

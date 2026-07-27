@@ -55,6 +55,18 @@ const SIMPLE_DIALS: [string, string, string, string | null, string][] = [
   ['volume', 'Volume', 'Quiet', null, 'Loud'],
 ];
 
+// v0.0.35 de-fuse: on Advanced, the randomness slot is no longer the Simple
+// tab's fused macro. It is Variation — this track set's own randomness, with
+// repetition split out beside it as Recall — so it needs its own label and
+// end-marks rather than inheriting the fused dial's, whose words were a mirror
+// image of Recall's and made the pair read as one control.
+const ADVANCED_DIAL_OVERRIDES: Record<
+  string,
+  { label: string; low: string; mid: string | null; high: string }
+> = {
+  randomness: { label: 'Variation', low: 'Hold', mid: null, high: 'Vary' },
+};
+
 // Hardcoded from the engine v2 contract's VOICES table. The UI never imports
 // engine-voices.js into frontmatter — the voice implementations aren't
 // relevant here, only the ids/labels the <select> options need. (The page
@@ -458,6 +470,76 @@ const VOICES: Record<string, [string, string][]> = {
     </section>
 
     <section id="panel-advanced" role="tabpanel" aria-labelledby="tab-advanced" tabindex="0" hidden>
+
+      <!-- v26 layout rule: dials pack HORIZONTALLY. The four main dials and
+           Repetition / Swing / Reverb tail are one wrapping row of identically
+           sized cells, not seven controls on seven lines. Hidden members drop
+           out of the grid, so an engine without swing or reverb tail simply
+           gives a shorter row. -->
+      <div class="module-panel sliders-module" id="advanced-dials">
+        <span class="panel-label">Main dials</span>
+        <div class="advanced-dial-row">
+          {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => {
+            const over = ADVANCED_DIAL_OVERRIDES[id];
+            const advLabel = over ? over.label : label;
+            const advLow = over ? over.low : lowMark;
+            const advMid = over ? over.mid : midMark;
+            const advHigh = over ? over.high : highMark;
+            return (
+              <div class="control simple-dial" id={`dial-${id}-adv`}>
+                <div class="control-label-row">
+                  <label for={`${id}-adv`} class="panel-label">{advLabel}</label>
+                </div>
+                <div class="dial-slot" id={`${id}-dial-adv`}>
+                  {advMid && <span class="dial-mid" aria-hidden="true">{advMid}</span>}
+                  <span class="dial-ends" aria-hidden="true">
+                    <span class="dial-end dial-end-low">{advLow}</span>
+                    <span class="dial-end dial-end-high">{advHigh}</span>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+
+          <div class="control simple-dial" id="dial-repetition">
+            <div class="control-label-row">
+              <label for="repetition" class="panel-label">Reprise</label>
+            </div>
+            <div class="dial-slot" id="repetition-dial">
+              <span class="dial-ends" aria-hidden="true">
+                <span class="dial-end dial-end-low">Rarely</span>
+                <span class="dial-end dial-end-high">Always</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="control simple-dial" id="dial-swing" hidden>
+            <div class="control-label-row">
+              <label for="swing" class="panel-label">Swing</label>
+            </div>
+            <div class="dial-slot" id="swing-dial">
+              <span class="dial-ends" aria-hidden="true">
+                <span class="dial-end dial-end-low">Straight</span>
+                <span class="dial-end dial-end-high">Swung</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="control simple-dial" id="dial-reverb-tail" hidden>
+            <div class="control-label-row">
+              <label for="reverbTail" class="panel-label">Reverb tail</label>
+            </div>
+            <div class="dial-slot" id="reverb-tail-dial">
+              <span class="dial-ends" aria-hidden="true">
+                <span class="dial-end dial-end-low">Room</span>
+                <span class="dial-end dial-end-high">Cathedral</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <p class="hint">Tempo, Complexity and Volume are the same three values as the Simple tab &mdash; two views, one setting. Variation and Reprise are separate here: Simple fuses them into its one Randomness dial, Advanced does not.</p>
+      </div>
+
       <div class="tracks-section module-panel">
         <h2 class="tracks-heading panel-label">Tracks</h2>
         <div class="track-rows">
@@ -496,69 +578,6 @@ const VOICES: Record<string, [string, string][]> = {
             </div>
           ))}
         </div>
-      </div>
-
-      <!-- v26 layout rule: dials pack HORIZONTALLY. The four main dials and
-           Repetition / Swing / Reverb tail are one wrapping row of identically
-           sized cells, not seven controls on seven lines. Hidden members drop
-           out of the grid, so an engine without swing or reverb tail simply
-           gives a shorter row. -->
-      <div class="module-panel sliders-module" id="advanced-dials">
-        <span class="panel-label">Main dials</span>
-        <div class="advanced-dial-row">
-          {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => (
-            <div class="control simple-dial" id={`dial-${id}-adv`}>
-              <div class="control-label-row">
-                <label for={`${id}-adv`} class="panel-label">{label}</label>
-              </div>
-              <div class="dial-slot" id={`${id}-dial-adv`}>
-                {midMark && <span class="dial-mid" aria-hidden="true">{midMark}</span>}
-                <span class="dial-ends" aria-hidden="true">
-                  <span class="dial-end dial-end-low">{lowMark}</span>
-                  <span class="dial-end dial-end-high">{highMark}</span>
-                </span>
-              </div>
-            </div>
-          ))}
-
-          <div class="control simple-dial" id="dial-repetition">
-            <div class="control-label-row">
-              <label for="repetition" class="panel-label">Repetition</label>
-            </div>
-            <div class="dial-slot" id="repetition-dial">
-              <span class="dial-mid" aria-hidden="true">Evolving</span>
-              <span class="dial-ends" aria-hidden="true">
-                <span class="dial-end dial-end-low">Random</span>
-                <span class="dial-end dial-end-high">Repetitive</span>
-              </span>
-            </div>
-          </div>
-
-          <div class="control simple-dial" id="dial-swing" hidden>
-            <div class="control-label-row">
-              <label for="swing" class="panel-label">Swing</label>
-            </div>
-            <div class="dial-slot" id="swing-dial">
-              <span class="dial-ends" aria-hidden="true">
-                <span class="dial-end dial-end-low">Straight</span>
-                <span class="dial-end dial-end-high">Swung</span>
-              </span>
-            </div>
-          </div>
-
-          <div class="control simple-dial" id="dial-reverb-tail" hidden>
-            <div class="control-label-row">
-              <label for="reverbTail" class="panel-label">Reverb tail</label>
-            </div>
-            <div class="dial-slot" id="reverb-tail-dial">
-              <span class="dial-ends" aria-hidden="true">
-                <span class="dial-end dial-end-low">Room</span>
-                <span class="dial-end dial-end-high">Cathedral</span>
-              </span>
-            </div>
-          </div>
-        </div>
-        <p class="hint">Tempo, Complexity, Randomness and Volume are the same four values as the Simple tab &mdash; two views, one setting.</p>
       </div>
 
       <div class="control">
@@ -1952,8 +1971,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      */
     let arrivedSharePayload = '';
 
+    /**
+     * Share-payload schema version (v0.0.35).
+     *
+     * Links shipped from v0.0.33 onward carry the raw settings tree with NO
+     * version field, so an old client meeting a newer link silently drops the
+     * keys it does not know and plays a different piece — under the right
+     * three-word name, because the name is a hash of the payload bytes. Silent
+     * divergence with a matching identity is the worst failure a serverless
+     * share scheme can have, and every day of links minted without a version
+     * makes it costlier to fix.
+     *
+     * Absent `v` means a pre-v0.0.35 link and is read as version 0: the shape
+     * is identical, so those links keep working untouched. A HIGHER `v` than
+     * this build knows means the link came from a newer Ambi4 — we still load
+     * it best-effort, but the arrival note says so rather than pretending.
+     *
+     * Adding the field changes the payload bytes, so the same settings now
+     * produce different words than they did before this version. That churn is
+     * one-time and unavoidable; taking it now is the cheapest it will ever be.
+     */
+    const SHARE_SCHEMA = 1;
+    const SHARE_VERSION_KEY = 'v';
+
+    /** True when the link this visit arrived on was minted by a newer build. */
+    let arrivedFromNewerBuild = false;
+
     function encodeShareParams(params) {
-      const bytes = new TextEncoder().encode(JSON.stringify(params));
+      const payload = { ...params, [SHARE_VERSION_KEY]: SHARE_SCHEMA };
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
       let binary = '';
       for (const b of bytes) binary += String.fromCharCode(b);
       return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -1964,7 +2010,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
       const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
       const parsed = JSON.parse(new TextDecoder().decode(bytes));
-      return isPlainObject(parsed) ? parsed : null;
+      if (!isPlainObject(parsed)) return null;
+      // The version is metadata about the link, not a setting — read it, then
+      // take it out so it can never reach the settings tree or the sanitiser.
+      const raw = parsed[SHARE_VERSION_KEY];
+      const version = Number.isFinite(Number(raw)) ? Number(raw) : 0;
+      delete parsed[SHARE_VERSION_KEY];
+      arrivedFromNewerBuild = version > SHARE_SCHEMA;
+      return parsed;
     }
 
     /**
@@ -2830,6 +2883,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       let complexityDial = null;
       let repetitionDial = null;
       let randomnessDial = null;
+      let variationDial = null;
       let volumeDial = null;
       let swingDial = null;
       let reverbTailDial = null;
@@ -3000,6 +3054,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const mid = rangeMid(sanitiseRangeValueIn(first, 0, 1, 0.5));
         if (uniform && Math.abs(1 - settings.repetition - mid) < 0.02) return first;
         return clamp((1 - settings.repetition + meanRandomness()) / 2, 0, 1);
+      }
+
+      /**
+       * What the ADVANCED tab's Variation dial reads: the tracks' own randomness
+       * and nothing else. Repetition is not in it.
+       *
+       * v0.0.35 de-fuse. Advanced used to mirror the Simple tab's fused dial, so
+       * cranking Repetition visibly dragged Randomness with it — with every track
+       * at 96% and repetition taken to 100%, the fused read-out lands on
+       * (1 - 1 + 0.96) / 2 = 48%, and moving Randomness wrote repetition = 1 - x
+       * straight back. Two engine params that share no code path read as one
+       * control. Simple keeps the fused macro on purpose; Advanced is where the
+       * two axes have to be separable, which is the whole point of the tab.
+       */
+      function trackRandomnessValue() {
+        const first = settings.tracks[TRACK_IDS[0]].randomness;
+        const shape = JSON.stringify(first);
+        const uniform = TRACK_IDS.every(
+          (id) => JSON.stringify(settings.tracks[id].randomness) === shape
+        );
+        return uniform ? first : clamp(meanRandomness(), 0, 1);
       }
 
       for (const [select, key] of [
@@ -3451,6 +3526,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // is playing now — and re-rolls scale in as the dial rises.
       const HOLD_EPSILON = 0.0001;
       const RANDOMNESS_HINT = '0 = hold: loops the current bars exactly. Higher re-rolls more often.';
+      const VARIATION_HINT =
+        'How much each track changes its own material. 0 holds — the bars loop exactly and nothing re-rolls or drifts. Higher re-draws plans, patches and voices more often.';
+      const REPRISE_HINT =
+        'How much the piece returns to what it has already played. Low gives long chord loops, fresh motifs and frequent mutation; high gives short loops, recalled motifs and reused patterns. It never stops returning entirely \u2014 the loop is eight chords at the low end, not endless.';
 
       function isHoldValue(v) {
         return rangeMid(sanitiseRangeValueIn(v, 0, 1, 0.5)) <= HOLD_EPSILON;
@@ -3606,14 +3685,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       );
 
-      // Advanced keeps Repetition as its own dial (the Simple tab's fused
-      // Randomness dial writes it, but hand-setting it here is what makes
-      // that dial fall back to its blended read-out).
+      // Advanced's Reprise dial owns `repetition` alone (v0.0.35). It updates the
+      // Simple tab's fused read-out, because that dial genuinely blends both —
+      // but it no longer touches the Advanced Variation dial, which is the
+      // coupling that made the two read as one control.
       repetitionDial = buildSimpleDial(
         'repetition-dial',
         {
           id: 'repetition',
-          label: 'Repetition',
+          label: 'Reprise',
           min: 0,
           max: 1,
           step: 0.01,
@@ -3628,6 +3708,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           persistSettings();
         }
       );
+      describeDial(repetitionDial, REPRISE_HINT);
 
       // ONE dial for "how much does this thing change" (user decision, v15):
       // Repetitive ← Evolving → Random. It drives BOTH halves of that
@@ -3643,8 +3724,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // ambient-engine.js's NUMERIC_RANGES only accept plain numbers there.
       // So a range from this dial is written verbatim to every track's
       // randomness, and repetition takes 1 - (midpoint of that range).
-      randomnessDial = buildMirroredDial(
-        MAIN_DIAL_SLOTS('randomness'),
+      /** Write one randomness value to every track. Shared by both dials below. */
+      function writeAllTrackRandomness(value) {
+        const trackStates = {};
+        for (const id of TRACK_IDS) {
+          settings.tracks[id].randomness = value;
+          settings.tracks[id].hold = isHoldValue(value);
+          trackStates[id] = { randomness: value, hold: settings.tracks[id].hold };
+        }
+        return trackStates;
+      }
+
+      // SIMPLE tab: the fused macro, unchanged. One dial for "how much does this
+      // change", deliberately driving both halves at once — that is what makes
+      // the Simple tab simple.
+      randomnessDial = buildSimpleDial(
+        'randomness-dial',
         {
           id: 'randomness',
           label: 'Randomness',
@@ -3660,22 +3755,45 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         (value) => {
           const repetition = clamp(1 - rangeMid(sanitiseRangeValueIn(value, 0, 1, 0.5)), 0, 1);
           settings.repetition = repetition;
-          const trackStates = {};
-          for (const id of TRACK_IDS) {
-            settings.tracks[id].randomness = value;
-            settings.tracks[id].hold = isHoldValue(value);
-            trackStates[id] = { randomness: value, hold: settings.tracks[id].hold };
-          }
+          const trackStates = writeAllTrackRandomness(value);
           engine.setParams({ repetition, tracks: trackStates });
           repetitionDial?.set(repetition);
+          variationDial?.set(value);
           syncAllTrackExtras();
           persistSettings();
         }
       );
       describeDial(
         randomnessDial,
-        `${RANDOMNESS_HINT} It sets repetition and every track's randomness together.`
+        `${RANDOMNESS_HINT} On this tab it sets reprise and every track's variation together; Advanced separates them.`
       );
+
+      // ADVANCED tab: Variation owns the tracks' randomness and NOTHING else
+      // (v0.0.35 de-fuse). It no longer writes repetition, and it reads the
+      // tracks' own value rather than a blend that repetition can move.
+      variationDial = buildSimpleDial(
+        'randomness-dial-adv',
+        {
+          id: 'randomness-adv',
+          label: 'Variation',
+          min: 0,
+          max: 1,
+          step: 0.01,
+          marks: [0, 0.5, 1],
+          value: trackRandomnessValue(),
+          format: randomnessFormat,
+          allowRange: true,
+          defaultValue: DEFAULTS.tracks.pad.randomness,
+        },
+        (value) => {
+          const trackStates = writeAllTrackRandomness(value);
+          engine.setParams({ tracks: trackStates });
+          randomnessDial?.set(fusedRandomnessValue());
+          syncAllTrackExtras();
+          persistSettings();
+        }
+      );
+      describeDial(variationDial, VARIATION_HINT);
 
       volumeDial = buildMirroredDial(
         MAIN_DIAL_SLOTS('volume'),
@@ -3866,10 +3984,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               tracks: { [track]: { randomness: v, hold: settings.tracks[track].hold } },
             });
             syncTrackExtras(track, inst);
-            // Keep the Simple tab's fused Randomness dial current when a
-            // single track's own knob moves independently of the others —
-            // it falls back to its blended read-out (display only).
+            // Keep both main read-outs current when a single track's own knob
+            // moves independently of the others: Simple falls back to its
+            // blended estimate, Advanced shows the tracks' own mean. Both are
+            // display only.
             randomnessDial?.set(fusedRandomnessValue());
+            variationDial?.set(trackRandomnessValue());
             persistSettings();
           };
           if (knobApi) {
@@ -10749,6 +10869,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         repetitionDial?.set(settings.repetition);
         volumeDial?.set(settings.volume);
         randomnessDial?.set(fusedRandomnessValue());
+        variationDial?.set(trackRandomnessValue());
         swingDial?.set(settings.swing);
         if (reverbTailDial && typeof settings.reverbTail === 'number') {
           reverbTailDial.set(settings.reverbTail);
@@ -10800,11 +10921,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const madeNote = brought
           ? ` Brought ${brought} custom track${brought === 1 ? '' : 's'}, playing stock voices.`
           : '';
+        // v0.0.35: a link minted by a newer Ambi4 may carry settings this build
+        // has no idea about, and the sanitiser drops them silently. Say so —
+        // the alternative is the listener hearing a different piece under the
+        // right name and having no way to know why.
+        const newerNote = arrivedFromNewerBuild
+          ? ' This link was made with a newer version of Ambi4, so some of its settings may be missing here.'
+          : '';
         shareNote.textContent = (routePreset
           ? `Loaded the ${routePreset.name} preset — Save to keep it.`
           : arrivedShareName
             ? `Loaded ${arrivedShareName} — this link's name. Save to keep it.`
-            : 'Loaded shared preset — Save to keep it.') + madeNote;
+            : 'Loaded shared preset — Save to keep it.') + madeNote + newerNote;
         shareNote.hidden = false;
       }
       // v29: a link announces itself by name in the Share row too, and offers
