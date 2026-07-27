@@ -2,6 +2,49 @@
 
 ## 2026-07-27
 
+- [x] **v0.0.36 — the oscilloscope and piano roll say what they mean** — the increment that
+  needed no owner input, and the one worth looking at on a real device.
+
+  **The total trace no longer waits for another trace.** Not the latch first diagnosed: the
+  guard `if (!allowed || !open || !ids.length) return` bailed out before any attach whenever no
+  *track* trace was selected — and the total is an analyser of the finished mix that owes
+  nothing to any track. An empty track list is now a legitimate attach when Total is what was
+  asked for (`normaliseTracks` has always accepted `[]`), the attach key distinguishes "no
+  tracks" from "no tracks plus total", and toggling Total re-attaches rather than only calling
+  the setter.
+
+  **Oscilloscope labels stopped pretending to be buttons.** Pill border, radius, uppercase and
+  0.06em letter-spacing all gone — that styling is why 11px read visibly larger than the piano
+  roll's own 11px lane labels sitting right beside it. The dots went tri-state to match the
+  roll's lamp: the track's own colour for "will show when it plays", white for "sounding now",
+  a bar for "playing but its trace is hidden". Spread became a vertical double arrow, because
+  the word sat between the track traces and the total trace and read as another trace.
+
+  **The section label got its own strip below the lanes.** It was drawn at `height - 4` with
+  nothing reserved for it, so it landed inside the lowest lane — under the kick, invisible —
+  while chord names always cleared the top pad because TOP_MARGIN reserved theirs. Lanes now sit
+  between a top strip and a bottom strip, and the label is full size again.
+
+  **Chord labels stack instead of overdrawing.** There was no `measureText` anywhere in
+  visualiser.js; the only crowding guard was an 8px bar-tick gate, narrower than "Cmaj7", so
+  adjacent names simply painted over each other. Each name now measures itself, takes the first
+  row it clears and drops to a second row if it does not — with a per-character fallback if a
+  context ever lacks `measureText`, and the smoke suite's mock context gained the method.
+
+  **Maximise works on iPhone.** The capability gate required `Element.requestFullscreen`, which
+  iOS Safari does not implement at all, so both fullscreen buttons were hidden outright on the
+  device that most wanted them. The native API is now preferred rather than required; without it
+  the stage is pinned over the viewport at `100dvh`, so Safari's collapsing address bar cannot
+  crop the display, and Escape is wired by hand since only the native path gets it free.
+
+  Also adds a staging environment: `wrangler.jsonc` gains an `env.dev` serving the same assets
+  as `ambi4-dev` on mcdev.ambi4.work, and a `PUBLIC_AMBI4_ENV=dev` build stamps the footer and
+  adds noindex, so a staging copy cannot compete with the real site for its own name.
+
+  Suites green: engine 222, voices 283, knob/scope 106, visualiser 45, blocks 41, governor 12,
+  prefs 22, share-name 13, genre 29, tutorial 8+8, page-boot.
+
+
 - [x] **v0.0.35 — the two randomness dials come apart, and share links learn their own version** —
   Three things, all of them things that were quietly wrong.
 

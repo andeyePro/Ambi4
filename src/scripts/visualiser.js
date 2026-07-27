@@ -111,7 +111,28 @@ const MAX_FPS = 60;
 // size) carries the v9 thermal/perf budget, so this doesn't reopen that
 // issue.
 const MAX_DPR = 3;
-const TOP_MARGIN = 16;
+
+/**
+ * The strip above the lanes that carries chord names, and (v0.0.36) the strip
+ * BELOW them that carries the section label.
+ *
+ * Two things were wrong before. The section letter was drawn at `height - 4`
+ * with no space reserved for it, so it landed inside the lowest lane — under
+ * the kick, where the owner could not see it, while chord names always cleared
+ * the top pad because TOP_MARGIN reserved their strip. And chord names had no
+ * width test at all (there was no `measureText` in this file), so adjacent
+ * names simply overdrew each other; the only guard was an 8px tick-spacing
+ * gate, narrower than a name like "Cmaj7".
+ *
+ * The top strip is therefore two rows tall once chords are in play, so a name
+ * that will not fit beside its neighbour drops to the second row instead of
+ * being painted over it, and the bottom strip is reserved outright.
+ */
+const TOP_MARGIN_PLAIN = 16;
+const TOP_MARGIN_CHORDS = 28;
+const BOTTOM_MARGIN = 14;
+const CHORD_ROW_GAP = 12;
+const CHORD_LABEL_PAD = 6;
 const MIN_LABEL_WIDTH = 36;
 const MAX_LABEL_WIDTH = 74;
 const MIN_BAR_TICK_SPACING_PX = 8;
@@ -421,6 +442,29 @@ export function initVisualiser(canvas, engine) {
   const sectionMarks = []; // { time, label, bar }
   const chordMarks = [];  // { time, bar, name } — from the feature-detected 'chord' event
   let hasChordEvents = false; // once true, chord names take over as the primary bar-tick label
+
+  /**
+   * The top strip's height. Two rows once chord names are in play, so a name
+   * that will not fit beside its neighbour can drop to the second row instead
+   * of overdrawing it.
+   */
+  const topMargin = () => (hasChordEvents ? TOP_MARGIN_CHORDS : TOP_MARGIN_PLAIN);
+
+  /** Rendered width of a label, with a per-character fallback. */
+  function measureLabelWidth(text) {
+    try {
+      if (typeof ctx2d.measureText === 'function') {
+        const m = ctx2d.measureText(text);
+        if (m && Number.isFinite(m.width)) return m.width;
+      }
+    } catch {
+      // fall through
+    }
+    return String(text).length * 6.5;
+  }
+
+  /** Height available to the lanes, once both reserved strips are taken out. */
+  const laneBand = (height) => Math.max(1, height - topMargin() - BOTTOM_MARGIN);
 
   // -- repeat-bracket state (v15) -----------------------------------------
   let pendingOpenBar = null;  // bar clicked to open, awaiting a close click
@@ -932,13 +976,13 @@ export function initVisualiser(canvas, engine) {
     if (!lampHost) return;
     try {
       const { labelWidth } = computeGeometry();
-      const usableHeight = Math.max(1, cssHeight - TOP_MARGIN);
+      const usableHeight = laneBand(cssHeight);
       const laneHeight = usableHeight / TRACKS.length;
       const laneGap = Math.min(4, laneHeight * 0.08);
       TRACKS.forEach((track, i) => {
         const entry = lampButtons.get(track);
         if (!entry) return;
-        const top = TOP_MARGIN + i * laneHeight;
+        const top = topMargin() + i * laneHeight;
         const bottom = top + laneHeight - laneGap;
         entry.btn.style.top = `${top}px`;
         entry.btn.style.width = `${labelWidth}px`;
@@ -1153,7 +1197,7 @@ export function initVisualiser(canvas, engine) {
         const width = Math.max(MIN_BAR_TICK_SPACING_PX, nextX - x);
         entry.btn.style.left = `${clampRange(x - width / 2, 0, cssWidth)}px`;
         entry.btn.style.width = `${width}px`;
-        entry.btn.style.height = `${TOP_MARGIN}px`;
+        entry.btn.style.height = `${TOP_MARGIN_PLAIN}px`;
         entry.btn.setAttribute('aria-label', rulerButtonLabel(bar));
       });
     } catch {
@@ -1409,6 +1453,10 @@ export function initVisualiser(canvas, engine) {
 
   function drawTimeMarkers(nowCtx, x0, w, height) {
     let lastX = -Infinity;
+    // v0.0.36: the right edge each chord row is occupied to, so a name that
+    // will not fit beside its neighbour drops to the second row rather than
+    // being painted over it. Two rows only — a third would eat the lanes.
+    const chordRowEnds = [-Infinity, -Infinity];
     ctx2d.strokeStyle = rgba(theme.border, 0.9);
     ctx2d.lineWidth = 1;
     ctx2d.font = LABEL_FONT;
@@ -1423,7 +1471,7 @@ export function initVisualiser(canvas, engine) {
       ctx2d.strokeStyle = rgba(theme.border, 0.9);
       ctx2d.lineWidth = 1;
       ctx2d.beginPath();
-      ctx2d.moveTo(xSnap, TOP_MARGIN);
+      ctx2d.moveTo(xSnap, topMargin());
       ctx2d.lineTo(xSnap, height);
       ctx2d.stroke();
 
@@ -1434,7 +1482,23 @@ export function initVisualiser(canvas, engine) {
         if (chordName) {
           ctx2d.font = LABEL_FONT;
           ctx2d.fillStyle = rgba(theme.text, 0.9);
-          ctx2d.fillText(chordName, snapPixel(clampRange(x + 3, x0, x0 + w - 4)), snapPixel(12));
+          // measureText is on every real 2D context, but this file has always
+          // coded defensively about the drawing surface it is handed — an
+          // estimate keeps the label on screen rather than throwing the frame
+          // away if it is ever missing.
+          const textW = measureLabelWidth(chordName);
+          const left = clampRange(x + 3, x0, x0 + w - 4);
+          // First row if it clears what is already there, otherwise the second.
+          // If BOTH are occupied the name is dropped rather than overdrawn —
+          // an unreadable smear of two names says less than one name does.
+          let row = -1;
+          for (let r = 0; r < chordRowEnds.length; r++) {
+            if (left >= chordRowEnds[r]) { row = r; break; }
+          }
+          if (row >= 0) {
+            chordRowEnds[row] = left + textW + CHORD_LABEL_PAD;
+            ctx2d.fillText(chordName, snapPixel(left), snapPixel(12 + row * CHORD_ROW_GAP));
+          }
         }
       }
     }
@@ -1453,11 +1517,19 @@ export function initVisualiser(canvas, engine) {
       ctx2d.stroke();
       if (mark.label) {
         if (hasChordEvents) {
-          // Chord names now carry the primary billing; the section letter
-          // demotes to a smaller, secondary label near the bottom.
-          ctx2d.font = SECONDARY_FONT;
-          ctx2d.fillStyle = rgba(theme.secondary, 0.75);
-          ctx2d.fillText(mark.label, snapPixel(clampRange(x + 4, x0, x0 + w - 20)), snapPixel(height - 4));
+          // Chord names carry the primary billing at the top, so the section
+          // label goes to the strip reserved BELOW the lanes. It used to be
+          // drawn at height - 4 with nothing reserved, which put it inside the
+          // lowest lane — under the kick, invisible. Full size now that it has
+          // its own space; there is no reason to shrink a label that is not
+          // competing with anything.
+          ctx2d.font = LABEL_FONT;
+          ctx2d.fillStyle = rgba(theme.text, 0.85);
+          ctx2d.fillText(
+            mark.label,
+            snapPixel(clampRange(x + 4, x0, x0 + w - 20)),
+            snapPixel(height - 3)
+          );
         } else {
           ctx2d.font = LABEL_FONT;
           ctx2d.fillStyle = rgba(theme.text, 0.85);
@@ -1518,10 +1590,10 @@ export function initVisualiser(canvas, engine) {
     const xEnd = endTime !== null ? x0 + fracForTime(endTime, nowCtx) * w : x0 + w;
     ctx2d.fillStyle = rgba(theme.border, LOOP_DIM_ALPHA);
     const leftW = clampRange(xStart - x0, 0, w);
-    if (leftW > 0) ctx2d.fillRect(x0, TOP_MARGIN, leftW, height - TOP_MARGIN);
+    if (leftW > 0) ctx2d.fillRect(x0, topMargin(), leftW, height - topMargin());
     const rightX = clampRange(xEnd, x0, x0 + w);
     const rightW = clampRange(x0 + w - rightX, 0, w);
-    if (rightW > 0) ctx2d.fillRect(rightX, TOP_MARGIN, rightW, height - TOP_MARGIN);
+    if (rightW > 0) ctx2d.fillRect(rightX, topMargin(), rightW, height - topMargin());
   }
 
   /**
@@ -1561,7 +1633,7 @@ export function initVisualiser(canvas, engine) {
   /** Repeat marks (barline+dots) + outside-loop dimming (v15/v17); gated on engine support for the whole feature. */
   function drawLoopMarkers(nowCtx, x0, w, height) {
     if (!loopFeatureAvailable()) return;
-    const top = TOP_MARGIN;
+    const top = topMargin();
     if (activeLoop) {
       drawLoopDimming(nowCtx, x0, w, height);
       drawLoopBracket(false, findBarTickTime(activeLoop.start), nowCtx, x0, w, top, height, 1);
@@ -1584,7 +1656,7 @@ export function initVisualiser(canvas, engine) {
     cull(nowCtx);
 
     const { labelWidth, x0, w } = computeGeometry();
-    const usableHeight = Math.max(1, height - TOP_MARGIN);
+    const usableHeight = laneBand(height);
     const laneHeight = usableHeight / TRACKS.length;
     const laneGap = Math.min(4, laneHeight * 0.08);
 
@@ -1596,7 +1668,7 @@ export function initVisualiser(canvas, engine) {
     drawLoopMarkers(nowCtx, x0, w, height);
 
     TRACKS.forEach((track, i) => {
-      const top = TOP_MARGIN + i * laneHeight;
+      const top = topMargin() + i * laneHeight;
       const bottom = top + laneHeight - laneGap;
       const accent = theme.laneAccents[i];
 

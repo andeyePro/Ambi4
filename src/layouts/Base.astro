@@ -25,7 +25,23 @@ try {
   buildSha = '';
 }
 const buildDate = new Date().toISOString().slice(0, 10);
-const buildStamp = `v${pkg.version} · ${buildDate}${buildSha ? ' ' + buildSha : ''}`;
+
+// Deploy environment. `dev` is the mcdev.ambi4.work staging site, which serves
+// the SAME ./dist as production — so the only way to tell the two apart is a
+// build-time flag. It does two things: stamps the footer so a screenshot says
+// which site it came from, and keeps the staging copy out of search results,
+// because a second indexed copy of the whole app would compete with the real
+// one for its own name.
+let deployEnv = '';
+try {
+  deployEnv = String(process.env.PUBLIC_AMBI4_ENV ?? '').trim().toLowerCase();
+} catch {
+  deployEnv = '';
+}
+const isProduction = deployEnv === '' || deployEnv === 'production';
+const buildStamp =
+  `v${pkg.version} · ${buildDate}${buildSha ? ' ' + buildSha : ''}` +
+  (isProduction ? '' : ` · ${deployEnv}`);
 ---
 <html lang="en-gb">
   <head>
@@ -33,6 +49,7 @@ const buildStamp = `v${pkg.version} · ${buildDate}${buildSha ? ' ' + buildSha :
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
+    {!isProduction && <meta name="robots" content="noindex, nofollow" />}
     <title>{title}</title>
   </head>
   <body>

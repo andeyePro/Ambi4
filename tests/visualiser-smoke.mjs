@@ -37,6 +37,12 @@ function makeCtx2d(calls, propWrites) {
   let currentPath = null; // { moveTo: {x,y}|null, arcToCount } for the path since the last beginPath()
   const methods = {
     clearRect() { record('clearRect'); },
+    // Every real 2D context has this; the mock needs it too now that chord
+    // labels measure themselves to decide which row they fit on.
+    measureText(text) {
+      record('measureText');
+      return { width: String(text).length * 6.5 };
+    },
     fillRect(x, y, w, h) {
       record('fillRect');
       if (calls.rects) calls.rects.push({ x, y, w, h });
