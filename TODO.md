@@ -19,7 +19,46 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
-## v0.0.35 — de-fuse, rename, share versioning  *(BUILT 2026-07-27, uncommitted)*
+## Awaiting an owner decision
+
+Nothing below can be built without a ruling. Parked here rather than buried in a
+version so they are the first thing seen.
+
+1. **Does the Simple tab keep its fused Randomness dial?** The UX brief says the
+   two randomness axes "must never be fused into one control", but Simple keeps
+   exactly that — one knob writing both `repetition` and every track's
+   randomness. v0.0.35 shipped with Simple fused and Advanced separated, on the
+   judgement that one knob for "how much does this change" is what makes Simple
+   simple. If the brief is meant literally, Simple needs a second dial and the
+   tab stops being four controls.
+2. **Which tier gates the patch sockets?** The plan said "Studio tier". There is
+   no Studio tier — the ladder is Free, Plus, Pro, Premium — payments do not
+   exist at v0.1.0, and the standing rule is that no paid feature is visible
+   before its tier can be bought. So a paid gate means the whole modulation-graph
+   version ships dark at the public release, while the transparency version needs
+   those same cables for free-tier value. Either the graph is free at launch with
+   a paid gate only on the v0.2.x user-authored instruments, or the graph moves
+   after v0.1.0.
+3. **~~The drag scheme~~ — SETTLED 2026-07-27: Scheme A.** Axis lock with
+   re-arm; the diagonal question is parked until the feel is nailed. The rig at
+   https://claude.ai/code/artifact/0f976490-5baa-4100-a7fe-9cd08debe58b is now
+   Scheme A only, with the stuck-drag bug fixed — the rig never called
+   `preventDefault` on pointerdown, so the browser started its own selection
+   drag and swallowed the release. That bug was poisoning the comparison, so
+   revisit the diagonal only after Scheme A itself feels right.
+4. **Is Reprise the right name?** Shipped in v0.0.35 over Recall, because in
+   every mixer and synth "recall" means restoring saved settings and this app
+   has presets and share links. One word to revert.
+5. **Structure block limit** — the cap of 8 is enforced in three places. Keep or
+   raise?
+6. **BPM range** — the old "hardcoded 40–120" note is stale; the UI slider is
+   20–220 on a log curve centred at 60. The original question stands: what are
+   the slowest and fastest tempos to achieve significant commercial success, and
+   should the engine clamp match the UI?
+7. **The strategy note and this plan disagree about the next flagship.**
+   `Ambi4-strategy` says genres; v0.0.35 to v0.1.0 contains no genre work at all.
+
+## v0.0.35 — de-fuse, rename, share versioning  *(SHIPPED 2026-07-27, pushed)*
 
 Re-scoped on Fable's review, which found the original v0.0.35 was four plan
 phases plus eight unrelated UI items plus two new engine params plus an
@@ -32,7 +71,21 @@ and fixed the bug the owner personally hit; the refactor moves to v0.0.36.
 - [x] **Advanced opens with the main dials above the Tracks list**, so tempo is where Simple users expect it
 - [x] Wire-key freeze recorded: `randomness` and `repetition` stay the serialised keys forever; Variation and Reprise are UI labels only
 
-## v0.0.36 — registry and renderer (was part of v0.0.35)
+## v0.0.36 — the oscilloscope and piano roll say what they mean  *(SHIPPED 2026-07-27)*
+
+Chosen as the next increment because it needs no owner input and is the part
+worth looking at on a real device. The registry refactor is invisible by design,
+so it waits.
+
+- [x] **Total trace no longer needs another trace on first.** Not the latch I first diagnosed — the guard `if (!allowed || !open || !ids.length) return` bailed out before any attach whenever no *track* trace was selected, and the total is an analyser of the finished mix that owes nothing to any track. An empty track list is now a legitimate attach when Total is what was asked for (`normaliseTracks` already accepts `[]`), the attach key distinguishes "no tracks" from "no tracks plus total", and toggling Total re-attaches
+- [x] **Oscilloscope labels stopped pretending to be buttons.** Pill border, radius, uppercase and letter-spacing all gone — that styling is why 11px read visibly larger than the piano roll's own 11px lane labels sitting beside it. Same size, same case, same weight now
+- [x] **Tri-state dots**, matching the roll's lamp: the track's own colour for "will show when it plays", white for "sounding right now", a bar for "playing but its trace is hidden"
+- [x] **Spread is a vertical double arrow**, not the word "Spread" sitting between the track traces and the total trace reading as another trace. Tooltip carries the words
+- [x] **The section label has its own strip below the lanes.** It was drawn at `height - 4` with nothing reserved, so it landed inside the lowest lane — under the kick, invisible, while chord names always cleared the top pad. Full size now that it is not competing with anything
+- [x] **Chord labels stack onto a second row instead of overdrawing.** There was no `measureText` in `visualiser.js` at all; the only guard was an 8px tick-spacing gate, narrower than "Cmaj7". Each name now measures itself, takes the first row it clears, and drops to the second if it does not — with a per-character fallback if a context ever lacks `measureText`, and the mock context in the smoke suite gained it
+- [x] **Maximise works on iPhone.** The gate required `Element.requestFullscreen`, which iOS Safari does not implement at all, so both ⛶ buttons were simply hidden on the device that most wanted them. The native API is now preferred rather than required; without it the stage is pinned over the viewport at `100dvh` (so the collapsing address bar cannot crop it), with Escape wired up by hand since only the native path gets it free
+
+## v0.0.37 — registry, renderer and gestures
 
 - [ ] **Parameter registry** — one declarative table keyed by dotted path carrying domain, curve, unit, format, default, rangeable, scope and sampling. Engine sanitiser and UI both read it. Deletes the boot-time probes (`probePatchSource`, index.astro:2225) and makes `allowRange` derived. No visible change
 - [ ] **`buildKnobEditor` becomes a renderer over the registry** — ~600 lines of hand-written `addKnob` literals collapse to a loop. Behaviour byte-identical; existing smoke tests are the gate
@@ -53,7 +106,9 @@ and fixed the bug the owner personally hit; the refactor moves to v0.0.36.
 - [ ] Poly | Mono segmented toggle replacing the current Mono control — today an `aria-pressed` button distinguished only by fill-vs-outline (:4056). Glide gets the same treatment plus a **legato** option
 - [ ] Simple-tab horizontal swipe teaches instead of acting: "Drag up or down to increase or decrease speed — you can add tempo variation by selecting Advanced mode then dragging left or right"
 
-## v0.0.37 — layout and chrome
+## v0.0.38 — layout and chrome
+
+- [ ] Oscilloscope labels and the spread control hide along with `+ piano roll` and `Exit (Esc)`. They currently do not — the scope module is *moved* into the fullscreen stage (:8567) and its overlay is unaffected by the 2.6 s auto-collapse (:8624)
 
 - [ ] Right-align the `?` tutorial launcher to the **GENERATOR tab**, which sits between the "Ambi4: Ambience for Work" title and TRANSPORT. It currently sits immediately right of the Processor label inside `.transport-head` (:117-129), reading as documentation for the processor control. (Resolves the earlier open question — the PLAYLIST tab is gone, GENERATOR remains.) Fallback if space is tight: open as a tooltip like the ⓘ boxes
 - [ ] No-orphan layout control across the whole UI. The Processor case is deliberate today and needs reversing: label in `.transport-head` (:119), dial last in `.transport-main` after the transport buttons and sleep/alarm icons (:246), readout in `.transport-row` (:345) *after* the genre row and the whole play-along block. Comments at :10925 and :11639 record the split as intentional
@@ -65,17 +120,6 @@ and fixed the bug the owner personally hit; the refactor moves to v0.0.36.
 - [ ] Processor dial defaults to a min-max range Eco→Full rather than Auto as its top setting. **[flagged]** only works if the governor stays the thing that moves the value within the range; otherwise the CPU-pressure sensing in `power.js` is lost
 - [ ] Delete the Stop button (`#stop-now`, :156). Play/Finish is already one dual button (`#toggle-play`, :132); extend it so Finish becomes STOP with the stop icon — two presses at any speed give an immediate stop
 - [ ] Add Previous alongside Next. `#fast-forward` (:162) re-applies the genre at a fresh seed and **overwrites**; there is no state history anywhere, so this needs a snapshot stack
-
-## v0.0.38 — visualiser
-
-- [ ] Oscilloscope track labels: drop `text-transform: uppercase` and the `letter-spacing: 0.06em`, and drop the pill border and radius (`.scope-legend-track`, :12368). **[flagged]** the font size already matches the piano roll — both are 11px — so the all-caps setting is what makes PAD's P look larger than the roll's. Also note the separate 9px monospace canvas labels in spread mode (scope.js:226)
-- [ ] Give oscilloscope dots the piano roll's tri-state treatment: the roll's lamp is auto-grey / on-white / off-black (visualiser.js:832), while the scope dot has only two states via opacity 0.35 vs 1 (:12385). Wanted: filled dot for "will show if playing", white for "playing now", a line for "playing but trace hidden"
-- [ ] Replace the Spread text pill with a vertical ↕ icon, tooltip "spread traces vertically". As a word sitting between the track traces and the total trace it reads as another trace (`#front-scope-spread`, :373)
-- [ ] **Bug: the total trace needs another trace on before it goes live.** Cause found: `totalSupported` is latched once at attach time from `masterAnalyser()` (:8219), which returns null until the audio graph exists — and nothing re-evaluates it when the graph appears. Toggling another trace changes the attach key, forcing a re-attach that recomputes it. Fix: re-evaluate on graph creation or first `bar` event. The engine does expose it (`getAnalysers().total` / `getMasterAnalyser()`, ambient-engine.js:7819-7831) despite the stale comment at :8209 claiming it is owed
-- [ ] Oscilloscope labels and the spread control hide along with `+ piano roll` and `Exit (Esc)`. They currently do not — the scope module is *moved* into the fullscreen stage (:8567) and its overlay is unaffected by the 2.6 s auto-collapse (:8624)
-- [ ] Maximise must work on iOS. Fullscreen is native-API only (`stage.requestFullscreen`, :8607) with no `webkitEnterFullscreen` or CSS fallback, so the gate (:8549) hides both ⛶ buttons on iPhone Safari. Needs a CSS-based pseudo-fullscreen path
-- [ ] Section label must clear the lowest track. It already drops to the canvas bottom when chords exist (`y = height - 4`, visualiser.js:1443) but lands **underneath the kick lane**, so it is invisible — unlike the chords, which always clear the top pad. Needs reserved canvas height below the lanes, matching `TOP_MARGIN` above
-- [ ] Chord labels stack onto multiple levels when they would overlap. Confirmed not delivered: the only guard is an 8 px bar-tick gate (`MIN_BAR_TICK_SPACING_PX`, visualiser.js:117), there is no `measureText` in the file at all, and right-edge labels all clamp to the same x
 
 ## v0.0.39 — harmony and structure
 

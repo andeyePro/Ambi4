@@ -382,13 +382,18 @@ const VOICES: Record<string, [string, string][]> = {
           <span id="front-scope-note" class="value-readout scope-note"></span>
           <div id="front-scope-legend" class="scope-legend" role="group" aria-label="Tracks shown on the oscilloscope"></div>
           <div class="scope-controls">
+            <!-- v0.0.36: was the word "Spread", which sat between the track
+                 traces and the total trace and read as another trace. A
+                 vertical double arrow says the same thing without joining the
+                 waveforms; the words live in the tooltip. -->
             <button
               type="button"
               id="front-scope-spread"
-              class="scope-option"
+              class="scope-option scope-option-icon"
               aria-pressed="false"
+              aria-label="Spread traces vertically"
               hidden
-            >Spread</button>
+            ><svg viewBox="0 0 12 16" aria-hidden="true" focusable="false"><path d="M6 1.5 L6 14.5 M3 4 L6 1 L9 4 M3 12 L6 15 L9 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             <button
               type="button"
               id="front-scope-total"
@@ -8404,7 +8409,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             });
             describe(
               scopeSpreadButton,
-              'Give each track its own flat line to wobble on, stacked up the display.'
+              'Spread traces vertically — each track gets its own flat line to wobble on, stacked up the display.'
             );
           }
           if (scopeTotalButton) {
@@ -8413,6 +8418,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               persistSettings();
               applyScopeOptions();
               syncScopeOptions();
+              // v0.0.36: with no track traces selected, turning Total on or off
+              // changes whether there is anything to attach at all, so the
+              // attachment itself has to be reconsidered — not just the setter.
+              updateFrontScope();
             });
             describe(scopeTotalButton, 'Add a white trace of the finished mix, effects and all.');
           }
@@ -8506,9 +8515,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
           }
 
+          /**
+           * v0.0.36 tri-state, matching the piano roll's lamp rather than the
+           * old two-state opacity:
+           *   shown   — trace selected, in the track's own colour
+           *   sounding— selected AND playing right now, white
+           *   hidden  — playing but its trace is switched off, drawn as a bar
+           * `aria-pressed` still carries the selected/not truth for AT; the
+           * data-state is purely what the eye reads.
+           */
           const syncPageLegend = (ids) => {
             for (const [id, button] of legendButtons) {
-              button.setAttribute('aria-pressed', String(ids.includes(id)));
+              const selected = ids.includes(id);
+              button.setAttribute('aria-pressed', String(selected));
+              const playing = engine.running && settings.tracks[id]?.state !== 'off';
+              button.dataset.state = selected
+                ? (playing ? 'sounding' : 'shown')
+                : (playing ? 'hidden' : 'shown');
             }
           };
 
@@ -8546,7 +8569,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const ids = selectedTracks();
 
             const allowed = powerBudget ? powerBudget.scopeEnabled !== false : true;
-            if (!allowed || !open || !ids.length) {
+            // v0.0.36: the total trace is an analyser of the finished mix and
+            // owes nothing to any track, but this guard used to bail out
+            // whenever no TRACK trace was selected — so Total only came alive
+            // once some other trace was turned on, which is the bug the owner
+            // hit. An empty track list is a legitimate attach when the total is
+            // what the listener asked for; scope.js's normaliseTracks already
+            // accepts `[]` and simply draws no per-track traces.
+            const totalOnly = !ids.length && totalOn();
+            if (!allowed || !open || (!ids.length && !totalOnly)) {
               detach();
               scopeNote.textContent = !allowed
                 ? 'paused — Processor tier'
@@ -8576,7 +8607,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
             scopeNote.textContent = '';
 
-            const key = ids.join(',');
+            const key = `${ids.join(',')}|${totalOn() ? 'T' : ''}`;
             if (handle && key === attachedKey) {
               ensureLegend(ids);
               return;
@@ -8665,13 +8696,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           },
         ].filter((display) => display.el && display.button);
 
-        const supported =
-          !!stage &&
-          !!slots &&
-          !!addButton &&
-          !!exitButton &&
-          typeof stage.requestFullscreen === 'function' &&
+        // v0.0.36: the native Fullscreen API is now preferred, not required.
+        // iPhone Safari implements neither requestFullscreen nor
+        // exitFullscreen, so the old gate hid both ⛶ buttons on the device the
+        // owner most wanted to maximise on. Where the API is absent the stage
+        // is pinned over the viewport by CSS instead — the same result to the
+        // eye, minus the browser chrome the API would have hidden.
+        const nativeFullscreen =
+          typeof stage?.requestFullscreen === 'function' &&
           typeof document.exitFullscreen === 'function';
+
+        const supported = !!stage && !!slots && !!addButton && !!exitButton;
 
         if (!supported) {
           for (const display of DISPLAYS) {
@@ -8704,8 +8739,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
           const missingDisplay = () => DISPLAYS.find((display) => !shown.includes(display.id));
 
+          /** Maximised right now, by whichever mechanism this browser has. */
+          const isActive = () =>
+            nativeFullscreen
+              ? document.fullscreenElement === stage
+              : stage.dataset.pseudo !== undefined;
+
+          const enterFullscreen = () => {
+            if (nativeFullscreen) return Promise.resolve(stage.requestFullscreen());
+            stage.dataset.pseudo = '';
+            document.documentElement.dataset.pseudoFullscreen = '';
+            onFullscreenChange();
+            return Promise.resolve();
+          };
+
+          const exitFullscreen = () => {
+            if (nativeFullscreen) return Promise.resolve(document.exitFullscreen());
+            delete stage.dataset.pseudo;
+            delete document.documentElement.dataset.pseudoFullscreen;
+            onFullscreenChange();
+            return Promise.resolve();
+          };
+
           const syncChrome = () => {
-            const active = document.fullscreenElement === stage;
+            const active = isActive();
             stage.hidden = !active;
             const missing = missingDisplay();
             addButton.hidden = !active || !missing;
@@ -8717,14 +8774,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
           for (const display of DISPLAYS) {
             display.button.addEventListener('click', () => {
-              if (document.fullscreenElement === stage) {
-                Promise.resolve(document.exitFullscreen()).catch(() => {});
+              if (isActive()) {
+                exitFullscreen().catch(() => {});
                 return;
               }
               stage.hidden = false;
               moveIn(display);
               syncChrome();
-              Promise.resolve(stage.requestFullscreen()).catch(() => {
+              enterFullscreen().catch(() => {
                 restoreAll();
                 syncChrome();
               });
@@ -8739,7 +8796,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             armMenuCollapse();
           });
           exitButton.addEventListener('click', () => {
-            Promise.resolve(document.exitFullscreen()).catch(() => {});
+            exitFullscreen().catch(() => {});
           });
 
           // v27 owner request: the menu slides out to a subtle ☰ in the top
@@ -8772,8 +8829,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           bar?.addEventListener('pointerenter', () => clearTimeout(menuTimer));
           bar?.addEventListener('pointerleave', armMenuCollapse);
 
-          document.addEventListener('fullscreenchange', () => {
-            if (document.fullscreenElement !== stage) {
+          function onFullscreenChange() {
+            if (!isActive()) {
               restoreAll();
               clearTimeout(menuTimer);
               revealMenu(); // reset for the next entry
@@ -8782,7 +8839,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               armMenuCollapse();
             }
             syncChrome();
-          });
+          }
+
+          document.addEventListener('fullscreenchange', onFullscreenChange);
+
+          // The native API gives Escape for free; the pinned fallback has to
+          // provide it, or the only way out would be the Exit button — which
+          // the menu hides after a couple of seconds.
+          if (!nativeFullscreen) {
+            document.addEventListener('keydown', (event) => {
+              if (event.key === 'Escape' && isActive()) {
+                event.preventDefault();
+                exitFullscreen().catch(() => {});
+              }
+            });
+          }
           syncChrome();
         }
       }
@@ -11536,6 +11607,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       display: none;
     }
 
+    /* v0.0.36 iOS fallback. iPhone Safari has no Element.requestFullscreen at
+       all, so the capability gate used to hide both ⛶ buttons outright and
+       maximising was simply unavailable on the device the owner most wanted it
+       on. When the native API is missing the stage is pinned over the viewport
+       instead — visually the same result, minus the browser chrome the API
+       would have hidden. `100dvh` rather than `vh` so Safari's collapsing
+       address bar does not crop the bottom of the display. */
+    .fullscreen-stage[data-pseudo] {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100dvh;
+      z-index: 900;
+      padding: 8px;
+      overscroll-behavior: contain;
+    }
+
+    :root[data-pseudo-fullscreen] body {
+      overflow: hidden;
+    }
+
     /* v27: the menu OVERLAYS the displays (absolute, not in-flow) so sliding
        it away never resizes a canvas — the panel rule. It glides out to the
        right, leaving only the subtle ☰ in the corner. */
@@ -12411,6 +12503,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       min-height: 24px;
     }
 
+    /* Icon-only variant: a square target rather than a word-shaped pill. */
+    .scope-option-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      padding: 0;
+    }
+
+    .scope-option-icon svg {
+      width: 11px;
+      height: 15px;
+      display: block;
+    }
+
     .scope-option[aria-pressed='true'] {
       border-color: var(--link);
       color: var(--text);
@@ -12493,23 +12600,36 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       min-width: 0;
     }
 
+    /* v0.0.36: these are labels, not buttons. They were pill-shaped, bordered,
+       uppercase and letter-spaced, which made 11px read visibly larger than the
+       piano roll's own 11px lane labels sitting right beside them — the owner's
+       "the P of PAD looks bigger" observation. Same size, same case, same
+       weight as the roll now; state lives entirely in the dot. */
     .scope-legend-track {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      border: 1px solid transparent;
-      border-radius: 999px;
+      border: 0;
+      border-radius: 0;
       background: none;
       color: var(--secondary);
-      padding: 3px 8px;
+      padding: 3px 6px;
       font-family: var(--label-font, inherit);
       font-size: 11px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      letter-spacing: 0;
+      text-transform: none;
       cursor: pointer;
       min-height: 26px;
     }
 
+    .scope-legend-track:focus-visible {
+      outline: 2px solid var(--link);
+      outline-offset: 1px;
+    }
+
+    /* Tri-state, matching the piano roll's lamp (auto grey / on white / off).
+       Filled in the track's own colour = will show when this track plays;
+       white = sounding right now; a bar = playing but its trace is hidden. */
     .scope-legend-dot {
       width: 9px;
       height: 9px;
@@ -12519,8 +12639,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       flex: none;
     }
 
+    .scope-legend-track[data-state='sounding'] .scope-legend-dot {
+      background: #ffffff;
+      opacity: 1;
+      box-shadow: 0 0 0 1px var(--track-accent, var(--border));
+    }
+
+    .scope-legend-track[data-state='hidden'] .scope-legend-dot {
+      border-radius: 1px;
+      height: 3px;
+      opacity: 0.9;
+    }
+
     .scope-legend-track[aria-pressed='true'] {
-      border-color: var(--track-accent, var(--border));
       color: var(--text);
     }
 
