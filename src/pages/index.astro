@@ -124,20 +124,27 @@ const VOICES: Record<string, [string, string][]> = {
 ---
 <Base title="Ambi4: Ambience for Work" description="An endless ambient music generator that runs entirely in your browser.">
 
+  <button
+    slot="header-actions"
+    type="button"
+    id="tutorial-toggle"
+    class="round-button"
+    data-transport="tutorial"
+    aria-label="Show the guided tour"
+    aria-expanded="false"
+    aria-controls="tutorial-panel"
+  >?</button>
+
   <div id="generator-app" hidden>
-    <div class="module-panel transport-module">
-      <div class="transport-head">
-        <span class="panel-label transport-label" aria-hidden="true">Transport</span>
-        <button
-          type="button"
-          id="tutorial-toggle"
-          class="round-button"
-          data-transport="tutorial"
-          aria-label="Show the guided tour"
-          aria-expanded="false"
-          aria-controls="tutorial-panel"
-        >?</button>
-      </div>
+    <!-- v0.0.41: two columns. TRANSPORT and PROCESSOR share the heading row,
+         the play buttons and the processor dial share the row below it, and the
+         genre picker sits left of the processor readout on the last. Everything
+         in the right column is right-aligned to the panel edge, so the label,
+         the dial and the numbers it produces line up with each other and stay
+         lined up as the panel narrows. -->
+    <div class="module-panel transport-module transport-grid">
+      <span class="panel-label transport-label" aria-hidden="true">Transport</span>
+      <span class="panel-label processor-label" id="processor-label">Processor</span>
       <div class="transport-main">
         <div class="transport-buttons">
           <button
@@ -163,12 +170,6 @@ const VOICES: Record<string, [string, string][]> = {
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M7 4.5 19 12 7 19.5Z" /></svg>
             </span>
             <span class="pause-label">Pause</span>
-          </button>
-          <button id="stop-now" type="button" class="transport-button stop-button" data-transport="stop" disabled>
-            <span class="transport-glyph" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
-            </span>
-            <span>Stop</span>
           </button>
           <button id="fast-forward" type="button" class="transport-button forward-button" data-transport="fastforward">
             <span class="transport-glyph" aria-hidden="true">
@@ -319,13 +320,9 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
           </div>
         </div>
-        <div class="processor-column">
-          <span class="panel-label processor-label" id="processor-label">Processor</span>
-          <div class="processor-row">
-            <div class="dial-slot dial-label-external" id="processor-dial"></div>
-          </div>
-          <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
-        </div>
+      </div>
+      <div class="processor-row">
+        <div class="dial-slot dial-label-external" id="processor-dial"></div>
       </div>
 
       <!-- v26 genre transport: the genre picker sits directly UNDER the
@@ -357,16 +354,7 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
-      <!-- v28 play along: the row under the genre picker. The toggle arms the
-           computer keyboard (and any MIDI instrument the browser hands over),
-           the picker chooses which track the keys sound through, and Capture
-           writes what was played into that track's step grid — with Undo
-           beside it, one click, for the lane it replaced.
-
-           Every control is present at all times and changes nothing but its
-           pressed/disabled state: no control on this panel may move because of
-           something the listener did. The note line under it reserves its own
-           height for the same reason. -->
+      <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
 
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
@@ -2862,7 +2850,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const playLabel = toggleButton.querySelector('.play-toggle-label');
       const playGlyph = toggleButton.querySelector('.play-glyph');
       const finishGlyph = toggleButton.querySelector('.finish-glyph');
-      const stopNowButton = document.getElementById('stop-now');
       const pauseButton = document.getElementById('pause-toggle');
       const pauseLabel = pauseButton.querySelector('.pause-label');
       const pauseGlyph = pauseButton.querySelector('.pause-glyph');
@@ -9293,19 +9280,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // while it holds.
         const active = running || paused;
         toggleButton.setAttribute('aria-pressed', String(active));
-        if (finishing) {
-          playLabel.textContent = 'Finishing…';
-          toggleButton.disabled = true;
-        } else {
-          playLabel.textContent = active ? 'Finish' : 'Play';
-          toggleButton.disabled = false;
-        }
+        // v0.0.41: the separate Stop button is gone, so this one button is the
+        // whole control: Play → Finish → Stop. It must therefore stay ENABLED
+        // while finishing (it used to disable itself and read "Finishing…"),
+        // because pressing it again is now how you cut the outro short.
+        playLabel.textContent = finishing ? 'Stop' : active ? 'Finish' : 'Play';
+        toggleButton.disabled = false;
         // v15: ▶ before "Play"; the final-barline 𝄂 after "Finish".
         playGlyph.hidden = active || finishing;
         finishGlyph.hidden = !(active || finishing);
-        // v15: Stop is a permanent button in the strip (was a "Stop now"
-        // link that only appeared mid-playback), disabled when idle.
-        stopNowButton.disabled = !active && !finishing;
         pauseButton.disabled = !active || finishing;
         pauseButton.setAttribute('aria-pressed', String(paused));
         pauseLabel.textContent = paused ? 'Resume' : 'Pause';
@@ -9373,7 +9356,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           setTransportUI();
           return;
         }
-        if (finishing) return;
+        // v0.0.41: pressing it again while it is finishing stops outright. That
+        // makes the dual button the whole control — Play, then Finish, then
+        // Stop — and it is the one form of double click worth having, because
+        // two presses reach the same place however slowly they are made. The
+        // separate Stop button is gone.
+        if (finishing) {
+          engine.stop();
+          finishing = false;
+          setTransportUI();
+          return;
+        }
         finishing = true;
         setTransportUI();
         try {
@@ -9423,13 +9416,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return;
         }
         await startPlayback();
-      });
-
-      stopNowButton.addEventListener('click', () => {
-        clearPaused();
-        engine.stop();
-        finishing = false;
-        setTransportUI();
       });
 
       pauseButton.addEventListener('click', async () => {
@@ -11324,19 +11310,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       transform: translateX(-18px);
     }
 
-    /* v0.0.40: heading, dial and readout in one column, so narrowing the
-       viewport can never separate the Processor label from the control it
-       names or from the numbers it produces. */
-    .processor-column {
-      display: flex;
-      flex-direction: column;
+    /* v0.0.41: the transport panel is two columns. Left holds TRANSPORT, the
+       play buttons and the genre picker; right holds PROCESSOR, its dial and
+       its readout, right-aligned to the panel edge. The label therefore sits
+       level with TRANSPORT, the dial level with Play, and the numbers directly
+       under the dial that produces them — and they stay that way as the panel
+       narrows, because they are grid cells rather than three things that
+       happened to be near each other. */
+    .transport-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      column-gap: 20px;
+      row-gap: 6px;
       align-items: center;
-      gap: 2px;
-      flex: 0 0 auto;
     }
 
-    .processor-column .processor-readout {
-      text-align: center;
+    .transport-grid > .transport-label {
+      justify-self: start;
+    }
+
+    .transport-grid > .processor-label,
+    .transport-grid > .processor-row,
+    .transport-grid > .processor-readout {
+      justify-self: end;
+      text-align: right;
+    }
+
+    .transport-grid > .transport-row {
+      grid-column: 1 / -1;
+    }
+
+    .transport-grid > .processor-readout {
       white-space: nowrap;
     }
 

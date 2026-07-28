@@ -2,6 +2,24 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.41 — the transport panel is two aligned columns, and Stop goes** — TRANSPORT and
+  PROCESSOR share the heading row, the play buttons and the processor dial share the row below,
+  and the genre picker sits left of the processor readout on the last. Everything in the right
+  column is right-aligned to the panel edge, so the label is level with TRANSPORT, the dial level
+  with Play, and the numbers sit directly under the dial that produces them — and they stay that
+  way as the panel narrows, because they are grid cells rather than three things that happened to
+  be near each other.
+
+  The guided-tour `?` moved out of the transport panel entirely and up to the site header, level
+  with the Generator nav item, via a new `header-actions` slot on the layout. It had been sitting
+  beside the Processor label, where it read as documentation for the processor control.
+
+  The Stop button is deleted. Pressing the dual button again while it is finishing now stops
+  outright, making one control the whole transport: Play → Finish → Stop. That also means the
+  button stays enabled while finishing where it used to disable itself and read "Finishing…" —
+  pressing it again is the point. This is the one form of double click worth having, since two
+  presses reach the same place however slowly they are made.
+
 - [x] **v0.0.40 — the transport row reads as three jobs, not five glyphs** — sleep and schedule-start
   were two identical clock faces sitting side by side; they are the same kind of thing (when does
   the music happen) and are now one clock opening one Timers popover with both inside. The
