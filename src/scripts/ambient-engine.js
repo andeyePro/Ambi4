@@ -36,6 +36,22 @@ const ENHARMONICS = {
  * new table is all a new mode needs — the chords, the tune and the bass line
  * are diatonic to whatever is in here by construction.
  */
+/**
+ * Semitone offsets from the root. Every entry is 12-TET, which is the whole
+ * reason they are cheap to add — a scale here is an array, not a feature.
+ *
+ * v0.0.57 added the six that make the list usable: blues, harmonic and melodic
+ * minor, locrian, the octatonic (whole-half diminished) and chromatic. Adding
+ * them is purely additive — no existing key changed, so every stored preset
+ * and every share link keeps the scale it had.
+ *
+ * NOT here, and not one item each: maqamat need quarter tones (24-TET),
+ * gamelan slendro and pelog are genuinely non-12-TET and vary per instrument
+ * set, and ragas are as much ascent/descent rules and ornament as pitch set.
+ * Those need the pitch pipeline rebuilt around cents or ratios, which is the
+ * alternate-tunings item, and naming them by region ("Middle Eastern") rather
+ * than by scale would be inaccurate as well as lazy.
+ */
 export const SCALES = Object.freeze({
   majorPentatonic: [0, 2, 4, 7, 9],
   minorPentatonic: [0, 3, 5, 7, 10],
@@ -46,6 +62,20 @@ export const SCALES = Object.freeze({
   mixolydian: [0, 2, 4, 5, 7, 9, 10],
   aeolian: [0, 2, 3, 5, 7, 8, 10],
   wholeTone: [0, 2, 4, 6, 8, 10],
+  // The minor pentatonic plus the flattened fifth — the note that makes it
+  // read as blues rather than as a pentatonic.
+  blues: [0, 3, 5, 6, 7, 10],
+  // Natural minor with a raised seventh: the augmented second between the
+  // sixth and seventh is the whole character of it.
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+  // Ascending (jazz) melodic minor. The classical descending form reverts to
+  // natural minor, which is a rule about direction rather than a pitch set,
+  // and this table holds pitch sets.
+  melodicMinor: [0, 2, 3, 5, 7, 9, 11],
+  locrian: [0, 1, 3, 5, 6, 8, 10],
+  // Octatonic, whole-half. Symmetric, so it has only three transpositions.
+  diminished: [0, 2, 3, 5, 6, 8, 9, 11],
+  chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
 });
 
 /**

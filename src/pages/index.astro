@@ -12,13 +12,35 @@ import { getTracks } from '../scripts/ambient-engine.js';
 const FACTORY_PRESETS = resolveFactoryPresets();
 const factoryPresetsJSON = JSON.stringify(FACTORY_PRESETS).replace(/</g, '\\u003c');
 
-const modes: [string, string][] = [
-  ['majorPentatonic', 'Major pentatonic'],
-  ['minorPentatonic', 'Minor pentatonic'],
-  ['dorian', 'Dorian'],
-  ['lydian', 'Lydian'],
-  ['aeolian', 'Aeolian'],
-  ['wholeTone', 'Whole tone'],
+// v0.0.57: a short primary set plus Other, as two <optgroup>s — the real HTML
+// convention for exactly this, rather than an invented two-step reveal. The
+// primary eight are the ones a musician reaches for without thinking; the rest
+// are there and out of the way. Every VALUE is a wire key and is frozen: the
+// labels are free to change, these are not.
+//
+// The label stays "Scale", not "Mode", because the list is mixed — Dorian,
+// Lydian, Aeolian, Ionian, Mixolydian, Phrygian and Locrian are modes, but the
+// pentatonics, blues, whole tone, diminished and chromatic are not.
+const modeGroups: [string, [string, string][]][] = [
+  ['Common', [
+    ['ionian', 'Major (Ionian)'],
+    ['aeolian', 'Natural minor (Aeolian)'],
+    ['majorPentatonic', 'Major pentatonic'],
+    ['minorPentatonic', 'Minor pentatonic'],
+    ['blues', 'Blues'],
+    ['dorian', 'Dorian'],
+    ['mixolydian', 'Mixolydian'],
+    ['harmonicMinor', 'Harmonic minor'],
+  ]],
+  ['Other', [
+    ['melodicMinor', 'Melodic minor'],
+    ['lydian', 'Lydian'],
+    ['phrygian', 'Phrygian'],
+    ['locrian', 'Locrian'],
+    ['wholeTone', 'Whole tone'],
+    ['diminished', 'Diminished'],
+    ['chromatic', 'Chromatic'],
+  ]],
 ];
 
 const roots = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -620,7 +642,11 @@ const VOICES: Record<string, [string, string][]> = {
         <div class="control">
           <label for="mode">Scale</label>
           <select id="mode">
-            {modes.map(([value, label]) => <option value={value}>{label}</option>)}
+            {modeGroups.map(([group, entries]) => (
+              <optgroup label={group}>
+                {entries.map(([value, label]) => <option value={value}>{label}</option>)}
+              </optgroup>
+            ))}
           </select>
         </div>
       </div>
@@ -2413,16 +2439,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // doesn't recognise silently falls back to whatever mode it started
       // from, hence "does the candidate come back unchanged" rather than
       // "did the call not throw".
-      const NEW_MODES = [
-        ['ionian', 'Ionian (Major)'],
-        ['mixolydian', 'Mixolydian'],
-        ['phrygian', 'Phrygian'],
-      ];
+      // v0.0.57: probe EVERY scale the markup offers, not a hand-kept list of
+      // "the new ones". The build-time list is now the source of truth and the
+      // probe prunes it, which is the only arrangement that cannot drift —
+      // the old shape (markup holds some, a literal appends others) had
+      // already started duplicating options as soon as the markup grew.
       engineCaps.modes = {};
-      for (const [id] of NEW_MODES) {
+      for (const option of document.querySelectorAll('#mode option')) {
+        const id = option.value;
         try {
           const probed = sanitiseParams({ mode: id });
-          engineCaps.modes[id] = probed && probed.mode === id;
+          engineCaps.modes[id] = !!probed && probed.mode === id;
         } catch {
           engineCaps.modes[id] = false;
         }
@@ -2949,15 +2976,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const chordLengthControl = document.getElementById('control-chord-length');
       const chordLengthSelect = document.getElementById('chordLength');
 
-      // Only the modes the engine's own sanitiser just confirmed it accepts
-      // get an <option> at all — an unaccepted value would sit in the list
-      // doing nothing the moment it was picked.
-      for (const [value, label] of NEW_MODES) {
-        if (!engineCaps.modes[value]) continue;
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = label;
-        modeSelect.append(opt);
+      // Only the scales the engine's own sanitiser confirmed it accepts stay
+      // in the list — an unaccepted value would sit there doing nothing the
+      // moment it was picked. A group emptied by the pruning goes with them,
+      // so an older engine never shows a heading over nothing.
+      for (const option of [...modeSelect.querySelectorAll('option')]) {
+        if (!engineCaps.modes[option.value]) option.remove();
+      }
+      for (const group of [...modeSelect.querySelectorAll('optgroup')]) {
+        if (!group.querySelector('option')) group.remove();
       }
 
       function engineParamsFrom(s) {

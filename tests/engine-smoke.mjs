@@ -1211,6 +1211,33 @@ test('v0.0.57: tempoLanding defaults to beat and rejects anything else', () => {
   assert.equal(sanitiseParams({ bpm: 90 }, stored).tempoLanding, 'bar');
 });
 
+test('v0.0.57: the six added scales are well-formed and reachable', () => {
+  // Additive only: every key that existed before must still exist, because a
+  // stored preset or a share link naming one would otherwise fall back to the
+  // default and play a different piece under the same name.
+  for (const key of ['majorPentatonic', 'minorPentatonic', 'ionian', 'dorian',
+    'phrygian', 'lydian', 'mixolydian', 'aeolian', 'wholeTone']) {
+    assert.ok(Array.isArray(SCALES[key]), `pre-existing scale ${key} went missing`);
+  }
+  const added = { blues: 6, harmonicMinor: 7, melodicMinor: 7, locrian: 7, diminished: 8, chromatic: 12 };
+  for (const [key, size] of Object.entries(added)) {
+    const scale = SCALES[key];
+    assert.ok(Array.isArray(scale), `${key} is missing`);
+    assert.equal(scale.length, size, `${key} has ${scale.length} degrees, expected ${size}`);
+    assert.ok(scale.every((n) => Number.isInteger(n) && n >= 0 && n <= 11),
+      `${key} is not 12-TET semitone offsets: ${JSON.stringify(scale)}`);
+    assert.equal(scale[0], 0, `${key} does not start on the root`);
+    assert.deepEqual([...scale].sort((a, b) => a - b), scale, `${key} is not ascending`);
+    assert.equal(new Set(scale).size, scale.length, `${key} repeats a degree`);
+    // And the sanitiser accepts it, which is what the page probes for.
+    assert.equal(sanitiseParams({ mode: key }).mode, key, `${key} is not accepted by the sanitiser`);
+  }
+  // The blues note itself: a minor pentatonic plus the flat fifth.
+  assert.deepEqual(SCALES.blues, [0, 3, 5, 6, 7, 10]);
+  // Harmonic minor's augmented second is its whole character.
+  assert.equal(SCALES.harmonicMinor[6] - SCALES.harmonicMinor[5], 3);
+});
+
 test('arp quantises to its grid in every rate, including 7/8', () => hiddenTab(async () => {
   const secPerBeat = 60 / 240; // bpm 120 × speed 2
   for (const [rate, stepBeats] of Object.entries(ARP_RATES)) {
