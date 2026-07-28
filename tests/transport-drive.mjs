@@ -71,6 +71,35 @@ export default async function drive(page) {
   check('stopped: immediately, not after the 8 s outro', elapsed < 2000, true);
   results.push({ name: 'stop latency (ms)', ok: true, got: elapsed, want: '< 2000' });
 
+  // ---- v0.0.58 Back: undo a setup replacement ---------------------------
+  // Next has always been destructive and nothing kept a history, so "that one
+  // was better" was impossible. This proves the history is real rather than
+  // decorative: a full round trip on an observable value, and a button that
+  // disables itself when there is nothing left to go back to.
+  await page.click('#tab-advanced').catch(() => {});
+  await page.waitForTimeout(300);
+  const setup = () => page.evaluate(() => ({
+    genre: document.getElementById('genre-select')?.value ?? null,
+    backDisabled: document.getElementById('rewind')?.disabled ?? null,
+    tempo: [...document.querySelectorAll('.knob')]
+      .find((k) => k.getAttribute('aria-label') === 'Tempo')?.getAttribute('aria-valuetext') ?? null,
+  }));
+
+  const start = await setup();
+  check('Back starts disabled — there is nothing behind the first setup', start.backDisabled, true);
+
+  await page.click('#fast-forward');
+  await page.waitForTimeout(600);
+  const nexted = await setup();
+  check('Next actually replaced the setup', nexted.tempo !== start.tempo || nexted.genre !== start.genre, true);
+  check('and Back became available', nexted.backDisabled, false);
+
+  await page.click('#rewind');
+  await page.waitForTimeout(700);
+  const back = await setup();
+  check('Back restored the setup Next replaced', [back.tempo, back.genre], [start.tempo, start.genre]);
+  check('and disabled itself again at the end of the history', back.backDisabled, true);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

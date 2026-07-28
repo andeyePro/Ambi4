@@ -177,7 +177,7 @@ so it waits.
 - [ ] Group dials so an even number that will not fit on one row splits evenly across two, instead of three on one line and one below
 - [ ] Processor dial defaults to a min-max range Eco→Full rather than Auto as its top setting. **[flagged]** only works if the governor stays the thing that moves the value within the range; otherwise the CPU-pressure sensing in `power.js` is lost. **v0.0.57 note:** the dial is explicitly `allowRange: false` for now — it is five NAMED tiers and `setProcessorTier` takes one of them, so a span would be silently rounded. Building this item means teaching the governor to move a value inside a declared range, which is a `power.js` change; the dial is the easy half
 - [x] *(SHIPPED v0.0.41-43, 8a465c4/a5c0787)* Delete the Stop button (`#stop-now`, :156). Play/Finish is already one dual button (`#toggle-play`, :132); extend it so Finish becomes STOP with the stop icon — two presses at any speed give an immediate stop
-- [ ] Add Previous alongside Next. `#fast-forward` (:162) re-applies the genre at a fresh seed and **overwrites**; there is no state history anywhere, so this needs a snapshot stack
+- [x] *(SHIPPED v0.0.58 — the Back key)* Add Previous alongside Next. The snapshot stack exists now: up to 24 setups, pushed by the two gestures that replace a whole setup at once (Next, and picking a genre) and by nothing else. It is deliberately NOT a general undo — an undo stack over every dial move is a much larger feature, and a button that sometimes undoes a dial and sometimes a whole piece would be worse than none. Back disables itself at the end of the history
 
 ## v0.0.39 — harmony and structure
 

@@ -216,6 +216,12 @@ const VOICES: Record<string, [string, string][]> = {
             </span>
             <span class="pause-label">Pause</span>
           </button>
+          <button id="rewind" type="button" class="transport-button forward-button" data-transport="rewind">
+            <span class="transport-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 5.5 11 12l9 6.5Z" /><path d="M12 5.5 3 12l9 6.5Z" /></svg>
+            </span>
+            <span>Back</span>
+          </button>
           <button id="fast-forward" type="button" class="transport-button forward-button" data-transport="fastforward">
             <span class="transport-glyph" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M4 5.5 13 12 4 18.5Z" /><path d="M12 5.5 21 12 12 18.5Z" /></svg>
@@ -10485,6 +10491,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           openFavourites();
           return;
         }
+        // Everything past this point replaces the whole setup, so the one
+        // being left is remembered for Back. The `favourites` entry above is
+        // the sole exception — it opens a panel and changes nothing.
+        rememberSetup();
         if (value === 'surprise') {
           const genre = drawGenre(listedGenres());
           if (!genre || !applyGenre(genre)) syncGenreUI();
@@ -10579,6 +10589,58 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         syncGenreUI();
       }
 
+      // ---- Back: undo a setup replacement ----------------------------------
+      /**
+       * v0.0.58. Next has always been destructive — it recompiles the genre at
+       * a fresh seed, or re-rolls the current params, and the setup it replaced
+       * was gone. Nothing anywhere in the page kept a history, so "that one was
+       * better, take me back" was impossible. This is that history.
+       *
+       * Deliberately NOT a general undo. It remembers the two gestures that
+       * replace an entire setup at once — Next, and picking a genre — and
+       * nothing else. An undo stack over every dial move is a different and
+       * much larger feature (every commit path would have to opt in, and a
+       * drag would have to coalesce), and pretending a two-entry-per-gesture
+       * stack is one would mislead: the button would sometimes undo a dial and
+       * sometimes a whole piece.
+       *
+       * Capped, because a snapshot is the entire settings tree and a listener
+       * can press Next for an hour.
+       */
+      const HISTORY_LIMIT = 24;
+      const setupHistory = [];
+      const rewindButton = document.getElementById('rewind');
+
+      function syncRewind() {
+        if (rewindButton) rewindButton.disabled = setupHistory.length === 0;
+      }
+
+      /** Remember the setup as it stands, immediately before replacing it. */
+      function rememberSetup() {
+        try {
+          setupHistory.push(paramsSnapshot());
+          if (setupHistory.length > HISTORY_LIMIT) setupHistory.shift();
+          syncRewind();
+        } catch {
+          // A snapshot that cannot be cloned is not worth failing the gesture
+          // the user actually asked for.
+        }
+      }
+
+      rewindButton?.addEventListener('click', () => {
+        const previous = setupHistory.pop();
+        syncRewind();
+        if (!previous) return;
+        loadParamsSnapshot(previous);
+        syncGenreUI();
+      });
+
+      describe(
+        rewindButton,
+        'Back to the setup you had before the last Next, or the last genre change. It remembers the last two dozen, and nothing else — a dial you moved by hand is not undone by this.'
+      );
+      syncRewind();
+
       // ---- fast-forward -----------------------------------------------------
       // "Something else, now." With a genre in play that is the same genre
       // compiled at a fresh seed — a genuinely different setup (metre, mode,
@@ -10596,6 +10658,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       forwardButton.addEventListener('click', () => {
+        rememberSetup();
         const genre = currentGenre();
         if (genre && genreCompiler && applyGenre(genre)) return;
         reseedCurrentParams();
