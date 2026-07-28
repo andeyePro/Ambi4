@@ -19,6 +19,10 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Next up (owner ask, 2026-07-28)
+
+- [ ] **Move the version number to the top of the screen** — left of the right-aligned `?` tutorial launcher, so a refresh shows the running build without scrolling to the footer. Keep the footer stamp too (it is the durable record; the top one is the glanceable one).
+
 ## Awaiting an owner decision
 
 Nothing below can be built without a ruling. Parked here rather than buried in a
