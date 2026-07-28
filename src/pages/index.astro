@@ -299,8 +299,30 @@ const VOICES: Record<string, [string, string][]> = {
            pressed/disabled state: no control on this panel may move because of
            something the listener did. The note line under it reserves its own
            height for the same reason. -->
+      <!-- v0.0.38: the whole panel folds behind one keyboard button. It used to
+           sit open on the front page with five controls and a five-line hint
+           showing at all times, for a feature most listeners never touch. The
+           comment above about no control ever moving still holds INSIDE the
+           panel — once it is open nothing shifts under the user's hand; what
+           changed is that the panel itself is now closed until asked for. -->
       <div class="play-along" id="play-along" data-transport="playalong" hidden>
-        <div class="play-along-row" id="play-along-row">
+        <button
+          type="button"
+          id="play-along-open"
+          class="transport-button play-along-open"
+          aria-expanded="false"
+          aria-controls="play-along-row"
+          title="Play along"
+        >
+          <span class="transport-glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
+              <rect x="3" y="6" width="18" height="12" rx="1" />
+              <path d="M8 6v7M12 6v7M16 6v7" />
+            </svg>
+          </span>
+          <span class="visually-hidden">Play along</span>
+        </button>
+        <div class="play-along-row" id="play-along-row" hidden>
           <button
             type="button"
             id="play-along-toggle"
@@ -342,7 +364,7 @@ const VOICES: Record<string, [string, string][]> = {
             <span>Undo</span>
           </button>
         </div>
-        <p id="play-along-note" class="hint play-along-note">
+        <p id="play-along-note" class="hint play-along-note" hidden>
           Keys z x c v b n m play one octave and q w e r t y u the next, with the
           black keys above them; <kbd>-</kbd> and <kbd>=</kbd> change octave, and a
           MIDI instrument plays the same track. Capture records the rhythm, velocity
@@ -1390,6 +1412,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // and (for the total trace) the engine can honour them.
         scopeSpread: false,
         scopeTotal: false,
+        // v0.0.38: the play-along panel is folded behind its keyboard button by
+        // default — five controls and a five-line hint sitting open on the
+        // front page for a feature most listeners never touch.
+        playAlongOpen: false,
       },
     };
 
@@ -9855,11 +9881,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       const playAlongToggle = document.getElementById('play-along-toggle');
       const playAlongTrack = document.getElementById('play-along-track');
+      const playAlongOpen = document.getElementById('play-along-open');
+      const playAlongRow = document.getElementById('play-along-row');
+      const playAlongNote = document.getElementById('play-along-note');
       const playAlongReadout = document.getElementById('play-along-readout');
       const captureButton = document.getElementById('play-along-capture');
       const captureUndoButton = document.getElementById('play-along-undo');
 
       if (!engineCaps.playAlong) UNAVAILABLE_TRANSPORT.add('playalong');
+
+      // v0.0.38: the panel folds behind its keyboard button. Open state
+      // persists, so someone who plays along every session sees it open every
+      // session, and someone who never does never sees it at all. Disarming on
+      // close is deliberate — leaving the keys live under a shut panel would
+      // mean stray keystrokes making noise with nothing on screen to explain
+      // why.
+      function setPlayAlongOpen(open) {
+        if (!playAlongOpen || !playAlongRow) return;
+        settings.ui.playAlongOpen = open;
+        playAlongOpen.setAttribute('aria-expanded', String(open));
+        playAlongRow.hidden = !open;
+        if (playAlongNote) playAlongNote.hidden = !open;
+        if (!open && playAlongToggle?.getAttribute('aria-pressed') === 'true') {
+          playAlongToggle.click();
+        }
+      }
+
+      playAlongOpen?.addEventListener('click', () => {
+        setPlayAlongOpen(playAlongRow?.hidden !== false);
+        persistSettings();
+      });
+      setPlayAlongOpen(settings.ui.playAlongOpen === true);
 
       /**
        * The two-row keyboard every DAW ships: the bottom row is one octave
@@ -11249,6 +11301,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* Same shape as the genre row: the track picker takes the slack and every
        button keeps its own width. Nothing here resizes when the toggle goes
        on — the buttons change colour and disabled state, never their text. */
+    /* v0.0.38: the fold button is icon-only — the whole panel is the label. */
+    .play-along-open {
+      padding-left: 10px;
+      padding-right: 10px;
+    }
+
+    .play-along-open[aria-expanded='true'] {
+      border-color: var(--link);
+      color: var(--link);
+    }
+
     .play-along-row {
       display: flex;
       flex-wrap: wrap;
