@@ -244,9 +244,22 @@ function complexityFromEnergy(e) {
 }
 
 /** Volume dial travel → params.volume (C2's perceptual taper). */
+// v0.0.58: a two-segment fader law, dB linear in dial travel, replacing the
+// t^1.7 power law whose top three steps this suite measured at 1.97 / 1.74 /
+// 1.56 dB against a 2 dB floor. Mirrors index.astro's volumeParamFromDial —
+// if that moves, this must move with it.
+const VOL_MUTE_T = 0.02;
+const VOL_KNEE_T = 0.5;
+const VOL_KNEE_DB = -20;
+const VOL_FLOOR_DB = -60;
+
 function volumeFromT(t) {
   const x = clamp(t, 0, 1);
-  return x < 0.02 ? 0 : Math.pow(x, 1.7);
+  if (x < VOL_MUTE_T) return 0;
+  const db = x >= VOL_KNEE_T
+    ? (VOL_KNEE_DB * (1 - x)) / (1 - VOL_KNEE_T)
+    : VOL_KNEE_DB + ((VOL_FLOOR_DB - VOL_KNEE_DB) * (VOL_KNEE_T - x)) / (VOL_KNEE_T - VOL_MUTE_T);
+  return clamp(Math.pow(10, db / 20), 0, 1);
 }
 
 /** Engine params for one Energy position. Nothing else about the piece moves. */

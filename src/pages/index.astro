@@ -4302,13 +4302,62 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * before, so every share link and saved preset sounds identical — only
        * where the pointer sits for a given loudness changes.
        */
+      /**
+       * v0.0.58 — the volume fader law, replacing `param = t^1.7`.
+       *
+       * The consult measured the top of the old taper as inaudible: the last
+       * three 10% steps gave 1.97, 1.74 and 1.56 dB against a 2 dB floor, so
+       * moving a nearly-full dial did nothing anyone could hear. That is
+       * inherent to a power law rather than a tuning error — dB = 20n·log₁₀(t),
+       * so a step near the top is a small RATIO and therefore few dB however
+       * the exponent is set.
+       *
+       * The TODO's own suggestion, an exponent nearer 1.5, would have made it
+       * worse: the top step is 0.916·n dB, so 1.7 → 1.56 dB and 1.5 → 1.37 dB.
+       * Lowering the exponent lowers exactly the thing that was too small.
+       *
+       * So this is a fader law instead: dB linear in dial travel, in two
+       * segments, which is what a real console fader does and for this reason.
+       * The top half spends 20 dB over its travel (4 dB per 10%), the bottom
+       * half spends the remaining 40 (8.3 dB per 10%), and below 2% the dial
+       * is off. Every step is comfortably above the audible floor, and the
+       * useful listening range gets half the travel instead of the top sliver.
+       *
+       * `params.volume` is untouched by any of this — it is a dial-position
+       * mapping only, so a stored preset plays at exactly the loudness it
+       * always did. Only where the thumb SITS for that loudness changes.
+       *
+       * tests/energy-measure.mjs keeps its own copy of this function (it
+       * cannot import an Astro component). If these numbers move, that copy
+       * must move with them or the suite measures a mapping nobody ships.
+       */
+      const VOL_MUTE_T = 0.02;   // below this the dial reads as off
+      const VOL_KNEE_T = 0.5;    // where the law changes slope
+      const VOL_KNEE_DB = -20;   // dB at the knee
+      const VOL_FLOOR_DB = -60;  // dB at the bottom of the usable travel
+
       const volumeParamFromDial = (t) => {
         const x = clamp(Number(t) || 0, 0, 1);
-        return x < 0.02 ? 0 : Math.pow(x, 1.7);
+        if (x < VOL_MUTE_T) return 0;
+        const db = x >= VOL_KNEE_T
+          ? (VOL_KNEE_DB * (1 - x)) / (1 - VOL_KNEE_T)
+          : VOL_KNEE_DB + ((VOL_FLOOR_DB - VOL_KNEE_DB) * (VOL_KNEE_T - x)) / (VOL_KNEE_T - VOL_MUTE_T);
+        return clamp(Math.pow(10, db / 20), 0, 1);
       };
+
       const volumeDialFromParam = (v) => {
-        const x = clamp(Number(v) || 0, 0, 1);
-        return x <= 0 ? 0 : Math.pow(x, 1 / 1.7);
+        const amp = clamp(Number(v) || 0, 0, 1);
+        if (amp <= 0) return 0;
+        const db = 20 * Math.log10(amp);
+        if (db >= VOL_KNEE_DB) {
+          return clamp(1 - (db * (1 - VOL_KNEE_T)) / VOL_KNEE_DB, 0, 1);
+        }
+        if (db <= VOL_FLOOR_DB) return 0;
+        return clamp(
+          VOL_KNEE_T - ((db - VOL_KNEE_DB) * (VOL_KNEE_T - VOL_MUTE_T)) / (VOL_FLOOR_DB - VOL_KNEE_DB),
+          0,
+          1
+        );
       };
 
       // v0.0.50: still one value with two views, but the views READ
