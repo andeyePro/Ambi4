@@ -21,6 +21,9 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ## Next up (owner ask, 2026-07-28)
 
+- [x] *(SHIPPED v0.0.55)* **The Stop key does nothing** — the second press that cuts the outro short was written in v0.0.41 and made unreachable by a `if (finishing) return;` guard left over from the era of a separate Stop key. Guard removed; the Stop caption also gained its own square glyph, having been drawn beside the finish barline since v0.0.41.
+- [x] *(SHIPPED v0.0.55)* **Overlapping text** — `Auto (follows Randomness)` is 148 px of readout in an 84 px `.vary-knob` cell, so all four Randomise dials in every track editor overpainted each other by 56 px. Reads `Auto` now. Found by `.vibe/measure.sh overlaps`, which is the durable half of the fix.
+
 - [ ] **Dependabot: 10 alerts on the default branch (3 high) — root fix is the Astro 4→7 major** — local `npm audit`: 3 findings (2 high), ALL resolved only by astro@7.1.4 (breaking). Honest exposure for a prebuilt static site is low: esbuild's file-read is dev-server-on-Windows, sharp's libvips CVEs are build-time image processing, and the two Astro XSS advisories need unescaped spread attrs / transition:* directives on hydrated islands, which this page doesn't use with untrusted input. Plan it as a deliberate migration (astro 7 upgrade + full suite + shot sweep + frozen-reference check), not an `npm audit fix --force` drive-by. Review the 7 GitHub-only alerts at github.com/andeyePro/Ambi4/security/dependabot when wiring the upgrade.
 
 - [x] *(SHIPPED 5e14459 + cf30b1a, 2026-07-28)* **Adopt CLA v1.0** — CLA.md (verbatim, stamped) + CONTRIBUTORS.md live; the CLA Assistant workflow commit cf30b1a is LOCAL-ONLY (PAT lacks workflow scope — Martin pushes from the Mac checkout: plain `git push` in Projects/Ambi4). After it lands, optionally add the `CLAAssistant` check to required status checks in branch protection (GitHub settings, Martin).

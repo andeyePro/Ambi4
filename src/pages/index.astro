@@ -176,6 +176,14 @@ const VOICES: Record<string, [string, string][]> = {
             <span class="transport-glyph finish-glyph" aria-hidden="true" hidden>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="8" y="4" width="2" height="16" /><rect x="13" y="4" width="5" height="16" /></svg>
             </span>
+            <!-- v0.0.55: the third state of the one transport key. Play shows
+                 ▶, Finish shows the final barline 𝄂, and Stop shows the
+                 square — the caption said "Stop" from v0.0.41 while the glyph
+                 beside it still said "finish", which is the owner's "supposed
+                 to swap the Finish icon for the Stop icon". -->
+            <span class="transport-glyph stop-glyph" aria-hidden="true" hidden>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
+            </span>
           </button>
           <button id="pause-toggle" type="button" class="transport-button pause-button" data-transport="pause" aria-pressed="false" disabled>
             <span class="transport-glyph pause-glyph" aria-hidden="true">
@@ -2862,6 +2870,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const playLabel = toggleButton.querySelector('.play-toggle-label');
       const playGlyph = toggleButton.querySelector('.play-glyph');
       const finishGlyph = toggleButton.querySelector('.finish-glyph');
+      const stopGlyph = toggleButton.querySelector('.stop-glyph');
       const pauseButton = document.getElementById('pause-toggle');
       const pauseLabel = pauseButton.querySelector('.pause-label');
       const pauseGlyph = pauseButton.querySelector('.pause-glyph');
@@ -4396,8 +4405,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // explicit percentages, so its min thumb floors at raw 1, and a range
       // that collapses onto the detent reads as Auto again.
       const varyPct = (raw) => clamp((Math.round(raw) - 1) / 20, 0, 1);
+      // v0.0.55: the detent reads "Auto", not "Auto (follows Randomness)".
+      // Measured collision, not a judgement call: the readout box is centred
+      // on its cell with `overflow: visible` (the deliberate v18 rule that
+      // lets a long value bleed into a gutter instead of pushing the faces out
+      // of line), the parenthetical rendered 148px wide, and `.vary-knob`
+      // cells are 84px on a 92px pitch — so each of the four captions was
+      // painted 56px over both neighbours and the row read as one smear. What
+      // it follows is already the first thing the dial's own tooltip says.
       const varyFormat = (raw) =>
-        Math.round(raw) <= 0 ? 'Auto (follows Randomness)' : pctFormat(varyPct(raw));
+        Math.round(raw) <= 0 ? 'Auto' : pctFormat(varyPct(raw));
       const varyRawNumber = (v) => (v === null ? 0 : 1 + Math.round(clamp(v, 0, 1) * 20));
       const varyRawFromValue = (v) => (isPlainObject(v) ? mapRV(v, varyRawNumber) : varyRawNumber(v));
       const varyValueFromRaw = (raw) => {
@@ -9629,9 +9646,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // because pressing it again is now how you cut the outro short.
         playLabel.textContent = finishing ? 'Stop' : active ? 'Finish' : 'Play';
         toggleButton.disabled = false;
-        // v15: ▶ before "Play"; the final-barline 𝄂 after "Finish".
+        // v15: ▶ before "Play"; the final-barline 𝄂 after "Finish". v0.0.55:
+        // and the square while it is finishing, where the caption reads Stop —
+        // one glyph per caption, never a caption wearing the previous glyph.
         playGlyph.hidden = active || finishing;
-        finishGlyph.hidden = !(active || finishing);
+        finishGlyph.hidden = finishing || !active;
+        if (stopGlyph) stopGlyph.hidden = !finishing;
         pauseButton.disabled = !active || finishing;
         pauseButton.setAttribute('aria-pressed', String(paused));
         pauseLabel.textContent = paused ? 'Resume' : 'Pause';
@@ -9753,8 +9773,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       toggleButton.addEventListener('click', async () => {
-        if (finishing) return;
-        if (engine.running || paused) {
+        // v0.0.55: NO `if (finishing) return` guard here. That guard is what
+        // made the owner's "the Stop button doesn't appear to do anything"
+        // report true: v0.0.41 made this one button the whole control
+        // (Play → Finish → Stop) and wrote the second-press stop inside
+        // finishOrStop(), but the guard above it returned before ever calling
+        // it — so the branch was unreachable and the outro played on. The
+        // guard predates the dual button, when a separate Stop key existed to
+        // do this job and re-entering finish() was the only thing it could
+        // have meant.
+        if (engine.running || paused || finishing) {
           await finishOrStop();
           return;
         }
@@ -11202,7 +11230,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#toggle-play',
-          text: 'Press Play. Sound starts within a second or so; the button becomes Finish, which ends the piece musically instead of cutting it off. Stop is the hard stop.',
+          text: 'Press Play. Sound starts within a second or so; the button becomes Finish, which ends the piece musically instead of cutting it off. Press it again while it is finishing and it becomes Stop, which cuts the outro short.',
         },
         {
           tab: 'simple',
