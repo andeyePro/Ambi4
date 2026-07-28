@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-28
+
+- [x] **v0.0.37 — the Main dials stop stacking** — the Advanced tab's Main dials were rendering
+  as one preposterous vertical column instead of a row. Cause: `#advanced-dials` carries
+  `.sliders-module`, which is `display: flex` so the Simple tab's four dials sit in a row — so
+  the grid inside it was a flex item with no width of its own, shrink-to-fit, and its
+  `repeat(auto-fit, minmax(120px, 1fr))` resolved to the single narrowest column it could fit.
+  The panel wraps a label, a grid and a hint; it was never meant to be a flex row itself.
+
+  Now `display: block` on the panel and an explicit four-column grid, so the four dials that
+  mirror Simple fill the first row and the extra three — Reprise, Swing, Reverb tail — sit
+  beneath them, which is both the shape asked for and the one that reads. Two columns below
+  760px, one below 400px. The flex-context `max-width` is dropped inside the grid, where a cell
+  already centres its dial and the cap would only strand the label to one side.
+
+  Suites green: knob/scope 106, visualiser 45, blocks 41, governor 12, prefs 22, share-name 13,
+  genre 29, tutorial 8+8, page-boot.
+
 ## 2026-07-27
 
 - [x] **v0.0.36 — the oscilloscope and piano roll say what they mean** — the increment that
