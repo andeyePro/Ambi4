@@ -58,6 +58,13 @@ version so they are the first thing seen.
 7. **The strategy note and this plan disagree about the next flagship.**
    `Ambi4-strategy` says genres; v0.0.35 to v0.1.0 contains no genre work at all.
 
+## Consult follow-ups — measured 2026-07-28 (tests/energy-measure.mjs; flip ENERGY_MEASURE_STRICT=1 when done)
+
+- [ ] **C7 knot tuning: a quartile of Energy must beat the piece's own drift 3×** — measured ~1.0× for notes/bar and tracks/bar. The competition is not noise: the structure preset's own intensity envelope walks the auto-track ladder (per-bar section intensities 0.7→0.3 over 16 untouched bars moved tracks as much as the dial did). Tuning the complexity knots alone may not get there — candidates: Energy also narrowing the section-intensity span, or steeper auto-track thresholds. Changes the shipped feel; owner should listen after.
+- [ ] **Complexity edits are swallowed by the frozen plan for ~2 bars** — the edit reaches the generator inside 1 bar but the next bar replays a frozen plan (first audible difference 2.00 bars, budget 1). An upward complexity move should invalidate frozen plans the way the consult argued for Change; applies to Energy's structural half.
+- [ ] **Volume taper too compressive at the top** — steps 0.7→0.8→0.9→1.0 give 1.97/1.74/1.56 dB against the 2 dB audible floor (span and monotonicity fine at 80 dB). A softer top segment (or exponent nearer 1.5) fixes it; params.volume unchanged, UI mapping only.
+- [ ] **Energy's top half adds no layers** — the full track ladder is reached by Energy 0.5, and top-quartile notes/bar growth is 18% vs the ≥25% target. Spread the ladder crossings (knots or thresholds) so the upper travel still buys audible growth.
+
 ## v0.0.35 — de-fuse, rename, share versioning  *(SHIPPED 2026-07-27, pushed)*
 
 Re-scoped on Fable's review, which found the original v0.0.35 was four plan
