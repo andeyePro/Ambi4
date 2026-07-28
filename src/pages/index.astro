@@ -4798,28 +4798,48 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // the editor header beside the state lamp, because "one note at a time"
       // is a property of the LINE, not of the patch.
       const MONO_HINT =
-        'One note at a time: each new note ends the one before it, the way a voice or a wind instrument plays.';
+        'Poly plays as many notes at once as the part asks for. Mono plays one at a time — each new note ends the one before it, the way a voice or a wind instrument does, which is what turns a generative line into something singable.';
       const GLIDE_HINT =
         'How far each note slides into the next one. Off is a clean step; higher slurs between pitches. Mono only.';
 
       function buildMonoGlide(container, track, knobs) {
         if (!engineCaps.mono[track] && !engineCaps.glide[track]) return;
         if (engineCaps.mono[track]) {
-          const toggle = document.createElement('button');
-          toggle.type = 'button';
-          toggle.className = 'secondary-button mono-toggle';
-          toggle.textContent = 'Mono';
-          toggle.setAttribute('aria-pressed', String(settings.tracks[track].mono === true));
-          toggle.setAttribute('aria-label', `${TRACK_LABELS[track]} monophonic`);
-          toggle.addEventListener('click', () => {
-            const on = toggle.getAttribute('aria-pressed') !== 'true';
-            toggle.setAttribute('aria-pressed', String(on));
-            settings.tracks[track].mono = on;
-            engine.setParams({ tracks: { [track]: { mono: on } } });
-            persistSettings();
-          });
-          container.append(toggle);
-          describe(toggle, MONO_HINT);
+          // v0.0.58: Poly | Mono as a segmented pair, replacing a single
+          // button captioned "Mono" and distinguished only by fill-versus-
+          // outline. That control could not be read: fill-versus-outline says
+          // nothing about which state it is IN as opposed to which state it
+          // would put you in, and the caption never changed either way. The
+          // same rule as the Universal | Per instrument control — show both
+          // options with the current one selected, never one button that
+          // states its state and swaps label.
+          const group = document.createElement('div');
+          group.className = 'segmented voice-mode';
+          group.setAttribute('role', 'radiogroup');
+          group.setAttribute('aria-label', `${TRACK_LABELS[track]} voicing`);
+          const radios = [];
+          for (const [value, text] of [['poly', 'Poly'], ['mono', 'Mono']]) {
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = `voice-mode-${track}`;
+            input.id = `voice-mode-${track}-${value}`;
+            input.value = value;
+            input.checked = (settings.tracks[track].mono === true) === (value === 'mono');
+            const label = document.createElement('label');
+            label.htmlFor = input.id;
+            label.textContent = text;
+            input.addEventListener('change', () => {
+              if (!input.checked) return;
+              const on = value === 'mono';
+              settings.tracks[track].mono = on;
+              engine.setParams({ tracks: { [track]: { mono: on } } });
+              persistSettings();
+            });
+            group.append(input, label);
+            radios.push(input);
+          }
+          container.append(group);
+          describe(group, MONO_HINT);
         }
         if (!engineCaps.glide[track]) return;
         // Not rangeable: the engine reads glide with numberIn(), so a
@@ -14526,13 +14546,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     /* v12 mono/glide, in the voice-editor header beside the state lamp. The
-       toggle takes the same pressed treatment as the Osc 2 switch, and the
-       dial the same 84px cell every other knob in a row uses, so the header's
-       faces stay on one baseline (v18 layout contract). */
-    .mono-toggle[aria-pressed='true'] {
+       dial takes the same 84px cell every other knob in a row uses, so the
+       header's faces stay on one baseline (v18 layout contract).
+
+       v0.0.58: the toggle is a Poly | Mono segmented pair rather than one
+       button wearing a pressed state. Sized to sit against the 84px dial cell
+       beside it without being the tallest thing in the header. */
+    .segmented.voice-mode label {
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    .segmented.voice-mode input:checked + label {
       background: var(--link);
       color: var(--bg);
-      border-color: var(--link);
     }
 
     .glide-knob,

@@ -1130,8 +1130,15 @@ try {
     // against getParams() before they render, so their absence here means
     // either the probe or the engine's params changed shape.
     const header = doc.querySelector('#voice-editor-texture .ve-header');
-    if (!header || !header.querySelector('.mono-toggle')) {
-      failures.push('the texture editor header has no Mono toggle');
+    // v0.0.58: a Poly | Mono segmented pair, not a single pressed button. Both
+    // options must be present — the whole reason for the change is that one
+    // button distinguished only by fill-versus-outline cannot be read.
+    const voiceMode = header && header.querySelector('.segmented.voice-mode');
+    const modeOptions = voiceMode
+      ? [...voiceMode.querySelectorAll('label')].map((l) => l.textContent)
+      : [];
+    if (!voiceMode || modeOptions.join('|') !== 'Poly|Mono') {
+      failures.push(`the texture editor header has no Poly | Mono control (got: ${modeOptions.join(', ') || 'nothing'})`);
     }
     if (!header || !header.querySelector('.glide-knob, .glide-slider')) {
       failures.push('the texture editor header has no Glide control');
