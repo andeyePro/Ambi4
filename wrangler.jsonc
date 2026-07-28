@@ -1,5 +1,5 @@
 {
-  "name": "ambi4",
+  "name": "ambi4-dev",
   "compatibility_date": "2026-07-24",
   "routes": [
     { "pattern": "ambi4.work", "custom_domain": true },
