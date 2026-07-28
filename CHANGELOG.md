@@ -2,6 +2,14 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.39 — the dial panel opens with dials and nothing else** — dropped the "Main dials"
+  heading (seven dials with their own names under them do not need a word above them saying they
+  are dials, and the panel is the first thing on the tab so there is nothing to distinguish it
+  from), and moved the explanatory line about which dials are shared with Simple out of
+  permanent prose and into an ⓘ at the end of the grid. That line answers a question you ask
+  once; it was taking a row of height on every visit. Second call site for `infoButton`, which
+  had exactly one.
+
 - [x] **v0.0.38 — play-along folds behind one keyboard button** — it sat open on the front page
   with five controls and a five-line hint showing at all times, for a feature most listeners
   never touch. Now a single icon-only keyboard button opens it; the open state persists, so
