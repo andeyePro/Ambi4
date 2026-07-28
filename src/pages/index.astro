@@ -45,10 +45,23 @@ const TRACKS: [string, string][] = getTracks().map(
   (track) => [track.id, track.label] as [string, string]
 );
 
-// The four main dials. They render TWICE — once on Simple, once at the foot of
-// Advanced — as two views of the same four values (page script mirrors them).
+// v0.0.50 (psychologist consult, docs-private/psychologist-consult-2026-07-28.md):
+// Simple asks three plain questions — how much energy, how much change, how
+// loud — so it gets exactly three dials. Energy is a genuine macro over tempo
+// AND complexity (tempo is the dominant arousal cue; an Energy dial that
+// didn't own it would be the weakest control wearing the strongest name).
+// Advanced keeps the component views; moving Energy visibly moves them, which
+// is how a macro teaches itself.
 // [param id, label, low end-mark, mid end-mark, high end-mark]
-const SIMPLE_DIALS: [string, string, string, string | null, string][] = [
+const SIMPLE_PANEL_DIALS: [string, string, string, string | null, string][] = [
+  ['energy', 'Energy', 'Calm', null, 'Lively'],
+  ['randomness', 'Change', 'Never', 'Now and then', 'Often'],
+  ['volume', 'Volume', 'Quiet', null, 'Loud'],
+];
+
+// The Advanced foot row: the component views (Tempo, Complexity), the
+// de-fused Variation, and Volume. [param id, label, low, mid, high]
+const MAIN_DIALS: [string, string, string, string | null, string][] = [
   ['speed', 'Tempo', 'Slow', null, 'Fast'],
   ['complexity', 'Complexity', 'Calm', null, 'Complex'],
   ['randomness', 'Randomness', 'Repetitive', 'Evolving', 'Random'],
@@ -461,7 +474,7 @@ const VOICES: Record<string, [string, string][]> = {
 
     <section id="panel-simple" role="tabpanel" aria-labelledby="tab-simple" tabindex="0">
       <div class="module-panel sliders-module">
-        {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => (
+        {SIMPLE_PANEL_DIALS.map(([id, label, lowMark, midMark, highMark]) => (
           <div class="control simple-dial" id={`dial-${id}`}>
             <div class="control-label-row">
               <label for={id} class="panel-label">{label}</label>
@@ -492,7 +505,7 @@ const VOICES: Record<string, [string, string][]> = {
            info button built by the page script. -->
       <div class="module-panel sliders-module" id="advanced-dials">
         <div class="advanced-dial-row">
-          {SIMPLE_DIALS.map(([id, label, lowMark, midMark, highMark]) => {
+          {MAIN_DIALS.map(([id, label, lowMark, midMark, highMark]) => {
             const over = ADVANCED_DIAL_OVERRIDES[id];
             const advLabel = over ? over.label : label;
             const advLow = over ? over.low : lowMark;
@@ -2885,6 +2898,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // `.set(v)` normalises knob-vs-slider-fallback for every call site
       // above that point (setTempo, updateComplexityDisplay, syncUIFromSettings).
       let speedDial = null;
+      let energyDial = null;
       let complexityDial = null;
       let repetitionDial = null;
       let randomnessDial = null;
@@ -3017,14 +3031,66 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // ---- tempo (one value, two views) ---------------------------------
 
-      function setTempo(bpm, { skipSpeedThumb = false } = {}) {
+      function setTempo(bpm, { skipSpeedThumb = false, skipEnergyThumb = false } = {}) {
         bpm = Math.round(clamp(bpm, 20, 220));
         settings.bpm = bpm;
         if (bpmInput) bpmInput.value = String(bpm);
         bpmTypable?.refresh();
         if (!skipSpeedThumb) speedDial?.set(speedTFromBpm(bpm));
+        // Energy's read-back is tempo-anchored (tempo is the dominant cue the
+        // macro owns), so any tempo write moves the Energy dial too — except
+        // the one Energy itself is making mid-gesture.
+        if (!skipEnergyThumb) energyDial?.set(energyFromBpm(bpm));
         engine.setParams({ bpm, speed: 1 });
         persistSettings();
+      }
+
+      // ---- Energy: the Simple macro over tempo + complexity (v0.0.50) -----
+      // Log law over a BOUNDED sweep: 42 bpm at 0, 72 at 0.5, 124 at 1 — not
+      // the full 20–220, because Energy moves tempo under someone working and
+      // the extremes are Advanced territory. Default 0.35 lands on 61 bpm,
+      // within a hair of the shipped 60, so nothing about the default sound
+      // changes.
+      const ENERGY_BPM_LOW = 42;
+      const ENERGY_BPM_HIGH = 124;
+      const ENERGY_DEFAULT = 0.35;
+      function bpmFromEnergy(e) {
+        return ENERGY_BPM_LOW * Math.pow(ENERGY_BPM_HIGH / ENERGY_BPM_LOW, clamp(e, 0, 1));
+      }
+      function energyFromBpm(bpm) {
+        const x = clamp(bpm, 20, 220) / ENERGY_BPM_LOW;
+        return clamp(Math.log(x) / Math.log(ENERGY_BPM_HIGH / ENERGY_BPM_LOW), 0, 1);
+      }
+      // Piecewise-linear rather than straight through: the audible
+      // discontinuities (structure thresholds at 0.33/0.55/0.75 and the
+      // auto-track ladder) bunch under a linear map. These knots spread the
+      // structure changes to roughly even thirds of the travel.
+      const ENERGY_COMPLEXITY_KNOTS = [
+        [0.0, 0.10], [0.2, 0.32], [0.35, 0.42], [0.55, 0.58], [0.8, 0.78], [1.0, 0.95],
+      ];
+      function complexityFromEnergy(e) {
+        const x = clamp(e, 0, 1);
+        for (let i = 1; i < ENERGY_COMPLEXITY_KNOTS.length; i++) {
+          const [x1, y1] = ENERGY_COMPLEXITY_KNOTS[i - 1];
+          const [x2, y2] = ENERGY_COMPLEXITY_KNOTS[i];
+          if (x <= x2) return y1 + ((x - x1) / (x2 - x1)) * (y2 - y1);
+        }
+        return ENERGY_COMPLEXITY_KNOTS[ENERGY_COMPLEXITY_KNOTS.length - 1][1];
+      }
+
+      /** Trailing debounce for structural commits — dragging a dial across its
+       * range must not clear the motif and percussion banks dozens of times
+       * (the plan is redrawn on every complexity write). 120 ms after the last
+       * move, one commit lands — which includes the release. */
+      function trailingDebounce(fn, ms) {
+        let timer = null;
+        return (...args) => {
+          if (timer !== null) clearTimeout(timer);
+          timer = setTimeout(() => {
+            timer = null;
+            fn(...args);
+          }, ms);
+        };
       }
 
       bpmInput?.addEventListener('input', () => {
@@ -3059,8 +3125,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           (id) => JSON.stringify(settings.tracks[id].randomness) === shape
         );
         const mid = rangeMid(sanitiseRangeValueIn(first, 0, 1, 0.5));
-        if (uniform && Math.abs(1 - settings.repetition - mid) < 0.02) return first;
-        return clamp((1 - settings.repetition + meanRandomness()) / 2, 0, 1);
+        // v0.0.50: "consistent" now means consistent with the Change dial's
+        // own mapping (repetition is no longer a strict 1 − randomness).
+        const expected = changeRepetitionFromT(changeTFromRandomness(mid));
+        if (uniform && Math.abs(expected - settings.repetition) < 0.02) return first;
+        return clamp(meanRandomness(), 0, 1);
+      }
+
+      /** The Change dial's position for the current settings — the fused
+       * randomness estimate pushed through the dial's own inverse map. */
+      function changeDialValueFromState() {
+        return mapRangeValue(fusedRandomnessValue(), changeTFromRandomness);
       }
 
       /**
@@ -3544,6 +3619,43 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       const randomnessFormat = (v) => (v <= HOLD_EPSILON ? 'Hold' : pctFormat(v));
 
+      // ---- the Change dial's mapping (v0.0.50, consult C7) -----------------
+      // The old identity map had a cliff at the bottom (0 is a literal hold —
+      // an enormous audible jump) with flat, indistinguishable regions either
+      // side of it. The bottom 8% of travel is now a snapped detent for the
+      // hold (reachable only deliberately, aligned to the "Never" end-mark);
+      // above it, randomness sweeps 0.15–0.85 and repetition 0.85–0.15 —
+      // decoupled from a strict 1−x so every hook length (4–8 chords) stays
+      // reachable across the useful travel instead of stacking at the ends.
+      const CHANGE_DETENT = 0.08;
+      function changeRandomnessFromT(t) {
+        const x = clamp(t, 0, 1);
+        if (x <= CHANGE_DETENT) return 0;
+        return 0.15 + 0.70 * ((x - CHANGE_DETENT) / (1 - CHANGE_DETENT));
+      }
+      function changeRepetitionFromT(t) {
+        const x = clamp(t, 0, 1);
+        if (x <= CHANGE_DETENT) return 0.90; // the hold keeps a mid-length hook, not an endless loop
+        return clamp(0.85 - 0.70 * ((x - CHANGE_DETENT) / (1 - CHANGE_DETENT)), 0, 1);
+      }
+      function changeTFromRandomness(r) {
+        if (r <= HOLD_EPSILON) return 0;
+        // Only a true hold may land in the detent: randomness below the
+        // sweep's 0.15 floor (a genre can set any value) reads as
+        // just-above-Never, not as Never — the bars there still move.
+        return clamp(
+          CHANGE_DETENT + (1 - CHANGE_DETENT) * ((r - 0.15) / 0.70),
+          CHANGE_DETENT + 0.005,
+          1
+        );
+      }
+      /** Apply a scalar map to a plain number or to both ends of a RangeValue. */
+      function mapRangeValue(v, f) {
+        return v && typeof v === 'object' ? { min: f(v.min), max: f(v.max) } : f(v);
+      }
+      const changeFormat = (t) =>
+        t <= CHANGE_DETENT ? 'Never' : pctFormat((t - CHANGE_DETENT) / (1 - CHANGE_DETENT));
+
       // ---- v12: Simple tab music-box dials --------------------------------
       // knob.js when available, native <input type=range> fallback when not
       // (per-dial: whichever built cleanly). Both paths funnel into the same
@@ -3661,16 +3773,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return dial;
       }
 
-      // Slot pairs: the Simple tab's dial and its Advanced-tab twin.
-      const MAIN_DIAL_SLOTS = (name) => [
-        [`${name}-dial`, ''],
-        [`${name}-dial-adv`, '-adv'],
-      ];
-
-      speedDial = buildMirroredDial(
-        MAIN_DIAL_SLOTS('speed'),
+      // v0.0.50: Tempo and Complexity are Advanced-only component views now —
+      // Simple drives them through Energy. Same params, same commits; one
+      // slot each instead of a mirrored pair.
+      speedDial = buildSimpleDial(
+        'speed-dial-adv',
         {
-          id: 'speed',
+          id: 'speed-adv',
           label: 'Tempo',
           min: 0,
           max: 1,
@@ -3684,10 +3793,38 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       describeDial(speedDial, dialHint('Fast', 'Slow'));
 
-      complexityDial = buildMirroredDial(
-        MAIN_DIAL_SLOTS('complexity'),
+      /**
+       * Moving Complexity is an explicit "let the engine decide" gesture:
+       * structure, arp mode and every track state return to Auto, then the
+       * new complexity is sent. Shared by the Advanced dial and Energy.
+       * `syncDial` pushes the value into the Complexity dial's face (Energy
+       * does this; the dial's own gesture must not — that fights the pointer).
+       */
+      function commitComplexityAuto(value, { syncDial = false } = {}) {
+        settings.complexity = value;
+        settings.structure = 'auto';
+        settings.arp.mode = 'auto';
+        for (const id of TRACK_IDS) settings.tracks[id].state = 'auto';
+        syncStructureUI();
+        syncArpUI();
+        syncTrackStateUI();
+        const trackStates = {};
+        for (const id of TRACK_IDS) trackStates[id] = { state: 'auto' };
+        engine.setParams({
+          complexity: value,
+          structure: 'auto',
+          arp: { mode: 'auto' },
+          tracks: trackStates,
+        });
+        if (syncDial) complexityDial?.set(value);
+        persistSettings();
+      }
+      const commitComplexityDebounced = trailingDebounce(commitComplexityAuto, 120);
+
+      complexityDial = buildSimpleDial(
+        'complexity-dial-adv',
         {
-          id: 'complexity',
+          id: 'complexity-adv',
           label: 'Complexity',
           min: 0,
           max: 1,
@@ -3696,30 +3833,42 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           format: pctFormat,
           defaultValue: DEFAULTS.complexity,
         },
-        (value) => {
-          // Moving Complexity is an explicit "let the engine decide" gesture:
-          // structure, arp mode and every track state return to Auto, then
-          // the new complexity is sent.
-          settings.complexity = value;
-          settings.structure = 'auto';
-          settings.arp.mode = 'auto';
-          for (const id of TRACK_IDS) settings.tracks[id].state = 'auto';
-          syncStructureUI();
-          syncArpUI();
-          syncTrackStateUI();
-          const trackStates = {};
-          for (const id of TRACK_IDS) trackStates[id] = { state: 'auto' };
-          engine.setParams({
-            complexity: value,
-            structure: 'auto',
-            arp: { mode: 'auto' },
-            tracks: trackStates,
-          });
-          persistSettings();
-        }
+        // Debounced (C8): the commit redraws the plan and resets the banks,
+        // so a drag must land once, not once per pointer move.
+        (value) => commitComplexityDebounced(value)
       );
 
       describeDial(complexityDial, dialHint('Complex', 'Calm'));
+
+      // ---- Energy (Simple tab): the macro itself --------------------------
+      energyDial = buildSimpleDial(
+        'energy-dial',
+        {
+          id: 'energy',
+          label: 'Energy',
+          min: 0,
+          max: 1,
+          step: 0.001,
+          value: energyFromBpm(settings.bpm),
+          format: pctFormat,
+          defaultValue: ENERGY_DEFAULT,
+        },
+        (e) => {
+          // Tempo is cheap and immediate (and beat-quantised in the engine);
+          // the structural half rides the debounce.
+          setTempo(bpmFromEnergy(e), { skipEnergyThumb: true });
+          commitComplexityDebounced(complexityFromEnergy(e), { syncDial: true });
+        }
+      );
+      describeDial(
+        energyDial,
+        dialHint(
+          'Lively',
+          'Calm',
+          null,
+          'One dial for how much is going on: it moves Tempo and Complexity together — watch them follow on Advanced. Moving it also lets the engine choose the structure and tracks again, so hand-set track switches return to Auto.'
+        )
+      );
 
       // Advanced's Reprise dial owns `repetition` alone (v0.0.35). It updates the
       // Simple tab's fused read-out, because that dial genuinely blends both —
@@ -3740,7 +3889,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         (value) => {
           settings.repetition = value;
           engine.setParams({ repetition: value });
-          randomnessDial?.set(fusedRandomnessValue());
+          randomnessDial?.set(changeDialValueFromState());
           persistSettings();
         }
       );
@@ -3771,37 +3920,44 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return trackStates;
       }
 
-      // SIMPLE tab: the fused macro, unchanged. One dial for "how much does this
-      // change", deliberately driving both halves at once — that is what makes
-      // the Simple tab simple.
+      // SIMPLE tab: the fused macro, renamed Change (v0.0.50 — people do not
+      // think in terms of "randomness", but they absolutely think in terms of
+      // "does it stay the same or keep moving on"). One dial for "how much
+      // does this change", deliberately driving both halves at once — that is
+      // what makes the Simple tab simple. The dial position runs through the
+      // C7 mapping above; the engine params it writes are what they were.
       randomnessDial = buildSimpleDial(
         'randomness-dial',
         {
           id: 'randomness',
-          label: 'Randomness',
+          label: 'Change',
           min: 0,
           max: 1,
           step: 0.01,
-          marks: [0, 0.5, 1],
-          value: fusedRandomnessValue(),
-          format: randomnessFormat,
+          marks: [CHANGE_DETENT, 0.5, 1],
+          value: changeDialValueFromState(),
+          format: changeFormat,
           allowRange: true,
-          defaultValue: DEFAULTS.tracks.pad.randomness,
+          defaultValue: changeTFromRandomness(
+            rangeMid(sanitiseRangeValueIn(DEFAULTS.tracks.pad.randomness, 0, 1, 0.5))
+          ),
         },
-        (value) => {
-          const repetition = clamp(1 - rangeMid(sanitiseRangeValueIn(value, 0, 1, 0.5)), 0, 1);
+        (t) => {
+          const tMid = rangeMid(sanitiseRangeValueIn(t, 0, 1, 0.5));
+          const repetition = changeRepetitionFromT(tMid);
+          const randomness = mapRangeValue(t, changeRandomnessFromT);
           settings.repetition = repetition;
-          const trackStates = writeAllTrackRandomness(value);
+          const trackStates = writeAllTrackRandomness(randomness);
           engine.setParams({ repetition, tracks: trackStates });
           repetitionDial?.set(repetition);
-          variationDial?.set(value);
+          variationDial?.set(randomness);
           syncAllTrackExtras();
           persistSettings();
         }
       );
       describeDial(
         randomnessDial,
-          dialHint('Random', 'Repetitive', 'Evolving', `${RANDOMNESS_HINT} On this tab it sets reprise and every track's variation together; Advanced separates them.`)
+          dialHint('Often', 'Never', 'Now and then', 'How much the music moves on rather than staying the same. At the very bottom it never changes — the bars loop exactly. On this tab it sets reprise and every track’s variation together; Advanced separates them.')
       );
 
       // ADVANCED tab: Variation owns the tracks' randomness and NOTHING else
@@ -3824,7 +3980,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         (value) => {
           const trackStates = writeAllTrackRandomness(value);
           engine.setParams({ tracks: trackStates });
-          randomnessDial?.set(fusedRandomnessValue());
+          randomnessDial?.set(changeDialValueFromState());
           syncAllTrackExtras();
           persistSettings();
         }
@@ -3866,31 +4022,63 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return x <= 0 ? 0 : Math.pow(x, 1 / 1.7);
       };
 
-      volumeDial = buildMirroredDial(
-        MAIN_DIAL_SLOTS('volume'),
-        {
-          id: 'volume',
-          label: 'Volume',
+      // v0.0.50: still one value with two views, but the views READ
+      // differently \u2014 dB is jargon, so Simple prints a plain percentage of
+      // dial travel while Advanced keeps the hi-fi attenuator convention.
+      // Mirroring is by hand here because buildMirroredDial gives both views
+      // the same format.
+      {
+        const volumeOpts = {
           min: 0,
           max: 1,
           step: 0.01,
           value: volumeDialFromParam(settings.volume),
-          // Hi-fi attenuator convention: dB relative to full output. The dial
-          // position is tapered, so the readout converts back first.
-          format: (t) => {
-            const v = volumeParamFromDial(t);
-            return v <= 0.001 ? '-\u221e dB' : `${(20 * Math.log10(v)).toFixed(v > 0.5 ? 1 : 0)} dB`;
-          },
           marks: [0, 0.5, 1],
           defaultValue: volumeDialFromParam(DEFAULTS.volume),
-        },
-        (t) => {
+        };
+        const commitVolume = (t) => {
           const value = volumeParamFromDial(t);
           settings.volume = value;
           engine.setParams({ volume: value });
           persistSettings();
-        }
-      );
+        };
+        let volumeSimple = null;
+        let volumeAdv = null;
+        volumeSimple = buildSimpleDial(
+          'volume-dial',
+          { ...volumeOpts, id: 'volume', label: 'Volume', format: pctFormat },
+          (t) => {
+            commitVolume(t);
+            volumeAdv?.set(t);
+          }
+        );
+        volumeAdv = buildSimpleDial(
+          'volume-dial-adv',
+          {
+            ...volumeOpts,
+            id: 'volume-adv',
+            label: 'Volume',
+            // dB relative to full output; the dial position is tapered, so
+            // the readout converts back first.
+            format: (t) => {
+              const v = volumeParamFromDial(t);
+              return v <= 0.001 ? '-\u221e dB' : `${(20 * Math.log10(v)).toFixed(v > 0.5 ? 1 : 0)} dB`;
+            },
+          },
+          (t) => {
+            commitVolume(t);
+            volumeSimple?.set(t);
+          }
+        );
+        volumeDial = {
+          el: volumeSimple.el || volumeAdv.el,
+          els: [volumeSimple.el, volumeAdv.el].filter(Boolean),
+          set: (t) => {
+            volumeSimple.set(t);
+            volumeAdv.set(t);
+          },
+        };
+      }
 
       // v0.0.46: the BPM readout went with the slider it belonged to — the Tempo
       // dial already prints "52 bpm" under its own face and is click-to-type in
@@ -4075,7 +4263,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // moves independently of the others: Simple falls back to its
             // blended estimate, Advanced shows the tracks' own mean. Both are
             // display only.
-            randomnessDial?.set(fusedRandomnessValue());
+            randomnessDial?.set(changeDialValueFromState());
             variationDial?.set(trackRandomnessValue());
             persistSettings();
           };
@@ -11073,9 +11261,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (bpmInput) bpmInput.value = String(settings.bpm);
         bpmTypable?.refresh();
         speedDial?.set(speedTFromBpm(settings.bpm));
+        energyDial?.set(energyFromBpm(settings.bpm));
         repetitionDial?.set(settings.repetition);
         volumeDial?.set(volumeDialFromParam(settings.volume));
-        randomnessDial?.set(fusedRandomnessValue());
+        randomnessDial?.set(changeDialValueFromState());
         variationDial?.set(trackRandomnessValue());
         swingDial?.set(settings.swing);
         if (reverbTailDial && typeof settings.reverbTail === 'number') {
