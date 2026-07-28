@@ -1,3 +1,28 @@
+Ambi4 is licensed under the GNU Affero General Public License, version 3,
+with the following additional permission from the copyright holder.
+
+ADDITIONAL PERMISSION UNDER GNU AGPL VERSION 3 SECTION 7
+(audio output is not a covered work)
+
+As an additional permission under section 7 of the GNU Affero General
+Public License, version 3, andeye Ltd, as copyright holder of Ambi4,
+grants you permission to treat the AUDIO OUTPUT of this program - audio
+rendered, played, exported, recorded or streamed by the Ambi4 engine,
+whether from the program as distributed or as you have modified it - as
+NOT being a covered work for the purposes of this License. Accordingly,
+this License imposes no conditions or obligations on works consisting of
+that audio output, and you may use, perform, distribute, sell and license
+such audio on any terms you choose.
+
+This additional permission applies to the audio output only. It does not
+extend to the program itself, to modified versions of it, or to any other
+output (source code, presets, share links, rendered pages), all of which
+remain governed by the GNU AGPL version 3 below. As provided by section 7,
+you may remove this additional permission from your copies of the program;
+you may not add further restrictions.
+
+------------------------------------------------------------------------
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
