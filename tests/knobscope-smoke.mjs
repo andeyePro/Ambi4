@@ -353,13 +353,15 @@ test('knob: pointer drag and wheel adjust the value', () => {
   knob.destroy();
 });
 
-test('knob: double-click resets to the INITIAL value and fires onInput', () => {
+test('knob: reset returns to the INITIAL value and fires onInput', () => {
+  // v0.0.56: double-click is gone — a reset is a tap on the centre hub, or
+  // Backspace/Delete from the keyboard. The semantics below are unchanged.
   const { knob, inputs } = makeTestKnob();
   knob.el.dispatch('keydown', { key: 'End' }); // → 10
-  knob.el.dispatch('dblclick');
+  knob.el.dispatch('keydown', { key: 'Backspace' });
   assert.equal(knob.el.getAttribute('aria-valuenow'), '5');
   assert.deepEqual(inputs, [10, 5]);
-  knob.el.dispatch('dblclick'); // already at initial: no extra onInput
+  knob.el.dispatch('keydown', { key: 'Backspace' }); // already at initial: no extra onInput
   assert.deepEqual(inputs, [10, 5]);
   knob.destroy();
 });
@@ -396,26 +398,16 @@ test('knob v7: number-only knob ignores clicks as mode toggles', () => {
   knob.destroy();
 });
 
-test('knob v7: allowRange click toggles single ↔ range, preserving values; drags never toggle', () => {
+test('knob v0.0.56: a tap no longer toggles range mode', () => {
+  // The click-to-toggle gesture is deleted. A span is opened by a horizontal
+  // drag (or Shift+Right), and an ordinary tap on the face does nothing at
+  // all — the owner's ruling that a control must not do two different things
+  // depending on how a press is timed.
   const { knob, inputs } = makeTestKnob({ allowRange: true });
   const el = knob.el;
-  clickKnob(el); // split: min=max=value
-  assert.deepEqual(inputs, [{ min: 5, max: 5 }]);
-  assert.equal(el.getAttribute('aria-valuetext'), '5 (range collapsed)', 'min===max reads as a collapsed range');
-  el.dispatch('keydown', { key: 'End', shiftKey: true }); // max → 10
-  assert.deepEqual(inputs[1], { min: 5, max: 10 });
-  clickKnob(el); // merge: (5+10)/2 = 7.5 → step 1 quantises to 8
-  assert.equal(inputs[2], 8);
-  assert.equal(el.getAttribute('aria-valuetext'), '8');
-  // A real drag (>5 px between down and up) must NOT toggle the mode.
-  el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 40, clientY: 200 });
-  el.dispatch('pointermove', { clientY: 150 });
-  el.dispatch('pointerup', { pointerId: 1, clientX: 40, clientY: 150 });
-  assert.ok(
-    !el.getAttribute('aria-valuetext').includes('drifting'),
-    'a drag must never toggle into range mode'
-  );
-  assert.equal(typeof inputs[inputs.length - 1], 'number');
+  clickKnob(el);
+  assert.deepEqual(inputs, [], 'a tap must not emit');
+  assert.equal(el.getAttribute('aria-valuetext'), '5', 'a tap must not open a span');
   knob.destroy();
 });
 
@@ -471,12 +463,12 @@ test('knob v7: onInput payload is a number in single mode, {min,max} in range mo
   el.dispatch('keydown', { key: 'ArrowUp' }); // single: 5 → 6
   assert.equal(typeof inputs[0], 'number');
   assert.equal(inputs[0], 6);
-  clickKnob(el); // → range
-  assert.deepEqual(inputs[1], { min: 6, max: 6 });
+  el.dispatch('keydown', { key: 'ArrowRight', shiftKey: true }); // → range, ±1 about 6
+  assert.deepEqual(inputs[1], { min: 5, max: 7 });
   el.dispatch('wheel', { deltaY: -3, shiftKey: true }); // Shift-wheel edits max
-  assert.deepEqual(inputs[2], { min: 6, max: 7 });
-  el.dispatch('wheel', { deltaY: -3 }); // plain wheel edits min — clamps at max
-  assert.deepEqual(inputs[3], { min: 7, max: 7 });
+  assert.deepEqual(inputs[2], { min: 5, max: 8 });
+  el.dispatch('wheel', { deltaY: -3 }); // plain wheel edits min
+  assert.deepEqual(inputs[3], { min: 6, max: 8 });
   knob.destroy();
 });
 
@@ -493,24 +485,25 @@ test('knob v7: set({min,max}) and set(number) switch mode silently', () => {
   knob.destroy();
 });
 
-test('knob v7: dblclick restores the INITIAL value AND mode', () => {
-  // Numeric initial toggled into range → dblclick returns to single 5.
+test('knob v0.0.56: reset restores the INITIAL value AND spread', () => {
+  // Numeric initial spread open → reset returns to single 5.
   const a = makeTestKnob({ allowRange: true });
-  clickKnob(a.knob.el);
-  a.knob.el.dispatch('keydown', { key: 'End', shiftKey: true }); // max → 10
-  a.knob.el.dispatch('dblclick');
+  a.knob.el.dispatch('keydown', { key: 'ArrowRight', shiftKey: true }); // → {4,6}
+  assert.deepEqual(a.inputs[0], { min: 4, max: 6 });
+  a.knob.el.dispatch('keydown', { key: 'Backspace' });
   assert.equal(a.knob.el.getAttribute('aria-valuetext'), '5');
   assert.equal(a.inputs[a.inputs.length - 1], 5);
   a.knob.destroy();
-  // Range initial merged to single → dblclick returns to range {2,8}.
+  // Range initial narrowed to a single value → reset returns to range {2,8}.
   const b = makeTestKnob({ allowRange: true, value: { min: 2, max: 8 } });
-  clickKnob(b.knob.el); // merge → (2+8)/2 = 5
-  assert.equal(b.inputs[0], 5);
-  b.knob.el.dispatch('dblclick');
-  assert.deepEqual(b.inputs[1], { min: 2, max: 8 });
+  for (let i = 0; i < 3; i++) b.knob.el.dispatch('keydown', { key: 'ArrowLeft', shiftKey: true });
+  assert.equal(b.inputs[b.inputs.length - 1], 5, 'narrowed all the way, it collapses to the midpoint');
+  b.knob.el.dispatch('keydown', { key: 'Backspace' });
+  assert.deepEqual(b.inputs[b.inputs.length - 1], { min: 2, max: 8 });
   assert.equal(b.knob.el.getAttribute('aria-valuetext'), 'min 2, max 8, drifting');
-  b.knob.el.dispatch('dblclick'); // already at initial form: no extra onInput
-  assert.equal(b.inputs.length, 2);
+  const settled = b.inputs.length;
+  b.knob.el.dispatch('keydown', { key: 'Backspace' }); // already at initial form: no extra onInput
+  assert.equal(b.inputs.length, settled);
   b.knob.destroy();
 });
 
@@ -530,9 +523,9 @@ test('knob v7: rangeDefault splits a numeric initial into min=max=value', () => 
   assert.equal(knob.el.getAttribute('aria-valuetext'), '5 (range collapsed)');
   assert.equal(knob.el.children[2].textContent, '5 – 5');
   assert.deepEqual(inputs, []);
-  // dblclick restores the range form (rangeDefault IS the initial mode).
+  // reset restores the range form (rangeDefault IS the initial mode).
   knob.el.dispatch('keydown', { key: 'End', shiftKey: true });
-  knob.el.dispatch('dblclick');
+  knob.el.dispatch('keydown', { key: 'Backspace' });
   assert.equal(knob.el.getAttribute('aria-valuetext'), '5 (range collapsed)');
   knob.destroy();
 });
@@ -541,21 +534,21 @@ test('knob v7: rangeDefault splits a numeric initial into min=max=value', () => 
 // Knob tests — v12 declared defaultValue + glyphs
 // --------------------------------------------------------------------------
 
-test('knob v12: defaultValue overrides dblclick reset target (single mode)', () => {
+test('knob v12: defaultValue overrides the reset target (single mode)', () => {
   const { knob, inputs } = makeTestKnob({ value: 5, defaultValue: 2 });
   knob.el.dispatch('keydown', { key: 'End' }); // → 10
-  knob.el.dispatch('dblclick');
+  knob.el.dispatch('keydown', { key: 'Backspace' });
   assert.equal(knob.el.getAttribute('aria-valuenow'), '2', 'must reset to defaultValue, not initial 5');
   assert.deepEqual(inputs, [10, 2]);
-  knob.el.dispatch('dblclick'); // already at default: no extra onInput
+  knob.el.dispatch('keydown', { key: 'Backspace' }); // already at default: no extra onInput
   assert.deepEqual(inputs, [10, 2]);
   knob.destroy();
 });
 
-test('knob v12: defaultValue as {min,max} switches mode+values on dblclick', () => {
+test('knob v12: defaultValue as {min,max} switches mode+values on reset', () => {
   const { knob, inputs } = makeTestKnob({ allowRange: true, value: 5, defaultValue: { min: 1, max: 3 } });
   knob.el.dispatch('keydown', { key: 'End' }); // single → 10
-  knob.el.dispatch('dblclick');
+  knob.el.dispatch('keydown', { key: 'Backspace' });
   assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 1, max 3, drifting');
   assert.deepEqual(inputs[inputs.length - 1], { min: 1, max: 3 });
   knob.destroy();
@@ -564,7 +557,7 @@ test('knob v12: defaultValue as {min,max} switches mode+values on dblclick', () 
 test('knob v12: a scalar defaultValue collapses a range-mode knob back to single', () => {
   const { knob, inputs } = makeTestKnob({ allowRange: true, value: { min: 2, max: 8 }, defaultValue: 4 });
   knob.el.dispatch('keydown', { key: 'ArrowUp', shiftKey: true }); // max 8 → 9, still range
-  knob.el.dispatch('dblclick');
+  knob.el.dispatch('keydown', { key: 'Backspace' });
   assert.equal(knob.el.getAttribute('aria-valuetext'), '4');
   assert.equal(inputs[inputs.length - 1], 4);
   knob.destroy();
@@ -573,7 +566,7 @@ test('knob v12: a scalar defaultValue collapses a range-mode knob back to single
 test('knob v12: omitted defaultValue keeps the pre-v12 initial-value/mode reset', () => {
   const { knob, inputs } = makeTestKnob({ allowRange: true, value: { min: 2, max: 8 } });
   knob.el.dispatch('keydown', { key: 'ArrowUp' }); // still range, min moves
-  knob.el.dispatch('dblclick');
+  knob.el.dispatch('keydown', { key: 'Backspace' });
   assert.equal(knob.el.getAttribute('aria-valuetext'), 'min 2, max 8, drifting');
   assert.deepEqual(inputs[inputs.length - 1], { min: 2, max: 8 });
   knob.destroy();
@@ -756,52 +749,52 @@ test('knob: inert bare-Node handle accepts setGhost without a document', async (
 // is (50,50); FACE_R=31 viewBox units → a 31px face radius at this scale.
 const SQUARE_RECT = { left: 0, top: 0, width: 100, height: 100 };
 
-test('knob v14: pointerdown INSIDE the face drags min, OUTSIDE the face drags max', () => {
-  const inside = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
-  inside.knob.el.getBoundingClientRect = () => SQUARE_RECT;
-  // 10px above centre = distance 10 < the 31px face radius → inside → min.
-  inside.knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 40 });
-  inside.knob.el.dispatch('pointermove', { clientY: 20 }); // 20px further up = +1 over a 0–10 range
-  inside.knob.el.dispatch('pointerup', { pointerId: 1 });
-  assert.deepEqual(inside.inputs[inside.inputs.length - 1], { min: 5, max: 6 }, 'inside-face drag must move min only');
-  inside.knob.destroy();
+// v0.0.56 replaced the inside/outside-face zone scheme with "the nearer end
+// by sweep angle", so a thumb can grab either end anywhere on the dial. The
+// zone test that stood here is gone; the replacement contract — nearest-end
+// grab, the centre hub carrying both ends, axis lock, re-arm, spread open and
+// close, and the reset tap — lives in tests/knob-gesture.mjs, which also
+// carries the mock geometry those need.
 
-  const outside = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
-  outside.knob.el.getBoundingClientRect = () => SQUARE_RECT;
-  // 45px above centre = distance 45 > the 31px face radius, and >12° from
-  // the current max-thumb angle, so this is a zone grab, not a near grab.
-  outside.knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 5 });
-  outside.knob.el.dispatch('pointermove', { clientY: -15 }); // 20px further up = +1
-  outside.knob.el.dispatch('pointerup', { pointerId: 1 });
-  assert.deepEqual(outside.inputs[outside.inputs.length - 1], { min: 4, max: 7 }, 'outside-face drag must move max only');
-  outside.knob.destroy();
+test('knob v0.0.56: the hub drags both ends of a span together', () => {
+  const { knob, inputs } = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
+  knob.el.getBoundingClientRect = () => SQUARE_RECT;
+  // 5px above centre is inside the hub (radius 31 × 0.45 ≈ 14).
+  knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 45 });
+  knob.el.dispatch('pointermove', { clientX: 50, clientY: 25 }); // 20px up = +1 over a 0–10 range
+  knob.el.dispatch('pointerup', { pointerId: 1, clientX: 50, clientY: 25 });
+  assert.deepEqual(inputs[inputs.length - 1], { min: 5, max: 7 }, 'a hub drag moves the whole span, width intact');
+  knob.destroy();
 });
 
 test('knob v16: dragging min past max pushes max along (collapses, then both move together)', () => {
   const { knob, inputs } = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
   knob.el.getBoundingClientRect = () => SQUARE_RECT;
-  // Inside the face → drags min. clientY=40 is inside (distance 10 < 31px face radius).
-  knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 40 });
-  knob.el.dispatch('pointermove', { clientY: 0 }); // 40px up = +2: min 4 → 6, meets max exactly
+  // min sits at −27°, max at +27° on a 0–10 dial. A press up and to the LEFT
+  // (−45°) is nearer min, so this grabs min — no zone, no modifier, just the
+  // side of the dial the end is on.
+  knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 20, clientY: 20 });
+  knob.el.dispatch('pointermove', { clientX: 20, clientY: -20 }); // 40px up = +2: min 4 → 6, meets max exactly
   assert.deepEqual(inputs[inputs.length - 1], { min: 6, max: 6 }, 'reaching max exactly collapses the range');
-  knob.el.dispatch('pointermove', { clientY: -40 }); // another 40px up = +2: min PAST max — pushes it
+  knob.el.dispatch('pointermove', { clientX: 20, clientY: -60 }); // another 40px up = +2: min PAST max — pushes it
   assert.deepEqual(inputs[inputs.length - 1], { min: 8, max: 8 }, 'dragging min past max must carry max along, not clamp at 6');
-  knob.el.dispatch('pointermove', { clientY: -80 }); // both keep moving together while collapsed
+  knob.el.dispatch('pointermove', { clientX: 20, clientY: -100 }); // both keep moving together while collapsed
   assert.deepEqual(inputs[inputs.length - 1], { min: 10, max: 10 });
-  knob.el.dispatch('pointerup', { pointerId: 1 });
+  knob.el.dispatch('pointerup', { pointerId: 1, clientX: 20, clientY: -100 });
   knob.destroy();
 });
 
 test('knob v16: dragging max past min pushes min along (collapses, then both move together)', () => {
   const { knob, inputs } = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
   knob.el.getBoundingClientRect = () => SQUARE_RECT;
-  // Outside the face → drags max. clientY=5 is outside (distance 45 > 31px face radius).
-  knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 5 });
-  knob.el.dispatch('pointermove', { clientY: 45 }); // 40px down = −2: max 6 → 4, meets min exactly
+  // Mirror of the test above: a press up and to the RIGHT (+45°) is nearer
+  // max, so this grabs max.
+  knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 80, clientY: 20 });
+  knob.el.dispatch('pointermove', { clientX: 80, clientY: 60 }); // 40px down = −2: max 6 → 4, meets min exactly
   assert.deepEqual(inputs[inputs.length - 1], { min: 4, max: 4 }, 'reaching min exactly collapses the range');
-  knob.el.dispatch('pointermove', { clientY: 85 }); // another 40px down = −2: max PAST min — pushes it
+  knob.el.dispatch('pointermove', { clientX: 80, clientY: 100 }); // another 40px down = −2: max PAST min — pushes it
   assert.deepEqual(inputs[inputs.length - 1], { min: 2, max: 2 }, 'dragging max past min must carry min along, not clamp at 4');
-  knob.el.dispatch('pointerup', { pointerId: 1 });
+  knob.el.dispatch('pointerup', { pointerId: 1, clientX: 80, clientY: 100 });
   knob.destroy();
 });
 

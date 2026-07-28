@@ -14,49 +14,95 @@
  * --secondary) with sensible fallbacks, so the knob renders before the theme
  * lands.
  *
- * Interaction: pointer-capture vertical drag (hold Shift for 10× finer
- * control), wheel (non-passive, small steps), full keyboard on the focusable
- * knob (role="slider": arrows ±step, PgUp/PgDn ±10 steps, Home/End), and
- * double-click resets to the DECLARED DEFAULT. `step` is optional — without
- * it the knob is continuous and keys move by (max-min)/200. The value
- * readout below the knob is a second, independent focusable control — click
- * or Enter/Space to type an exact value (see "v14 click-to-type" below).
+ * ONE GESTURE MODEL (v0.0.56) — every dial on the page answers to the same
+ * four things, because the owner's consistency principle is that a control
+ * which ignores a gesture teaches the user that the gesture does nothing
+ * anywhere:
  *
- * `defaultValue` (number | {min,max}, optional): the value/mode double-click
- * restores. When omitted, double-click falls back to the pre-v12 behaviour
- * of restoring the INITIAL value/mode the knob was constructed with. A range
+ *   drag up / down     the value
+ *   drag left / right  the SPREAD — how far the value drifts either side
+ *   tap the centre     back to the default
+ *   type in the readout  an exact value, or "a-b" for a span
+ *
+ * Axis lock ("Scheme A", chosen by the owner on 2026-07-27 after an A/B rig):
+ * nothing moves until the pointer has travelled LOCK_PX from where it went
+ * down; the larger of |dx| and |dy| at that moment wins and owns the rest of
+ * the gesture. Bring the pointer back inside REARM_PX of the origin and the
+ * axis re-arms, so one press can change its mind without being released. A
+ * diagonal never moves both at once — that was trialled and rejected: a
+ * diagonal band is a knife-edge that ordinary drift falls out of.
+ *
+ * WHERE the press lands decides WHAT the vertical drag moves, which is what
+ * makes an asymmetric span reachable at all:
+ *
+ *   centre hub (inner HUB_FRACTION of the face)   both ends together, width kept
+ *   anywhere else                                 the nearer end alone, by sweep angle
+ *
+ * No small targets: "nearer end" is a half-plane test on the ring, so it works
+ * with a thumb. A moving end PUSHES the other rather than blocking against it
+ * (v16 semantics), so a span can never be wedged.
+ *
+ * A press that never travels further than TAP_SLOP_PX is a TAP, not a drag.
+ * A tap on the centre hub resets to the DECLARED DEFAULT. There is no timing
+ * requirement and no double-click anywhere: the owner's ruling on 2026-07-27
+ * was that people with motor-control difficulty cannot rely on a double-click
+ * being read as one, and that a single and a double click doing different
+ * things is a trap. A tap outside the hub does nothing at all — it used to
+ * toggle range mode, which is now what a horizontal drag expresses.
+ *
+ * Wheel (non-passive, small steps) and the full keyboard are unchanged in
+ * spirit: arrows ±step on the active end, PgUp/PgDn ±10 steps, Home/End to
+ * the bounds — plus Shift+Left/Right to narrow and widen the spread (the
+ * keyboard equivalent of the horizontal drag, without which a keyboard user
+ * could not create a span at all) and Backspace/Delete to reset, which is the
+ * keyboard's tap-the-centre. `step` is optional — without it the knob is
+ * continuous and keys move by (max-min)/200. The value readout below the knob
+ * is a second, independent focusable control — click or Enter/Space to type an
+ * exact value (see "v14 click-to-type" below).
+ *
+ * ZEROED STATE: a dial sitting at its own minimum with no spread draws its
+ * pointer in muted grey with a hollow centre, so "off" is legible across a
+ * panel at a glance instead of needing every readout to be read.
+ *
+ * LIVE POINTER: `handle.setLive(v)` marks where inside a span the value
+ * actually is at this moment. A span whose behaviour is invisible is a
+ * control with no feedback, so any caller that spreads a dial should feed the
+ * resolved value back.
+ *
+ * `defaultValue` (number | {min,max}, optional): the value/mode a reset
+ * restores. When omitted, reset falls back to the pre-v12 behaviour of
+ * restoring the INITIAL value/mode the knob was constructed with. A range
  * `defaultValue` collapses a scalar `value` on reset (and vice versa) exactly
  * like the initial-value case already did.
  *
- * v7 range mode: `value` accepts number | {min,max}. With `allowRange`, a
- * CLICK on the face (pointerup within 5 px and 300 ms of pointerdown, so
- * drags never toggle) switches single ↔ range — split keeps the value
- * (min=max=value), merge takes (min+max)/2. Range mode draws the engraved
- * inner pointer for min, a short accent pointer riding the ring for max, and
- * tints the arc between them with --accent-warm at low alpha. v14: a pointer
- * drag started INSIDE the dial face circle edits min; started OUTSIDE the
- * face (the tick ring and beyond, still within the knob's own bounds) edits
- * max; pointerdown within ~12° of the max pointer's current angle grabs max
- * directly regardless of zone (unchanged from v7); Shift remains a secondary
- * alias that forces max — kept for wheel/arrow-key parity (still plain=min,
- * Shift=max there) and as the fallback when getBoundingClientRect is
- * unavailable (bare-DOM tests). v16: the moving thumb PUSHES the other along
- * instead of clamping against it — dragging/keying/typing min past the
- * current max carries max up with it (the range collapses to zero width,
- * then both move together); max past min carries min down likewise. Only
- * the knob's own [min,max] bounds ever stop a thumb. The knob stays ONE tab
- * stop: PgUp/PgDn/Home/End act on the last-edited thumb (default min) and
- * aria-valuetext reads "min X, max Y, drifting" — except when the thumbs
- * have collapsed onto each other (value === valueMax), which reads
- * "X (range collapsed)" instead, since "min X, max X, drifting" describes a
- * spread that no longer exists. onInput emits a number in single mode and
- * {min,max} in range mode; set() accepts both and switches mode to match
- * silently; `rangeDefault` starts a plain numeric value split (min=max=value);
- * double-click restores the INITIAL value AND mode.
+ * Range mode: `value` accepts number | {min,max}. With `allowRange` (the
+ * default — pass `allowRange: false` only for an enumeration, where a span
+ * between two named positions would mean nothing), a horizontal drag opens,
+ * widens, narrows and finally closes a span about the value it started from.
+ * Range mode draws the engraved inner pointer for min, a short accent pointer
+ * riding the ring for max, and tints the arc between them with --accent-warm
+ * at low alpha. v16 push-through survives the rebuild: the moving end PUSHES
+ * the other along instead of clamping against it — dragging/keying/typing min
+ * past the current max carries max up with it (the span collapses to zero
+ * width, then both move together); max past min carries min down likewise.
+ * Only the knob's own [min,max] bounds ever stop an end. The knob stays ONE
+ * tab stop: PgUp/PgDn/Home/End act on the last-edited end (default min) and
+ * aria-valuetext reads "min X, max Y, drifting" — except when the ends have
+ * collapsed onto each other (value === valueMax), which reads "X (range
+ * collapsed)" instead, since "min X, max X, drifting" describes a spread that
+ * no longer exists. onInput emits a number in single mode and {min,max} in
+ * range mode; set() accepts both and switches mode to match silently;
+ * `rangeDefault` starts a plain numeric value split (min=max=value).
+ *
+ * KNOWN GAP, deliberately still open: `role="slider"` with one
+ * `aria-valuenow` is the wrong contract for two thumbs, and aria-valuetext is
+ * a description rather than a fix. A real dual-thumb contract needs two
+ * focusable elements, which changes the tab order of every panel on the page
+ * — filed rather than smuggled in behind a gesture change.
  *
  * v14 click-to-type: the value readout is itself a focusable <button>
- * (separate DOM node from the face, so its click never collides with the
- * face's click-to-toggle-mode gesture above). Click, Enter or Space swaps it
+ * (a separate DOM node from the face, so its click never reaches the face's
+ * own gesture handling above). Click, Enter or Space swaps it
  * for a themed text input pre-filled with the current value ("min-max",
  * hyphen-joined, in range mode). Enter or blur commits through the SAME
  * quantise/clamp path as drag/wheel/keys and fires onInput; Escape cancels
@@ -127,11 +173,14 @@ const START_DEG = -135;
 const SWEEP_DEG = 270;
 const MINOR_TICKS = 25;
 const DRAG_RANGE_PX = 200; // pixels of vertical travel for the full sweep
+const SPREAD_RANGE_PX = 200; // pixels of horizontal travel for the full spread
 
-// v7 range-mode interaction thresholds
-const CLICK_SLOP_PX = 5; // pointerup within this distance of pointerdown …
-const CLICK_MS = 300; //    … and this fast = a click (mode toggle)
-const MAX_GRAB_DEG = 12; // pointerdown within this many degrees grabs the max thumb
+// v0.0.56 gesture thresholds. See the "one gesture model" note in the module
+// header for why each exists.
+const LOCK_PX = 6; // travel from the press origin before an axis locks …
+const REARM_PX = 4; //  … and the radius the pointer must return inside to re-arm
+const TAP_SLOP_PX = 6; // a press that never travels further than this is a tap
+const HUB_FRACTION = 0.45; // centre hub radius, as a fraction of the face radius
 
 // viewBox geometry (100×100 face area; label/value live in HTML below it)
 const CX = 50;
@@ -151,6 +200,12 @@ const TICK_STROKE = 'var(--tick, var(--secondary, #8a8378))';
 const TICK_MAJOR_STROKE = 'var(--tick-major, var(--text, #6b6257))';
 const ACCENT_WARM = 'var(--accent-warm, #c98a4b)';
 const GHOST_STROKE = 'var(--knob-ghost, rgba(242, 232, 213, 0.45))';
+const HUB_STROKE = 'var(--knob-hub, rgba(242, 232, 213, 0.22))';
+const LIVE_STROKE = 'var(--knob-live, #f2e8d5)';
+// The zeroed dial: pointer and hub both drop to a muted grey, so "this one is
+// off" is readable across a whole panel without reading a single number.
+const ZERO_POINTER_STROKE = 'var(--knob-zero, rgba(242, 232, 213, 0.34))';
+const ZERO_HUB_STROKE = 'var(--knob-zero, rgba(242, 232, 213, 0.34))';
 const LABEL_COLOR = 'var(--secondary, #5a5a5f)';
 const VALUE_COLOR = 'var(--text, #2e2e33)';
 const LABEL_FONT =
@@ -193,7 +248,12 @@ export function createKnob(container, options) {
   const wheelStep = step || range / 100;
   const onInput = typeof opts.onInput === 'function' ? opts.onInput : null;
   const format = typeof opts.format === 'function' ? opts.format : null;
-  const allowRange = !!opts.allowRange;
+  // v0.0.56: spreadable is the DEFAULT. The owner's ruling is that every dial
+  // must answer to the same gestures — a dial that ignores a horizontal drag
+  // teaches the user that horizontal drags do nothing, on every other dial
+  // too. Opting out (`allowRange: false`) is for enumerations only, where a
+  // span between two named positions would not mean anything.
+  const allowRange = opts.allowRange !== false;
   const rangeDefault = !!opts.rangeDefault;
 
   function fmt(v) {
@@ -410,6 +470,40 @@ export function createKnob(container, options) {
   pointerGroup.appendChild(pointer);
   svg.appendChild(pointerGroup);
 
+  // v0.0.56 centre hub: the visible target for "the whole control" — drag it
+  // and both ends of a span move together, tap it and the dial resets. It is
+  // drawn as a hairline ring rather than a filled disc so it reads as a zone
+  // on the faceplate, not a button sitting on top of one; when the dial is
+  // ZEROED the same circle is what goes hollow and bright, which is why the
+  // two states share one element.
+  const hub = document.createElementNS(SVG_NS, 'circle');
+  hub.setAttribute('data-role', 'hub');
+  hub.setAttribute('cx', String(CX));
+  hub.setAttribute('cy', String(CY));
+  hub.setAttribute('r', String(+(FACE_R * HUB_FRACTION).toFixed(2)));
+  hub.setAttribute('stroke-width', '1');
+  hub.style.fill = 'none';
+  hub.style.stroke = HUB_STROKE;
+  hub.style.pointerEvents = 'none';
+  svg.appendChild(hub);
+
+  // Live pointer: where inside a span the value actually is right now. A span
+  // whose drift cannot be seen is a control with no feedback, so this is not
+  // decoration — it is the only readout of what the walk is doing between the
+  // two ends the user set.
+  const livePointer = document.createElementNS(SVG_NS, 'line');
+  livePointer.setAttribute('data-role', 'live-pointer');
+  livePointer.setAttribute('x1', String(CX));
+  livePointer.setAttribute('y1', String(CY - RING_R + 2));
+  livePointer.setAttribute('x2', String(CX));
+  livePointer.setAttribute('y2', String(CY - RING_R + 8));
+  livePointer.setAttribute('stroke-width', '2.2');
+  livePointer.setAttribute('stroke-linecap', 'round');
+  livePointer.style.stroke = LIVE_STROKE;
+  livePointer.style.pointerEvents = 'none';
+  livePointer.style.display = 'none';
+  svg.appendChild(livePointer);
+
   // Max thumb: a short accent pointer straddling the ring (range mode only).
   const maxPointerGroup = document.createElementNS(SVG_NS, 'g');
   const maxGroove = document.createElementNS(SVG_NS, 'line');
@@ -476,6 +570,7 @@ export function createKnob(container, options) {
   }
 
   let ghostValue = null; // number | {min,max} | null
+  let liveValue = null; // where inside a span the value is right now, or null
 
   function updateGhostView() {
     if (ghostValue == null) {
@@ -560,9 +655,37 @@ export function createKnob(container, options) {
     }
   }
 
+  /**
+   * "Zeroed" is the dial sitting at the bottom of its own scale with no spread
+   * — nothing set, nothing drifting. It is a display state only: nothing about
+   * the value or the gestures changes, the pointer and hub just go grey so a
+   * panel of dials can be read at a glance.
+   */
+  function applyZeroedLook() {
+    const zeroed = mode !== 'range' && value === min;
+    pointer.style.stroke = zeroed ? ZERO_POINTER_STROKE : POINTER_STROKE;
+    hub.style.stroke = zeroed ? ZERO_HUB_STROKE : HUB_STROKE;
+    hub.setAttribute('stroke-width', zeroed ? '1.6' : '1');
+    root.setAttribute('data-zeroed', zeroed ? 'true' : 'false');
+  }
+
+  function applyLive() {
+    // Only meaningful inside a span: in single mode the main pointer already
+    // IS the live value, and a second mark on top of it would be noise.
+    if (liveValue == null || mode !== 'range') {
+      livePointer.style.display = 'none';
+      return;
+    }
+    const v = Math.min(Math.max(liveValue, value), valueMax);
+    livePointer.style.display = '';
+    livePointer.setAttribute('transform', `rotate(${+degFor(v).toFixed(2)} ${CX} ${CY})`);
+  }
+
   function updateView() {
     const deg = degFor(value);
     pointerGroup.setAttribute('transform', `rotate(${+deg.toFixed(2)} ${CX} ${CY})`);
+    applyZeroedLook();
+    applyLive();
     if (mode === 'range') {
       const maxDeg = degFor(valueMax);
       maxPointerGroup.setAttribute('transform', `rotate(${+maxDeg.toFixed(2)} ${CX} ${CY})`);
@@ -631,20 +754,11 @@ export function createKnob(container, options) {
     if (fireInput) emit();
   }
 
-  function toggleMode() {
-    closeEditor();
-    if (mode === 'single') {
-      mode = 'range';
-      valueMax = value; // split: min=max=value
-    } else {
-      mode = 'single';
-      value = quantise((value + valueMax) / 2); // merge: midpoint
-    }
-    activeThumb = 'min';
-    dragRaw = value;
-    updateView();
-    emit();
-  }
+  // v0.0.56: `toggleMode` is gone with the click-to-toggle gesture that was
+  // its only caller. Opening and closing a span is now what a horizontal drag
+  // (or Shift+Left/Right) expresses, through applySpread — which is the same
+  // idea with a width instead of an on/off, so there is nothing left to
+  // toggle. Typing "20-30" in the readout still opens a span directly.
 
   // -- v14 click-to-type ----------------------------------------------------
 
@@ -792,11 +906,19 @@ export function createKnob(container, options) {
   let dragging = false;
   let lastY = 0;
   let dragRaw = value; // continuous accumulator so `step` quantisation can't stall a drag
-  let dragThumb = 'min';
+  let dragThumb = 'min'; // 'min' | 'max' | 'both'
   let pressed = false;
   let pressX = NaN;
   let pressY = NaN;
-  let pressTime = 0;
+  // v0.0.56 axis lock: null until the press has travelled LOCK_PX, then
+  // 'value' (vertical) or 'spread' (horizontal) for the rest of the gesture,
+  // back to null if the pointer returns inside REARM_PX of where it started.
+  let dragAxis = null;
+  let pressHub = false; // the press landed on the centre hub
+  let travelled = 0; // furthest the press has been from its origin, in px
+  let dragSpread = 0; // half-width the spread gesture started from
+  let dragSpreadCentre = value; // midpoint the spread gesture opens about
+  let spreadOriginX = 0; // clientX at the moment the spread axis locked
 
   /**
    * Shared rect/centre lookup for pointer geometry — mock-safe: returns null
@@ -827,51 +949,59 @@ export function createKnob(container, options) {
   }
 
   /**
-   * v14: which range-mode thumb a pointerdown zone edits — 'min' inside the
-   * dial face circle, 'max' on the tick ring and beyond (still within the
-   * knob's own bounds). Returns null when geometry is unavailable (bare-DOM
-   * mocks), so the caller falls back to the Shift alias.
+   * v0.0.56: is a pointerdown inside the centre hub? The hub is the part of
+   * the dial that means "the whole control" — drag it and both ends move
+   * together keeping their width, tap it and the dial goes back to its
+   * default. Returns null when geometry is unavailable (bare-DOM mocks), and
+   * every caller treats null as "not the hub" so a geometry-less environment
+   * still gets ordinary single-value behaviour.
    */
-  function pointerFaceZone(e) {
+  function pointerInHub(e) {
     const c = pointerCentre(e);
     if (!c) return null;
     const dx = e.clientX - c.cx;
     const dy = e.clientY - c.cy;
     const distPx = Math.sqrt(dx * dx + dy * dy);
-    const faceRadiusPx = (FACE_R / 100) * c.rect.width;
-    return distPx <= faceRadiusPx ? 'min' : 'max';
+    const hubRadiusPx = ((FACE_R * HUB_FRACTION) / 100) * c.rect.width;
+    return distPx <= hubRadiusPx;
+  }
+
+  /**
+   * Which end of a span a press grabs: whichever is nearer by sweep angle.
+   * This is a half-plane test rather than a hit target, so there is nothing
+   * small to miss — every point on the dial belongs to one end or the other,
+   * which is what makes it usable with a thumb.
+   */
+  function nearerThumb(e) {
+    const deg = pointerDeg(e);
+    // No geometry (bare-DOM tests, and any environment without
+    // getBoundingClientRect) means no angle to compare, so the press cannot
+    // tell the ends apart. Shift stays the documented fallback selector there
+    // — it costs nothing in a real browser, where the angle always decides and
+    // Shift means fine control.
+    if (deg == null) return e && e.shiftKey ? 'max' : 'min';
+    const dMin = Math.abs(deg - degFor(value));
+    const dMax = Math.abs(deg - degFor(valueMax));
+    return dMax < dMin ? 'max' : 'min';
   }
 
   function onPointerDown(e) {
-    if (e && e.target && (e.target === valueEl || e.target === editInput)) return; // readout owns its own click/keydown, never the face's drag/toggle
+    if (e && e.target && (e.target === valueEl || e.target === editInput)) return; // readout owns its own click/keydown, never the face's drag
     if (e && e.button != null && e.button !== 0) return;
     dragging = true;
-    lastY = e && typeof e.clientY === 'number' ? e.clientY : 0;
     pressed = true;
+    lastY = e && typeof e.clientY === 'number' ? e.clientY : 0;
     pressX = e && typeof e.clientX === 'number' ? e.clientX : NaN;
     pressY = e && typeof e.clientY === 'number' ? e.clientY : NaN;
-    pressTime = Date.now();
-    dragThumb = 'min';
-    if (mode === 'range') {
-      const deg = pointerDeg(e);
-      let grabbedNear = false;
-      if (deg != null) {
-        let diff = deg - degFor(valueMax);
-        while (diff > 180) diff -= 360;
-        while (diff < -180) diff += 360;
-        if (Math.abs(diff) <= MAX_GRAB_DEG) {
-          dragThumb = 'max'; // grab the outer thumb directly — unchanged from v7
-          grabbedNear = true;
-        }
-      }
-      if (!grabbedNear) {
-        // v14: inside the face circle = min, on the ring/beyond = max.
-        const zone = pointerFaceZone(e);
-        if (zone) dragThumb = zone;
-        if (e && e.shiftKey) dragThumb = 'max'; // Shift is still a secondary alias for max
-      }
-    }
+    dragAxis = null; // nothing moves until LOCK_PX of travel picks an axis
+    pressHub = pointerInHub(e) === true;
+    travelled = 0;
+    // The hub means "the whole control", so a drag from it carries both ends.
+    // Anywhere else grabs the nearer end alone — the only way an asymmetric
+    // span like 20–30% is reachable.
+    dragThumb = mode === 'range' ? (pressHub ? 'both' : nearerThumb(e)) : 'min';
     dragRaw = dragThumb === 'max' ? valueMax : value;
+    dragSpread = (valueMax - value) / 2;
     try {
       if (e && e.pointerId != null && typeof root.setPointerCapture === 'function') {
         root.setPointerCapture(e.pointerId);
@@ -882,13 +1012,112 @@ export function createKnob(container, options) {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
   }
 
+  /**
+   * Widen or narrow the span by `halfWidth` in value units, about the value
+   * the gesture started from. Crossing zero width collapses back to a single
+   * value; leaving zero opens a span out of one.
+   *
+   * At a bound the span grows ONE-SIDED rather than refusing to grow. The
+   * symmetric-only version of this was written first and was wrong in the way
+   * that matters most: a dial already at the top of its scale — a Volume at
+   * 100%, a Reprise at 100% — could not open a span at all, so the gesture
+   * silently did nothing on exactly the dials someone is most likely to want
+   * variation from. "Give me some variation here" is the ask; sliding the
+   * centre down to deliver it is the only honest reading of that at a ceiling.
+   */
+  function applySpread(halfWidth) {
+    const centre = dragSpreadCentre;
+    if (halfWidth <= 0) {
+      if (mode === 'single') return;
+      mode = 'single';
+      value = quantise(centre);
+      valueMax = value;
+      activeThumb = 'min';
+      updateView();
+      emit();
+      return;
+    }
+    let lo = centre - halfWidth;
+    let hi = centre + halfWidth;
+    // Push whatever overhangs a bound onto the other side, so the WIDTH the
+    // gesture asked for survives; then clamp, which only bites once the span
+    // is as wide as the whole scale.
+    if (lo < min) { hi += min - lo; lo = min; }
+    if (hi > max) { lo -= hi - max; hi = max; }
+    lo = quantise(Math.max(lo, min));
+    hi = quantise(Math.min(hi, max));
+    if (hi <= lo) return;
+    if (mode === 'range' && lo === value && hi === valueMax) return;
+    mode = 'range';
+    value = lo;
+    valueMax = hi;
+    updateView();
+    emit();
+  }
+
   function onPointerMove(e) {
     if (!dragging || !e || typeof e.clientY !== 'number') return;
+    const totalX = typeof e.clientX === 'number' ? e.clientX - pressX : 0;
+    const totalY = e.clientY - pressY;
+    const fromOrigin = Math.sqrt(totalX * totalX + totalY * totalY);
+    travelled = Math.max(travelled, fromOrigin);
+
+    // Scheme A: lock on first real travel, re-arm on return to the origin.
+    if (dragAxis === null) {
+      if (fromOrigin < LOCK_PX) {
+        lastY = e.clientY;
+        return;
+      }
+      dragAxis = Math.abs(totalX) > Math.abs(totalY) ? 'spread' : 'value';
+      if (dragAxis === 'spread') {
+        // Opening a span happens about where the value is NOW, so the value
+        // the user has already set is the centre of the span they get.
+        dragSpreadCentre = mode === 'range' ? (value + valueMax) / 2 : value;
+        dragSpread = mode === 'range' ? (valueMax - value) / 2 : 0;
+        // Measured from where the press STARTED, not from where the axis
+        // locked, so the six pixels that bought the lock are not also a dead
+        // zone. The vertical axis has always counted its travel this way; the
+        // two must match or a horizontal flick would need to be longer than a
+        // vertical one to do anything.
+        spreadOriginX = pressX;
+      }
+    } else if (fromOrigin < REARM_PX) {
+      dragAxis = null;
+      lastY = e.clientY;
+      return;
+    }
+
+    if (dragAxis === 'spread') {
+      if (!allowRange) return; // an enumeration has no span to open
+      const dx = e.clientX - spreadOriginX;
+      applySpread(dragSpread + dx * (range / SPREAD_RANGE_PX));
+      lastY = e.clientY;
+      return;
+    }
+
     const dy = lastY - e.clientY; // drag up = increase
     lastY = e.clientY;
-    // In range mode Shift selects the max thumb instead of fine control.
-    const fine = mode !== 'range' && e.shiftKey ? 0.1 : 1;
-    dragRaw += dy * (range / DRAG_RANGE_PX) * fine;
+    const fine = e.shiftKey ? 0.1 : 1;
+    const delta = dy * (range / DRAG_RANGE_PX) * fine;
+
+    if (mode === 'range' && dragThumb === 'both') {
+      // Both ends together, width preserved. The span stops at the bound it
+      // reaches first rather than being squashed against it.
+      const width = valueMax - value;
+      let lo = value + delta;
+      if (lo < min) lo = min;
+      if (lo + width > max) lo = max - width;
+      const nextLo = quantise(lo);
+      const nextHi = quantise(lo + width);
+      if (nextLo === value && nextHi === valueMax) return;
+      value = nextLo;
+      valueMax = nextHi;
+      updateView();
+      emit();
+      return;
+    }
+
+    dragRaw += delta;
     // v16: bounded only by the knob's own [min,max] — push-through (inside
     // commit/commitMax) handles carrying the other thumb along, so a drag
     // is never capped at the opposite thumb's current position.
@@ -906,6 +1135,7 @@ export function createKnob(container, options) {
 
   function endPointer(e) {
     dragging = false;
+    dragAxis = null;
     dragRaw = value;
     try {
       if (e && e.pointerId != null && typeof root.releasePointerCapture === 'function') {
@@ -918,13 +1148,16 @@ export function createKnob(container, options) {
 
   function onPointerUp(e) {
     const wasPress = pressed;
+    const wasHub = pressHub;
+    const moved = travelled;
     pressed = false;
     endPointer(e);
-    if (!allowRange || !wasPress || !e) return;
-    const dx = typeof e.clientX === 'number' ? e.clientX - pressX : NaN;
-    const dy = typeof e.clientY === 'number' ? e.clientY - pressY : NaN;
-    const dist = Math.sqrt(dx * dx + dy * dy); // NaN when coords were missing → not a click
-    if (dist <= CLICK_SLOP_PX && Date.now() - pressTime < CLICK_MS) toggleMode();
+    if (!wasPress || !e) return;
+    // A tap on the hub is the reset. No timing requirement — the owner's
+    // ruling is that a gesture must not depend on how fast it is made — and
+    // no reset anywhere else, so an ordinary tap on the face is inert rather
+    // than destructive.
+    if (wasHub && moved <= TAP_SLOP_PX) resetToDefault();
   }
 
   function onPointerCancel(e) {
@@ -952,6 +1185,27 @@ export function createKnob(container, options) {
     const key = e && e.key;
     const isRange = mode === 'range';
     const shifted = !!(e && e.shiftKey);
+
+    // The keyboard's tap-the-centre. Without it, deleting double-click would
+    // have left a keyboard user with no way back to the default at all.
+    if (key === 'Backspace' || key === 'Delete') {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      resetToDefault();
+      return;
+    }
+
+    // The keyboard's horizontal drag: Shift+Left narrows the spread,
+    // Shift+Right widens it, and widening from nothing opens a span. Without
+    // this a keyboard user could not create a spread at all — the old scheme
+    // could only move the ends of a span that a pointer had already opened.
+    if (allowRange && shifted && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      dragSpreadCentre = isRange ? (value + valueMax) / 2 : value;
+      const half = isRange ? (valueMax - value) / 2 : 0;
+      applySpread(half + (key === 'ArrowRight' ? keyStep : -keyStep));
+      return;
+    }
+
     let target = 'min';
     if (isRange) {
       const isArrow =
@@ -992,8 +1246,14 @@ export function createKnob(container, options) {
     else commit(next, true);
   }
 
-  function onDoubleClick(e) {
-    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+  /**
+   * Back to the declared default — value AND spread. Reached by tapping the
+   * centre hub or pressing Backspace/Delete with the dial focused. This
+   * replaces double-click, which the owner ruled out on 2026-07-27: a gesture
+   * nobody with a motor-control difficulty can rely on producing, sharing a
+   * target with a single click that has to mean something else.
+   */
+  function resetToDefault() {
     closeEditor();
     const changed =
       mode !== resetMode ||
@@ -1015,7 +1275,6 @@ export function createKnob(container, options) {
   listen('pointercancel', onPointerCancel);
   listen('wheel', onWheel, { passive: false });
   listen('keydown', onKeyDown);
-  listen('dblclick', onDoubleClick);
 
   updateView();
   applyGhost(opts.ghostValue != null ? opts.ghostValue : null);
@@ -1052,6 +1311,19 @@ export function createKnob(container, options) {
      * ghostValue doc above — number | {min,max} | null, display-only. */
     setGhost(v) {
       applyGhost(v);
+    },
+    /**
+     * Where inside the span the value actually is at this instant — a number
+     * from a caller polling the engine, or null to hide the mark. Display
+     * only: it never commits, never fires onInput, and is ignored outside
+     * range mode where the main pointer already shows it.
+     */
+    setLive(v) {
+      // `Number(null)` is 0, not NaN — checking finiteness alone would turn
+      // "hide the mark" into "the mark is at zero".
+      const n = v == null ? NaN : Number(v);
+      liveValue = Number.isFinite(n) ? n : null;
+      applyLive();
     },
     destroy() {
       if (destroyed) return;

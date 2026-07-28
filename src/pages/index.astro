@@ -2963,18 +2963,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /** The reverb tail the engine may actually have, tier cap included. */
+      /**
+       * v0.0.56: the tail may be a {min,max} span. The power cap applies to
+       * BOTH ends — the governor's job is to stop the tail exceeding what the
+       * device can carry, and a span whose top end escaped that would defeat
+       * it on the loudest bar rather than never.
+       */
       function cappedReverbTail() {
-        const asked = clamp(
-          typeof settings?.reverbTail === 'number' && Number.isFinite(settings.reverbTail)
-            ? settings.reverbTail
-            : engineReverbTail ?? 2,
-          0.5,
-          6
-        );
+        const stored = settings?.reverbTail;
+        const usable = (typeof stored === 'number' && Number.isFinite(stored))
+          || (stored && typeof stored === 'object'
+            && Number.isFinite(stored.min) && Number.isFinite(stored.max));
+        const asked = mapRangeValue(usable ? stored : (engineReverbTail ?? 2),
+          (v) => clamp(v, 0.5, 6));
         const cap = powerBudget && typeof powerBudget.reverbSeconds === 'number'
           ? powerBudget.reverbSeconds
           : null;
-        return cap === null ? asked : Math.min(asked, cap);
+        if (cap === null) return asked;
+        return mapRangeValue(asked, (v) => Math.min(v, cap));
       }
 
       /** Push the capped tail through whichever hook this engine exposes. */
@@ -3038,24 +3044,43 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         const forcedOn = TRACK_IDS.filter((id) => settings.tracks[id].state === 'on').length;
         if (forcedOn > 0) parts.push(forcedOn / TRACK_IDS.length);
-        const shown = parts.length
-          ? parts.reduce((s, p) => s + p, 0) / parts.length
-          : settings.complexity;
+        // v0.0.56: with nothing hand-set there is no estimate to show, so the
+        // stored value passes through UNCHANGED — including a {min,max} span.
+        // Collapsing it here was silently undoing a horizontal drag on
+        // Complexity a frame after it landed: the drag's own commit sets
+        // structure and every track back to Auto, which calls this, which put
+        // a single number back on the face. `clamp` on an object is NaN, so
+        // the dial was being handed junk as well as being overwritten.
+        if (!parts.length) {
+          complexityDial?.set(mapRangeValue(settings.complexity, (v) => clamp(v, 0, 1)));
+          return;
+        }
+        const shown = parts.reduce((s, p) => s + p, 0) / parts.length;
         complexityDial?.set(clamp(shown, 0, 1));
       }
 
       // ---- tempo (one value, two views) ---------------------------------
 
+      /**
+       * v0.0.56: `bpm` may arrive as a number OR as a {min,max} span, because
+       * the Tempo dial spreads like every other dial now. The span goes
+       * straight to the engine, which walks it once a bar; everything that
+       * needs ONE number to show (the typable readout, the other dials'
+       * positions) takes the midpoint, which is where the walk sits on
+       * average and where the piece starts.
+       */
       function setTempo(bpm, { skipSpeedThumb = false, skipEnergyThumb = false } = {}) {
-        bpm = Math.round(clamp(bpm, 20, 220));
+        const clampBpm = (v) => Math.round(clamp(v, 20, 220));
+        bpm = mapRangeValue(bpm, clampBpm);
+        const mid = rangeMid(bpm);
         settings.bpm = bpm;
-        if (bpmInput) bpmInput.value = String(bpm);
+        if (bpmInput) bpmInput.value = String(mid);
         bpmTypable?.refresh();
-        if (!skipSpeedThumb) speedDial?.set(speedTFromBpm(bpm));
+        if (!skipSpeedThumb) speedDial?.set(mapRangeValue(bpm, speedTFromBpm));
         // Energy's read-back is tempo-anchored (tempo is the dominant cue the
         // macro owns), so any tempo write moves the Energy dial too — except
         // the one Energy itself is making mid-gesture.
-        if (!skipEnergyThumb) energyDial?.set(energyFromBpm(bpm));
+        if (!skipEnergyThumb) energyDial?.set(mapRangeValue(bpm, energyFromBpm));
         engine.setParams({ bpm, speed: 1 });
         persistSettings();
       }
@@ -3699,6 +3724,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                   handle.set?.(v);
                 } catch {}
               },
+              // v0.0.56: where inside a spread the engine actually is this
+              // bar. Optional on the handle because the <input type=range>
+              // fallback below has nowhere to draw it.
+              setLive: (v) => {
+                try {
+                  handle.setLive?.(v);
+                } catch {}
+              },
             };
           } catch {
             for (const stale of box.querySelectorAll('.knob')) stale.remove();
@@ -3720,6 +3753,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           set: (v) => {
             input.value = String(typeof v === 'object' ? (v.min + v.max) / 2 : v);
           },
+          setLive: () => {}, // a native slider has one thumb and nowhere to mark the drift
         };
       }
 
@@ -3754,6 +3788,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           el: handles.length ? handles[0].el : null,
           els: handles.map((handle) => handle.el).filter(Boolean),
           set: (value) => set(value, null),
+          setLive: (value) => {
+            for (const handle of handles) handle.setLive?.(value);
+          },
         };
       }
 
@@ -3770,16 +3807,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * so the labels should read up and down too. `\n` survives because
        * `.ui-tooltip` is `white-space: pre-line`.
        */
-      function rangeHint(high, low, mid) {
+      function rangeHint(high, low, mid, spread) {
         const lines = [`↑ ${high}`];
         if (mid) lines.push(`  ${mid}`);
         lines.push(`↓ ${low}`);
+        // v0.0.56: the third direction the dial answers to. It ships WITH the
+        // horizontal-drag gesture and not a version before it — a tooltip
+        // advertising a left-right drag on a dial that ignores one teaches the
+        // user the control is broken, which is the exact failure the owner's
+        // consistency principle is about.
+        if (spread) lines.push(`↔ ${spread}`);
         return lines.join('\n');
       }
 
-      /** Tooltip for a dial: its range first, then whatever else it needs said. */
-      function dialHint(high, low, mid, detail) {
-        return detail ? `${rangeHint(high, low, mid)}\n\n${detail}` : rangeHint(high, low, mid);
+      /**
+       * Tooltip for a dial: the directions it answers to first, then whatever
+       * else it needs said. `spread` names what a left-right drag varies —
+       * omit it only for a dial that genuinely cannot spread (an enumeration),
+       * so the absence of the line means something.
+       */
+      function dialHint(high, low, mid, detail, spread) {
+        const head = rangeHint(high, low, mid, spread);
+        return detail ? `${head}\n\n${detail}` : head;
       }
 
       /** Attach the same tooltip/description to every view of a mirrored dial. */
@@ -3803,10 +3852,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           format: (t) => `${Math.round(bpmFromSpeedT(t))} bpm`,
           defaultValue: speedTFromBpm(DEFAULTS.bpm),
         },
-        (t) => setTempo(bpmFromSpeedT(t), { skipSpeedThumb: true })
+        (t) => setTempo(mapRangeValue(t, bpmFromSpeedT), { skipSpeedThumb: true })
       );
 
-      describeDial(speedDial, dialHint('Fast', 'Slow'));
+      describeDial(speedDial, dialHint('Fast', 'Slow', null, null, 'Vary the tempo'));
 
       /**
        * Moving Complexity is an explicit "let the engine decide" gesture:
@@ -3875,7 +3924,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       function commitComplexityAuto(value, { syncDial = false } = {}) {
-        const effectBefore = dialEffectSnapshot(settings.complexity);
+        // v0.0.56: `value` may be a {min,max} span. The engine takes it whole
+        // and walks it; the "what did that just do" announcement needs a
+        // single number to compare two snapshots with, and the midpoint is
+        // where the span sits on average.
+        const effectBefore = dialEffectSnapshot(rangeMid(settings.complexity));
         settings.complexity = value;
         settings.structure = 'auto';
         settings.arp.mode = 'auto';
@@ -3892,7 +3945,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           tracks: trackStates,
         });
         if (syncDial) complexityDial?.set(value);
-        announceDialEffect(effectBefore, dialEffectSnapshot(value));
+        announceDialEffect(effectBefore, dialEffectSnapshot(rangeMid(value)));
         persistSettings();
       }
       const commitComplexityDebounced = trailingDebounce(commitComplexityAuto, 120);
@@ -3914,7 +3967,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         (value) => commitComplexityDebounced(value)
       );
 
-      describeDial(complexityDial, dialHint('Complex', 'Calm'));
+      describeDial(complexityDial, dialHint('Complex', 'Calm', null, null, 'Vary how much is going on'));
 
       // ---- Energy (Simple tab): the macro itself --------------------------
       energyDial = buildSimpleDial(
@@ -3942,7 +3995,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           'Lively',
           'Calm',
           null,
-          'One dial for how much is going on: it moves Tempo and Complexity together — watch them follow on Advanced. Moving it also lets the engine choose the structure and tracks again, so hand-set track switches return to Auto.'
+          'One dial for how much is going on: it moves Tempo and Complexity together — watch them follow on Advanced. Moving it also lets the engine choose the structure and tracks again, so hand-set track switches return to Auto.',
+          'Vary the energy'
         )
       );
 
@@ -3969,7 +4023,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           persistSettings();
         }
       );
-      describeDial(repetitionDial, dialHint('Always', 'Rarely', null, REPRISE_HINT));
+      describeDial(repetitionDial, dialHint('Always', 'Rarely', null, REPRISE_HINT, 'Vary how much it reprises'));
 
       // ONE dial for "how much does this thing change" (user decision, v15):
       // Repetitive ← Evolving → Random. It drives BOTH halves of that
@@ -4033,7 +4087,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       );
       describeDial(
         randomnessDial,
-          dialHint('Often', 'Never', 'Now and then', 'How much the music moves on rather than staying the same. At the very bottom it never changes — the bars loop exactly. On this tab it sets reprise and every track’s variation together; Advanced separates them.')
+          dialHint('Often', 'Never', 'Now and then', 'How much the music moves on rather than staying the same. At the very bottom it never changes — the bars loop exactly. On this tab it sets reprise and every track’s variation together; Advanced separates them.', 'Vary how much it changes')
       );
 
       // ADVANCED tab: Variation owns the tracks' randomness and NOTHING else
@@ -4061,7 +4115,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           persistSettings();
         }
       );
-      describeDial(variationDial, dialHint('Vary', 'Hold', null, VARIATION_HINT));
+      describeDial(variationDial, dialHint('Vary', 'Hold', null, VARIATION_HINT, 'Vary how much it varies'));
 
       // v0.0.39: the line that used to sit under the dial grid as permanent
       // prose. It answers a question you only ask once — why some of these
@@ -4113,7 +4167,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           defaultValue: volumeDialFromParam(DEFAULTS.volume),
         };
         const commitVolume = (t) => {
-          const value = volumeParamFromDial(t);
+          // The dial position is tapered, and the taper is monotonic, so
+          // mapping each end of a span independently keeps min ≤ max.
+          const value = mapRangeValue(t, volumeParamFromDial);
           settings.volume = value;
           engine.setParams({ volume: value });
           persistSettings();
@@ -4170,7 +4226,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           })
         : null;
 
-      describeDial(volumeDial, dialHint('Loud', 'Quiet'));
+      describeDial(volumeDial, dialHint('Loud', 'Quiet', null, null, 'Vary the level'));
 
       // ---- v14 Swing (global; Advanced tab) -------------------------------
       // Only rendered when the engine advertises the param — a dial that
@@ -4199,7 +4255,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(
           swingDial.el,
           dialHint('Swung', 'Straight', null,
-            'Delays every off-beat subdivision — straight at 0, a classic long-short shuffle at the top. Sequencers, arp and percussion all follow it.')
+            'Delays every off-beat subdivision — straight at 0, a classic long-short shuffle at the top. Sequencers, arp and percussion all follow it.',
+            'Vary the swing')
         );
       }
 
@@ -4230,7 +4287,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             defaultValue: shipped,
           },
           (value) => {
-            settings.reverbTail = clamp(rangeMid(value), 0.5, 6);
+            settings.reverbTail = mapRangeValue(value, (v) => clamp(v, 0.5, 6));
             applyReverbTail();
             persistSettings();
           }
@@ -4238,7 +4295,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(
           reverbTailDial.el,
           dialHint('Cathedral', 'Room', null,
-            'How long the reverb rings on. Eco and Low processor settings shorten it whatever this says.')
+            'How long the reverb rings on. Eco and Low processor settings shorten it whatever this says.',
+            'Vary the tail')
         );
         applyReverbTail();
       }
@@ -4567,6 +4625,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try {
             const handle = knobApi.createKnob(cell, {
               label: 'Glide',
+              // v0.0.56 opt-out: the TRACK's glide is a plain number in the
+              // engine (`numberIn`, not `sanitiseRangeValue`) — unlike the
+              // patch-level glide, which is rangeable. Until the engine walks
+              // it, offering the gesture would be advertising a spread that
+              // is silently dropped on the next setParams.
+              allowRange: false,
               min: 0,
               max: 1,
               value,
@@ -4625,6 +4689,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try {
             const handle = knobApi.createKnob(cell, {
               label: 'Drift rate',
+              // v0.0.56 opt-out: a plain number in the engine, and the one
+              // dial where a spread is also circular — drift rate is how fast
+              // every OTHER spread walks.
+              allowRange: false,
               min: 0.02,
               max: 1,
               step: 0.01,
@@ -4707,6 +4775,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try {
             const handle = knobApi.createKnob(cell, {
               label,
+              // v0.0.56 opt-out: feel is an enumeration of named grooves.
+              allowRange: false,
               min: 0,
               max: FEEL_STEPS,
               step: 1,
@@ -7269,6 +7339,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             label: 'OSC 1',
             field: 'source.shape1',
             glyphOnly: true,
+            allowRange: false, // shape morph — see the Octave dial below
             min: 0,
             max: 3,
             value: readShape(patch.source, 1) ?? 0,
@@ -7309,6 +7380,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
           const shape2Knob = addKnob(source, {
             label: 'OSC 2',
+            allowRange: false, // shape morph — see the Octave dial below
             field: 'source.shape2',
             glyphOnly: true,
             min: 0,
@@ -7422,6 +7494,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           addKnob(source, {
             label: 'Octave',
             field: 'source.octave',
+            // v0.0.56: spreadable is the default, and this is one of the few
+            // dials that must opt out — the engine names octave, filter type
+            // and the shape morphs as the params it cannot walk, and a span
+            // between two named switch positions would not mean anything.
+            // The Pitch dial that replaces this one on percussion IS
+            // continuous, and does spread.
+            allowRange: false,
             min: -1,
             max: 1,
             step: 1,
@@ -7562,6 +7641,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           addKnob(filter, {
             label: 'Type',
             field: 'filter.type',
+            allowRange: false, // an enumeration — see the Octave dial above
             // The dial's domain is the index, the patch stores the name.
             ghostMap: (v) => Math.max(0, FILTER_ORDER.indexOf(v)),
             min: 0,
@@ -9326,7 +9406,31 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // dial set follows the voice you can hear.
       let resolvedTimer = null;
 
+      /**
+       * v0.0.56: the live mark on any global dial the user has spread. The
+       * engine reports only the spread ones (`resolved.globals`), so a dial
+       * that is not drifting is told `null` and hides its mark — the main
+       * pointer already says everything there is to say about a still value.
+       *
+       * Each entry maps the ENGINE's units back into the DIAL's, which is not
+       * always the identity: Tempo and Energy are log maps over bpm and Volume
+       * is tapered, so feeding the raw param straight in would put the mark in
+       * the wrong place on exactly the dials most worth watching.
+       */
+      function applyResolvedGlobals(globals) {
+        const g = isPlainObject(globals) ? globals : {};
+        const at = (key, map) => (typeof g[key] === 'number' ? map(g[key]) : null);
+        speedDial?.setLive?.(at('bpm', speedTFromBpm));
+        energyDial?.setLive?.(at('bpm', energyFromBpm));
+        complexityDial?.setLive?.(at('complexity', (v) => v));
+        repetitionDial?.setLive?.(at('repetition', (v) => v));
+        volumeDial?.setLive?.(at('volume', volumeDialFromParam));
+        swingDial?.setLive?.(at('swing', (v) => v));
+        reverbTailDial?.setLive?.(at('reverbTail', (v) => v));
+      }
+
       function applyResolved(resolved) {
+        applyResolvedGlobals(resolved && resolved.globals);
         const tracks = resolved && isPlainObject(resolved.tracks) ? resolved.tracks : null;
         for (const id of TRACK_IDS) {
           const readout = document.getElementById(`resolved-${id}`);
@@ -14115,6 +14219,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         display: inline-flex;
         align-items: center;
         padding: 10px 14px;
+      }
+    }
+
+    /* -- v0.0.56: dials on a touch screen --------------------------------
+       Two changes, both consequences of the horizontal-drag gesture.
+
+       The dials that shrank to 56 px (the processor dial) and 72 px (the
+       per-lane rows) are now targets for a gesture with a CENTRE zone as
+       well as a rim: at 56 px the hub is under 13 px across, which is half
+       the ~24 px an adult fingertip actually resolves. On a touch screen
+       they take the same 88 px the main dials use, so the hub is a real
+       target rather than a notional one. Pointer devices keep the compact
+       sizes, where a mouse can hit 13 px without thinking about it.
+
+       `touch-action: none` is set by knob.js on each knob's own root, which
+       is what stops iOS reading a horizontal drag on a dial as the page's
+       back-swipe. It is repeated here for the cells around them so a drag
+       that starts a pixel outside the face is not stolen either. */
+    @media (pointer: coarse) {
+      .processor-row,
+      .dissonance-row,
+      .vary-cells {
+        --knob-size: 88px;
+      }
+
+      .knob-cell,
+      .vary-knob,
+      .simple-dial {
+        touch-action: none;
       }
     }
   </style>

@@ -5526,7 +5526,16 @@ test('v21: reverbTail is a 0.5–6 s number that ships at 4 and survives a prese
   assert.equal(tailOf(0), 0.5, 'reverbTail did not clamp below');
   assert.equal(tailOf('3'), 3, 'a number-input string still counts');
   assert.equal(tailOf('nope'), 4, 'junk falls back to the default');
-  assert.equal(tailOf({ min: 1, max: 5 }), 4, 'reverbTail is not rangeable');
+  // v0.0.56: reverbTail IS rangeable now, along with every other global dial.
+  // The number stays a number — the span lives beside it in params.spans and
+  // walks into params.reverbTail once a bar — so the value a spread settles on
+  // is its midpoint until the first barline moves it.
+  assert.equal(tailOf({ min: 1, max: 5 }), 3, 'a spread reverbTail starts at its midpoint');
+  assert.deepEqual(
+    sanitiseParams({ reverbTail: { min: 1, max: 5 } }).spans.reverbTail,
+    { min: 1, max: 5 },
+    'the span itself must be kept, not just its midpoint'
+  );
   // Preset capture: it merges like any other top-level number, and getParams
   // hands it back for the snapshot a preset actually stores.
   const engine = createEngine({ reverbTail: 1.5 });
@@ -5686,6 +5695,56 @@ test('v21: the range default drives every consumer, and a zeroed range freezes t
     assert.ok((await rhythm({ min: 0, max: 0.6 }, 7102)).size > 1,
       'a range that only touches zero froze the track');
   }));
+
+test('v0.0.56: a spread global dial drifts inside its span, bar by bar',
+  () => hiddenTab(async () => {
+    // The owner's ask was "everything should be spreadable with horizontal
+    // drag". A dial that opens a span the engine ignores is worse than one
+    // that refuses the gesture, so this proves the three properties that make
+    // the spread real: the value stays inside the span, it MOVES, and it is a
+    // plain number at every read site (params.bpm is read by the scheduler as
+    // a number, dozens of times, and always was).
+    const engine = createEngine({
+      bpm: { min: 80, max: 120 }, speed: 1, structure: 'drone', complexity: 0.5,
+      tracks: { ...tracksAll('off'), pad: { state: 'on' } },
+    }, { rng: seededRng(556) });
+    assert.deepEqual(engine.getParams().spans.bpm, { min: 80, max: 120 },
+      'the span must survive into the params a preset stores');
+    assert.equal(engine.getParams().bpm, 100, 'a spread dial settles on its midpoint until it walks');
+    await engine.start();
+    const seen = [];
+    for (let i = 0; i < 12; i++) {
+      await advance(1, FAST);
+      seen.push(engine.getResolved().globals.bpm);
+    }
+    engine.stop();
+    for (const value of seen) {
+      assert.equal(typeof value, 'number', 'a global span reached a consumer unresolved');
+      assert.ok(value >= 80 - 1e-6 && value <= 120 + 1e-6,
+        `a resolved bpm of ${value} is outside the 80-120 span`);
+    }
+    assert.ok(new Set(seen.map((v) => v.toFixed(9))).size > 1, 'the spread bpm never drifted');
+  }));
+
+test('v0.0.56: setting a global dial to one number closes its span', () => {
+  const spread = sanitiseParams({ swing: { min: 0.1, max: 0.5 } });
+  assert.deepEqual(spread.spans.swing, { min: 0.1, max: 0.5 });
+  // An unrelated edit must not silently close it …
+  const untouched = sanitiseParams({ bpm: 90 }, spread);
+  assert.deepEqual(untouched.spans.swing, { min: 0.1, max: 0.5 },
+    'an unrelated edit dropped a span');
+  // … but setting that dial to a single value must, because that is exactly
+  // what narrowing a spread to nothing means.
+  const closed = sanitiseParams({ swing: 0.2 }, spread);
+  assert.equal(closed.swing, 0.2);
+  assert.equal(closed.spans.swing, undefined, 'a plain number must close the span');
+});
+
+test('v0.0.56: a params object with no spreads is byte-identical to a pre-v0.0.56 one', () => {
+  const plain = sanitiseParams({ bpm: 90 });
+  assert.deepEqual(plain.spans, {}, 'an untouched params object must carry no spans');
+  assert.equal(Object.keys(DEFAULT_PARAMS.spans).length, 0);
+});
 
 test('v21: driftRate scales a track\'s walk step, and never stops it dead', () => {
   const rateOf = (driftRate) => sanitiseParams({ tracks: { pad: { driftRate } } }).tracks.pad.driftRate;

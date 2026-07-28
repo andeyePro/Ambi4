@@ -1000,6 +1000,11 @@ export const DEFAULT_PARAMS = Object.freeze({
   // baked, so a params object that never mentions it sounds unchanged.
   reverbTail: 4,
   padBreath: DEFAULT_PAD_BREATH,
+  // v0.0.56: per-key {min,max} for any of the NUMERIC_RANGES keys the user has
+  // spread with a horizontal drag. Empty is every params object written before
+  // this version, and stays byte-identical to one — a key absent here is a
+  // dial that is not drifting.
+  spans: Object.freeze({}),
   // v26 seed: the chord loop the hook establishes from, or null to walk one.
   harmony: Object.freeze({ rhythm: 'auto', seed: null }),
   structure: 'auto',
@@ -2057,9 +2062,29 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   const out = {};
   for (const key of Object.keys(NUMERIC_RANGES)) {
     const range = NUMERIC_RANGES[key];
+    // v0.0.56: the global dials spread too, so any of these may arrive as
+    // {min,max}. `params[key]` stays a NUMBER at all times regardless — every
+    // one of the several dozen places that reads params.bpm, params.swing and
+    // the rest keeps reading a plain number, and the spread lives beside it in
+    // `spans` (below), resolved into `params[key]` once a bar. Doing it the
+    // other way — a RangeValue in `params` and a resolve at each read site —
+    // would have meant auditing every one of those sites for a case that is
+    // silently wrong rather than loudly broken when missed.
+    const spread = sanitiseRangeValue(at(key), range[0], range[1]);
+    if (spread && typeof spread === 'object') {
+      out[key] = numberIn((spread.min + spread.max) / 2, range, DEFAULT_PARAMS[key]);
+      (out.spans || (out.spans = {}))[key] = spread;
+      continue;
+    }
     // Re-clamping the inherited value too means a bad `base` can never leak.
     out[key] = numberIn(at(key), range, numberIn(from[key], range, DEFAULT_PARAMS[key]));
+    // An explicit plain number CLOSES any span this key was carrying: setting
+    // a dial to one value is how you say "stop drifting".
+    if (at(key) === undefined && from.spans && from.spans[key]) {
+      (out.spans || (out.spans = {}))[key] = { ...from.spans[key] };
+    }
   }
+  if (!out.spans) out.spans = {};
   out.root = normaliseRoot(at('root')) ?? normaliseRoot(from.root) ?? DEFAULT_PARAMS.root;
   out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
   out.timeSignature = oneOf(at('timeSignature'), Object.keys(TIME_SIGNATURES),
@@ -2153,6 +2178,11 @@ const copyHarmony = (harmony) => ({
 function copyParams(params, order = TRACK_ORDER) {
   return {
     ...params,
+    // Each span is an object inside the map; a spread of the map alone would
+    // hand the caller live references into the engine's own state.
+    spans: Object.fromEntries(
+      Object.entries(params.spans || {}).map(([key, span]) => [key, { ...span }])
+    ),
     // A manifest is an object inside the entry: a spread of the entry alone
     // would hand its dials out by reference.
     userTracks: params.userTracks.map((entry) => (entry.manifest
@@ -3967,6 +3997,48 @@ export function createEngine(initialParams, options = {}) {
     // A frozen track's re-resolution lands on the same numbers, which is what
     // makes randomness 0 hold a ranged patch still as well as a ranged plan.
     resolvedPatches.clear();
+  }
+
+  /**
+   * v0.0.56: the global dials that have been spread take their new value for
+   * the bar about to be scheduled. They walk on the same bounded reflecting
+   * walk the per-track ranges use — a slow change of mind rather than noise —
+   * under a reserved pseudo-track key, which is deliberately not a real track
+   * name so a hold or a freeze on any track cannot stop the global dials
+   * drifting.
+   *
+   * `params[key]` stays a plain number throughout; this is the only writer.
+   * Anything that reads params.bpm (and the several dozen sites that do) is
+   * therefore untouched by the whole feature.
+   */
+  const GLOBAL_WALK_KEY = '@global';
+  // A drifting master level glides over most of a bar rather than stepping:
+  // the walk is meant to be heard as the piece breathing, not as a fader being
+  // nudged once a bar.
+  const BAR_WALK_RAMP = 1.5;
+
+  function resolveGlobalSpans() {
+    const spans = params.spans;
+    if (!spans) return;
+    let touchedVolume = false;
+    let touchedReverb = false;
+    for (const key of Object.keys(spans)) {
+      const span = spans[key];
+      if (!span || typeof span !== 'object') continue;
+      const range = NUMERIC_RANGES[key];
+      if (!range) continue;
+      const at = span.min + (span.max - span.min) * walk(GLOBAL_WALK_KEY, key);
+      params[key] = clamp(at, range[0], range[1]);
+      if (key === 'volume') touchedVolume = true;
+      else if (key === 'reverbTail') touchedReverb = true;
+    }
+    // Most of these keys are read fresh by the bar they affect, so writing the
+    // number is the whole job. Two are not: the master level and the reverb
+    // tail are pushed into the audio graph when they change, and a walk that
+    // moved them without pushing would be a dial that visibly drifts and is
+    // inaudible — the exact failure this whole feature exists to avoid.
+    if (touchedVolume) applyLevels(BAR_WALK_RAMP);
+    if (touchedReverb) ensureReverbTail();
   }
 
   /**
@@ -6949,6 +7021,7 @@ export function createEngine(initialParams, options = {}) {
     // so a bar is realised exactly once against a stable set of decisions.
     applyHolds();
     advanceWalks();
+    resolveGlobalSpans();
     // A lane's loop is the bar, so the Markov pick between a track's several
     // sequencers happens here, before anything reads one.
     advanceSequencers();
@@ -7844,10 +7917,19 @@ export function createEngine(initialParams, options = {}) {
       const patch = patchFor(name);
       patches[name] = patch ? copyPatch(patch) : null;
     }
+    // v0.0.56: the global dials the user has spread, at the value this bar is
+    // actually playing. Only the spread ones are reported — a dial that is not
+    // drifting has nothing to show that its own pointer does not already say,
+    // and a live mark on top of a still pointer would be noise.
+    const globals = {};
+    for (const key of Object.keys(params.spans || {})) {
+      if (NUMERIC_RANGES[key]) globals[key] = params[key];
+    }
     return {
       running: isRunning,
       bar: currentBarNumber,
       section: { label: currentSection.label, intensity: currentSection.intensity },
+      globals,
       tracks,
       patches,
     };
