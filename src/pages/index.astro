@@ -567,50 +567,52 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
-      <div class="control">
-        <label for="root">Root</label>
-        <select id="root">
-          {roots.map((r) => <option value={r}>{r}</option>)}
-        </select>
-      </div>
-
-      <div class="control">
-        <label for="mode">Scale</label>
-        <select id="mode">
-          {modes.map(([value, label]) => <option value={value}>{label}</option>)}
-        </select>
-      </div>
-
-      <div class="control">
-        <label for="timeSignature">Time signature</label>
-        <select id="timeSignature">
-          {timeSignatures.map((t) => <option value={t}>{t}</option>)}
-        </select>
-      </div>
-
-      <div class="control">
-        <div class="control-label-row">
-          <label for="bpm">BPM</label>
-          <span class="value-readout bpm-readout" id="bpm-readout"><output for="bpm" id="bpm-value">60</output></span>
+      <!-- v0.0.46: paired onto rows. Six full-width selects stacked down the
+           page for values that are two or three characters wide was most of
+           what made Advanced feel long and empty. The BPM slider is gone with
+           them: it was a third view of the same tempo the dial already owns
+           (setTempo drove dial, slider and readout together), so it was
+           duplicating a control rather than adding one. -->
+      <div class="control-pair">
+        <div class="control">
+          <label for="root">Root</label>
+          <select id="root">
+            {roots.map((r) => <option value={r}>{r}</option>)}
+          </select>
         </div>
-        <input type="range" id="bpm" min="20" max="220" step="1" value="60" />
+
+        <div class="control">
+          <label for="mode">Scale</label>
+          <select id="mode">
+            {modes.map(([value, label]) => <option value={value}>{label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div class="control-pair">
+        <div class="control">
+          <label for="timeSignature">Time signature</label>
+          <select id="timeSignature">
+            {timeSignatures.map((t) => <option value={t}>{t}</option>)}
+          </select>
+        </div>
+
+        <div class="control" id="control-chord-length" hidden>
+          <label for="chordLength">Chord length</label>
+          <select id="chordLength">
+            <option value="auto">Auto</option>
+            <option value="1">1 bar</option>
+            <option value="2">2 bars</option>
+            <option value="4">4 bars</option>
+            <option value="8">8 bars</option>
+          </select>
+        </div>
       </div>
 
       <div class="control">
         <label for="structure">Structure</label>
         <select id="structure">
           {structures.map(([value, label]) => <option value={value}>{label}</option>)}
-        </select>
-      </div>
-
-      <div class="control" id="control-chord-length" hidden>
-        <label for="chordLength">Chord length</label>
-        <select id="chordLength">
-          <option value="auto">Auto</option>
-          <option value="1">1 bar</option>
-          <option value="2">2 bars</option>
-          <option value="4">4 bars</option>
-          <option value="8">8 bars</option>
         </select>
       </div>
 
@@ -2737,7 +2739,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (c === 'denied' || deniedThisSession) return Promise.resolve(false);
         if (!consentAsking) {
           consentAsking = Promise.resolve(
-            consentPrompt(consentSlot, 'Remember your settings and presets on this device?')
+            consentPrompt(consentSlot, {
+              message: 'Remember your settings and presets on this device?',
+              // Consent has to be informed: name the mechanism, say what goes
+              // in it, and disclose the one cookie that records the answer —
+              // which is set either way, and is the strictly-necessary kind
+              // that needs no consent of its own.
+              detail:
+                'Choosing Save keeps your dials, tracks and saved presets in this browser’s ' +
+                'local storage. Either way we set one small cookie so we remember your answer ' +
+                'and stop asking. Nothing is uploaded, and there is no tracking or advertising ' +
+                'in this — see',
+              privacyUrl: 'https://andeye.com/privacy',
+            })
           )
             .then((granted) => {
               if (!granted) deniedThisSession = true;
@@ -2877,6 +2891,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const rootSelect = document.getElementById('root');
       const modeSelect = document.getElementById('mode');
       const timeSignatureSelect = document.getElementById('timeSignature');
+      // v0.0.46: the BPM slider is gone — the Tempo dial owns the value and
+      // setTempo drove all three views. The readout it fed lives on.
       const bpmInput = document.getElementById('bpm');
       const bpmReadout = document.getElementById('bpm-readout');
       let bpmTypable = null;
@@ -2999,14 +3015,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function setTempo(bpm, { skipSpeedThumb = false } = {}) {
         bpm = Math.round(clamp(bpm, 20, 220));
         settings.bpm = bpm;
-        bpmInput.value = String(bpm);
+        if (bpmInput) bpmInput.value = String(bpm);
         bpmTypable?.refresh();
         if (!skipSpeedThumb) speedDial?.set(speedTFromBpm(bpm));
         engine.setParams({ bpm, speed: 1 });
         persistSettings();
       }
 
-      bpmInput.addEventListener('input', () => {
+      bpmInput?.addEventListener('input', () => {
         setTempo(parseInt(bpmInput.value, 10));
       });
 
@@ -3846,12 +3862,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       );
 
-      bpmTypable = makeTypable(bpmReadout, {
-        read: () => settings.bpm,
-        commit: (v) => setTempo(v),
-        format: (v) => String(v),
-        label: 'Beats per minute — click to type a value',
-      });
+      // v0.0.46: the BPM readout went with the slider it belonged to — the Tempo
+      // dial already prints "52 bpm" under its own face and is click-to-type in
+      // its own right, so a second editable number for the same value was one
+      // too many. Guarded rather than deleted because a future layout may want
+      // the standalone readout back.
+      bpmTypable = bpmReadout
+        ? makeTypable(bpmReadout, {
+            read: () => settings.bpm,
+            commit: (v) => setTempo(v),
+            format: (v) => String(v),
+            label: 'Beats per minute — click to type a value',
+          })
+        : null;
 
       describeDial(volumeDial, dialHint('Loud', 'Quiet'));
 
@@ -10989,7 +11012,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // ---- initial sync ---------------------------------------------------
 
       function syncUIFromSettings() {
-        bpmInput.value = String(settings.bpm);
+        if (bpmInput) bpmInput.value = String(settings.bpm);
         bpmTypable?.refresh();
         speedDial?.set(speedTFromBpm(settings.bpm));
         repetitionDial?.set(settings.repetition);
@@ -12413,10 +12436,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       min-height: 14px;
     }
 
+    /* v0.0.46: was 84px, which is narrower than the content it has to hold.
+       "Percussion" alone overflowed it (rendering as "Percussio"), and the
+       "— off" suffix below pushed the longest labels onto a second line inside
+       the button, so a switched-off Arp read as "Arp —" over "off". Wide enough
+       for "Percussion — off" now, and nowrap so it can never stack again. The
+       width stays fixed rather than auto so the voice pickers still line up
+       down the column. */
     .track-name {
-      width: 84px;
+      width: 140px;
       flex-shrink: 0;
       font-weight: 600;
+      white-space: nowrap;
     }
 
     /* v12: track-name is now a lamp button — off/auto/on lamp dot (black/
@@ -12426,7 +12457,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      width: 84px;
+      width: 140px;
       border: none;
       background: none;
       padding: 3px 4px;
@@ -12848,6 +12879,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        Explicit four columns now, so the four that mirror Simple fill the first
        row and the extra three sit beneath them, which is the shape the owner
        asked for and also the one that reads. */
+    /* Two short controls to a row. */
+    .control-pair {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0 16px;
+    }
+
+    @media (max-width: 420px) {
+      .control-pair {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
     #advanced-dials {
       display: block;
     }

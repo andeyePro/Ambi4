@@ -1214,8 +1214,19 @@ try {
         );
       } else {
         const defaults = engineModule.DEFAULT_PARAMS || {};
+        // v0.0.46: the standalone BPM slider is gone, so the tempo is read off
+        // the Tempo dial's own readout ("52 bpm") instead of an input's value.
+        // The bpm-range checks below are worth keeping — they are what proves a
+        // genre's declared tempo actually reaches the engine — so they get a
+        // reader rather than being dropped with the input.
+        const readBpm = () => {
+          const el =
+            doc.querySelector('#speed-dial .knob-value') ||
+            doc.querySelector('#speed-dial-adv .knob-value');
+          const n = el ? parseInt(String(el.textContent).replace(/[^0-9]/g, ''), 10) : NaN;
+          return Number.isFinite(n) ? n : NaN;
+        };
         const signature = () => ({
-          bpm: Number(doc.getElementById('bpm').value),
           mode: doc.getElementById('mode').value,
           timeSignature: doc.getElementById('timeSignature').value,
           structure: doc.getElementById('structure').value,
@@ -1225,7 +1236,6 @@ try {
           }),
         });
         const defaultSignature = {
-          bpm: defaults.bpm,
           mode: defaults.mode,
           timeSignature: defaults.timeSignature,
           structure: defaults.structure,
@@ -1238,7 +1248,7 @@ try {
           );
         }
         const [lo, hi] = openedGenre.essence.bpm;
-        const openedBpm = signature().bpm;
+        const openedBpm = readBpm();
         if (!(openedBpm >= Math.floor(lo) && openedBpm <= Math.ceil(hi))) {
           failures.push(
             `the opening genre is ${openedGenre.slug} (${lo}-${hi} bpm) but the tempo reads ${openedBpm}`
@@ -1255,7 +1265,13 @@ try {
       if (!picked) {
         failures.push(`picking ${target.slug} did not stick in the genre picker (${select.value})`);
       } else {
-        const bpm = Number(doc.getElementById('bpm').value);
+        const bpm = (() => {
+          const el =
+            doc.querySelector('#speed-dial .knob-value') ||
+            doc.querySelector('#speed-dial-adv .knob-value');
+          const n = el ? parseInt(String(el.textContent).replace(/[^0-9]/g, ''), 10) : NaN;
+          return Number.isFinite(n) ? n : NaN;
+        })();
         const [lo, hi] = target.essence.bpm;
         if (!(bpm >= Math.floor(lo) && bpm <= Math.ceil(hi))) {
           failures.push(`picking ${target.slug} (${lo}-${hi} bpm) left the tempo at ${bpm}`);

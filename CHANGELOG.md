@@ -2,6 +2,34 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.46 — track labels, paired harmony rows, and a consent notice that actually informs**
+
+  *Track labels*: `.track-name` was a fixed 84px, narrower than what it holds. "Percussion"
+  overflowed it and rendered as "Percussio", and the `— off` suffix pushed the longer labels onto
+  a second line inside the button, so a switched-off Arp read as "Arp —" over "off". Wide enough
+  for "Percussion — off" now, with `nowrap`, and still fixed so the voice pickers stay aligned
+  down the column.
+
+  *Harmony rows*: Root and Scale share a row, Time signature and Chord length share the next.
+  Six full-width selects stacked down the page for values two or three characters wide was most
+  of what made Advanced feel long and empty. The BPM slider went with them — it was a third view
+  of the tempo the dial already owns, with `setTempo` driving all three. Its standalone readout
+  went too, since the dial prints "52 bpm" under its own face and is click-to-type in its own
+  right. Both references are guarded rather than deleted outright.
+
+  *Consent*: the mechanism was already sound — nothing reaches localStorage before consent, and
+  the choice is recorded in a first-party cookie that is itself the strictly-necessary kind. The
+  WORDING was not. "Remember your settings and presets on this device?" gives the purpose but
+  never says what is stored, never mentions that answering sets a cookie at all, and never links
+  the privacy page — so the consent it collected was not informed. `consentPrompt` now takes
+  `{ message, detail, privacyUrl }` (a plain string still works) and the notice says what goes
+  into local storage, discloses the cookie set either way, states that nothing is uploaded and
+  there is no tracking, and links Privacy.
+
+  *Test*: page-boot's genre checks read the tempo off the Tempo dial's readout now that the
+  slider is gone — the bpm-range assertions are what prove a genre's declared tempo reaches the
+  engine, so they were worth keeping a reader for rather than deleting with the input.
+
 - [x] **v0.0.45 — the dial end-words come off the faceplate** — they hung under each dial in a
   caption box a fixed 148px wide (`--knob-size` 96 + 52) centred over grid cells that floor at
   120px, so on the Advanced row of seven they overlapped into one run-on line: "Fast Calm Complex

@@ -223,13 +223,41 @@ export function consentPrompt(container, message) {
   card.setAttribute('tabindex', '-1');
   styleCard(card);
 
+  // v0.0.46: `message` may be a plain string (the original contract, still
+  // supported) or { message, detail, privacyUrl }. The extra fields exist
+  // because consent has to be INFORMED: the one-line question told the user the
+  // purpose but never what is stored, nor that answering at all sets a cookie.
+  const spec = typeof message === 'string' ? { message } : message || {};
+
   const text = document.createElement('p');
-  text.textContent = message;
+  text.textContent = spec.message || '';
   if (text.style) {
-    text.style.margin = '0 0 10px';
+    text.style.margin = '0 0 6px';
     text.style.color = 'var(--text)';
   }
   card.appendChild(text);
+
+  if (spec.detail) {
+    const detail = document.createElement('p');
+    detail.textContent = spec.detail;
+    if (detail.style) {
+      detail.style.margin = '0 0 10px';
+      detail.style.fontSize = '13px';
+      detail.style.lineHeight = '1.5';
+      detail.style.color = 'var(--secondary)';
+    }
+    if (spec.privacyUrl) {
+      detail.appendChild(document.createTextNode(' '));
+      const link = document.createElement('a');
+      link.href = spec.privacyUrl;
+      link.textContent = 'Privacy';
+      link.rel = 'noopener noreferrer';
+      link.target = '_blank';
+      detail.appendChild(link);
+      detail.appendChild(document.createTextNode('.'));
+    }
+    card.appendChild(detail);
+  }
 
   const row = document.createElement('div');
   if (row.style) {
