@@ -88,6 +88,11 @@ const buildStamp =
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
+    /* v0.0.44: matches the content column. The layout wrapper is 720px minus
+       32px of padding, but the generator itself is capped at 640px, so a header
+       action pinned to the wrapper's edge overhung the panels below it by 48px.
+       Right-aligned actions have to share the column they sit above. */
+    max-width: 640px;
   }
 
   .site-actions {

@@ -2,6 +2,12 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.44 — the `?` lines up with the panels** — it was pinned to the layout wrapper's right
+  edge, which is 720px minus 32px of padding, while `#generator-app` is capped at 640px. So it
+  overhung everything below it by 48px. The header's action row now shares the content column,
+  which is the general rule: a right-aligned action has to sit above the column it belongs to,
+  not the wrapper that happens to contain it.
+
 - [x] **v0.0.43 — the transport row, checked with eyes instead of inference** — and the reason the
   three attempts before it failed: there is no browser in the container and no route to the
   deployed site, so every layout judgement was being made by reading CSS. `.vibe/shot.sh` fixes
