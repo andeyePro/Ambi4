@@ -9,28 +9,52 @@
  * the two silently drops the span. The owner's ask was "everything should be
  * spreadable with horizontal drag" — a dial that opens a span the page then
  * discards would pass every unit test and fail the ask.
+ *
+ * EVERY interaction re-reads its target's box immediately beforehand, after
+ * scrolling it to the middle of the viewport. page.mouse works in VIEWPORT
+ * coordinates, so a dial below the fold receives a drag delivered to nothing —
+ * and "the dial did not move" looks identical to "the dial refused the
+ * gesture". Both of this file's early false results came from exactly that.
  */
 
-const readout = (page, dialId) =>
-  page.evaluate((id) => {
-    const knob = document.getElementById(id)?.closest('.knob')
-      || document.querySelector(`#${id}`)?.parentElement?.querySelector('.knob');
-    const root = knob || [...document.querySelectorAll('.knob')].find((k) => k.getAttribute('aria-label'));
-    return root ? {
-      valuetext: root.getAttribute('aria-valuetext'),
-      zeroed: root.getAttribute('data-zeroed'),
-      text: root.querySelector('.knob-value')?.textContent?.trim(),
-    } : null;
-  }, dialId);
+/**
+ * One dial by aria-label, scrolled into view, with its box read after the
+ * scroll. `scope` matters more than it looks: Volume exists TWICE (a Simple
+ * view and an Advanced view of one value), and an unscoped lookup returns the
+ * Simple one — which is inside a hidden panel while Advanced is showing, so
+ * every gesture aimed at it lands on nothing and the dial reads as though it
+ * refused to spread. Hidden elements are skipped for the same reason.
+ */
+const dialAt = (page, label, scope = '') =>
+  page.evaluate(([name, sel]) => {
+    const root = sel ? document.querySelector(sel) : document;
+    const visible = (el) => {
+      for (let n = el; n && n !== document.body; n = n.parentElement) {
+        if (n.hidden || n.getAttribute?.('aria-hidden') === 'true') return false;
+        const cs = getComputedStyle(n);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      }
+      return true;
+    };
+    const k = [...(root || document).querySelectorAll('.knob')]
+      .find((el) => el.getAttribute('aria-label') === name && visible(el));
+    if (!k) return null;
+    k.scrollIntoView({ block: 'center' });
+    const r = k.getBoundingClientRect();
+    return {
+      x: Math.round(r.left + r.width / 2),
+      y: Math.round(r.top + r.width / 2),
+      valuetext: k.getAttribute('aria-valuetext'),
+      text: k.querySelector('.knob-value')?.textContent?.trim(),
+    };
+  }, [label, scope]);
 
-/** Every dial on the Advanced tab, by its aria-label. */
-const dials = (page) =>
-  page.evaluate(() => [...document.querySelectorAll('#panel-advanced .knob')].map((k) => ({
-    label: k.getAttribute('aria-label'),
-    valuetext: k.getAttribute('aria-valuetext'),
-    text: k.querySelector('.knob-value')?.textContent?.trim(),
-    box: (() => { const r = k.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.width / 2, w: r.width }; })(),
-  })));
+const advancedLabels = (page) =>
+  page.evaluate(() => [...document.querySelectorAll('#panel-advanced .knob')]
+    .map((k) => k.getAttribute('aria-label')));
+
+const confirmLine = (page) =>
+  page.evaluate(() => document.getElementById('dial-confirm')?.textContent?.trim() || '');
 
 export default async function drive(page) {
   const results = [];
@@ -39,77 +63,93 @@ export default async function drive(page) {
     results.push({ name, ok, got, want: typeof want === 'function' ? '(predicate)' : want });
   };
 
-  // Grant storage consent first: the spread-survives-a-reload check below is
-  // only meaningful once persistence is switched on, and clicking it is what a
-  // user does.
+  /** Drag `label` by (dx, dy) in steps, so the axis lock is actually exercised. */
+  async function dragDial(label, dx, dy, scope = '') {
+    const d = await dialAt(page, label, scope);
+    if (!d) return null;
+    await page.mouse.move(d.x, d.y);
+    await page.mouse.down();
+    const steps = Math.max(Math.abs(dx), Math.abs(dy));
+    for (let t = 4; t <= steps; t += 8) {
+      const f = t / steps;
+      await page.mouse.move(d.x + Math.round(dx * f), d.y + Math.round(dy * f));
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(320);
+    return dialAt(page, label, scope);
+  }
+
+  const spread = (d) => /drifting/.test(d?.valuetext || '');
+
   await page.click('#consent-slot button:has-text("Save on this device")').catch(() => {});
   await page.waitForTimeout(200);
   await page.click('#tab-advanced');
   await page.waitForTimeout(400);
 
-  const before = await dials(page);
-  check('the Advanced tab has its seven main dials', before.length >= 7, (v) => v === true);
+  const labels = await advancedLabels(page);
+  check('the Advanced tab has its seven main dials', labels.length >= 7, (v) => v === true);
 
-  const tempo = before.find((d) => d.label === 'Tempo');
-  check('Tempo is present and single-valued to start', tempo && !/drifting/.test(tempo.valuetext || ''), (v) => v === true);
-  if (!tempo) throw new Error('dial-drive: no Tempo dial to drag');
+  const ADV = '#panel-advanced';
+  const tempo0 = await dialAt(page, 'Tempo', ADV);
+  check('Tempo is present and single-valued to start', tempo0 && !spread(tempo0), (v) => v === true);
 
-  // A real horizontal drag across the face: down on the centre, out past the
-  // lock threshold, release. Stepped, because one giant move would arrive as a
-  // single pointermove and never exercise the lock at all.
-  const { x, y } = tempo.box;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  for (let dx = 4; dx <= 60; dx += 8) await page.mouse.move(x + dx, y);
-  await page.mouse.up();
-  await page.waitForTimeout(300);
+  const opened = await dragDial('Tempo', 60, 0, ADV);
+  check('a horizontal drag opened a span on Tempo', spread(opened), (v) => v === true);
+  check('the readout shows both ends', /–/.test(opened.text || ''), (v) => v === true);
+  results.push({ name: 'Tempo reads', ok: true, got: opened.text, want: '(informational)' });
 
-  const afterSpread = (await dials(page)).find((d) => d.label === 'Tempo');
-  check('a horizontal drag opened a span on Tempo', /drifting/.test(afterSpread.valuetext || ''), (v) => v === true);
-  check('the readout shows both ends', /–/.test(afterSpread.text || ''), (v) => v === true);
-  results.push({ name: 'Tempo reads', ok: true, got: afterSpread.text, want: '(informational)' });
+  const closed = await dragDial('Tempo', -140, 0, ADV);
+  check('dragging back closes the span', !spread(closed), (v) => v === true);
 
-  // The same gesture backwards must close it again.
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  for (let dx = 4; dx <= 120; dx += 8) await page.mouse.move(x - dx, y);
-  await page.mouse.up();
-  await page.waitForTimeout(300);
-  const afterClose = (await dials(page)).find((d) => d.label === 'Tempo');
-  check('dragging back closes the span', !/drifting/.test(afterClose.valuetext || ''), (v) => v === true);
+  const raised = await dragDial('Tempo', 0, -60, ADV);
+  check('a vertical drag does not open a span', !spread(raised), (v) => v === true);
+  check('a vertical drag changed the value', raised.text !== closed.text, (v) => v === true);
 
-  // A vertical drag must move the value and NOT open a span.
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  for (let dy = 4; dy <= 60; dy += 8) await page.mouse.move(x, y - dy);
-  await page.mouse.up();
-  await page.waitForTimeout(300);
-  const afterVertical = (await dials(page)).find((d) => d.label === 'Tempo');
-  check('a vertical drag does not open a span', !/drifting/.test(afterVertical.valuetext || ''), (v) => v === true);
-  check('a vertical drag changed the value', afterVertical.text !== afterClose.text, (v) => v === true);
-
-  // A tap on the centre hub resets it.
-  await page.mouse.click(x, y);
-  await page.waitForTimeout(300);
-  const afterTap = (await dials(page)).find((d) => d.label === 'Tempo');
-  check('a tap on the hub resets the dial', afterTap.text !== afterVertical.text, (v) => v === true);
-  results.push({ name: 'Tempo after reset', ok: true, got: afterTap.text, want: '(informational)' });
+  // A tap on the centre hub resets it. Same target, zero travel.
+  const beforeTap = await dialAt(page, 'Tempo', ADV);
+  await page.mouse.click(beforeTap.x, beforeTap.y);
+  await page.waitForTimeout(320);
+  const reset = await dialAt(page, 'Tempo', ADV);
+  check('a tap on the hub resets the dial', reset.text !== raised.text, (v) => v === true);
+  results.push({ name: 'Tempo after reset', ok: true, got: reset.text, want: '(informational)' });
 
   // Every main dial must answer the same gesture — that is the whole point of
-  // the consistency rule. Anything that ignores it is named here rather than
-  // averaged away.
+  // the consistency rule. Anything that ignores it is NAMED, not averaged away.
   const deaf = [];
-  for (const dial of (await dials(page)).slice(0, 7)) {
-    const b = dial.box;
-    await page.mouse.move(b.x, b.y);
-    await page.mouse.down();
-    for (let dx = 4; dx <= 60; dx += 8) await page.mouse.move(b.x + dx, b.y);
-    await page.mouse.up();
-    await page.waitForTimeout(150);
-    const now = (await dials(page)).find((d) => d.label === dial.label);
-    if (!/drifting/.test(now.valuetext || '')) deaf.push(dial.label);
+  for (const label of labels.slice(0, 7)) {
+    const after = await dragDial(label, 60, 0, ADV);
+    if (!spread(after)) deaf.push(label);
   }
   check('every main dial spreads', deaf, []);
+
+  // ---- the Simple tab teaches the gesture, once -------------------------
+  // Two owner instructions meet here: "everything should be spreadable with
+  // horizontal drag" (28 Jul) and "give a message" on Simple (27 Jul). The
+  // gesture works and Simple explains it the first time, which is the only
+  // reading that honours both. Energy is the target because it is Simple's own
+  // dial — Volume is a second view of an Advanced dial already dragged above.
+  await page.click('#tab-simple');
+  await page.waitForTimeout(400);
+  // Energy is a view of the same bpm the Advanced Tempo drags above have
+  // already spread, so it arrives here ALREADY drifting — and widening an
+  // existing full-range span emits nothing, because nothing changed. Tap the
+  // hub first so the spread below is genuinely new. Without this the test
+  // asserted a state it had not caused, and passed for the wrong reason.
+  const e0 = await dialAt(page, 'Energy');
+  await page.mouse.click(e0.x, e0.y);
+  await page.waitForTimeout(320);
+  const settled = await dialAt(page, 'Energy');
+  check('the reset tap cleared the inherited spread', !spread(settled), (v) => v === true);
+  await page.evaluate(() => { document.getElementById('dial-confirm').textContent = ''; });
+  const energy = await dragDial('Energy', 60, 0);
+  check('a Simple dial spreads like every other', spread(energy), (v) => v === true);
+  const taught = await confirmLine(page);
+  check('and says what just happened', /range to drift between/.test(taught), (v) => v === true);
+
+  await page.evaluate(() => { document.getElementById('dial-confirm').textContent = ''; });
+  await dragDial('Energy', 40, 0);
+  const second = await confirmLine(page);
+  check('but only once — a line on every drag is noise', /range to drift between/.test(second), (v) => v === false);
 
   // A spread that does not survive a reload is a setting the user loses
   // without being told. The share link is the same JSON tree, so checking the
@@ -124,14 +164,9 @@ export default async function drive(page) {
   const isSpan = (v) => !!v && typeof v === 'object' && Number.isFinite(v.min) && Number.isFinite(v.max);
   check('storage consent took effect', !!stored, (v) => v === true);
   if (stored) {
-    // Every global dial that was just spread, by the settings key it writes.
-    // Named individually rather than counted, so a failure says WHICH one
-    // dropped its span.
     const missing = ['bpm', 'complexity', 'repetition', 'volume', 'swing', 'reverbTail']
       .filter((key) => !isSpan(stored[key]));
     check('every spread global dial persisted its span', missing, []);
-    // Variation writes per-track randomness rather than a global key, so it
-    // is checked where it actually lands.
     check('the per-track spread persisted too', isSpan(stored.tracks?.pad?.randomness), (v) => v === true);
   }
 

@@ -3073,7 +3073,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * positions) takes the midpoint, which is where the walk sits on
        * average and where the piece starts.
        */
-      function setTempo(bpm, { skipSpeedThumb = false, skipEnergyThumb = false } = {}) {
+      function setTempo(bpm, { skipSpeedThumb = false, skipEnergyThumb = false, landing = null } = {}) {
         const clampBpm = (v) => Math.round(clamp(v, 20, 220));
         bpm = mapRangeValue(bpm, clampBpm);
         const mid = rangeMid(bpm);
@@ -3085,7 +3085,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // macro owns), so any tempo write moves the Energy dial too — except
         // the one Energy itself is making mid-gesture.
         if (!skipEnergyThumb) energyDial?.set(mapRangeValue(bpm, energyFromBpm));
-        engine.setParams({ bpm, speed: 1 });
+        // v0.0.57: WHERE the change lands is decided by which control moved,
+        // per the owner's 2026-07-28 question. Simple's Energy macro lands on
+        // the next beat, because a beginner needs to hear that the thing they
+        // just dragged did something. The Advanced Tempo dial lands on the
+        // barline, which is musically tidier and is what every build before
+        // v0.0.48 did. Turning the two dials against each other is the A/B he
+        // asked for, and it needs no switch to run.
+        engine.setParams({ bpm, speed: 1, ...(landing ? { tempoLanding: landing } : {}) });
         persistSettings();
       }
 
@@ -3711,14 +3718,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // appears exactly once. The end-marks (`.dial-ends`, "Slow"/"Fast" at
       // the tick extremes) live in the markup and are never removed, so a
       // failed knob build must not wipe the slot wholesale.
+      /**
+       * `dialId` doubles as the tab this dial lives on: the Simple slots are
+       * the three without an `-adv` suffix that Simple actually renders. Only
+       * those teach the spread gesture, per the note on noticeSimpleSpread.
+       */
+      const SIMPLE_DIAL_SLOTS = new Set(['energy-dial', 'randomness-dial', 'volume-dial']);
+
       function buildSimpleDial(dialId, opts, commit) {
         const box = document.getElementById(dialId);
         if (!box) return { set() {} };
         const control = box.closest('.control');
         const labelRow = control ? control.querySelector('.control-label-row') : null;
+        const teaches = SIMPLE_DIAL_SLOTS.has(dialId);
+        const onInput = teaches
+          ? (v) => { noticeSimpleSpread(v); commit(v); }
+          : commit;
         if (knobApi) {
           try {
-            const handle = knobApi.createKnob(box, { ...opts, onInput: commit });
+            const handle = knobApi.createKnob(box, { ...opts, onInput });
             if (labelRow) labelRow.hidden = true;
             if (control) control.classList.add('dial-knob');
             return {
@@ -3751,7 +3769,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const initial = typeof opts.value === 'object' ? (opts.value.min + opts.value.max) / 2 : opts.value;
         input.value = String(initial);
         box.append(input);
-        input.addEventListener('input', () => commit(parseFloat(input.value)));
+        input.addEventListener('input', () => onInput(parseFloat(input.value)));
         return {
           el: input,
           set: (v) => {
@@ -3856,7 +3874,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           format: (t) => `${Math.round(bpmFromSpeedT(t))} bpm`,
           defaultValue: speedTFromBpm(DEFAULTS.bpm),
         },
-        (t) => setTempo(mapRangeValue(t, bpmFromSpeedT), { skipSpeedThumb: true })
+        (t) => setTempo(mapRangeValue(t, bpmFromSpeedT), { skipSpeedThumb: true, landing: 'bar' })
       );
 
       describeDial(speedDial, dialHint('Fast', 'Slow', null, null, 'Vary the tempo'));
@@ -3916,15 +3934,63 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (before.structure !== after.structure) {
           parts.push(STRUCTURE_PHRASES[after.structure] || 'New shape');
         }
-        if (!parts.length || !dialConfirmEl) return;
-        dialConfirmEl.textContent = parts.join(' · ');
+        if (!parts.length) return;
+        sayUnderDials(parts.join(' · '));
+      }
+
+      /**
+       * The line under the Simple dials. One surface, one timer.
+       *
+       * `hold` marks a message that must not be overwritten while it is up.
+       * Without it the teaching line loses a race it should win: opening a
+       * spread on Energy also moves complexity, whose own 120 ms-debounced
+       * commit announces "Arp joined" — so the explanation of a gesture the
+       * user may not have meant to make was replaced, a tenth of a second
+       * later, by a side effect of it.
+       */
+      let dialConfirmHeldUntil = 0;
+      function sayUnderDials(text, ms = 3000, { hold = false } = {}) {
+        if (!dialConfirmEl) return;
+        if (!hold && Date.now() < dialConfirmHeldUntil) return;
+        dialConfirmHeldUntil = hold ? Date.now() + ms : 0;
+        dialConfirmEl.textContent = text;
         dialConfirmEl.classList.add('shown');
         if (dialConfirmTimer !== null) clearTimeout(dialConfirmTimer);
         dialConfirmTimer = setTimeout(() => {
           dialConfirmTimer = null;
+          dialConfirmHeldUntil = 0;
           dialConfirmEl.classList.remove('shown');
           dialConfirmEl.textContent = '';
-        }, 3000);
+        }, ms);
+      }
+
+      /**
+       * v0.0.57: the first time a spread is opened on the SIMPLE tab, say what
+       * just happened.
+       *
+       * Two owner instructions had to be reconciled here. On 2026-07-27 he was
+       * "worried that horizontal drag to open the min-max interface would
+       * confuse new players" and asked for a message instead of an action on
+       * Simple. On 2026-07-28 he asked for the opposite in stronger terms —
+       * "everything should be spreadable with horizontal drag" — which is the
+       * consistency principle, and a dial that refuses the gesture on one tab
+       * teaches that the gesture does nothing anywhere.
+       *
+       * So the gesture works everywhere and Simple explains it, once, at the
+       * moment it first happens. That satisfies the later instruction and
+       * still answers the worry behind the earlier one: a new player who did
+       * not mean to do it is told what they did and how to undo it, rather
+       * than being silently refused.
+       */
+      let spreadTaught = false;
+      function noticeSimpleSpread(value) {
+        if (spreadTaught || !isPlainObject(value)) return;
+        spreadTaught = true;
+        sayUnderDials(
+          'Dragging sideways gives that dial a range to drift between. Drag back the other way to settle it on one value, or tap the middle to start again.',
+          7000,
+          { hold: true }
+        );
       }
 
       function commitComplexityAuto(value, { syncDial = false } = {}) {
@@ -3982,15 +4048,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           min: 0,
           max: 1,
           step: 0.001,
-          value: energyFromBpm(settings.bpm),
+          value: mapRangeValue(settings.bpm, energyFromBpm),
           format: pctFormat,
           defaultValue: ENERGY_DEFAULT,
         },
         (e) => {
           // Tempo is cheap and immediate (and beat-quantised in the engine);
           // the structural half rides the debounce.
-          setTempo(bpmFromEnergy(e), { skipEnergyThumb: true });
-          commitComplexityDebounced(complexityFromEnergy(e), { syncDial: true });
+          setTempo(mapRangeValue(e, bpmFromEnergy), { skipEnergyThumb: true, landing: 'beat' });
+          // v0.0.57: `e` may be a span, and BOTH halves of the macro have to
+          // map through it. Missing this on the complexity half fed NaN into
+          // commitComplexityAuto, which is why a sideways drag on Energy came
+          // out as a value change: the dial got written back from a poisoned
+          // settings tree a frame later.
+          commitComplexityDebounced(mapRangeValue(e, complexityFromEnergy), { syncDial: true });
         }
       );
       describeDial(
@@ -8823,6 +8894,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             id: 'processor',
             label: 'Processor',
+            // v0.0.57 opt-out: five NAMED tiers (Eco, Low, Med, Full, Auto),
+            // which makes this an enumeration — and `setProcessorTier` takes
+            // one of them, so a span would be silently rounded to whichever
+            // end the midpoint landed on. The TODO item asking for a
+            // Eco→Full range here is a different feature: it needs the power
+            // governor to be the thing that moves the value INSIDE the range,
+            // which is a governor change, not a dial change.
+            allowRange: false,
             min: 0,
             max: 4,
             step: 1,
@@ -11593,17 +11672,29 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // ---- initial sync ---------------------------------------------------
 
+      /**
+       * Push the whole settings tree back onto every control. Runs on a preset
+       * load, a share arrival and at boot.
+       *
+       * v0.0.57: every dial position derived from a global param has to be
+       * mapped through `mapRangeValue`, because any of them may now be a
+       * {min,max} span. Passing a span to a scalar mapping returns NaN, and
+       * `knob.set(NaN)` silently keeps the previous number — which reads as a
+       * spread that quietly collapsed a moment after being made. That is what
+       * it did: a sideways drag on Energy landed as a value change.
+       */
       function syncUIFromSettings() {
-        if (bpmInput) bpmInput.value = String(settings.bpm);
+        if (bpmInput) bpmInput.value = String(rangeMid(settings.bpm));
         bpmTypable?.refresh();
-        speedDial?.set(speedTFromBpm(settings.bpm));
-        energyDial?.set(energyFromBpm(settings.bpm));
+        speedDial?.set(mapRangeValue(settings.bpm, speedTFromBpm));
+        energyDial?.set(mapRangeValue(settings.bpm, energyFromBpm));
         repetitionDial?.set(settings.repetition);
-        volumeDial?.set(volumeDialFromParam(settings.volume));
+        volumeDial?.set(mapRangeValue(settings.volume, volumeDialFromParam));
         randomnessDial?.set(changeDialValueFromState());
         variationDial?.set(trackRandomnessValue());
         swingDial?.set(settings.swing);
-        if (reverbTailDial && typeof settings.reverbTail === 'number') {
+        complexityDial?.set(settings.complexity);
+        if (reverbTailDial && isNumberOrRange(settings.reverbTail)) {
           reverbTailDial.set(settings.reverbTail);
           applyReverbTail();
         }

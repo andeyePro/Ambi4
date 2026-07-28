@@ -1172,6 +1172,45 @@ test('a tempo change lands on the next beat, not the next barline', async () => 
   assert.ok(settled < 1.5, `settled bar ran ${settled.toFixed(2)} s at 220 bpm`);
 });
 
+test('v0.0.57: tempoLanding "bar" makes the same change wait for the barline', async () => {
+  // The mirror of the test above, and the owner's A/B. Same engine, same
+  // mid-bar change, one param different — the interrupted bar must now run its
+  // full 4 s instead of finishing early, because that is what "sounds better
+  // than immediate" means in practice.
+  const engine = createEngine({
+    bpm: 60, speed: 1, timeSignature: '4/4', structure: 'drone',
+    complexity: 0.3, repetition: 0.8, tempoLanding: 'bar',
+  });
+  const bars = [];
+  engine.on('bar', (e) => bars.push(e));
+  await engine.start();
+
+  await advanceUntil(() => bars.length >= 2, 30, { step: 0.08, sleep: 15 });
+  assert.ok(bars.length >= 2, 'engine never reached bar 1');
+  engine.setParams({ bpm: 220 });
+
+  await advanceUntil(() => bars.length >= 5, 40, { step: 0.08, sleep: 15 });
+  engine.stop();
+  assert.ok(bars.length >= 5, `only ${bars.length} bars scheduled`);
+
+  const interrupted = bars[2].time - bars[1].time;
+  assert.ok(interrupted > 3.5,
+    `tempoLanding "bar" still cut the bar short: interrupted bar ran ${interrupted.toFixed(2)} s`);
+  // And it does land — at the NEXT barline, not never.
+  const settled = bars[4].time - bars[3].time;
+  assert.ok(settled < 1.5, `settled bar ran ${settled.toFixed(2)} s at 220 bpm`);
+});
+
+test('v0.0.57: tempoLanding defaults to beat and rejects anything else', () => {
+  assert.equal(sanitiseParams({}).tempoLanding, 'beat');
+  assert.equal(sanitiseParams({ tempoLanding: 'bar' }).tempoLanding, 'bar');
+  assert.equal(sanitiseParams({ tempoLanding: 'nonsense' }).tempoLanding, 'beat',
+    'junk must fall back, never reach the scheduler');
+  // It survives an unrelated edit, like every other stored choice.
+  const stored = sanitiseParams({ tempoLanding: 'bar' });
+  assert.equal(sanitiseParams({ bpm: 90 }, stored).tempoLanding, 'bar');
+});
+
 test('arp quantises to its grid in every rate, including 7/8', () => hiddenTab(async () => {
   const secPerBeat = 60 / 240; // bpm 120 × speed 2
   for (const [rate, stepBeats] of Object.entries(ARP_RATES)) {

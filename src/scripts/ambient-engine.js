@@ -1000,6 +1000,13 @@ export const DEFAULT_PARAMS = Object.freeze({
   // baked, so a params object that never mentions it sounds unchanged.
   reverbTail: 4,
   padBreath: DEFAULT_PAD_BREATH,
+  // v0.0.57: where a tempo change lands. 'beat' re-reads tempo every pulse so
+  // the change is heard within one beat — right when the mover wants to hear
+  // what they just did. 'bar' waits for the barline, which is musically
+  // tidier and is what every version before v0.0.48 did. The owner asked for
+  // both so he could compare them; Simple moves tempo with 'beat', Advanced
+  // with 'bar'.
+  tempoLanding: 'beat',
   // v0.0.56: per-key {min,max} for any of the NUMERIC_RANGES keys the user has
   // spread with a horizontal drag. Empty is every params object written before
   // this version, and stays byte-identical to one — a key absent here is a
@@ -2085,6 +2092,11 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
     }
   }
   if (!out.spans) out.spans = {};
+  {
+    const asked = at('tempoLanding');
+    const inherited = from.tempoLanding === 'bar' ? 'bar' : 'beat';
+    out.tempoLanding = asked === 'beat' || asked === 'bar' ? asked : inherited;
+  }
   out.root = normaliseRoot(at('root')) ?? normaliseRoot(from.root) ?? DEFAULT_PARAMS.root;
   out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
   out.timeSignature = oneOf(at('timeSignature'), Object.keys(TIME_SIGNATURES),
@@ -7295,7 +7307,15 @@ export function createEngine(initialParams, options = {}) {
         // the slow end of the dial was up to 12 s, long past the window in
         // which a listener attributes the change to their own gesture.
         // Harmony, swing and structure stay bar-snapshotted in beginBar.
-        const live = 60 / clamp(params.bpm * params.speed, 10, 400);
+        //
+        // v0.0.57: unless `tempoLanding` says 'bar', in which case this loop
+        // does nothing and the change waits for beginBar like every other
+        // musical decision. Both exist because the immediate one is better for
+        // attribution and the quantised one is better musically, and which
+        // matters depends on who is turning the dial.
+        const live = params.tempoLanding === 'bar'
+          ? bar.secPerBeat
+          : 60 / clamp(params.bpm * params.speed, 10, 400);
         if (live !== bar.secPerBeat) {
           bar.secPerBeat = live;
           bar.duration = bar.beats * live;
