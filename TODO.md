@@ -187,16 +187,12 @@ so it waits.
 - [x] *(SHIPPED v0.0.40, 0abb56d — this line was left unticked by mistake; found by the 2026-07-28 audit)* Fold sleep and alarm into one button — one clock icon opens a Timers popover holding both
 - [ ] Every info section gets a ⓘ, opening momentarily on hover and toggling on click. `infoButton` exists (:3419) with exactly **one** call site (the sequencer legend, :4689). **[flagged]** touch has no hover, so tap-toggle is the only behaviour there
 - [ ] ⓘ content opens in the tutorial area right of the main UI where space permits — `#tutorial-panel` (:656) already collapses to a static block below 1100px
-- [ ] Group dials so an even number that will not fit on one row splits evenly, instead of three on one line and one below. **Measured 2026-07-28 rather than left vague** — a probe grouping each row's children by the top of their box, across five viewports, found the main Advanced row is already fine (4+3 at 1280 and 900, 2+2+2+1 at 760, one per line at 390 — all even or off by one, which a 7-item row cannot avoid). The uneven ones are elsewhere:
+- [x] *(SHIPPED v0.0.59)* Group dials so an even number that will not fit on one row splits evenly, instead of three on one line and one below.
 
-  | row | viewport | split |
-  |---|---|---|
-  | `.knob-row` (voice editor) | 1280, 900 | 5 + 1 + 1 |
-  | `.knob-row` | 520 | 3 + 1 + 3 |
-  | `.knob-row` | 390 | 3 + 1 |
-  | `.vary-cells` | 520 | 4 + 1 |
+  **Measured first, and the measurement corrected itself.** A probe grouping each row's children by the top of their box reported the voice editor's Source row as 5 + 1 + 1 — which was wrong: the Osc-2 toggle cell is 34 px tall against the dials' 109 px, so it took a different `top` while sitting on the same line. The real split was **6 + 1**, which is the complaint in its worst form. The main Advanced dial row was already fine (4+3 at 1280, 2+2+2+1 at 760, one per line at 390 — as even as a seven-item row gets).
 
-  **First thing to settle before building anything**: whether `.knob-row`'s [5,1,1] is a genuine wrap or a sub-row heading sitting on its own line, which the top-grouping probe cannot tell apart. The probe is three lines of `page.evaluate` — see the git history for 2026-07-28 — and answering that question is cheaper than guessing at CSS.
+  `.knob-row` used `repeat(auto-fill, minmax(84px, 1fr))`, which packs as many columns as fit — six at the editor's width. Now a fixed four columns, dropping to two below 520 px. Re-measured: **4 + 3** at 1280 and 760, **2 + 2 + 2 + 1** at 520 and 390, and every four-dial row (Filter, Envelope) is one clean line. Zero collisions, overflows or clips at three viewports.
+
 - [ ] Processor dial defaults to a min-max range Eco→Full rather than Auto as its top setting. **[flagged]** only works if the governor stays the thing that moves the value within the range; otherwise the CPU-pressure sensing in `power.js` is lost. **v0.0.57 note:** the dial is explicitly `allowRange: false` for now — it is five NAMED tiers and `setProcessorTier` takes one of them, so a span would be silently rounded. Building this item means teaching the governor to move a value inside a declared range, which is a `power.js` change; the dial is the easy half
 - [x] *(SHIPPED v0.0.41-43, 8a465c4/a5c0787)* Delete the Stop button (`#stop-now`, :156). Play/Finish is already one dual button (`#toggle-play`, :132); extend it so Finish becomes STOP with the stop icon — two presses at any speed give an immediate stop
 - [x] *(SHIPPED v0.0.58 — the Back key)* Add Previous alongside Next. The snapshot stack exists now: up to 24 setups, pushed by the two gestures that replace a whole setup at once (Next, and picking a genre) and by nothing else. It is deliberately NOT a general undo — an undo stack over every dial move is a much larger feature, and a button that sometimes undoes a dial and sometimes a whole piece would be worse than none. Back disables itself at the end of the history

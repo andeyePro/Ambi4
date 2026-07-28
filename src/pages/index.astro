@@ -13990,12 +13990,32 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     /* Knobs wrap into a grid; still usable at 360 px viewport width. */
+    /* v0.0.59: a FIXED four columns rather than auto-fill.
+       auto-fill packs as many columns as fit, which at the editor's ~600px
+       width is six — so the Source row's seven dials rendered 6 + 1, the
+       "three on one line and one below" complaint in its worst form. Four
+       columns split seven as 4 + 3 and four as one clean row, and every
+       other knob row in the editor has four or fewer.
+
+       Measured, not guessed: a probe grouping each row's children by the top
+       of their box reported 5 + 1 + 1 at first, which was wrong — the Osc-2
+       toggle cell is 34px tall against the dials' 109px, so it took a
+       different `top` while sitting on the same line. It is 6 + 1. */
     .knob-row {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px 8px;
       align-items: start;
       justify-items: center;
+    }
+
+    /* Two columns on a phone: seven becomes 2+2+2+1 and four becomes 2+2,
+       both as even as the counts allow. One column would strand a 96px dial
+       in a full-width cell. */
+    @media (max-width: 520px) {
+      .knob-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     .knob-cell {
