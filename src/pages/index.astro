@@ -482,6 +482,12 @@ const VOICES: Record<string, [string, string][]> = {
             <div class="dial-slot" id={`${id}-dial`}></div>
           </div>
         ))}
+        <!-- v0.0.51 (consult C5): a three-second plain-English line naming
+             what a dial move just did at the discontinuities where
+             attribution is hardest — "Percussion joined", "Now moving in
+             longer waves". Always present (empty) so showing it never
+             reflows the panel. -->
+        <p class="dial-confirm" id="dial-confirm" aria-live="polite"></p>
       </div>
 
       <div class="module-panel factory-presets" id="factory-presets">
@@ -3800,7 +3806,67 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * `syncDial` pushes the value into the Complexity dial's face (Energy
        * does this; the dial's own gesture must not — that fights the pointer).
        */
+      // ---- v0.0.51 (consult C5): say what the dial just did ---------------
+      // The moments hardest to attribute are the discontinuities — a track
+      // joining or dropping, the structure switching family. Both deciders
+      // are pure engine exports, so the page can compare before/after and
+      // name the difference in plain words for three seconds. The intensity
+      // argument is held at 0.5 for both sides: the comparison is what the
+      // GESTURE changed, not where the piece happens to be in its arc.
+      const dialConfirmEl = document.getElementById('dial-confirm');
+      let dialConfirmTimer = null;
+      const STRUCTURE_PHRASES = {
+        drone: 'Now one continuous drift',
+        waves: 'Now moving in longer waves',
+        build: 'Now building as it goes',
+        abab: 'Now alternating two moods',
+        journey: 'Now on a longer journey',
+        custom: 'Now following your structure',
+      };
+      function dialEffectSnapshot(complexity) {
+        try {
+          return {
+            tracks: engineModule?.autoActiveTracks?.(0.5, complexity) ?? [],
+            structure: engineModule?.resolveStructure?.('auto', complexity, settings.customStructure) ?? 'auto',
+          };
+        } catch {
+          return { tracks: [], structure: 'auto' };
+        }
+      }
+      function flashTrackLamp(id) {
+        const dot = document.querySelector(`#track-lamp-${id} .lamp-dot`);
+        if (!dot) return;
+        dot.classList.remove('lamp-flash');
+        // Restart the animation even when the class is already gone mid-flash.
+        void dot.offsetWidth;
+        dot.classList.add('lamp-flash');
+        setTimeout(() => dot.classList.remove('lamp-flash'), 1000);
+      }
+      function announceDialEffect(before, after) {
+        const parts = [];
+        for (const id of TRACK_IDS) {
+          const was = before.tracks.includes(id);
+          const is = after.tracks.includes(id);
+          if (was === is) continue;
+          parts.push(`${TRACK_LABELS[id]} ${is ? 'joined' : 'dropped out'}`);
+          flashTrackLamp(id);
+        }
+        if (before.structure !== after.structure) {
+          parts.push(STRUCTURE_PHRASES[after.structure] || 'New shape');
+        }
+        if (!parts.length || !dialConfirmEl) return;
+        dialConfirmEl.textContent = parts.join(' · ');
+        dialConfirmEl.classList.add('shown');
+        if (dialConfirmTimer !== null) clearTimeout(dialConfirmTimer);
+        dialConfirmTimer = setTimeout(() => {
+          dialConfirmTimer = null;
+          dialConfirmEl.classList.remove('shown');
+          dialConfirmEl.textContent = '';
+        }, 3000);
+      }
+
       function commitComplexityAuto(value, { syncDial = false } = {}) {
+        const effectBefore = dialEffectSnapshot(settings.complexity);
         settings.complexity = value;
         settings.structure = 'auto';
         settings.arp.mode = 'auto';
@@ -3817,6 +3883,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           tracks: trackStates,
         });
         if (syncDial) complexityDial?.set(value);
+        announceDialEffect(effectBefore, dialEffectSnapshot(value));
         persistSettings();
       }
       const commitComplexityDebounced = trailingDebounce(commitComplexityAuto, 120);
@@ -12275,6 +12342,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       max-width: 220px;
       margin-bottom: 0;
       --knob-size: 96px;
+    }
+
+    /* v0.0.51: the three-second what-just-changed line under the Simple
+       dials. Reserved height whether empty or not — a confirmation must
+       never bounce the panel it is explaining. */
+    .dial-confirm {
+      flex: 1 1 100%;
+      min-height: 1.3em;
+      margin: 0;
+      text-align: center;
+      font-size: 13px;
+      color: var(--secondary);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .dial-confirm.shown {
+      opacity: 1;
+    }
+
+    /* v0.0.51: a lamp blinks when a dial move flips its track's auto state,
+       so the layer change has a visual anchor at the moment it happens. */
+    .lamp-dot.lamp-flash {
+      animation: lamp-flash 0.45s ease 2;
+    }
+
+    @keyframes lamp-flash {
+      50% {
+        transform: scale(1.55);
+        filter: brightness(1.7);
+      }
     }
 
     .dial-slot {
