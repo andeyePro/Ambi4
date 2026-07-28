@@ -2,6 +2,17 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.45 — the dial end-words come off the faceplate** — they hung under each dial in a
+  caption box a fixed 148px wide (`--knob-size` 96 + 52) centred over grid cells that floor at
+  120px, so on the Advanced row of seven they overlapped into one run-on line: "Fast Calm Complex
+  Hold Vary Quiet", with Randomness contributing three words of its own. Screenshotting Advanced
+  made it obvious in a way reading the CSS never did.
+
+  They now live in each dial's tooltip, laid out vertically with arrows — the dial is dragged up
+  and down, so its labels read up and down. `.ui-tooltip` becomes `white-space: pre-line` to keep
+  the newlines. Every main dial gained a range tooltip in the process, including Swing and Reverb
+  tail, which had prose but no statement of which end was which.
+
 - [x] **v0.0.44 — the `?` lines up with the panels** — it was pinned to the layout wrapper's right
   edge, which is 720px minus 32px of padding, while `#generator-app` is capped at 640px. So it
   overhung everything below it by 48px. The header's action row now shares the content column,
