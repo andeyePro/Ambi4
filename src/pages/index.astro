@@ -9642,12 +9642,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // overlays the displays, so nothing resizes either way.
           const MENU_LINGER_MS = 2600;
           let menuTimer = null;
+          // v0.0.59: the borrowed modules' own chrome hides and shows with the
+          // bar. One flag on the host drives both, so there is no second timer
+          // to fall out of step with this one.
           const collapseMenu = () => {
             if (bar) bar.dataset.collapsed = '';
+            if (stage) stage.dataset.chromeHidden = '';
             menuButton?.setAttribute('aria-expanded', 'false');
           };
           const revealMenu = () => {
             if (bar) delete bar.dataset.collapsed;
+            if (stage) delete stage.dataset.chromeHidden;
             menuButton?.setAttribute('aria-expanded', 'true');
           };
           const armMenuCollapse = () => {
@@ -12764,6 +12769,29 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       transform: translateX(calc(100% + 56px));
       opacity: 0;
       pointer-events: none;
+    }
+
+    /* v0.0.59: the scope's own chrome goes with the menu.
+       The scope module is MOVED into the fullscreen stage rather than
+       re-rendered there, so its overlay — the track legend and the spread
+       control — arrived with it and was unaffected by the 2.6 s collapse.
+       The result was a stage that promised to clear itself and then left two
+       rows of controls sitting over the visuals for as long as full screen
+       lasted, which is the one thing full screen exists not to do.
+
+       Tied to the bar's own collapsed state rather than to a second timer, so
+       the two can never disagree, and ☰ brings back everything at once. The
+       transition matches the bar's so they leave together. */
+    .fullscreen-stage[data-chrome-hidden] .scope-overlay,
+    .fullscreen-stage[data-chrome-hidden] .scope-collapse {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+
+    .fullscreen-stage .scope-overlay,
+    .fullscreen-stage .scope-collapse {
+      transition: opacity 0.4s ease;
     }
 
     .fullscreen-menu {
