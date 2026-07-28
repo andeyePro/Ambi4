@@ -128,7 +128,6 @@ const VOICES: Record<string, [string, string][]> = {
     <div class="module-panel transport-module">
       <div class="transport-head">
         <span class="panel-label transport-label" aria-hidden="true">Transport</span>
-        <span class="panel-label processor-label" id="processor-label">Processor</span>
         <button
           type="button"
           id="tutorial-toggle"
@@ -184,26 +183,37 @@ const VOICES: Record<string, [string, string][]> = {
             <span class="record-label">Record</span>
           </button>
         </div>
+        <!-- v0.0.40: one clock for both timers, and the play-along keyboard
+             joins them as a peer icon instead of a strip below the genre
+             picker. Sleep and Schedule-start are the same kind of thing (when
+             does the music happen) and were two identical clock faces side by
+             side; merged, the row reads as three distinct jobs rather than
+             five ambiguous glyphs. -->
         <div class="transport-icons">
           <div class="popover-anchor">
             <button
               type="button"
-              id="sleep-toggle"
+              id="timers-toggle"
               class="icon-button"
               data-transport="sleep"
-              aria-label="Sleep timer"
+              aria-label="Timers — sleep and schedule start"
               aria-haspopup="dialog"
               aria-expanded="false"
-              aria-controls="sleep-popover"
+              aria-controls="timers-popover"
             >
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 7v5l3.5 2" />
+                <circle cx="12" cy="13" r="8" />
+                <path d="M12 9v4l2.5 2" />
+                <path d="M5.2 3.2 2.8 5.4" />
+                <path d="M18.8 3.2 21.2 5.4" />
               </svg>
             </button>
             <span id="sleep-chip" class="countdown-chip" aria-hidden="true" hidden></span>
-            <div id="sleep-popover" class="popover module-panel" role="dialog" aria-labelledby="sleep-popover-title" hidden>
-              <span class="panel-label popover-title" id="sleep-popover-title">Sleep timer</span>
+            <span id="alarm-chip" class="countdown-chip countdown-chip-alarm" aria-hidden="true" hidden></span>
+            <div id="timers-popover" class="popover module-panel" role="dialog" aria-labelledby="timers-popover-title" hidden>
+              <span class="panel-label popover-title" id="timers-popover-title">Timers</span>
+
+              <span class="panel-label timer-section" id="sleep-popover-title">Sleep timer</span>
               <div id="sleep-idle" class="timer-row">
                 <button type="button" class="secondary-button sleep-preset" data-minutes="15">15 min</button>
                 <button type="button" class="secondary-button sleep-preset" data-minutes="30">30 min</button>
@@ -219,29 +229,8 @@ const VOICES: Record<string, [string, string][]> = {
                 <span id="sleep-countdown" class="timer-status"></span>
                 <button type="button" id="sleep-cancel" class="link-button">Cancel</button>
               </div>
-            </div>
-          </div>
-          <div class="popover-anchor">
-            <button
-              type="button"
-              id="alarm-toggle"
-              class="icon-button"
-              data-transport="alarm"
-              aria-label="Schedule start"
-              aria-haspopup="dialog"
-              aria-expanded="false"
-              aria-controls="alarm-popover"
-            >
-              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="13" r="8" />
-                <path d="M12 9v4l2.5 2" />
-                <path d="M5.2 3.2 2.8 5.4" />
-                <path d="M18.8 3.2 21.2 5.4" />
-              </svg>
-            </button>
-            <span id="alarm-chip" class="countdown-chip" aria-hidden="true" hidden></span>
-            <div id="alarm-popover" class="popover module-panel" role="dialog" aria-labelledby="alarm-popover-title" hidden>
-              <span class="panel-label popover-title" id="alarm-popover-title">Schedule start</span>
+
+              <span class="panel-label timer-section" id="alarm-popover-title">Schedule start</span>
               <div id="alarm-idle" class="timer-row">
                 <label for="alarm-time" class="visually-hidden">Alarm time</label>
                 <input id="alarm-time" type="time" />
@@ -254,9 +243,88 @@ const VOICES: Record<string, [string, string][]> = {
               <p class="hint">Only works while this tab stays open and the device is awake.</p>
             </div>
           </div>
+          <div class="popover-anchor">
+            <button
+              type="button"
+              id="play-along-open"
+              class="icon-button"
+              data-transport="playalong"
+              aria-label="Play along"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="play-along"
+            >
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.5" y="6" width="19" height="12" rx="1.5" />
+                <path d="M7 6v7M11 6v7M15 6v7M19 6v7" />
+              </svg>
+            </button>
+        <!-- v0.0.40: the panel is a POPOVER hanging off the keyboard icon up in
+             the transport icon row, beside the clock — it is the same kind of
+             thing as the timers (an occasional tool), not a permanent strip
+             below the genre picker. The comment above about no control ever
+             moving still holds INSIDE the panel: once open, nothing shifts under
+             the user's hand. -->
+        <div class="play-along popover module-panel" id="play-along" role="dialog" aria-labelledby="play-along-title" hidden>
+          <span class="panel-label popover-title" id="play-along-title">Play along</span>
+          <div class="play-along-row" id="play-along-row">
+            <button
+              type="button"
+              id="play-along-toggle"
+              class="transport-button play-along-button"
+              aria-pressed="false"
+              aria-describedby="play-along-note"
+            >
+              <span class="transport-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <rect x="3" y="6" width="18" height="12" rx="1" />
+                  <path d="M8 6v7M12 6v7M16 6v7" />
+                </svg>
+              </span>
+              <span>Play along</span>
+            </button>
+            <label class="visually-hidden" for="play-along-track">Track the keys play</label>
+            <select id="play-along-track" class="genre-select play-along-select"></select>
+            <span id="play-along-readout" class="value-readout play-along-readout" role="status"></span>
+            <button
+              type="button"
+              id="play-along-capture"
+              class="transport-button play-along-capture"
+              aria-pressed="false"
+              aria-describedby="play-along-note"
+              disabled
+            >
+              <span class="transport-glyph record-dot" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
+              </span>
+              <span>Capture</span>
+            </button>
+            <button
+              type="button"
+              id="play-along-undo"
+              class="transport-button"
+              aria-describedby="play-along-note"
+              disabled
+            >
+              <span>Undo</span>
+            </button>
+          </div>
+          <p id="play-along-note" class="hint play-along-note">
+            Keys z x c v b n m play one octave and q w e r t y u the next, with the
+            black keys above them; <kbd>-</kbd> and <kbd>=</kbd> change octave, and a
+            MIDI instrument plays the same track. Capture records the rhythm, velocity
+            and note length you play into that track's step grid — the pitch comes from
+            the piece's own harmony — and Undo puts the old grid back.
+          </p>
         </div>
-        <div class="processor-row">
-          <div class="dial-slot dial-label-external" id="processor-dial"></div>
+          </div>
+        </div>
+        <div class="processor-column">
+          <span class="panel-label processor-label" id="processor-label">Processor</span>
+          <div class="processor-row">
+            <div class="dial-slot dial-label-external" id="processor-dial"></div>
+          </div>
+          <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
         </div>
       </div>
 
@@ -299,84 +367,10 @@ const VOICES: Record<string, [string, string][]> = {
            pressed/disabled state: no control on this panel may move because of
            something the listener did. The note line under it reserves its own
            height for the same reason. -->
-      <!-- v0.0.38: the whole panel folds behind one keyboard button. It used to
-           sit open on the front page with five controls and a five-line hint
-           showing at all times, for a feature most listeners never touch. The
-           comment above about no control ever moving still holds INSIDE the
-           panel — once it is open nothing shifts under the user's hand; what
-           changed is that the panel itself is now closed until asked for. -->
-      <div class="play-along" id="play-along" data-transport="playalong" hidden>
-        <button
-          type="button"
-          id="play-along-open"
-          class="transport-button play-along-open"
-          aria-expanded="false"
-          aria-controls="play-along-row"
-          title="Play along"
-        >
-          <span class="transport-glyph" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <rect x="3" y="6" width="18" height="12" rx="1" />
-              <path d="M8 6v7M12 6v7M16 6v7" />
-            </svg>
-          </span>
-          <span class="visually-hidden">Play along</span>
-        </button>
-        <div class="play-along-row" id="play-along-row" hidden>
-          <button
-            type="button"
-            id="play-along-toggle"
-            class="transport-button play-along-button"
-            aria-pressed="false"
-            aria-describedby="play-along-note"
-          >
-            <span class="transport-glyph" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
-                <rect x="3" y="6" width="18" height="12" rx="1" />
-                <path d="M8 6v7M12 6v7M16 6v7" />
-              </svg>
-            </span>
-            <span>Play along</span>
-          </button>
-          <label class="visually-hidden" for="play-along-track">Track the keys play</label>
-          <select id="play-along-track" class="genre-select play-along-select"></select>
-          <span id="play-along-readout" class="value-readout play-along-readout" role="status"></span>
-          <button
-            type="button"
-            id="play-along-capture"
-            class="transport-button play-along-capture"
-            aria-pressed="false"
-            aria-describedby="play-along-note"
-            disabled
-          >
-            <span class="transport-glyph record-dot" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
-            </span>
-            <span>Capture</span>
-          </button>
-          <button
-            type="button"
-            id="play-along-undo"
-            class="transport-button"
-            aria-describedby="play-along-note"
-            disabled
-          >
-            <span>Undo</span>
-          </button>
-        </div>
-        <p id="play-along-note" class="hint play-along-note" hidden>
-          Keys z x c v b n m play one octave and q w e r t y u the next, with the
-          black keys above them; <kbd>-</kbd> and <kbd>=</kbd> change octave, and a
-          MIDI instrument plays the same track. Capture records the rhythm, velocity
-          and note length you play into that track's step grid — the pitch comes from
-          the piece's own harmony — and Undo puts the old grid back.
-        </p>
-      </div>
 
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
         <span id="record-status" class="record-status" role="status"></span>
-        <span id="processor-readout" class="value-readout processor-readout"></span>
       </div>
 
     </div>
@@ -1416,10 +1410,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // and (for the total trace) the engine can honour them.
         scopeSpread: false,
         scopeTotal: false,
-        // v0.0.38: the play-along panel is folded behind its keyboard button by
-        // default — five controls and a five-line hint sitting open on the
-        // front page for a feature most listeners never touch.
-        playAlongOpen: false,
       },
     };
 
@@ -9900,37 +9890,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       const playAlongToggle = document.getElementById('play-along-toggle');
       const playAlongTrack = document.getElementById('play-along-track');
-      const playAlongOpen = document.getElementById('play-along-open');
-      const playAlongRow = document.getElementById('play-along-row');
-      const playAlongNote = document.getElementById('play-along-note');
+      const playAlongPanel = document.getElementById('play-along');
       const playAlongReadout = document.getElementById('play-along-readout');
       const captureButton = document.getElementById('play-along-capture');
       const captureUndoButton = document.getElementById('play-along-undo');
 
       if (!engineCaps.playAlong) UNAVAILABLE_TRANSPORT.add('playalong');
 
-      // v0.0.38: the panel folds behind its keyboard button. Open state
-      // persists, so someone who plays along every session sees it open every
-      // session, and someone who never does never sees it at all. Disarming on
-      // close is deliberate — leaving the keys live under a shut panel would
-      // mean stray keystrokes making noise with nothing on screen to explain
-      // why.
-      function setPlayAlongOpen(open) {
-        if (!playAlongOpen || !playAlongRow) return;
-        settings.ui.playAlongOpen = open;
-        playAlongOpen.setAttribute('aria-expanded', String(open));
-        playAlongRow.hidden = !open;
-        if (playAlongNote) playAlongNote.hidden = !open;
-        if (!open && playAlongToggle?.getAttribute('aria-pressed') === 'true') {
-          playAlongToggle.click();
-        }
+      /**
+       * v0.0.40: the panel is a popover off the keyboard icon (wired with the
+       * other transport icons), so it no longer needs its own fold state. What
+       * it DOES still need is to disarm when it closes — leaving the keys live
+       * under a shut popover would mean stray keystrokes making noise with
+       * nothing on screen to explain why.
+       *
+       * Called from the popover's own close path rather than watched for:
+       * an earlier attempt used a MutationObserver on the `hidden` attribute,
+       * which threw in environments that do not provide one (the page-boot
+       * harness among them) and took the whole init down with it.
+       */
+      function disarmPlayAlong() {
+        if (playAlongToggle?.getAttribute('aria-pressed') === 'true') playAlongToggle.click();
       }
-
-      playAlongOpen?.addEventListener('click', () => {
-        setPlayAlongOpen(playAlongRow?.hidden !== false);
-        persistSettings();
-      });
-      setPlayAlongOpen(settings.ui.playAlongOpen === true);
 
       /**
        * The two-row keyboard every DAW ships: the bottom row is one octave
@@ -10250,7 +10231,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // v26: `toggleId` may be null for a dialog with no button of its own
       // (the genre favourites editor is opened from an entry in the genre
       // list), in which case `focusReturn` says where focus goes on close.
-      function setupPopover(toggleId, popoverId, { focusReturn = null } = {}) {
+      function setupPopover(toggleId, popoverId, { focusReturn = null, onClose = null } = {}) {
         const toggle = toggleId ? document.getElementById(toggleId) : null;
         const popover = document.getElementById(popoverId);
         const anchor =
@@ -10281,6 +10262,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           popover.hidden = true;
           toggle?.setAttribute('aria-expanded', 'false');
           if (refocus) (toggle || focusReturn)?.focus();
+          // Every route out lands here — the toggle, Escape, an outside click —
+          // so a caller needing to stand something down on close only has to
+          // say so once.
+          try {
+            onClose?.();
+          } catch {
+            // A caller's cleanup must never wedge the popover open.
+          }
         }
 
         toggle?.addEventListener('click', () => {
@@ -10317,8 +10306,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return { open, close };
       }
 
-      setupPopover('sleep-toggle', 'sleep-popover');
-      setupPopover('alarm-toggle', 'alarm-popover');
+      // v0.0.40: one clock, one popover holding both timers, plus the
+      // play-along keyboard as a third peer icon.
+      setupPopover('timers-toggle', 'timers-popover');
+      setupPopover('play-along-open', 'play-along', { onClose: disarmPlayAlong });
 
       let sleepTarget = null; // epoch ms
       let alarmTarget = null; // epoch ms
@@ -11321,14 +11312,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        button keeps its own width. Nothing here resizes when the toggle goes
        on — the buttons change colour and disabled state, never their text. */
     /* v0.0.38: the fold button is icon-only — the whole panel is the label. */
-    .play-along-open {
-      padding-left: 10px;
-      padding-right: 10px;
+    /* v0.0.40: the panel is a popover now, so it needs a width of its own
+       rather than the full page row it used to occupy. */
+    .play-along.popover {
+      width: min(420px, calc(100vw - 32px));
     }
 
-    .play-along-open[aria-expanded='true'] {
-      border-color: var(--link);
-      color: var(--link);
+    /* Two chips can show at once (a sleep timer and a scheduled start), so the
+       second sits beside the first instead of on top of it. */
+    .countdown-chip-alarm {
+      transform: translateX(-18px);
+    }
+
+    /* v0.0.40: heading, dial and readout in one column, so narrowing the
+       viewport can never separate the Processor label from the control it
+       names or from the numbers it produces. */
+    .processor-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      flex: 0 0 auto;
+    }
+
+    .processor-column .processor-readout {
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .timer-section {
+      margin-top: 10px;
+    }
+
+    /* v0.0.40: the genre picker was full width for a single short name. */
+    .genre-row .genre-select {
+      max-width: 50%;
     }
 
     .play-along-row {
@@ -11952,16 +11970,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       display: block;
     }
 
-    /* Its own full-width line at the foot of the transport panel, right
-       aligned under the dial's column, with its height always reserved: the
+    /* v0.0.40: directly under its own dial, inside .processor-column, instead
+       of a full-width line at the foot of the panel two rows away from the
+       control it describes. Height is still always reserved — the
        tier/notes/fps text changes length constantly and must never be able to
-       resize or re-flow the button row above it. */
+       resize or re-flow the row above it. */
     .processor-readout {
-      flex: 1 0 100%;
       min-height: 14px;
       font-size: 10px;
       line-height: 1.3;
-      text-align: right;
       color: var(--secondary);
     }
 

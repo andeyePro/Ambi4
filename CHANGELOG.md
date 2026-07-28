@@ -2,6 +2,26 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.40 — the transport row reads as three jobs, not five glyphs** — sleep and schedule-start
+  were two identical clock faces sitting side by side; they are the same kind of thing (when does
+  the music happen) and are now one clock opening one Timers popover with both inside. The
+  play-along keyboard joins it as a peer icon at the same 24px size, its panel a popover rather
+  than a strip below the genre picker. Closing that popover disarms the keys, via a new `onClose`
+  hook on `setupPopover` — every route out (the toggle, Escape, an outside click) lands in one
+  place, so a caller needing to stand something down says so once.
+
+  The Processor heading, dial and readout are one column. They were three separate places — the
+  label in the panel header, the dial last in the button row, the readout a full-width line at
+  the foot after the genre row and the whole play-along block — which is what let narrowing the
+  viewport scatter them. The genre picker drops to half width; it was full width for a single
+  short name.
+
+  Test note: an earlier attempt watched the popover's `hidden` attribute with a MutationObserver,
+  which does not exist in the page-boot harness's environment and took the whole init down with
+  it — caught by the gate, replaced with the explicit hook. The play-along boot assertions moved
+  with the design: they now prove the ICON is present and reachable when the engine can sound
+  live notes, and that the panel starts closed.
+
 - [x] **v0.0.39 — the dial panel opens with dials and nothing else** — dropped the "Main dials"
   heading (seven dials with their own names under them do not need a word above them saying they
   are dials, and the panel is the first thing on the tab so there is nothing to distinguish it

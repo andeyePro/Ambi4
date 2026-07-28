@@ -1552,27 +1552,37 @@ try {
       typeof probe.noteOn === 'function' && typeof probe.noteOff === 'function';
   } catch {}
   {
+    // v0.0.40: the panel became a POPOVER hanging off a keyboard icon in the
+    // transport icon row, so the panel itself is correctly hidden until asked
+    // for. What the probe gate now proves is that the ICON is there and
+    // reachable when the engine can sound live notes, and absent when it
+    // cannot — a keyboard with nothing behind it is still the thing to catch.
     const row = doc.getElementById('play-along');
-    const FOLLOWS = window.Node.DOCUMENT_POSITION_FOLLOWING;
+    const opener = doc.getElementById('play-along-open');
+    const openerAnchor = opener ? opener.closest('.popover-anchor') : null;
+    const openerShown = !!opener && !(openerAnchor && openerAnchor.hidden);
     if (!engineTakesLiveNotes) {
-      if (row && !row.hidden) {
+      if (openerShown) {
         failures.push(
-          'the play-along row renders against an engine with no noteOn/noteOff — ' +
+          'the play-along keyboard renders against an engine with no noteOn/noteOff — ' +
             'a keyboard with nothing behind it'
         );
       }
     } else if (!row) {
-      failures.push('the engine sounds live notes but the transport has no play-along row (#play-along)');
-    } else if (row.hidden) {
-      failures.push('the play-along row is hidden against an engine that ships noteOn/noteOff');
+      failures.push('the engine sounds live notes but the transport has no play-along panel (#play-along)');
+    } else if (!opener) {
+      failures.push('the engine sounds live notes but there is no keyboard button to open the panel (#play-along-open)');
+    } else if (!openerShown) {
+      failures.push('the play-along keyboard is hidden against an engine that ships noteOn/noteOff');
+    } else if (!row.hidden) {
+      failures.push('the play-along panel is open on load — it is a popover and must start closed');
     } else {
       const transport = doc.querySelector('.transport-module');
-      const genreRow = doc.querySelector('.genre-row');
       if (transport && !transport.contains(row)) {
-        failures.push('the play-along row is not in the transport panel');
+        failures.push('the play-along panel is not in the transport panel');
       }
-      if (genreRow && !(genreRow.compareDocumentPosition(row) & FOLLOWS)) {
-        failures.push('the play-along row renders ABOVE the genre picker');
+      if (!doc.querySelector('.transport-icons #play-along-open')) {
+        failures.push('the play-along keyboard is not in the transport icon row beside the timers');
       }
       const toggle = doc.getElementById('play-along-toggle');
       const picker = doc.getElementById('play-along-track');
