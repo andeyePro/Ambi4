@@ -2,6 +2,18 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.60 — you can see when a dial is still listening to you** — the owner's first and most repeated complaint on reviewing v0.0.59: *"far too often I set the dial as I want it then move to go elsewhere and I've ruined it."*
+
+  A pointer capture that outlives the gesture is invisible — the dial looks identical whether or not it is still following the cursor — so the next movement anywhere on the page silently drags it. The indicator now more than doubles in thickness while a drag is live (2.4 → 5.2) and reverts the instant the button comes up, which is the only thing that lets someone notice before the setting is gone.
+
+  **The reset goes back to double-click**, reversing the v0.0.56 model, on the owner's own reasoning: if a dial IS left tracking, clicking is the one reflex available to fix it — and a single-click reset made that reflex the most destructive act available. A single click now does nothing at all. His original objection to double-click (motor control) has not gone away and is answered by Backspace/Delete, which stays and is documented as an equal route rather than an afterthought.
+
+  **The span between the two ends is filled** with the indicator's own colour at 50%, replacing a thin accent rule at 35% that read as a third mark rather than as the region the value lives in. **The live-value mark runs from the centre to the rim** as a thin line, instead of a six-pixel tick at the edge that was easy to mistake for a tick mark.
+
+  **The guided tour was wrong and is now right.** It still taught double-click reset four versions after that gesture was deleted, and never mentioned the horizontal drag at all. The owner asked for a standing rule off the back of it — docs, including the in-app tour, change in the same commit as the behaviour — and that rule is now written down.
+
+  Two protocol fixes in the same pass, both his: the fromClaude channel carries **one action per number** (six things had been bundled into one), and nothing is ever appended to a number he has already started reading — new work gets a new number that **names the build it landed in**.
+
 - [x] **v0.0.59b — the onset click measured, the fullscreen chrome, and rows that split evenly** — the second half of the run, after the loop was restarted for having stopped on an exit reason that was not real.
 
   **The note-onset click, measured rather than deferred.** "Nobody in the container can hear it" was filed as a reason not to work on it, and that was wrong: a click is a step in the sample stream and a step has a size. `tests/onset-render.mjs` imports the built voice library into a real browser, plays a note through `VOICES[track][id].play` — the same function the engine calls, not a reconstruction — and reports the largest sample-to-sample step at the onset against the largest in the note's own body. Two hypotheses died. **The diagnosis previously written into TODO.md was wrong**: it said `fingered`'s filter envelope "snaps to full in 8 ms with `envAmount: 1`", but `envAmount` is pitch tracking, not an envelope — there is no filter ADSR to slam, and following that note would have cost an afternoon. And there is no step at an isolated onset at all: `fingered` and `sub` both measure a ratio of 1.00, because the amplitude envelope starts at `SILENCE` and ramps exponentially. So the click is an interaction — a release tail, a legato takeover, or the sum of several tracks — and TODO now points there. A follow-up commit retracted a "second note rendered silence" lead from that same investigation after checking it: `fingered` renders an identical peak at every duration from 1 s down to 60 ms. The zero was a measurement window, not the product.

@@ -105,12 +105,19 @@ export default async function drive(page) {
   check('a vertical drag does not open a span', !spread(raised), (v) => v === true);
   check('a vertical drag changed the value', raised.text !== closed.text, (v) => v === true);
 
-  // A tap on the centre hub resets it. Same target, zero travel.
+  // v0.0.60: a SINGLE click does nothing — the reflex available to someone
+  // whose dial is stuck must not be the destructive one.
   const beforeTap = await dialAt(page, 'Tempo', ADV);
   await page.mouse.click(beforeTap.x, beforeTap.y);
   await page.waitForTimeout(320);
+  const tapped = await dialAt(page, 'Tempo', ADV);
+  check('a single click on the dial changes nothing', tapped.text, raised.text);
+
+  // A double-click is the reset.
+  await page.mouse.dblclick(beforeTap.x, beforeTap.y);
+  await page.waitForTimeout(320);
   const reset = await dialAt(page, 'Tempo', ADV);
-  check('a tap on the hub resets the dial', reset.text !== raised.text, (v) => v === true);
+  check('a double-click resets the dial', reset.text !== raised.text, (v) => v === true);
   results.push({ name: 'Tempo after reset', ok: true, got: reset.text, want: '(informational)' });
 
   // Every main dial must answer the same gesture — that is the whole point of
@@ -136,7 +143,7 @@ export default async function drive(page) {
   // hub first so the spread below is genuinely new. Without this the test
   // asserted a state it had not caused, and passed for the wrong reason.
   const e0 = await dialAt(page, 'Energy');
-  await page.mouse.click(e0.x, e0.y);
+  await page.mouse.dblclick(e0.x, e0.y);
   await page.waitForTimeout(320);
   const settled = await dialAt(page, 'Energy');
   check('the reset tap cleared the inherited spread', !spread(settled), (v) => v === true);
@@ -169,6 +176,32 @@ export default async function drive(page) {
     check('every spread global dial persisted its span', missing, []);
     check('the per-track spread persisted too', isSpan(stored.tracks?.pad?.randomness), (v) => v === true);
   }
+
+  // ---- the dial says whether it is still following you ------------------
+  // The owner's report: "far too often I set the dial as I want it then move
+  // to go elsewhere and I've ruined it." A pointer capture that outlives the
+  // gesture is invisible unless the dial looks different while held.
+  const grip = await dialAt(page, 'Energy');
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x, grip.y - 20);
+  const held = await page.evaluate(() => {
+    const k = [...document.querySelectorAll('.knob')].find((el) => el.getAttribute('aria-label') === 'Energy');
+    const line = k.querySelector('[data-role="pointer"]');
+    return { flag: k.getAttribute('data-dragging'), width: line && +line.getAttribute('stroke-width') };
+  });
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  const let_go = await page.evaluate(() => {
+    const k = [...document.querySelectorAll('.knob')].find((el) => el.getAttribute('aria-label') === 'Energy');
+    const line = k.querySelector('[data-role="pointer"]');
+    return { flag: k.getAttribute('data-dragging'), width: line && +line.getAttribute('stroke-width') };
+  });
+  check('the dial flags itself while a drag is live', held.flag, 'true');
+  check('and stops flagging the moment you let go', let_go.flag, 'false');
+  check('the indicator is at least twice as thick while held',
+    held.width >= let_go.width * 2, (v) => v === true);
+  results.push({ name: 'pointer width held/released', ok: true, got: [held.width, let_go.width], want: '(informational)' });
 
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {

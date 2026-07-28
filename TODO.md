@@ -35,6 +35,29 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] *(SHIPPED bf0f978, 2026-07-28 — owner go in-session)* **Land the AGPL section-7 audio-output additional permission in LICENSE BEFORE merging any outside PR** — the cla.md analysis says it must land while andeye owns 100% of the copyright; Martin's "yes, draft it" (fromClaude item on the section-7 exception) still comes via fromMartin. Draft is ready to write the moment he says yes.
 - [x] *(SHIPPED v0.0.54, 2b26262)* **Move the version number to the top of the screen** — left of the right-aligned `?` tutorial launcher, so a refresh shows the running build without scrolling to the footer. Keep the footer stamp too (it is the durable record; the top one is the glanceable one).
 
+## Owner review of v0.0.59 (2026-07-28) — what he asked for next
+
+**Protocol failures he called out first, both fixed:** one action per number in
+the fromClaude channel (I bundled six things into item 38), and never append to
+a number he has already started reading — new work gets a new number that names
+the build it landed in. A third rule he asked me to set: **update the docs in
+the same change, including the guided tour.**
+
+- [x] *(SHIPPED v0.0.60)* **A dial must show whether it is still following you** — "far too often I set the dial as I want it then move to go elsewhere and I've ruined it." The indicator more than doubles while a drag is live (2.4 → 5.2) and reverts the instant you let go.
+- [x] *(SHIPPED v0.0.60)* **Fill the span between the two ends** with the indicator's own colour at 50%, replacing a thin accent rule at 35% that read as a third mark.
+- [x] *(SHIPPED v0.0.60)* **Reset goes back to double-click**, reversing v0.0.56 on his reasoning: if a dial is left tracking after release, clicking is the only reflex available, and a single-click reset made that reflex the most destructive thing available. A single click now does nothing. His original motor-control objection is answered by Backspace/Delete, which stays.
+- [x] *(SHIPPED v0.0.60)* **The live-value mark runs centre to rim** as a thin line instead of a tick at the edge.
+- [x] *(SHIPPED v0.0.60)* **Guided tour updated** to the current gestures — it still described double-click reset and never mentioned the horizontal drag at all.
+
+- [ ] **The live-value mark on EVERY dial, not just the global ones.** It renders on any dial fed through `setLive`, and only the seven globals are fed today. The per-track ranged dials (level, randomness, every patch dial) need the same feed from `getResolved().tracks`.
+- [ ] **Stop conflating Tempo and Energy** — "in most modern western genres you don't want to vary the tempo, but you definitely do want to vary the energy." Energy currently drives tempo and complexity together. Splitting them changes what the Simple tab does, so it wants a moment's thought about what Energy means once tempo is out of it.
+- [ ] **Variation on EVERY dial, including the OSC morphs and picker dials like filter type** — "either tell me why you won't add it to them all, or add it to them all." My v0.0.56 reason (a span between two named positions means nothing) does not survive contact: a filter type alternating between lowpass and bandpass bar by bar, or an oscillator morphing between two shapes, are both perfectly meaningful and both things a synth does. The real blocker is that the engine reads those fields with `oneOf`/`numberIn` rather than `sanitiseRangeValue`, which is a fixable engine gap and not a design objection. Build it.
+- [ ] **Universal | Per instrument was meant to CLEAR UP the interface** — with Swing set to Universal, the per-track Swing dial should DISAPPEAR from every track, not sit there inert. Applies to every main dial except Tempo (always universal) and Volume (a track's level is a different thing from master volume).
+- [ ] **Maximum volume is too quiet** — at 0.0 dB with the Mac at full, it is far quieter than YouTube, so system alarms are startling by comparison. Needs real headroom, not a taper change. Also: the top of the dial should read **-0.0 dB**, not 0.0 dB.
+- [ ] **Unlimited cmd-z undo within a session**, alongside Back. Scope question asked in the channel (does cmd-z also undo a Next, or do the two stay separate).
+- [ ] **Move the paid features out of the public repo** into a private one — "they can't be built in a public repo, then switched off" — reassessing the andeyePro-versus-new-repo thinking, and **purge them from public git history**. The purge is a rewrite of published history and is escalated, not autonomous. Testing hidden features moves to multiple accounts rather than a console flag.
+- [!] **Trademark filing — HOLD** (owner, 2026-07-28): "that's not a cheap diagnostic, it's a good way to get stuck in litigation." Do not file. Do not raise it again unprompted.
+
 ## Genre and bass listening verdicts (owner, 2026-07-28)
 
 The owner's second full listen. Sorted by what they actually are, because

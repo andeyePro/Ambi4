@@ -392,12 +392,17 @@ export function createKnob(container, options) {
 
   // Range tint: an arc riding the ring between the min and max angles,
   // recomputed in updateView(). Hidden in single mode.
+  // v0.0.60 (owner, 2026-07-28): "fill the arc between the indicators with a
+  // 50% opaque version of the indicator's line colour". It was a thin accent
+  // rule at 35% before, which read as a third mark rather than as the region
+  // the value lives in. Wide and in the pointer's own colour, it reads as one
+  // span with two ends.
   const rangeArc = document.createElementNS(SVG_NS, 'path');
-  rangeArc.setAttribute('stroke-width', '5');
-  rangeArc.setAttribute('stroke-linecap', 'round');
+  rangeArc.setAttribute('stroke-width', '11');
+  rangeArc.setAttribute('stroke-linecap', 'butt');
   rangeArc.style.fill = 'none';
-  rangeArc.style.stroke = ACCENT_WARM;
-  rangeArc.style.opacity = '0.35';
+  rangeArc.style.stroke = POINTER_STROKE;
+  rangeArc.style.opacity = '0.5';
   svg.appendChild(rangeArc);
 
   const ring = document.createElementNS(SVG_NS, 'circle');
@@ -464,6 +469,9 @@ export function createKnob(container, options) {
   pointer.setAttribute('y1', String(CY - 8));
   pointer.setAttribute('x2', String(CX));
   pointer.setAttribute('y2', String(CY - FACE_R + 4));
+  // Named, so a test can find the indicator without counting <line>s — there
+  // are nearly thirty in the tick ring alone.
+  pointer.setAttribute('data-role', 'pointer');
   pointer.setAttribute('stroke-width', '2.4');
   pointer.setAttribute('stroke-linecap', 'round');
   pointer.style.stroke = POINTER_STROKE;
@@ -493,11 +501,16 @@ export function createKnob(container, options) {
   // two ends the user set.
   const livePointer = document.createElementNS(SVG_NS, 'line');
   livePointer.setAttribute('data-role', 'live-pointer');
+  // v0.0.60 (owner): "can it be made a thin line that goes all the way from
+  // the centre of the dial to its outer circle?" A 6px tick at the rim was
+  // easy to mistake for a tick mark; a full radius cannot be mistaken for
+  // anything but a pointer, and being thin is what keeps it from competing
+  // with the two ends it sits between.
   livePointer.setAttribute('x1', String(CX));
-  livePointer.setAttribute('y1', String(CY - RING_R + 2));
+  livePointer.setAttribute('y1', String(CY));
   livePointer.setAttribute('x2', String(CX));
-  livePointer.setAttribute('y2', String(CY - RING_R + 8));
-  livePointer.setAttribute('stroke-width', '2.2');
+  livePointer.setAttribute('y2', String(CY - RING_R));
+  livePointer.setAttribute('stroke-width', '1.1');
   livePointer.setAttribute('stroke-linecap', 'round');
   livePointer.style.stroke = LIVE_STROKE;
   livePointer.style.pointerEvents = 'none';
@@ -520,6 +533,7 @@ export function createKnob(container, options) {
   maxPointer.setAttribute('y1', String(CY - RING_R - 5));
   maxPointer.setAttribute('x2', String(CX));
   maxPointer.setAttribute('y2', String(CY - RING_R + 5));
+  maxPointer.setAttribute('data-role', 'max-pointer');
   maxPointer.setAttribute('stroke-width', '2');
   maxPointer.setAttribute('stroke-linecap', 'round');
   maxPointer.style.stroke = ACCENT_WARM;
@@ -661,6 +675,30 @@ export function createKnob(container, options) {
    * the value or the gestures changes, the pointer and hub just go grey so a
    * panel of dials can be read at a glance.
    */
+  /**
+   * v0.0.60 (owner, 2026-07-28): "when a dial is being moved, bold its
+   * indicator, make it at least twice as thick. So as soon as you let go, it
+   * reverts to regular thickness. Then you can see if you have let go or not."
+   *
+   * The report behind it: "far too often I set the dial as I want it then move
+   * to go elsewhere and I've ruined it." A pointer capture that outlives the
+   * gesture is invisible — the dial looks exactly the same whether or not it is
+   * still listening — so the next movement anywhere on the page silently drags
+   * it. This makes the two states different at a glance, which is the only
+   * thing that lets someone notice before they have ruined the setting.
+   */
+  const POINTER_W = 2.4;
+  const POINTER_W_DRAG = 5.2;
+  const MAX_POINTER_W = 2;
+  const MAX_POINTER_W_DRAG = 4.4;
+
+  function applyGripLook() {
+    const held = dragging;
+    pointer.setAttribute('stroke-width', String(held ? POINTER_W_DRAG : POINTER_W));
+    maxPointer.setAttribute('stroke-width', String(held ? MAX_POINTER_W_DRAG : MAX_POINTER_W));
+    root.setAttribute('data-dragging', held ? 'true' : 'false');
+  }
+
   function applyZeroedLook() {
     const zeroed = mode !== 'range' && value === min;
     pointer.style.stroke = zeroed ? ZERO_POINTER_STROKE : POINTER_STROKE;
@@ -684,6 +722,7 @@ export function createKnob(container, options) {
   function updateView() {
     const deg = degFor(value);
     pointerGroup.setAttribute('transform', `rotate(${+deg.toFixed(2)} ${CX} ${CY})`);
+    applyGripLook();
     applyZeroedLook();
     applyLive();
     if (mode === 'range') {
@@ -990,6 +1029,7 @@ export function createKnob(container, options) {
     if (e && e.button != null && e.button !== 0) return;
     dragging = true;
     pressed = true;
+    applyGripLook();
     lastY = e && typeof e.clientY === 'number' ? e.clientY : 0;
     pressX = e && typeof e.clientX === 'number' ? e.clientX : NaN;
     pressY = e && typeof e.clientY === 'number' ? e.clientY : NaN;
@@ -1137,6 +1177,7 @@ export function createKnob(container, options) {
     dragging = false;
     dragAxis = null;
     dragRaw = value;
+    applyGripLook();
     try {
       if (e && e.pointerId != null && typeof root.releasePointerCapture === 'function') {
         root.releasePointerCapture(e.pointerId);
@@ -1147,17 +1188,18 @@ export function createKnob(container, options) {
   }
 
   function onPointerUp(e) {
-    const wasPress = pressed;
-    const wasHub = pressHub;
-    const moved = travelled;
     pressed = false;
     endPointer(e);
-    if (!wasPress || !e) return;
-    // A tap on the hub is the reset. No timing requirement — the owner's
-    // ruling is that a gesture must not depend on how fast it is made — and
-    // no reset anywhere else, so an ordinary tap on the face is inert rather
-    // than destructive.
-    if (wasHub && moved <= TAP_SLOP_PX) resetToDefault();
+    // v0.0.60: a single tap does NOTHING. The reset is back on double-click,
+    // reversing the v0.0.56 model at the owner's request on 2026-07-28 — and
+    // he gave the reason himself: "if you leave a dial still tracking your
+    // position despite your having let go, all you can do to fix it is click,
+    // that currently resets everything". A single-click reset makes the one
+    // reflex available to someone whose dial is stuck the most destructive
+    // thing they can do. His earlier motor-control argument against
+    // double-click still stands, which is why the keyboard reset
+    // (Backspace/Delete) is not going anywhere and is now the documented
+    // equal-footing route rather than an afterthought.
   }
 
   function onPointerCancel(e) {
@@ -1275,6 +1317,10 @@ export function createKnob(container, options) {
   listen('pointercancel', onPointerCancel);
   listen('wheel', onWheel, { passive: false });
   listen('keydown', onKeyDown);
+  listen('dblclick', (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    resetToDefault();
+  });
 
   updateView();
   applyGhost(opts.ghostValue != null ? opts.ghostValue : null);

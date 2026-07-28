@@ -309,15 +309,15 @@ test('one end pushed past the other carries it along rather than wedging', () =>
 // Tap to reset
 // --------------------------------------------------------------------------
 
-test('a tap on the hub resets to the declared default', () => {
+test('a double-click resets to the declared default', () => {
   const { el, seen } = makeKnob({ value: 20, defaultValue: 60 });
-  tap(el, CENTRE);
+  el.dispatch('dblclick', {});
   assert.equal(last(seen), 60);
 });
 
-test('a tap on the hub resets the spread too', () => {
+test('a double-click resets the spread too', () => {
   const { el, seen } = makeKnob({ value: { min: 10, max: 90 }, defaultValue: 60 });
-  tap(el, CENTRE);
+  el.dispatch('dblclick', {});
   assert.equal(last(seen), 60, 'the reset must collapse a span, not just move it');
 });
 
@@ -327,12 +327,15 @@ test('a tap outside the hub does nothing', () => {
   assert.equal(seen.length, 0, 'an ordinary tap on the face must be inert, never destructive');
 });
 
-test('the reset has no timing requirement', () => {
-  // The whole point of replacing double-click: a slow press still resets.
+test('a SINGLE tap on the hub does nothing either', () => {
+  // v0.0.60, the owner's reason in his own words: if a dial is left tracking
+  // the pointer after release, clicking is the only reflex available — and
+  // under the v0.0.56 model that click reset everything. The single most
+  // likely gesture from someone whose dial is stuck must not be the most
+  // destructive one.
   const { el, seen } = makeKnob({ value: 20, defaultValue: 60 });
-  el.dispatch('pointerdown', { clientX: 50, clientY: 50, button: 0, pointerId: 1 });
-  el.dispatch('pointerup', { clientX: 51, clientY: 51, pointerId: 1 });
-  assert.equal(last(seen), 60);
+  tap(el, CENTRE);
+  assert.equal(seen.length, 0);
 });
 
 test('a drag that starts on the hub is a drag, not a reset', () => {
@@ -341,11 +344,23 @@ test('a drag that starts on the hub is a drag, not a reset', () => {
   assert.notEqual(last(seen), 60, 'travel past the tap slop must rule out the reset');
 });
 
-test('double-click is gone', () => {
+test('the keyboard reset stays an equal route, not an afterthought', () => {
+  // The motor-control argument against double-click has not gone away; it is
+  // answered by Backspace/Delete rather than by removing the reset.
   const { el, seen } = makeKnob({ value: 20, defaultValue: 60 });
-  el.dispatch('dblclick', {});
-  assert.equal(seen.length, 0, 'nothing may still be listening for dblclick');
-  assert.equal(el.listenerCount('dblclick'), 0);
+  el.dispatch('keydown', { key: 'Backspace' });
+  assert.equal(last(seen), 60);
+});
+
+test('the indicator doubles in thickness while a drag is live, and only then', () => {
+  const { el } = makeKnob();
+  assert.equal(el.getAttribute('data-dragging'), 'false');
+  el.dispatch('pointerdown', { clientX: 50, clientY: 90, button: 0, pointerId: 1 });
+  el.dispatch('pointermove', { clientX: 50, clientY: 70, pointerId: 1 });
+  assert.equal(el.getAttribute('data-dragging'), 'true',
+    'a live drag must be visible — an invisible pointer capture is the bug this fixes');
+  el.dispatch('pointerup', { clientX: 50, clientY: 70, pointerId: 1 });
+  assert.equal(el.getAttribute('data-dragging'), 'false', 'letting go must be visible too');
 });
 
 // --------------------------------------------------------------------------
