@@ -2,6 +2,15 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.38 — play-along folds behind one keyboard button** — it sat open on the front page
+  with five controls and a five-line hint showing at all times, for a feature most listeners
+  never touch. Now a single icon-only keyboard button opens it; the open state persists, so
+  someone who plays along every session gets it open every session and someone who never does
+  never sees it. Closing it disarms the keys deliberately — leaving them live under a shut panel
+  would mean stray keystrokes making noise with nothing on screen to explain why. The original
+  rule that no control may move once the panel is open still holds inside it; what changed is
+  that the panel itself is now closed until asked for.
+
 - [x] **v0.0.37 — the Main dials stop stacking** — the Advanced tab's Main dials were rendering
   as one preposterous vertical column instead of a row. Cause: `#advanced-dials` carries
   `.sliders-module`, which is `display: flex` so the Simple tab's four dials sit in a row — so

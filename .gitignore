@@ -42,3 +42,6 @@ dist/
 # vsss/vibe harness state — internal, not for the public repo
 .vss/
 docs-private/
+
+# Wrangler build/deploy scratch — carries absolute host paths in its source maps
+.wrangler/
