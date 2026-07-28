@@ -531,6 +531,7 @@ const VOICES: Record<string, [string, string][]> = {
                   <label for={`${id}-adv`} class="panel-label">{advLabel}</label>
                 </div>
                 <div class="dial-slot" id={`${id}-dial-adv`}></div>
+                <div class="scope-slot" id={`scope-${id}`}></div>
               </div>
             );
           })}
@@ -547,6 +548,9 @@ const VOICES: Record<string, [string, string][]> = {
               <label for="swing" class="panel-label">Swing</label>
             </div>
             <div class="dial-slot" id="swing-dial"></div>
+            <!-- v0.0.57: Universal | Per instrument. Built by the page script
+                 only where the engine can actually honour it. -->
+            <div class="scope-slot" id="scope-swing"></div>
           </div>
 
           <div class="control simple-dial" id="dial-reverb-tail" hidden>
@@ -4763,6 +4767,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const value = feelValueFromRaw(raw, max);
           settings.tracks[track][key] = value;
           engine.setParams({ tracks: { [track]: { [key]: value } } });
+          // v0.0.57: moving ONE track off its auto detent is what makes the
+          // global dial per-instrument, so the Universal | Per instrument
+          // control re-reads rather than being told.
+          syncScopeControls();
           persistSettings();
         };
         const stored = settings.tracks[track][key];
@@ -4849,6 +4857,135 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
       }
+
+      /**
+       * v0.0.57 — Universal | Per instrument.
+       *
+       * The owner asked for this on 2026-07-27 and it sat unbuilt through five
+       * versions because the TODO line listed five dials, three of which cannot
+       * have it. Stated plainly: `repetition` drives ONE hook and ONE motif
+       * bank per piece, and `reverbTail` drives ONE shared convolver, so a
+       * per-instrument version of either is a new engine feature (per-track
+       * sends, per-track convolvers) and not a toggle. Randomness has been
+       * per-track since v21. That leaves the two the engine can already do, and
+       * those two are built here.
+       *
+       * The mechanism was mostly present and simply invisible: each track's
+       * editor has carried its own Swing and Density dial since v21, with an
+       * auto detent at the bottom writing `null`, and the engine reads null as
+       * "follow the global dial". What was missing was any way to SEE from the
+       * global dial whether it was being followed, and any way to switch every
+       * track at once. So this control is a readout as much as an input —
+       * flipping a single track's own dial off the detent moves it to Per
+       * instrument by itself, because that is what has become true.
+       *
+       * Switching to Per instrument seeds every applicable track with the value
+       * it is sounding right now, so nothing changes audibly at the moment of
+       * the switch — it only becomes editable. Switching back to Universal
+       * writes null everywhere, which does change the sound, and is the reason
+       * the two directions are not symmetrical.
+       */
+      const SCOPE_SPECS = {
+        swing: {
+          slot: 'scope-swing',
+          label: 'Swing',
+          tracks: () => SEQ_TRACKS.filter((id) => engineCaps.trackSwing[id]),
+          // The global Swing dial's own value: what each track adopts when the
+          // user asks for per-instrument control.
+          seed: () => rangeMid(sanitiseRangeValueIn(settings.swing, 0, 1, 0)),
+        },
+        complexity: {
+          slot: 'scope-complexity',
+          label: 'Complexity',
+          tracks: () => TUNED_TRACKS.filter((id) => engineCaps.trackDensity[id]),
+          // Density is a MULTIPLIER on the rate complexity sets, so 1 is "the
+          // rate you already had" — the honest seed for a switch that must not
+          // change the sound.
+          key: 'density',
+          seed: () => 1,
+        },
+      };
+
+      const scopeControls = new Map(); // dial id -> { refresh() }
+
+      /** Every applicable track sitting on its auto detent = the dial is universal. */
+      function scopeIsUniversal(spec) {
+        const key = spec.key || 'swing';
+        return spec.tracks().every((id) => {
+          const value = settings.tracks[id]?.[key];
+          return value === null || value === undefined;
+        });
+      }
+
+      function buildScopeControl(dialId) {
+        const spec = SCOPE_SPECS[dialId];
+        if (!spec) return;
+        const slot = document.getElementById(spec.slot);
+        if (!slot) return;
+        const tracks = spec.tracks();
+        // Nothing to scope to. A control offering a choice between one thing
+        // and the same thing is worse than no control.
+        if (tracks.length < 2) return;
+        const key = spec.key || 'swing';
+
+        const group = document.createElement('div');
+        group.className = 'segmented dial-scope';
+        group.setAttribute('role', 'radiogroup');
+        group.setAttribute('aria-label', `${spec.label} applies to`);
+        const radios = [];
+        for (const [value, text] of [['universal', 'Universal'], ['per', 'Per instrument']]) {
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `scope-${dialId}`;
+          input.id = `scope-${dialId}-${value}`;
+          input.value = value;
+          const label = document.createElement('label');
+          label.htmlFor = input.id;
+          label.textContent = text;
+          input.addEventListener('change', () => {
+            if (!input.checked) return;
+            const trackStates = {};
+            for (const id of spec.tracks()) {
+              const next = value === 'universal' ? null : spec.seed();
+              settings.tracks[id][key] = next;
+              trackStates[id] = { [key]: next };
+            }
+            engine.setParams({ tracks: trackStates });
+            syncAllTrackExtras();
+            persistSettings();
+            refresh();
+          });
+          group.append(input, label);
+          radios.push(input);
+        }
+        slot.append(group);
+        describe(
+          group,
+          `Whether ${spec.label} sets one value for the whole piece, or each instrument keeps its own. Switching to Per instrument gives every instrument the value it is playing now, so nothing changes until you move one.`
+        );
+
+        function refresh() {
+          const universal = scopeIsUniversal(spec);
+          for (const input of radios) {
+            input.checked = input.value === (universal ? 'universal' : 'per');
+          }
+        }
+        refresh();
+        scopeControls.set(dialId, { refresh });
+      }
+
+      /** Re-read every scope control from the settings tree. */
+      function syncScopeControls() {
+        for (const control of scopeControls.values()) control.refresh();
+      }
+
+      // Built HERE and not beside the dials they sit under: `buildScopeControl`
+      // is hoisted but SCOPE_SPECS above it is a const, so calling it earlier
+      // in the init reaches the table before it is initialised — which is
+      // exactly the blank-page class of failure page-boot.mjs exists to catch,
+      // and did. The dials themselves are long built by this point.
+      buildScopeControl('swing');
+      buildScopeControl('complexity');
 
       // ---- v14: per-track Dissonance (tuned tracks only) -----------------
       // How far this instrument may stray from the chord the group is
@@ -14220,6 +14357,77 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         align-items: center;
         padding: 10px 14px;
       }
+    }
+
+    /* -- v0.0.57: Universal | Per instrument, under the dial it governs ----
+       The TODO flagged this as "wider than the dial it governs; needs a layout
+       answer". The answer is to stop treating it as a button and treat it as a
+       third caption: dial-label type size, dial-label colour, no fill, hairline
+       divider between the two halves. At 10px with 5px padding the pair is
+       ~118px against a 4-column cell that floors at ~145px, so it fits the
+       tightest desktop case without an ellipsis rule — and the row it sits in
+       collapses to 2 columns at 760px and 1 at 400px, both of which are wider.
+
+       It is centred under the readout rather than left-aligned because the dial
+       above it is centred, and a control that governs a dial should sit under
+       its middle. */
+    .scope-slot {
+      display: flex;
+      justify-content: center;
+      margin-top: 6px;
+      min-height: 0;
+      /* The control keeps its own width and bleeds into the grid gutter rather
+         than being squeezed — the same rule the v18 dial contract already
+         applies to a long readout, and for the same reason: the alternative is
+         a box that silently cuts its own text off. */
+      overflow: visible;
+    }
+
+    .scope-slot > .segmented {
+      flex: 0 0 auto;
+    }
+
+    .segmented.dial-scope {
+      border-radius: 999px;
+      /* Never wrap. The base .segmented wraps, which on a 143px dial cell put
+         "Universal" on one line and "Per instrument" on the next — a vertical
+         pair that no longer reads as one control with two halves. Measured, not
+         guessed: `.vibe/measure.sh local drive` against the 4-column desktop
+         case is what caught it. */
+      flex-wrap: nowrap;
+    }
+
+    /* Sentence case with no letter-spacing, which is what buys the fit: the
+       uppercase + 0.04em version measured 197px against a 143px cell. It also
+       stops the control reading as a third dial CAPTION — the two labels above
+       it are the uppercase ones. */
+    .segmented.dial-scope label {
+      padding: 3px 4px;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+      color: var(--secondary);
+      font-family: var(--label-font, inherit);
+    }
+
+    /* The selected half is the one that reads as text; the other recedes.
+       Deliberately NOT a filled pill — a filled half on a 10px control next to
+       a dial face reads as a lit indicator, i.e. as state the ENGINE is
+       reporting rather than a choice the user has made. */
+    .segmented.dial-scope input:checked + label {
+      color: var(--text);
+      background: var(--surface-raised, rgba(0, 0, 0, 0.05));
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .segmented.dial-scope input:checked + label {
+        background: rgba(255, 255, 255, 0.08);
+      }
+    }
+
+    .segmented.dial-scope input:focus-visible + label {
+      outline: 2px solid var(--accent-warm, #c98a4b);
+      outline-offset: -2px;
     }
 
     /* -- v0.0.56: dials on a touch screen --------------------------------
