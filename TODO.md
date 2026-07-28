@@ -60,7 +60,11 @@ fault, and neither is a mixing judgement:
 
 **Two need the genre researched before anything is judged:**
 
-- [ ] **Minimalism** and **New Age** — "I need to research the actual genre to find out if I don't like it, or just don't like the conflict between Ambi4's tracks." Research is ours to do and report, not his.
+- [x] *(RESEARCHED — brain2 `Ambi4-genre-research-minimalism-new-age`; two different answers)* **Minimalism** and **New Age**.
+
+  **New Age: the genre is right and the owner does not like new age.** Checked against the definition — instrumental, light melodic harmonies, steady in harmony and tempo, mostly major with few shifts, slow to moderate, synths plus electric piano / harp / flute / bells / strings — Ambi4 matches on every point: 50–78 bpm, all-major modes, I–IV and I–vi–IV–I, a 0.6 extension bias so most chords land as major sevenths, and choir / crystal / flute / round / chimes / hand voices. **Recommend spending nothing on it.** Tuning it toward his taste would make it less like new age, not more. One real gap that is a design constraint rather than a defect: recorded nature sound is canonical in the genre and Ambi4 has no samples anywhere, by design.
+
+- [ ] **Minimalism needs a PROCESS mechanism, not a voicing pass** — its surface is already right (unswung pulse, `x-x-x-x` and continuous anchors, Ionian/Mixolydian/Lydian at 75%, one or two chords over 8 bars, marimba on the arp). What is missing is the thing that makes minimalism minimalism: **phasing** (two copies of one identical pattern at very slightly different speeds, drifting in and out of alignment over minutes) and **additive process** (one step of a fixed cell added or removed every N repetitions, in order). The engine has randomness (a bounded walk) and reprise (a hook loop), which produce *variation*; process is the opposite — transformation of a fixed cell, in one direction, audibly, on purpose. Two candidates, both useful beyond this one genre: **(a) a per-track tempo offset of a fraction of a percent** — the scheduler already re-reads tempo per pulse since v0.0.48, so this is smaller than it sounds, and it is the single most recognisable minimalist device; **(b) a deterministic walk over a step grid** — the per-step on/off grid exists, what is missing is a rule that advances it in order instead of re-rolling it.
 
 **Two are working, and say what working sounds like:**
 
