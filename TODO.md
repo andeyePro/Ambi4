@@ -22,8 +22,8 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 ## Next up (owner ask, 2026-07-28)
 
 - [ ] **Adopt CLA v1.0** (andeye_com note, 2026-07-28, approved by Martin — record in brain2 andeye/cla.md): CLA.md = verbatim version-stamped copy of the canonical text + CONTRIBUTORS.md + wire the CLA Assistant Lite check, all per the estate repo's docs/cla/ENFORCEMENT.md. Blockers from this container: no estate-repo access (asked andeye_com via coordination.md to post the verbatim v1.0 text + kit into brain2), and the workflow file push may need Martin if this PAT lacks workflow scope.
-- [ ] **Land the AGPL section-7 audio-output additional permission in LICENSE BEFORE merging any outside PR** — the cla.md analysis says it must land while andeye owns 100% of the copyright; Martin's "yes, draft it" (fromClaude item on the section-7 exception) still comes via fromMartin. Draft is ready to write the moment he says yes.
-- [ ] **Move the version number to the top of the screen** — left of the right-aligned `?` tutorial launcher, so a refresh shows the running build without scrolling to the footer. Keep the footer stamp too (it is the durable record; the top one is the glanceable one).
+- [x] *(SHIPPED bf0f978, 2026-07-28 — owner go in-session)* **Land the AGPL section-7 audio-output additional permission in LICENSE BEFORE merging any outside PR** — the cla.md analysis says it must land while andeye owns 100% of the copyright; Martin's "yes, draft it" (fromClaude item on the section-7 exception) still comes via fromMartin. Draft is ready to write the moment he says yes.
+- [x] *(SHIPPED v0.0.54, 2b26262)* **Move the version number to the top of the screen** — left of the right-aligned `?` tutorial launcher, so a refresh shows the running build without scrolling to the footer. Keep the footer stamp too (it is the durable record; the top one is the glanceable one).
 
 ## Awaiting an owner decision
 
