@@ -24,11 +24,50 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] *(SHIPPED v0.0.55)* **The Stop key does nothing** — the second press that cuts the outro short was written in v0.0.41 and made unreachable by a `if (finishing) return;` guard left over from the era of a separate Stop key. Guard removed; the Stop caption also gained its own square glyph, having been drawn beside the finish barline since v0.0.41.
 - [x] *(SHIPPED v0.0.55)* **Overlapping text** — `Auto (follows Randomness)` is 148 px of readout in an 84 px `.vary-knob` cell, so all four Randomise dials in every track editor overpainted each other by 56 px. Reads `Auto` now. Found by `.vibe/measure.sh overlaps`, which is the durable half of the fix.
 
+- [ ] **Universal | Per instrument toggle — asked for on 2026-07-27, still not built** (the owner's "I know I don't have the universal dial implementation"). It is filed under v0.0.37 below with two open flags of mine, which is why it kept being passed over, so here is the honest state: **Swing and Complexity are the only two that can be built today** — the engine already reads `tracks[t].swing` and `tracks[t].density` as "null means follow the global dial", so a per-instrument mode there is a UI change alone. **Reprise and Reverb tail cannot be**: there is one hook and one motif bank per piece and one shared convolver, so per-instrument versions of those are new engine features (per-track sends or per-track convolvers), not a toggle. Randomness is already per-track via Variation. Recommend building the two that are real and dropping the other two from the list rather than leaving the item blocked on a ruling about controls that cannot exist yet.
+- [ ] **Next-beat tempo quantisation is global, not Simple-only** — the owner asked on 2026-07-28 whether it should apply to the Simple dial alone ("I imagine Advanced users would rather it sounded better than immediate. Lets try that for now if easy and I can AB them"). v0.0.48 shipped it for every tempo change, which is half the ask: he can hear the quantised version but has nothing to A/B it against. Either gate it to Simple, or add a switch, so the comparison he asked for is actually possible.
+- [ ] **Write the deploy gate down in the repo** — the standing instruction from 2026-07-28 ("push to mcdev first, look at it yourself or ask me to confirm, push to production only on 'go'") lives in an agent's memory and nowhere a future session or a contributor can read it. It belongs in CONTRIBUTING.md when that gets written, and in the meantime in docs/.
+- [ ] **Document the Mac test account for every vibe on this machine** — the owner's 2026-07-28 ask was "make it clear to all vibes what can be done there". `.vibe/shot.sh` and `.vibe/measure.sh` carry their own usage headers, but nothing tells a session in another project that a rendering account exists at all.
+
 - [ ] **Dependabot: 10 alerts on the default branch (3 high) — root fix is the Astro 4→7 major** — local `npm audit`: 3 findings (2 high), ALL resolved only by astro@7.1.4 (breaking). Honest exposure for a prebuilt static site is low: esbuild's file-read is dev-server-on-Windows, sharp's libvips CVEs are build-time image processing, and the two Astro XSS advisories need unescaped spread attrs / transition:* directives on hydrated islands, which this page doesn't use with untrusted input. Plan it as a deliberate migration (astro 7 upgrade + full suite + shot sweep + frozen-reference check), not an `npm audit fix --force` drive-by. Review the 7 GitHub-only alerts at github.com/andeyePro/Ambi4/security/dependabot when wiring the upgrade.
 
 - [x] *(SHIPPED 5e14459 + cf30b1a, 2026-07-28)* **Adopt CLA v1.0** — CLA.md (verbatim, stamped) + CONTRIBUTORS.md live; the CLA Assistant workflow commit cf30b1a is LOCAL-ONLY (PAT lacks workflow scope — Martin pushes from the Mac checkout: plain `git push` in Projects/Ambi4). After it lands, optionally add the `CLAAssistant` check to required status checks in branch protection (GitHub settings, Martin).
 - [x] *(SHIPPED bf0f978, 2026-07-28 — owner go in-session)* **Land the AGPL section-7 audio-output additional permission in LICENSE BEFORE merging any outside PR** — the cla.md analysis says it must land while andeye owns 100% of the copyright; Martin's "yes, draft it" (fromClaude item on the section-7 exception) still comes via fromMartin. Draft is ready to write the moment he says yes.
 - [x] *(SHIPPED v0.0.54, 2b26262)* **Move the version number to the top of the screen** — left of the right-aligned `?` tutorial launcher, so a refresh shows the running build without scrolling to the footer. Keep the footer stamp too (it is the durable record; the top one is the glanceable one).
+
+## Genre and bass listening verdicts (owner, 2026-07-28)
+
+The owner's second full listen. Sorted by what they actually are, because
+"dischordant" and "there is a click on the note" want completely different work.
+
+**Two are defects, not taste.** Both are reproducible descriptions of a sound
+fault, and neither is a mixing judgement:
+
+- [ ] **A click on note onset — `fingered` bass, and bossa generally.** Reported twice, independently ("Soul Groove - Fingered bass is also cracking on note start", "Bossa … has a lot of sounds that are starting with a click, due to inadvertant sound design issues"). Candidates in order: the FILTER envelope, which on `fingered` snaps to full in 8 ms with `envAmount: 1` over a 455 Hz cutoff and a decay of 0.01 s that does nothing at all because sustain is 1 — an 8 ms filter slam is audible as a crack in a way an 8 ms amplitude ramp is not; the 0.14 s release colliding with the next note's onset on a fast line; and any voice whose note starts on a non-zero phase. **Do not tune this blind.** Nobody in the container can hear it, and audio-reference.mjs digests note tuples rather than samples, so it would not catch a change either way. The Mac test account can render real audio offline — measure the onset for a step discontinuity, fix, measure again.
+- [ ] **A noise layer that reads as sawing, in Ambient** — "it seems to have a noise layer in it that always makes me think there's someone sawing. I find that quite distracting." He attributes it to a voice he calls "call" and asks whether Synthwave uses the same one. **Checked, and the answer is no on both counts, which changes where to look:** Ambient's shipped voices are pad `warm`, arp `softPluck`, melody `bell`, bass `breath`, texture `wash`, percussion `soft`, and Synthwave shares NONE of them (`polysaw`/`crystal`/`keys`/`sawbass`/`cloud`/`soft`). The `call` voice exists but no genre selects it by default. The two noise-shaped candidates in Ambient are `breath` (its "bass", a 0.18 s-attack sine through a wide-open filter) and `wash` (texture, a bandpass at 320 Hz with q 1.2, 2.4 s attack, reverb 0.85) — `wash` is the better suspect for a sustained sawing, since a narrow bandpass on noise is exactly what a saw stroke sounds like. Confirm with him which track it is by soloing before changing anything.
+
+**One is a genre that fails its own name:**
+
+- [ ] **Cinematic does not sound cinematic** — "it frankly sounds much more like most of the other Ambi4 tracks than anything you would call Cinematic." This is the v0.0.29 blind-identification test failing for one genre. It needs a voicing pass of its own, not a tweak.
+- [ ] **Acid Jazz is dissonant throughout** — "all of it. So bad that I'm not going to waste time researching what acid jazz basslines are supposed to sound like." Fair: researching the reference is the build's job, not the listener's. Its signature voice is the tine e-piano; the dissonance is more likely the harmony (extended chords over a pentatonic scale table) than the voice.
+- [ ] **Bossa is dissonant** — same shape of problem as Acid Jazz, same likely cause, separate from its click defect above.
+
+**Three are a melody that spoils an otherwise working track:**
+
+- [ ] **Deep House** — "bass and other tracks seem fine, just let down by an annoying melody." He notes its bass is rapid and repetitive and asks whether that is simply the genre: it is, and deep house basslines are meant to sit that way, so leave the bass alone.
+- [ ] **Lofi Beats** — "also has a bad melody."
+- [ ] **Downtempo** — bass fine "until the drums enter, and they seem to be clashing with each other." That is a rhythmic collision rather than a melodic one — check the kit pattern against the bass placement.
+
+**Two need the genre researched before anything is judged:**
+
+- [ ] **Minimalism** and **New Age** — "I need to research the actual genre to find out if I don't like it, or just don't like the conflict between Ambi4's tracks." Research is ours to do and report, not his.
+
+**Two are working, and say what working sounds like:**
+
+- **Synthwave — keep.** "Good job with Synthwave." He plays it with the low cutoff pulled to the bottom for a mellower bass and the drums adjusted, and can listen for hours. Do not regress this one; it is the reference.
+- **Techno Tools — second most musical.** Very repetitive bass, and he likes it anyway.
+
+- [ ] **Ambient has no bass line by definition** — already the plan (bass gates off for Ambient), noted here so it is not re-raised.
 
 ## Awaiting an owner decision
 
