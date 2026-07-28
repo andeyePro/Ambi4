@@ -12696,11 +12696,42 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        the top, and the reserved label/read-out zones below keep the bottoms
        level too. Bottom-aligning made any dial with an extra line of text
        (a ghost read-out, a wrapped name) ride up above its neighbours. */
+    /* v0.0.37: the Main dials were stacking into one preposterous vertical
+       column. Cause: `#advanced-dials` carries `.sliders-module`, which is
+       `display: flex` for the Simple tab's row of dials — so the grid inside it
+       was a flex item with no width of its own, shrink-to-fit, and `auto-fit`
+       resolved to the single narrowest column it could. The panel is a wrapper
+       around a label, a grid and a hint; it was never meant to be a flex row.
+       Explicit four columns now, so the four that mirror Simple fill the first
+       row and the extra three sit beneath them, which is the shape the owner
+       asked for and also the one that reads. */
+    #advanced-dials {
+      display: block;
+    }
+
     .advanced-dial-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
       align-items: start;
+    }
+
+    /* A grid cell already centres its dial; the flex-context max-width would
+       only strand the label off to one side. */
+    .advanced-dial-row .simple-dial {
+      max-width: none;
+    }
+
+    @media (max-width: 760px) {
+      .advanced-dial-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 400px) {
+      .advanced-dial-row {
+        grid-template-columns: minmax(0, 1fr);
+      }
     }
 
     .knob-sections {
