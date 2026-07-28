@@ -2,6 +2,26 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.42 — four layout faults, four separate causes** — all found in the cascade rather than
+  guessed at, and each verified against the compiled CSS afterwards.
+
+  *Icons on their own line*: `.transport-main` was `flex-wrap: wrap` and `.transport-buttons` is
+  `flex: 1 1 auto`, so with the panel now two columns the button group grew until it pushed the
+  clock and keyboard onto a second row. The outer row is `nowrap` and the button group gets
+  `min-width: 0` so it can actually shrink; the buttons still wrap internally.
+
+  *Dial not level with Play*: `.transport-main` carried `margin-bottom: 8px` and the processor
+  cell beside it carried none, so with `align-items: center` the left cell's contents sat 4px
+  high. The grid's `row-gap` owns that spacing now.
+
+  *An alarm clock for both timers*: the merged icon kept the alarm glyph, bells and all, when it
+  stands for sleep as well. Plain clock face now.
+
+  *Bags of space under the genre picker*: roughly 50px of it, from four sources stacking — the
+  genre row's own 8px margin, the grid's row-gap, and a status band reserving 22px with a 12px
+  margin under it for a line that is usually blank. The reservation stays (status text appearing
+  must never reflow the panel) but at 18px with no margin; the two redundant margins are gone.
+
 - [x] **v0.0.41 — the transport panel is two aligned columns, and Stop goes** — TRANSPORT and
   PROCESSOR share the heading row, the play buttons and the processor dial share the row below,
   and the genre picker sits left of the processor readout on the last. Everything in the right

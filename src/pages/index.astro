@@ -202,11 +202,11 @@ const VOICES: Record<string, [string, string][]> = {
               aria-expanded="false"
               aria-controls="timers-popover"
             >
+              <!-- A plain clock. It was the alarm-clock glyph, bells and all,
+                   which is only one of the two things behind it. -->
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="13" r="8" />
-                <path d="M12 9v4l2.5 2" />
-                <path d="M5.2 3.2 2.8 5.4" />
-                <path d="M18.8 3.2 21.2 5.4" />
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3.5 2" />
               </svg>
             </button>
             <span id="sleep-chip" class="countdown-chip" aria-hidden="true" hidden></span>
@@ -11180,14 +11180,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .transport-main {
       display: flex;
       align-items: center;
-      flex-wrap: wrap;
+      /* v0.0.42: was `wrap`. With the panel now two columns, the left column is
+         narrower and `.transport-buttons` (flex: 1 1 auto) grew until it pushed
+         the clock and keyboard onto a line of their own. The buttons wrap
+         internally already, so the outer row must not. */
+      flex-wrap: nowrap;
       gap: 12px;
-      margin-bottom: 8px;
+      /* No bottom margin: the grid's row-gap owns the spacing now, and an extra
+         8px here shifted this cell's contents up relative to the processor dial
+         beside it, which is why the dial did not line up with Play. */
+      margin-bottom: 0;
     }
 
     .transport-buttons {
       display: flex;
       flex: 1 1 auto;
+      /* Lets the group actually shrink inside a nowrap parent instead of
+         forcing its min-content width and shoving the icons out. */
+      min-width: 0;
       flex-wrap: wrap;
       align-items: stretch;
       gap: 8px;
@@ -11273,7 +11283,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 8px;
+      /* v0.0.42: the grid's row-gap spaces this now. */
+      margin-bottom: 0;
     }
 
     .genre-select {
@@ -11516,8 +11527,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       align-items: baseline;
       justify-content: space-between;
       gap: 4px 12px;
-      min-height: 22px;
-      margin-bottom: 12px;
+      /* v0.0.42: this band is reserved so status text appearing cannot reflow
+         the panel — that stays. What went was 4px of surplus reservation and a
+         12px margin under it. Together with the genre row's old margin and the
+         grid gap, roughly 50px of empty space sat under the genre dropdown for
+         a line of text that is usually blank. */
+      min-height: 18px;
+      margin-bottom: 0;
     }
 
     .timer-status {
