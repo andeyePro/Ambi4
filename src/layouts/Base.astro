@@ -55,11 +55,18 @@ const buildStamp =
   <body>
     <header class="site-header">
       <a class="site-title" href="/">Ambi4: Ambience for Work</a>
-      <nav class="site-nav" aria-label="Site">
-        {navLinks.map((link) => (
-          <a href={link.href} aria-current={isCurrent(link.href) ? 'page' : undefined}>{link.label}</a>
-        ))}
-      </nav>
+      <!-- v0.0.41: the nav row carries page-level actions on its right. The
+           guided-tour `?` lives here rather than in the transport panel, where
+           it sat beside the Processor label and read as documentation for the
+           processor control. A page with no actions renders nothing. -->
+      <div class="site-nav-row">
+        <nav class="site-nav" aria-label="Site">
+          {navLinks.map((link) => (
+            <a href={link.href} aria-current={isCurrent(link.href) ? 'page' : undefined}>{link.label}</a>
+          ))}
+        </nav>
+        <div class="site-actions"><slot name="header-actions" /></div>
+      </div>
     </header>
     <main>
       <slot />
@@ -76,6 +83,19 @@ const buildStamp =
 </html>
 
 <style>
+  .site-nav-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .site-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .site-nav {
     display: flex;
     gap: 20px;
