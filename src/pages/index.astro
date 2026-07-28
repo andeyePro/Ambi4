@@ -3841,6 +3841,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+      /**
+       * v0.0.47 volume taper. Loudness roughly doubles per +10 dB, so perceived
+       * loudness goes as gain^0.6 — which means a LINEAR fader is compressive:
+       * the top half of its travel barely changes anything, and all the useful
+       * resolution is squashed into the bottom. Position^1.7 undoes that, so
+       * half travel is about half as loud.
+       *
+       * This is a UI mapping only. `params.volume` is stored and sent exactly as
+       * before, so every share link and saved preset sounds identical — only
+       * where the pointer sits for a given loudness changes.
+       */
+      const volumeParamFromDial = (t) => {
+        const x = clamp(Number(t) || 0, 0, 1);
+        return x < 0.02 ? 0 : Math.pow(x, 1.7);
+      };
+      const volumeDialFromParam = (v) => {
+        const x = clamp(Number(v) || 0, 0, 1);
+        return x <= 0 ? 0 : Math.pow(x, 1 / 1.7);
+      };
+
       volumeDial = buildMirroredDial(
         MAIN_DIAL_SLOTS('volume'),
         {
@@ -3849,13 +3869,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           min: 0,
           max: 1,
           step: 0.01,
-          value: settings.volume,
-          // Hi-fi attenuator convention: dB relative to full output.
-          format: (v) => (v <= 0.001 ? '-\u221e dB' : `${(20 * Math.log10(v)).toFixed(v > 0.5 ? 1 : 0)} dB`),
-          marks: [0, 0.1, 0.25, 0.5, 0.8, 1],
-          defaultValue: DEFAULTS.volume,
+          value: volumeDialFromParam(settings.volume),
+          // Hi-fi attenuator convention: dB relative to full output. The dial
+          // position is tapered, so the readout converts back first.
+          format: (t) => {
+            const v = volumeParamFromDial(t);
+            return v <= 0.001 ? '-\u221e dB' : `${(20 * Math.log10(v)).toFixed(v > 0.5 ? 1 : 0)} dB`;
+          },
+          marks: [0, 0.5, 1],
+          defaultValue: volumeDialFromParam(DEFAULTS.volume),
         },
-        (value) => {
+        (t) => {
+          const value = volumeParamFromDial(t);
           settings.volume = value;
           engine.setParams({ volume: value });
           persistSettings();
@@ -11016,7 +11041,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         bpmTypable?.refresh();
         speedDial?.set(speedTFromBpm(settings.bpm));
         repetitionDial?.set(settings.repetition);
-        volumeDial?.set(settings.volume);
+        volumeDial?.set(volumeDialFromParam(settings.volume));
         randomnessDial?.set(fusedRandomnessValue());
         variationDial?.set(trackRandomnessValue());
         swingDial?.set(settings.swing);

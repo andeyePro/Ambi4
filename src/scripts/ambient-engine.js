@@ -3623,7 +3623,9 @@ function dropTrackChain(chain) {
 
 function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.random) {
   const master = ctx.createGain();
-  master.gain.value = SILENCE;
+  // v0.0.47: a fixed headroom trim. Nothing automates this any more — the
+  // listening-level fader is `output`, downstream of the compressor.
+  master.gain.value = MASTER_HEADROOM;
 
   // Gentle glue compressor — a safety net against unlucky note pile-ups, not
   // the thing doing the mixing.
@@ -3634,7 +3636,30 @@ function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.ran
   compressor.attack.value = 0.02;
   compressor.release.value = 0.3;
   master.connect(compressor);
-  // The compressor's output route (ctx.destination, or a media element via a
+
+  /**
+   * v0.0.47 — the listening-level fader, AFTER the compressor.
+   *
+   * It used to be `master.gain`, i.e. INSIDE the compressor. With threshold
+   * −18 dB, knee 24 dB and ratio 3, the soft knee spans −30 to −6 dBFS, which
+   * is exactly where this material sits — so the compressor ate a large part of
+   * every fader move. Differentiating the knee: around −20 dBFS programme the
+   * fader kept roughly 0.72 of its effect, and around −10 dBFS about 0.44. The
+   * dial was weakest precisely where people actually listen.
+   *
+   * Downstream of the compressor it is a pure attenuator, and the compressor
+   * sees the same programme level whatever the listening level is — so its glue
+   * behaviour stops changing with the volume knob, which is the second bug this
+   * fixes.
+   *
+   * `master.gain` is now a fixed headroom trim and nothing automates it.
+   * `masterAnalyser` deliberately stays on the compressor: the scope should
+   * show the music, not how loud it is being played.
+   */
+  const output = ctx.createGain();
+  output.gain.value = SILENCE;
+  compressor.connect(output);
+  // The OUTPUT's route (ctx.destination, or a media element via a
   // MediaStreamDestination on iOS) is wired by the engine, not here.
 
   // v26 master tap — what the scope's white "total" trace reads. It hangs off
@@ -3679,7 +3704,7 @@ function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.ran
   // `convolver`, `reverbReturn` and `reverbSeconds` are the LIVE tail: a swap
   // replaces all three, which is why nothing else holds a reference to them.
   const graph = {
-    master, compressor, masterAnalyser, reverbBus, convolver, reverbReturn,
+    master, compressor, output, masterAnalyser, reverbBus, convolver, reverbReturn,
     reverbSeconds: DEFAULT_PARAMS.reverbTail, delay, feedback, tracks: {},
   };
   for (const name of tracks) graph.tracks[name] = createTrackChain(ctx, graph, mixFor(name));
@@ -4627,13 +4652,14 @@ export function createEngine(initialParams, options = {}) {
   function applyLevels(rampSeconds) {
     if (!ctx || !graph) return;
     const now = ctx.currentTime;
-    const target = Math.max(params.volume * MASTER_HEADROOM, SILENCE);
-    // The outro fade owns the master gain until it is done; a volume change or
+    // Headroom now lives on `master`, so this is the raw listening level.
+    const target = Math.max(params.volume, SILENCE);
+    // The outro fade owns the output gain until it is done; a volume change or
     // a parameter edit mid-ending must not pull the level back up.
     if (!outroStarted) {
-      graph.master.gain.cancelScheduledValues(now);
-      graph.master.gain.setValueAtTime(Math.max(graph.master.gain.value, SILENCE), now);
-      graph.master.gain.exponentialRampToValueAtTime(isRunning ? target : SILENCE, now + rampSeconds);
+      graph.output.gain.cancelScheduledValues(now);
+      graph.output.gain.setValueAtTime(Math.max(graph.output.gain.value, SILENCE), now);
+      graph.output.gain.exponentialRampToValueAtTime(isRunning ? target : SILENCE, now + rampSeconds);
     }
 
     applyTracks(rampSeconds);
@@ -5231,10 +5257,10 @@ export function createEngine(initialParams, options = {}) {
     const chain = graph.tracks[name];
     chain.input.gain.setTargetAtTime(Math.max(liveGain(name), SILENCE), at, LIVE_OPEN);
     if (isRunning || outroStarted) return;
-    const target = Math.max(params.volume * MASTER_HEADROOM, SILENCE);
-    graph.master.gain.cancelScheduledValues(at);
-    graph.master.gain.setValueAtTime(Math.max(graph.master.gain.value, SILENCE), at);
-    graph.master.gain.exponentialRampToValueAtTime(target, at + LIVE_OPEN * 4);
+    const target = Math.max(params.volume, SILENCE);
+    graph.output.gain.cancelScheduledValues(at);
+    graph.output.gain.setValueAtTime(Math.max(graph.output.gain.value, SILENCE), at);
+    graph.output.gain.exponentialRampToValueAtTime(target, at + LIVE_OPEN * 4);
   }
 
   /** Let go of one held key: fade its note, drop it from the polyphony ledger. */
@@ -7293,7 +7319,7 @@ export function createEngine(initialParams, options = {}) {
   function beginOutro(time) {
     outroStarted = true;
     const fade = finishRequest.fadeSeconds;
-    const gain = graph.master.gain;
+    const gain = graph.output.gain;
     gain.cancelScheduledValues(time);
     gain.setValueAtTime(Math.max(gain.value, SILENCE), time);
     gain.exponentialRampToValueAtTime(SILENCE, time + fade);
@@ -7332,22 +7358,22 @@ export function createEngine(initialParams, options = {}) {
         const streamDest = ctx.createMediaStreamDestination();
         const el = new Audio();
         el.srcObject = streamDest.stream;
-        graph.compressor.connect(streamDest);
+        graph.output.connect(streamDest);
         return { mode: 'element', streamDest, el };
       }
     } catch {
       // Any failure along the element route means the plain destination route.
     }
-    graph.compressor.connect(ctx.destination);
+    graph.output.connect(ctx.destination);
     return { mode: 'direct' };
   }
 
   /** A sink element that will not play() is a silent engine: rewire direct. */
   function fallbackToDirect() {
     if (!output || output.mode !== 'element' || !ctx || !graph) return;
-    try { graph.compressor.disconnect(output.streamDest); } catch { /* already detached */ }
+    try { graph.output.disconnect(output.streamDest); } catch { /* already detached */ }
     try { output.el.pause(); } catch { /* never played */ }
-    try { graph.compressor.connect(ctx.destination); } catch { /* context is gone */ }
+    try { graph.output.connect(ctx.destination); } catch { /* context is gone */ }
     output = { mode: 'direct' };
   }
 

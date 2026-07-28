@@ -2,6 +2,31 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.47 — the volume dial gets its own effect back** — the first of the two engine defects
+  the psychologist consult turned up, and a real one.
+
+  The listening-level fader was `master.gain`, which sits *inside* the glue compressor
+  (threshold −18 dB, knee 24 dB, ratio 3). That soft knee spans −30 to −6 dBFS, which is exactly
+  where this material sits, so the compressor ate a large share of every fader move —
+  differentiating the knee, roughly 28% of it lost at −20 dBFS programme and over half at −10.
+  The dial was weakest precisely where people actually listen. It also meant the compressor's
+  glue behaviour changed with the volume knob, which is a second bug hiding inside the first.
+
+  A gain node now sits *after* the compressor and carries all level automation — the volume
+  target, the start and stop fades, the outro, and the live-chain open. `master.gain` becomes a
+  fixed headroom trim that nothing automates. The master analyser deliberately stays on the
+  compressor: the scope should show the music, not how loud it is being played.
+
+  *Taper*: loudness roughly doubles per +10 dB, so perceived loudness goes as gain^0.6 and a
+  linear fader is compressive — the top half of the travel barely changes anything. Dial position
+  is now `position^1.7`, so half travel is about half as loud. This is a UI mapping only;
+  `params.volume` is stored and sent exactly as before, so every share link and saved preset
+  sounds identical.
+
+  *Test*: the v26 routing check asserted the output route leaves the compressor. It now leaves
+  the post-compressor gain, so the test follows the corrected graph — and it still proves the tap
+  hangs off the compressor, which is now a genuinely different node.
+
 - [x] **v0.0.46 — track labels, paired harmony rows, and a consent notice that actually informs**
 
   *Track labels*: `.track-name` was a fixed 84px, narrower than what it holds. "Percussion"

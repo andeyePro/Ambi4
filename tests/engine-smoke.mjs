@@ -7886,7 +7886,14 @@ test('v26: getAnalysers() taps the post-compressor master on both output routes'
     const compressor = ctx.nodes.find((node) => node.kind === 'compressor');
     assert.ok(compressor.connections.includes(total),
       'the master tap must hang off the compressor, so it hears the mix that leaves');
-    assert.ok(expectSink(ctx, compressor), 'the engine wired the wrong output route');
+    // v0.0.47: the listening-level fader moved DOWNSTREAM of the compressor, so
+    // the output route now leaves from that gain node rather than from the
+    // compressor itself. The tap deliberately stays on the compressor — the
+    // scope should show the music, not how loud it is being played — which is
+    // why these are now two different nodes.
+    const sink = compressor.connections.find((node) => node.kind === 'gain');
+    assert.ok(sink, 'the compressor must feed the post-compressor output gain');
+    assert.ok(expectSink(ctx, sink), 'the engine wired the wrong output route');
     // Every track's signal actually reaches it: this is the trace that lights
     // up white on the scope, not a node that happens to exist.
     for (const name of TRACK_ORDER) {
@@ -7899,7 +7906,7 @@ test('v26: getAnalysers() taps the post-compressor master on both output routes'
   };
 
   await proveTap(createEngine({ bpm: 120, speed: 2 }),
-    (ctx, compressor) => compressor.connections.includes(ctx.destination));
+    (ctx, sink) => sink.connections.includes(ctx.destination));
 
   // The media-element route (iOS): the mix leaves through a MediaStream, and
   // the tap must still hear it.
@@ -7920,10 +7927,10 @@ test('v26: getAnalysers() taps the post-compressor master on both output routes'
     pause() {}
   };
   try {
-    await proveTap(createEngine({ bpm: 120, speed: 2 }), (ctx, compressor) => {
+    await proveTap(createEngine({ bpm: 120, speed: 2 }), (ctx, sink) => {
       const streamDest = ctx.nodes.find((node) => node.kind === 'streamdest');
-      return streamDest && compressor.connections.includes(streamDest)
-        && !compressor.connections.includes(ctx.destination);
+      return streamDest && sink.connections.includes(streamDest)
+        && !sink.connections.includes(ctx.destination);
     });
   } finally {
     globalThis.AudioContext = Base;
