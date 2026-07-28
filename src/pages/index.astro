@@ -646,7 +646,10 @@ const VOICES: Record<string, [string, string][]> = {
       </div>
 
       <div class="control">
-        <label for="structure">Structure</label>
+        <div class="control-label-row">
+          <label for="structure">Structure</label>
+          <span id="structure-info"></span>
+        </div>
         <select id="structure">
           {structures.map(([value, label]) => <option value={value}>{label}</option>)}
         </select>
@@ -689,9 +692,17 @@ const VOICES: Record<string, [string, string][]> = {
         <p class="preset-row share-name-row">
           <span class="panel-label share-name-label">Link name</span>
           <span id="share-name-value" class="share-name-value" aria-live="polite">&mdash;</span>
+          <span id="share-name-info"></span>
         </p>
         <p class="hint">Every share link has its own three words, so you can say which link you mean out loud. It&rsquo;s a nickname the link works out for itself &mdash; not a web address, and not reserved to you.</p>
         <p class="hint">Submitting opens our contact form prefilled with the preset; if that doesn&rsquo;t load, copy the JSON and send it however suits.</p>
+        <p class="preset-row submit-anon-row">
+          <label class="checkbox-row">
+            <input type="checkbox" id="preset-anonymous" />
+            <span>Submit anonymously &mdash; do not credit me</span>
+          </label>
+          <span id="submit-terms-info"></span>
+        </p>
       </fieldset>
 
     </section>
@@ -3652,6 +3663,52 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         container.append(wrap);
         return wrap;
       }
+
+      /**
+       * v0.0.57: the two explanations that answer a question you only ask
+       * once, so neither belongs in permanent prose taking a row of height on
+       * every visit. Both go behind an ⓘ beside the thing they explain.
+       */
+      /**
+       * Preset-submission terms. The wording is the OWNER'S OWN, from the
+       * 2026-07-25 rulings, and is reproduced here verbatim — it is marked
+       * "do not rewrite without asking" in TODO.md, so it has been broken into
+       * sentences and nothing else. It has NOT had a legal-tone read yet; that
+       * gate is still open and is recorded against the v0.1.0 release.
+       *
+       * The anonymous checkbox beside this button exists because the terms
+       * refer to it. Publishing terms that describe a control the page does
+       * not have would be worse than publishing none.
+       */
+      const SUBMIT_TERMS = [
+        'What happens to a preset you submit:',
+        '',
+        'During beta we may publish presets with creator credits at our discretion, unless the anonymous box is checked.',
+        '',
+        'We may compile presets or genres from several creators\u2019 submissions, and credit all who wish to be credited.',
+        '',
+        'We cannot take responsibility for similarity between such compilations and non-credited submissions, since submissions may be similar and we have no way to assess similarity for non-paying creators.',
+        '',
+        'Paid tiers should later allow similarity assessment, and crediting of the original submitter where the sign-up email matches the submission.',
+      ].join('\n');
+
+      const STRUCTURE_INFO = [
+        'How the piece is shaped over time — which sections it moves through and how busy each one is.',
+        '',
+        'Auto — the piece picks its own shape, and re-picks it when you move Energy or Complexity.',
+        'Drone — one continuous stretch. Nothing arrives, nothing leaves.',
+        'Waves — long swells up and back down again.',
+        'Build — starts sparse and adds layers as it goes.',
+        'ABAB — two moods alternating, so each one returns.',
+        'Journey — a longer arc that does not repeat itself.',
+        'Custom — your own blocks, below: how many bars each lasts and how busy it is. They loop in order, forever.',
+      ].join('\n');
+
+      const SHARE_NAME_INFO = [
+        'A preset can be called anything you like. The three words are separate: they are worked out from the settings themselves, so anyone who types them gets exactly this piece with no account and nothing stored on a server.',
+        '',
+        'That means two things worth knowing. Renaming a preset does not change the words. Changing any setting does — even slightly — so the words you say out loud are the words for the piece as it was when you read them.',
+      ].join('\n');
 
       // ---- v14 randomness = the hold control ------------------------------
       // The Random button and the Hold toggle are gone: this one dial does
@@ -9787,6 +9844,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // ---- structure + custom structure builder -------------------------
 
+      // v0.0.57: the ⓘ beside Structure, and the one beside the link name.
+      {
+        const slot = document.getElementById('structure-info');
+        if (slot) infoButton(slot, 'Structure', STRUCTURE_INFO);
+      }
+      {
+        const slot = document.getElementById('share-name-info');
+        if (slot) infoButton(slot, 'the link name', SHARE_NAME_INFO);
+      }
+      {
+        const slot = document.getElementById('submit-terms-info');
+        if (slot) infoButton(slot, 'submitting a preset', SUBMIT_TERMS);
+      }
+
       const customBuilder = document.getElementById('custom-structure-builder');
       const structureBlocks = document.getElementById('structure-blocks');
       const addBlockButton = document.getElementById('add-structure-block');
@@ -9812,6 +9883,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             commitCustomStructure();
           });
 
+          // v0.0.57: visible labels. Both inputs carried an aria-label and
+          // nothing a sighted user could read, and the owner's report was
+          // exactly that — he could not identify them. The full-width slider
+          // immediately above this panel is BPM and unrelated, which is what
+          // made an unlabelled range control here actively misleading.
+          const barsWrap = document.createElement('label');
+          barsWrap.className = 'block-field';
+          const barsName = document.createElement('span');
+          barsName.className = 'block-field-name';
+          barsName.textContent = 'bars';
+
           const barsInput = document.createElement('input');
           barsInput.type = 'number';
           barsInput.min = '1';
@@ -9828,6 +9910,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             commitCustomStructure();
           });
 
+          const intensityWrap = document.createElement('label');
+          intensityWrap.className = 'block-field block-field-wide';
+          const intensityName = document.createElement('span');
+          intensityName.className = 'block-field-name';
+          intensityName.textContent = 'intensity';
+          const intensityOut = document.createElement('span');
+          intensityOut.className = 'block-field-value';
+
           const intensityInput = document.createElement('input');
           intensityInput.type = 'range';
           intensityInput.min = '0';
@@ -9835,8 +9925,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           intensityInput.step = '0.01';
           intensityInput.value = String(block.intensity);
           intensityInput.setAttribute('aria-label', `Block ${index + 1} intensity`);
+          const showIntensity = () => {
+            intensityOut.textContent = pctFormat(parseFloat(intensityInput.value));
+          };
+          showIntensity();
           intensityInput.addEventListener('input', () => {
             settings.customStructure[index].intensity = parseFloat(intensityInput.value);
+            showIntensity();
             commitCustomStructure();
           });
 
@@ -9881,7 +9976,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             renderStructureBlocks();
           });
 
-          row.append(labelSelect, barsInput, intensityInput, upButton, downButton, removeButton);
+          barsWrap.append(barsName, barsInput);
+          intensityWrap.append(intensityName, intensityInput, intensityOut);
+          row.append(labelSelect, barsWrap, intensityWrap, upButton, downButton, removeButton);
           structureBlocks.append(row);
         });
 
@@ -11469,9 +11566,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       presetSubmit.addEventListener('click', () => {
         const name = presetName.value.trim() || 'Untitled';
+        // The anonymous choice rides in the message, because the contact form
+        // is a plain form with no field of its own for it. Stated as the first
+        // line so it cannot be missed by whoever reads the submission.
+        const anonymous = document.getElementById('preset-anonymous')?.checked;
+        const body = anonymous
+          ? `ANONYMOUS SUBMISSION — do not credit the sender.\n\n${presetJSON()}`
+          : presetJSON();
         const url =
           `${CONTACT_URL}?subject=${encodeURIComponent(`Ambi4 preset: ${name}`)}` +
-          `&message=${encodeURIComponent(presetJSON())}`;
+          `&message=${encodeURIComponent(body)}`;
         window.open(url, '_blank', 'noopener');
       });
 
@@ -12823,6 +12927,38 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       border: 1px solid var(--panel-edge, var(--border));
       border-radius: var(--radius);
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+      /* v0.0.57: the body is set with textContent and may carry newlines —
+         an explanation with one line per option is far easier to read than
+         the same words as a paragraph. `pre-line` keeps the breaks and still
+         wraps long lines, which `pre` would not. */
+      white-space: pre-line;
+    }
+
+    /* v0.0.57: the anonymous choice sits on the same line as the ⓘ that
+       explains what it governs, because the terms are the reason it exists. */
+    .submit-anon-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .checkbox-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--secondary);
+      cursor: pointer;
+    }
+
+    .checkbox-row input {
+      /* A real 16px target rather than the 13px the surrounding font would
+         otherwise shrink it to. */
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      flex: 0 0 auto;
     }
 
     /* -- v13 click-to-type readouts -- */
@@ -14384,6 +14520,39 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       padding: 8px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
+    }
+
+    /* v0.0.57: each numeric control carries its name. Baseline-aligned rather
+       than stacked, so a block row stays one line on a desktop and wraps as a
+       unit on a phone. */
+    .block-field {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--secondary);
+    }
+
+    .block-field-wide {
+      flex: 1 1 200px;
+      min-width: 160px;
+    }
+
+    .block-field-wide input[type='range'] {
+      flex: 1 1 auto;
+      min-width: 80px;
+    }
+
+    .block-field-name {
+      white-space: nowrap;
+    }
+
+    /* Reserved width so the row does not jog as the percentage changes. */
+    .block-field-value {
+      min-width: 4ch;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
     }
 
     .structure-block select {
