@@ -1135,6 +1135,43 @@ test('engine emits bar, section and note events in sane time order', async () =>
   assert.equal(bars.length, before, 'unsubscribed listener still fired');
 });
 
+test('a tempo change lands on the next beat, not the next barline', async () => {
+  // At 60 bpm in 4/4 a bar is 4 s. Before v0.0.48 a bpm change waited for the
+  // next barline (secPerBeat was bar-snapshotted), so the bar in flight kept
+  // its old spacing for up to 4 s — 12 s at the dial's slow end. Now tick()
+  // re-reads tempo per pulse: only LOOKAHEAD (0.12 s) of audio is already
+  // committed, so the bar in flight finishes its remaining beats at the new
+  // spacing. The in-flight bar is the discriminator — under the old engine it
+  // measures a full 4 s regardless of when the change arrives.
+  const engine = createEngine({
+    bpm: 60, speed: 1, timeSignature: '4/4', structure: 'drone',
+    complexity: 0.3, repetition: 0.8,
+  });
+  const bars = [];
+  engine.on('bar', (e) => bars.push(e));
+  await engine.start();
+
+  await advanceUntil(() => bars.length >= 2, 30, { step: 0.08, sleep: 15 });
+  assert.ok(bars.length >= 2, 'engine never reached bar 1');
+  engine.setParams({ bpm: 220 }); // mid-bar: bar 1 has begun, bar 2 has not
+
+  await advanceUntil(() => bars.length >= 5, 40, { step: 0.08, sleep: 15 });
+  engine.stop();
+  assert.ok(bars.length >= 5, `only ${bars.length} bars scheduled`);
+
+  // The bar the change interrupted must complete early. Worst case a couple of
+  // pulses were already committed at the old 1 s spacing (LOOKAHEAD plus mock-
+  // clock granularity), leaving 2 × 1 s + 2 × 0.27 s ≈ 2.5 s — still well
+  // under the 4 s the old bar-snapshotted engine always measures.
+  const interrupted = bars[2].time - bars[1].time;
+  assert.ok(interrupted < 3.2,
+    `tempo change waited for the barline: interrupted bar ran ${interrupted.toFixed(2)} s`);
+
+  // Steady state after the change: a 4/4 bar at 220 bpm is ~1.09 s.
+  const settled = bars[4].time - bars[3].time;
+  assert.ok(settled < 1.5, `settled bar ran ${settled.toFixed(2)} s at 220 bpm`);
+});
+
 test('arp quantises to its grid in every rate, including 7/8', () => hiddenTab(async () => {
   const secPerBeat = 60 / 240; // bpm 120 × speed 2
   for (const [rate, stepBeats] of Object.entries(ARP_RATES)) {

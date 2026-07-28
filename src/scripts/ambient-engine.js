@@ -6857,7 +6857,8 @@ export function createEngine(initialParams, options = {}) {
       duration: acc * secPerBeat,
       // Snapshot the harmonic frame too: pulse-level scheduling reads these
       // instead of the live params, which is what actually quantises root and
-      // mode changes to bar boundaries.
+      // mode changes to bar boundaries. Tempo is the deliberate exception —
+      // tick() re-reads it per pulse so a bpm change lands on the next beat.
       scale: SCALES[params.mode],
       rootPc: pitchClass(params.root),
       // Swing is read here and nowhere else, so a change of feel lands on a
@@ -7212,7 +7213,22 @@ export function createEngine(initialParams, options = {}) {
     // large jump) from scheduling an unbounded burst in one pass.
     let guard = 0;
     while (nextPulseTime < horizon && guard++ < 64) {
-      if (pulseIndex === 0) beginBar(nextPulseTime);
+      if (pulseIndex === 0) {
+        beginBar(nextPulseTime);
+      } else {
+        // Tempo reads live per pulse rather than per bar, so a bpm change
+        // lands on the next beat (at most one beat plus LOOKAHEAD of already-
+        // committed audio) instead of waiting for the next barline — which at
+        // the slow end of the dial was up to 12 s, long past the window in
+        // which a listener attributes the change to their own gesture.
+        // Harmony, swing and structure stay bar-snapshotted in beginBar.
+        const live = 60 / clamp(params.bpm * params.speed, 10, 400);
+        if (live !== bar.secPerBeat) {
+          bar.secPerBeat = live;
+          bar.duration = bar.beats * live;
+          retuneDelay(nextPulseTime, live);
+        }
+      }
       schedulePulse(nextPulseTime, pulseIndex);
       nextPulseTime += bar.pulses[pulseIndex] * bar.secPerBeat;
       pulseIndex += 1;

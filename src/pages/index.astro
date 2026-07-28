@@ -1772,13 +1772,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     // ---- tempo mapping (one tempo, two views) ---------------------------
-    // The Simple "Speed" slider position t (0–1) is a log-mapped view of
-    // bpm 40–120 with 60 bpm at the slider centre, using two log segments:
-    //   t <= 0.5:  bpm = 40 * (60/40)^(t/0.5)
-    //   t >  0.5:  bpm = 60 * (120/60)^((t-0.5)/0.5)
+    // Dial position t (0–1) is a log-mapped view of bpm 20–220
+    // (commercially-proven extremes), 60 bpm at the dial centre, two log
+    // segments hinged at the centre:
+    //   t <= 0.5:  bpm = 20 * 3^(t/0.5)
+    //   t >  0.5:  bpm = 60 * (220/60)^((t-0.5)/0.5)
     // The engine always receives { bpm, speed: 1 } — `speed` is deprecated
     // at the UI level per the v3 contract addendum.
-    // 20-220 bpm (commercially-proven extremes), 60 bpm at the dial centre.
     function bpmFromSpeedT(t) {
       return t <= 0.5
         ? 20 * Math.pow(3, t / 0.5)
