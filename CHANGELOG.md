@@ -2,6 +2,30 @@
 
 ## 2026-07-28
 
+- [x] **v0.0.43 — the transport row, checked with eyes instead of inference** — and the reason the
+  three attempts before it failed: there is no browser in the container and no route to the
+  deployed site, so every layout judgement was being made by reading CSS. `.vibe/shot.sh` fixes
+  that — it drives the Mac test account over SSH, renders with headless Chromium and copies the
+  PNG back, and `shot.sh local` ships the freshly built `./dist` over and shoots that, so a
+  layout is checked BEFORE it is pushed.
+
+  What the first screenshot showed: `.play-toggle` was `flex: 2 1 200px`, taking nearly half the
+  row on its own, which is what pushed Next onto a second line. Now `1 1 150px` with a 260px cap
+  — still the widest control and still obviously primary, but it stops.
+
+  The staircase (Play, Pause, then the clock half a button low, then Next lower again) came from
+  nesting: `.transport-buttons` is its own wrapping flex box, so when the row tightened it became
+  two rows tall and `.transport-icons`, centred against it, floated to its middle. `display:
+  contents` dissolves both wrappers so every button, icon and the dial are direct children of one
+  row and can only wrap as equals.
+
+  The dial sat ~7px high because it carries a value caption, making its block taller than a 56px
+  button; centring the block lifts the dial. Both are 56px, so aligning tops is what actually
+  levels it with Play. The grid and its reserved column are gone — the processor items are just
+  the last thing in each row, pushed right with `margin-left: auto`. And the "huge gap" under the
+  genre picker was an empty `<p>` carrying the user agent's default ~16px margins, which nothing
+  in the sheet resets.
+
 - [x] **v0.0.42 — four layout faults, four separate causes** — all found in the cascade rather than
   guessed at, and each verified against the compiled CSS afterwards.
 

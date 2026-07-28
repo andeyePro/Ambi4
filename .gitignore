@@ -45,3 +45,7 @@ docs-private/
 
 # Wrangler build/deploy scratch — carries absolute host paths in its source maps
 .wrangler/
+
+# Screenshot bridge: the private key and the images it pulls back
+.vibe/id_ed25519_ambi4shot
+.vibe/shots/

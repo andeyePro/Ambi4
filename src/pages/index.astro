@@ -142,9 +142,11 @@ const VOICES: Record<string, [string, string][]> = {
          in the right column is right-aligned to the panel edge, so the label,
          the dial and the numbers it produces line up with each other and stay
          lined up as the panel narrows. -->
-    <div class="module-panel transport-module transport-grid">
-      <span class="panel-label transport-label" aria-hidden="true">Transport</span>
-      <span class="panel-label processor-label" id="processor-label">Processor</span>
+    <div class="module-panel transport-module">
+      <div class="transport-head">
+        <span class="panel-label transport-label" aria-hidden="true">Transport</span>
+        <span class="panel-label processor-label" id="processor-label">Processor</span>
+      </div>
       <div class="transport-main">
         <div class="transport-buttons">
           <button
@@ -320,9 +322,9 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
           </div>
         </div>
-      </div>
-      <div class="processor-row">
-        <div class="dial-slot dial-label-external" id="processor-dial"></div>
+        <div class="processor-row">
+          <div class="dial-slot dial-label-external" id="processor-dial"></div>
+        </div>
       </div>
 
       <!-- v26 genre transport: the genre picker sits directly UNDER the
@@ -352,9 +354,8 @@ const VOICES: Record<string, [string, string][]> = {
             <button type="button" id="genre-favourites-done" class="secondary-button">Done</button>
           </div>
         </div>
+        <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
       </div>
-
-      <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
 
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
@@ -11162,9 +11163,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* v18: TRANSPORT and PROCESSOR are one header row — both engraved titles
        on a single baseline, the panel's `?` last. The Processor title sits at
        the right end, over the dial it names. */
+    /* Transport left, Processor right, on one baseline. */
     .transport-head {
       display: flex;
       align-items: baseline;
+      justify-content: space-between;
       gap: 8px;
       margin-bottom: 8px;
     }
@@ -11180,16 +11183,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .transport-main {
       display: flex;
       align-items: center;
-      /* v0.0.42: was `wrap`. With the panel now two columns, the left column is
-         narrower and `.transport-buttons` (flex: 1 1 auto) grew until it pushed
-         the clock and keyboard onto a line of their own. The buttons wrap
-         internally already, so the outer row must not. */
-      flex-wrap: nowrap;
-      gap: 12px;
-      /* No bottom margin: the grid's row-gap owns the spacing now, and an extra
-         8px here shifted this cell's contents up relative to the processor dial
-         beside it, which is why the dial did not line up with Play. */
-      margin-bottom: 0;
+      /* v0.0.43: wrapping is fine again — it was never the problem. The
+         staircase came from the NESTED wrap (a button group that became two
+         rows tall, with the icons centred against it). With `display: contents`
+         dissolving the wrappers, every button, icon and the dial share one set
+         of line boxes, so a wrap moves whole items down together. */
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      margin-bottom: 8px;
     }
 
     .transport-buttons {
@@ -11210,7 +11211,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        stack, the letter-spacing or the caption changes. */
     .play-toggle {
       display: inline-flex;
-      flex: 2 1 200px;
+      /* v0.0.43: was `2 1 200px`, which took nearly half the row on its own and
+         forced everything after Pause onto a second line. It is still the
+         primary action and still the widest control, but it now grows at the
+         same rate as the space allows rather than twice it, and stops. */
+      flex: 1 1 150px;
+      max-width: 260px;
       align-items: center;
       justify-content: center;
       gap: 10px;
@@ -11321,38 +11327,47 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       transform: translateX(-18px);
     }
 
-    /* v0.0.41: the transport panel is two columns. Left holds TRANSPORT, the
-       play buttons and the genre picker; right holds PROCESSOR, its dial and
-       its readout, right-aligned to the panel edge. The label therefore sits
-       level with TRANSPORT, the dial level with Play, and the numbers directly
-       under the dial that produces them — and they stay that way as the panel
-       narrows, because they are grid cells rather than three things that
-       happened to be near each other. */
-    .transport-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      column-gap: 20px;
-      row-gap: 6px;
-      align-items: center;
+    /* v0.0.43: no grid and no reserved column — the processor items are simply
+       the last thing in each of the three rows, pushed right with margin-left.
+       The grid was buying alignment at the cost of a column that had to be as
+       wide as its widest member on every row.
+
+       The staircase that produced (Play, Pause, then the clock half a button
+       low, then Next dropped again) came from nesting: `.transport-buttons` is
+       its own wrapping flex box, so when the row got tight it became two rows
+       tall, and `.transport-icons` — a sibling centred against it — floated to
+       its vertical middle. `display: contents` dissolves both wrappers so every
+       button and icon is a direct child of one wrapping row, sharing one set of
+       line boxes. They can then only ever wrap as equals. */
+    .transport-buttons,
+    .transport-icons {
+      display: contents;
     }
 
-    .transport-grid > .transport-label {
-      justify-self: start;
+    .transport-main > .processor-row,
+    .genre-row > .processor-readout {
+      margin-left: auto;
     }
 
-    .transport-grid > .processor-label,
-    .transport-grid > .processor-row,
-    .transport-grid > .processor-readout {
-      justify-self: end;
+    /* The dial carries a value caption under it, so its block is taller than a
+       56px transport button — and centring the block lifts the dial itself
+       above the buttons' centre line. Both are 56px, so aligning their TOPS is
+       what actually puts the dial level with Play. */
+    .transport-main > .processor-row {
+      align-self: flex-start;
+    }
+
+    .genre-row > .processor-readout {
       text-align: right;
-    }
-
-    .transport-grid > .transport-row {
-      grid-column: 1 / -1;
-    }
-
-    .transport-grid > .processor-readout {
       white-space: nowrap;
+    }
+
+    /* The status line is an empty <p> most of the time, and nothing in the
+       sheet resets paragraph margins — so the user agent's own ~16px top and
+       bottom were sitting under the genre picker doing nothing. That, not the
+       reserved band, was the "huge gap". */
+    .transport-row > p {
+      margin: 0;
     }
 
     .timer-section {
