@@ -65,7 +65,10 @@ const buildStamp =
             <a href={link.href} aria-current={isCurrent(link.href) ? 'page' : undefined}>{link.label}</a>
           ))}
         </nav>
-        <div class="site-actions"><slot name="header-actions" /></div>
+        <!-- v0.0.54: the running build, glanceable after a refresh — the owner
+             was scrolling to the footer to find it. The footer stamp stays as
+             the durable full record (date + sha + env); this is version only. -->
+        <div class="site-actions"><span class="top-version">v{pkg.version}</span><slot name="header-actions" /></div>
       </div>
     </header>
     <main>
@@ -99,6 +102,12 @@ const buildStamp =
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .top-version {
+    font-size: 12px;
+    color: var(--secondary);
+    white-space: nowrap;
   }
 
   .site-nav {
