@@ -391,6 +391,18 @@ const VOICES: Record<string, [string, string][]> = {
                  traces and the total trace and read as another trace. A
                  vertical double arrow says the same thing without joining the
                  waveforms; the words live in the tooltip. -->
+            <!-- v0.0.49: Total reads as one more legend entry — immediately
+                 after Percussion, before the spread arrow — because that is
+                 what it is: one more trace you can show. Same label styling as
+                 the tracks, ALLCAPS to mark it as the mix rather than a track,
+                 dot in the trace's own white. -->
+            <button
+              type="button"
+              id="front-scope-total"
+              class="scope-legend-track scope-legend-total"
+              aria-pressed="false"
+              hidden
+            ><span class="scope-legend-dot" aria-hidden="true"></span><span class="scope-legend-label">TOTAL</span></button>
             <button
               type="button"
               id="front-scope-spread"
@@ -399,13 +411,6 @@ const VOICES: Record<string, [string, string][]> = {
               aria-label="Spread traces vertically"
               hidden
             ><svg viewBox="0 0 12 16" aria-hidden="true" focusable="false"><path d="M6 1.5 L6 14.5 M3 4 L6 1 L9 4 M3 12 L6 15 L9 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-            <button
-              type="button"
-              id="front-scope-total"
-              class="scope-option scope-option-total"
-              aria-pressed="false"
-              hidden
-            >Total</button>
             <button
               type="button"
               id="front-scope-fullscreen"
@@ -8490,7 +8495,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             );
           }
           if (scopeTotalButton) {
-            scopeTotalButton.addEventListener('click', () => {
+            const toggleTotal = () => {
               settings.ui.scopeTotal = !totalOn();
               persistSettings();
               applyScopeOptions();
@@ -8499,8 +8504,36 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               // changes whether there is anything to attach at all, so the
               // attachment itself has to be reconsidered — not just the setter.
               updateFrontScope();
+            };
+            // Same click/dblclick discipline as the track legend entries: the
+            // toggle waits out the double-click window so a solo never
+            // flickers through a toggled state first.
+            scopeTotalButton.addEventListener('click', () => {
+              if (pendingClickTimer !== null && pendingClickId === 'total') {
+                clearPendingClick();
+                return;
+              }
+              clearPendingClick();
+              pendingClickId = 'total';
+              pendingClickTimer = setTimeout(() => {
+                pendingClickTimer = null;
+                pendingClickId = null;
+                toggleTotal();
+              }, LEGEND_CLICK_DELAY_MS);
             });
-            describe(scopeTotalButton, 'Add a white trace of the finished mix, effects and all.');
+            // v0.0.49: double-click shows the mix alone — every track trace
+            // off, Total on — mirroring double-click-to-solo on a track.
+            scopeTotalButton.addEventListener('dblclick', () => {
+              clearPendingClick();
+              if (!totalOn()) {
+                settings.ui.scopeTotal = true;
+                persistSettings();
+              }
+              applySelection([]);
+              applyScopeOptions();
+              syncScopeOptions();
+            });
+            describe(scopeTotalButton, 'Add a white trace of the finished mix, effects and all. Double-click to show only the mix.');
           }
           // Set while a legend gesture is being applied, so the persist +
           // re-render it triggers can never be mistaken for a fresh gesture.
@@ -11781,6 +11814,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     /* The fullscreen host. Off-screen duty only: everything inside it is
        borrowed from the page and put back on exit. */
+    /* v0.0.49: bezel-free — black to the very edge, traces edge to edge.
+       Full screen means the music's picture and nothing else, so the stage
+       drops the page background and its own padding. */
     .fullscreen-stage {
       position: relative;
       display: flex;
@@ -11788,8 +11824,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       gap: 8px;
       width: 100%;
       height: 100%;
-      padding: 8px;
-      background: var(--bg);
+      padding: 0;
+      background: #000;
+    }
+
+    /* v0.0.49: the collapse twisty makes no sense while maximised — the
+       module cannot be folded away inside the stage it is filling. */
+    .fullscreen-slots .scope-collapse {
+      display: none;
+    }
+
+    /* v0.0.49: the menu bar overlays the stage's top-right corner, and with
+       the stage padding gone the scope's own overlay row (note, legend,
+       options) would sit directly behind it. Clear the bar; the canvas
+       itself still runs edge to edge. */
+    .fullscreen-slots .scope-overlay {
+      margin-top: 44px;
     }
 
     .fullscreen-stage[hidden] {
@@ -11809,7 +11859,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       width: 100%;
       height: 100dvh;
       z-index: 900;
-      padding: 8px;
+      padding: 0;
       overscroll-behavior: contain;
     }
 
@@ -12722,9 +12772,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       color: var(--text);
     }
 
-    .scope-option-total[aria-pressed='true'] {
-      border-color: #fff;
-      color: #fff;
+    /* v0.0.49: Total is a legend entry now (same label styling as the
+       tracks); its dot is the trace's own white with the trace's dark
+       outline, so the legend teaches the reading. */
+    .scope-legend-total .scope-legend-dot {
+      background: #ffffff;
+      box-shadow: 0 0 0 1px rgba(8, 8, 8, 0.65);
     }
 
     .scope-option:focus-visible,
