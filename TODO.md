@@ -58,6 +58,30 @@ the same change, including the guided tour.**
 - [ ] **Move the paid features out of the public repo** into a private one — "they can't be built in a public repo, then switched off" — reassessing the andeyePro-versus-new-repo thinking, and **purge them from public git history**. The purge is a rewrite of published history and is escalated, not autonomous. Testing hidden features moves to multiple accounts rather than a console flag.
 - [!] **Trademark filing — HOLD** (owner, 2026-07-28): "that's not a cheap diagnostic, it's a good way to get stuck in litigation." Do not file. Do not raise it again unprompted.
 
+## Owner replies, 2026-07-29
+
+- [x] *(SHIPPED — pushed to production, 467cac6)* Full screen and the voice-editor row split, both approved.
+- [x] *(SHIPPED v0.0.61)* **Remove New Age from the genre list** — his answer to the research was to take it out rather than tune it. Data file deleted, dropped from the fresh-visit pool, genre count updated.
+- [x] *(SHIPPED v0.0.61)* **Preset Submit conforms to the contact-form param contract** (brain2 `coordination.md`, 2026-07-23): `source` is REQUIRED and is the calling site's hostname, recorded with every submission. It was being sent without one.
+
+- [ ] **cmd-z undoes the last user input, whatever it was — including Next.** Not the setup-only stack Back uses; a single universal undo over every input, unlimited within a session. Back stays as the coarse control.
+- [ ] **Purge the paid-feature code from public git history — AUTHORISED 2026-07-29.** "You shouldn't have put that data in a public repo and you MUST remove it." He has no reason to think anyone holds a clone. Sequence: write up BFG versus filter-repo with what each breaks, move the code to a private repo first, then rewrite, then force-push, then confirm the objects are gone from GitHub's own view (a rewrite alone does not evict them until GitHub's gc runs — an unreferenced blob stays fetchable by SHA, which is the part people miss).
+- [ ] **Fullscreen bar: one consistent button style on one line.** His note on approving it — it currently has two different button styles on two rows.
+
+## Low priority — the scale list, in his own words
+
+He asked for this on 2026-07-27 and I built something different without
+flagging the deviation, which is the actual fault: I narrowed the scope
+silently and reported it as shipped. His words, verbatim:
+
+> Should we split the scales list into Major (Ionian), Natural Minor (Aeolian), Major Pentatonic, Minor Pentatonic, Blues, Dorian, Mixolydian, Harmonic Minor, and 'Other', clicking 'Other' adds options of Lydian, Phrygian, Locrian, Melodic Minor, Whole Tone, Diminished, Chromatic, Middle Eastern (Maqamat), Indian (Ragas), East Asian, Eastern European, Indonesian (Gamelan), and a 'Custom' menu that allows users to build their own scales or import alternate tuning temperaments?
+
+Three ways v0.0.58 differs from that ask:
+
+- [ ] **'Other' should be a thing you CLICK that then adds the extended options** — a two-step reveal. I shipped two `<optgroup>` headings both visible at once.
+- [ ] **The Other list should include the tradition entries** — Maqamat, Ragas, East Asian, Eastern European, Gamelan. I left them out on the grounds that naming by region is inaccurate and that maqamat and gamelan are not 12-TET at all, so they need the pitch pipeline rebuilt. That reasoning still holds and is why the alternate-tunings item exists — but it was a decision to put to him, not to make quietly.
+- [ ] **A 'Custom' menu for building a scale or importing an alternate temperament.** Same dependency: it is the alternate-tunings work wearing a different hat.
+
 ## Genre and bass listening verdicts (owner, 2026-07-28)
 
 The owner's second full listen. Sorted by what they actually are, because

@@ -1235,7 +1235,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       'downtempo',
       'lofi-beats',
       'minimalism',
-      'new-age',
     ];
     const FAVOURITE_WEIGHT = 10;
 
@@ -11737,8 +11736,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const body = anonymous
           ? `ANONYMOUS SUBMISSION — do not credit the sender.\n\n${presetJSON()}`
           : presetJSON();
+        // The contact form's param contract v1 (brain2 coordination.md,
+        // 2026-07-23): `source` is REQUIRED and is the calling site's
+        // hostname, recorded with every submission. Without it a submission
+        // arrives with no idea which andeye site sent it.
         const url =
-          `${CONTACT_URL}?subject=${encodeURIComponent(`Ambi4 preset: ${name}`)}` +
+          `${CONTACT_URL}?source=${encodeURIComponent(location.hostname || 'ambi4.work')}` +
+          `&subject=${encodeURIComponent(`Ambi4 preset: ${name}`)}` +
           `&message=${encodeURIComponent(body)}`;
         window.open(url, '_blank', 'noopener');
       });
