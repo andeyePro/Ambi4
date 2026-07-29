@@ -5486,14 +5486,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         persistSettings();
       }
 
-      // ---- v16 block editor (src/scripts/blocks.js) -----------------------
-      // Optional module, and one this page must build WITHOUT: a bare
-      // `import('../scripts/blocks.js')` is resolved by the bundler, so it
-      // would fail the build outright while blocks.js is still being written.
-      // import.meta.glob is the feature detection — an unmatched glob is an
-      // empty object, and the icon simply never appears. When the module IS
-      // present the loader below runs once, on the first click, and caches the
-      // result (null once, never retried, if its export is missing).
+      // ---- block editor: REMOVED FROM THIS REPOSITORY (2026-07-29) --------
+      // The block editor is a paid-tier feature and was being built in a
+      // public repository behind a flag, which the owner ruled out: a feature
+      // that is present and switched off is still published. Its source and
+      // tests were moved out and purged from this repository's history.
+      //
+      // The seam is deliberately left here rather than deleted, so that a
+      // build with the private module present picks it up with no change to
+      // this file: `import.meta.glob` resolves to nothing when the file is
+      // absent, which is exactly the null the code below already handles.
       const BLOCKS_MODULE = (() => {
         try {
           const loaders = Object.values(import.meta.glob('../scripts/blocks.js'));
