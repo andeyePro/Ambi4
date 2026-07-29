@@ -42,6 +42,28 @@ each alert actually is before deciding anything.
 
 ---
 
+## Compose/create mode — the owner's design brief (in-chat, 2026-07-29), spec before build
+
+His ask: an explicit compose/create mode offering ways to START a piece, not only
+editing what the app wrote. It must work in both Simple and Advanced, and it comes
+early because "it will largely dictate how everything else you are working on gets
+implemented". Taken as the answer to the open bottom-up ask (fromClaude 83, now
+archived): blank slate was not what he meant — starting from your OWN material is.
+Verbatim text in the Q&A archive.
+
+- [ ] **Write the compose-mode spec.** Entry points on starting a piece, his numbering kept:
+  1. **Play or type a melody**, chords derived algorithmically on request — the play half is nearer than it looks: Web MIDI note input already ships in play-along (index.astro:9854), and "derive chords from played MIDI" is already a v0.0.42 item. Typing needs note entry the grid does not have yet (pitch is a readout, not a field).
+  2. **Play or type a chord sequence**, melody derived on request — the roman-numeral loop editor (v0.0.68/v0.0.76) IS the typing half; it needs a start-here framing rather than edit-what-exists, plus a played input on top.
+  3. **Start with a beat** — the step editor is the substrate; the drum-grid rebuild he asked for (fromClaude 82) should be specified as part of this mode, not separately.
+  4. **Long-term: sing into the mic** — wants the v0.2.x audio-in track first. The spec should name hum/whistle too: monophonic pitch tracking on a hum is far more reliable than on sung words, so it may arrive earlier than singing.
+  5. **Long-term: start with words** — melody attempted algorithmically from syllable count, stress and contour rules. No external AI involved, so the AI-free position is untouched.
+
+  Methods to add to his five: **capture what is playing** — promote the engine's current output into your starting material, the most Ambi4-native entry there is, and cheap, since origin + seed + diff provenance already reconstructs any moment; **import a MIDI file** — same derivation paths as playing one; **start with a bassline** — bass-first is the ordinary workflow in half the dance genres, and it is "play a melody" pointed at a different track; **tap a rhythm** — the touch-first face of starting with a beat.
+- [ ] **The spec must settle the authored-versus-generated seam ONCE, for the whole app.** Every entry point produces material the user owns that the engine must accompany without rewriting — the same ownership rule as the auto/manual promotion question (fromClaude 79 a/b) and the pitch-editing item. 79(a) — your edits pin, the app keeps deciding the rest — is the rule compose mode wants, which puts that blocked decision on this item's critical path.
+- [ ] **Simple and Advanced both get the mode, same entry points.** Simple derives without asking — play a melody and it just makes chords; Advanced exposes what the derivation is doing (which harmonisation, constraints, per-track regeneration) as controls over the same machinery, not a second implementation.
+
+---
+
 ## Next up (owner ask, 2026-07-28)
 
 - [x] *(SHIPPED v0.0.55)* **The Stop key does nothing** — the second press that cuts the outro short was written in v0.0.41 and made unreachable by a `if (finishing) return;` guard left over from the era of a separate Stop key. Guard removed; the Stop caption also gained its own square glyph, having been drawn beside the finish barline since v0.0.41.
