@@ -2,6 +2,18 @@
 
 ## 2026-07-29
 
+- [x] **v0.0.78 — ⌘Z undoes whatever you did last** — his ask, verbatim: *"cmd-z undoes the last user input, whatever it was — including Next. Not the setup-only stack Back uses; a single universal undo over every input, unlimited within a session. Back stays as the coarse control."*
+
+  The v0.0.58 note beside the Back button said a general undo would mean "every commit path would have to opt in, and a drag would have to coalesce". Both were true and neither needed solving on its own, because the page already has **one funnel every committed change goes through**: `persistSettings()`. Every dial, every select, every grid edit, every genre pick and Next itself all call it — and it already debounces, which is exactly the coalescing a drag needs. So the undo watches the funnel rather than instrumenting a hundred call sites, and **one drag is one entry** because one drag is one persist. The test drags the Tempo dial through forty moves and asserts a single ⌘Z puts it back.
+
+  **Entries are the previous value of whichever top-level keys changed**, not whole snapshots — "unlimited within a session" over a tree this size would otherwise mean tens of megabytes. Top-level granularity rather than per-field is deliberate: a partial patch cannot express "this key used to be absent", and restoring a whole subtree always can.
+
+  **Redo is included** (⇧⌘Z, or Ctrl-Y). Not asked for, and here for one reason: an undo with no redo makes an accidental ⌘Z unrecoverable, which is the same trap the single-click dial reset was — and that one was already ruled against.
+
+  **Inside a text field the browser's own undo wins**, because there the person is looking at their typing, not at the app's state.
+
+  One bug worth recording because it took the whole page down for a build: naming `noteUndoPoint` directly inside `persistSettings` read the undo's `let`s before they existed, since `persistSettings` runs during boot and the undo state is declared much further down. It is an explicit `onSettingsCommitted` hook now, assigned once the state is real.
+
 - [x] **v0.0.77 — chord length in any number of bars, or one chord per section** — his note was *"chord length still has no custom option in beats, bars or sections."*
 
   The list was Auto / 1 / 2 / 4 / 8, which left **3, 5, 6 and 12 bars unreachable for no musical reason** — a whitelist was simply the wrong shape for a bar count, not a deliberate restriction. It is now every whole bar count up to sixteen.

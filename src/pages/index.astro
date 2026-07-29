@@ -2969,7 +2969,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // Sliders fire an input event per pixel of drag; debounce the storage
       // write. pagehide flushes any pending write (see lifecycle handlers).
       let persistTimer = null;
+      // v0.0.78: the universal undo watches this funnel rather than
+      // instrumenting every commit path. An explicit hook rather than calling
+      // the function by name: the undo's own state is declared much further
+      // down, and persistSettings runs during boot — naming the function
+      // directly would read it before its `let`s exist and take the whole page
+      // down, which is exactly what the first cut of this did.
+      let onSettingsCommitted = null;
+
       function persistSettings() {
+        if (onSettingsCommitted) onSettingsCommitted();
         if (persistTimer !== null) clearTimeout(persistTimer);
         persistTimer = setTimeout(() => {
           persistTimer = null;
@@ -11683,6 +11692,141 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+      /**
+       * v0.0.78 — cmd-z, and it undoes whatever you did last.
+       *
+       * His ask, verbatim: "cmd-z undoes the last user input, whatever it was
+       * — including Next. Not the setup-only stack Back uses; a single
+       * universal undo over every input, unlimited within a session. Back
+       * stays as the coarse control."
+       *
+       * The v0.0.58 note above says a general undo would mean "every commit
+       * path would have to opt in, and a drag would have to coalesce". Both
+       * were true and neither needed solving separately, because the page
+       * already has one funnel every committed change goes through:
+       * `persistSettings()`. It is called by every dial, every select, every
+       * grid edit, every genre pick and by Next — and it already DEBOUNCES,
+       * which is exactly the coalescing a drag needs. So the undo watches the
+       * funnel rather than instrumenting a hundred call sites, and one drag is
+       * one entry because one drag is one persist.
+       *
+       * Entries are the PREVIOUS value of whichever top-level keys changed,
+       * not whole snapshots: settings is a large tree and "unlimited within a
+       * session" would otherwise mean tens of megabytes. Top-level granularity
+       * rather than per-field is deliberate — a partial patch cannot express
+       * "this key used to be absent", and restoring a whole subtree always
+       * can.
+       *
+       * Redo is here for one reason: an undo with no redo makes an accidental
+       * cmd-z unrecoverable, which is the same trap the single-click dial
+       * reset was, and that one was already ruled against.
+       */
+      const undoStack = [];
+      const redoStack = [];
+      let undoBaseline = null;
+      let undoSuspended = 0;
+      let undoTimer = null;
+
+      const UNDO_IGNORE = new Set(['ui']);
+
+      /** The top-level keys whose value differs between two snapshots. */
+      function changedTopKeys(before, after) {
+        const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+        const changed = [];
+        for (const key of keys) {
+          if (UNDO_IGNORE.has(key)) continue;
+          if (JSON.stringify(before ? before[key] : undefined)
+            !== JSON.stringify(after ? after[key] : undefined)) changed.push(key);
+        }
+        return changed;
+      }
+
+      /** The settings tree with one entry's keys written back over it. */
+      function applyUndoEntry(entry) {
+        const next = paramsSnapshot();
+        for (const [key, value] of Object.entries(entry.keys)) {
+          if (value === undefined) delete next[key];
+          else next[key] = structuredClone(value);
+        }
+        return next;
+      }
+
+      /**
+       * Called whenever the settings tree may have moved. Coalesced, so a drag
+       * that fires two hundred commits leaves one entry behind it.
+       */
+      function noteUndoPoint() {
+        if (undoSuspended) return;
+        if (undoTimer !== null) clearTimeout(undoTimer);
+        undoTimer = setTimeout(() => {
+          undoTimer = null;
+          if (undoSuspended) return;
+          let now;
+          try { now = paramsSnapshot(); } catch { return; }
+          if (!undoBaseline) { undoBaseline = now; return; }
+          const changed = changedTopKeys(undoBaseline, now);
+          if (!changed.length) return;
+          const keys = {};
+          for (const key of changed) {
+            keys[key] = key in undoBaseline ? structuredClone(undoBaseline[key]) : undefined;
+          }
+          undoStack.push({ keys });
+          // A fresh edit ends the redo branch, which is what every editor does
+          // and what anyone who has used one expects.
+          redoStack.length = 0;
+          undoBaseline = now;
+        }, 300);
+      }
+
+      function stepUndo(from, to) {
+        const entry = from.pop();
+        if (!entry) return false;
+        let current;
+        try { current = paramsSnapshot(); } catch { return false; }
+        const inverse = {};
+        for (const key of Object.keys(entry.keys)) {
+          inverse[key] = key in current ? structuredClone(current[key]) : undefined;
+        }
+        to.push({ keys: inverse });
+        const next = applyUndoEntry(entry);
+        undoSuspended += 1;
+        try {
+          loadParamsSnapshot(next);
+          syncGenreUI();
+        } finally {
+          undoBaseline = null;
+          // Released a tick later than the load: loadParamsSnapshot's own
+          // persist and the sync it triggers must not be read as a new edit.
+          setTimeout(() => {
+            undoSuspended -= 1;
+            try { undoBaseline = paramsSnapshot(); } catch {}
+          }, 0);
+        }
+        return true;
+      }
+
+      onSettingsCommitted = noteUndoPoint;
+
+      window.addEventListener('keydown', (event) => {
+        if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+        const key = event.key.toLowerCase();
+        const redo = key === 'y' || (key === 'z' && event.shiftKey);
+        if (key !== 'z' && !redo) return;
+        // Inside a text field the browser's own undo is the right one: it
+        // undoes the typing, which is what the person is actually looking at.
+        const target = event.target;
+        const tag = target && target.tagName;
+        if (tag === 'INPUT' && target.type !== 'range' && target.type !== 'checkbox') return;
+        if (tag === 'TEXTAREA' || (target && target.isContentEditable)) return;
+        const moved = redo ? stepUndo(redoStack, undoStack) : stepUndo(undoStack, redoStack);
+        if (!moved) {
+          sayUnderDials(redo ? 'Nothing to redo.' : 'Nothing left to undo.', 1800);
+          return;
+        }
+        event.preventDefault();
+        sayUnderDials(redo ? 'Redone.' : 'Undone.', 1500);
+      });
+
       rewindButton?.addEventListener('click', () => {
         const previous = setupHistory.pop();
         syncRewind();
@@ -11693,7 +11837,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       describe(
         rewindButton,
-        'Back to the setup you had before the last Next, or the last genre change. It remembers the last two dozen, and nothing else — a dial you moved by hand is not undone by this.'
+        'Back to the setup you had before the last Next, or the last genre change. It remembers the last two dozen. For anything smaller — a dial, a chord, a step — use ⌘Z, which undoes whatever you did last.'
       );
       syncRewind();
 
@@ -13023,7 +13167,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#pause-toggle',
-          text: 'Pause holds the piece exactly where it is and becomes Resume — the same bar and the same chord loop carry on, rather than a fresh build. Next, two along, jumps to a new setup: inside a genre it draws another piece from that genre\'s rules, and with no genre it re-rolls the material you already have.',
+          text: 'Pause holds the piece exactly where it is and becomes Resume — the same bar and the same chord loop carry on, rather than a fresh build. Next, two along, jumps to a new setup: inside a genre it draws another piece from that genre\'s rules, and with no genre it re-rolls the material you already have. Back returns to the setup before it. ⌘Z (Ctrl-Z) undoes anything at all — a dial, a chord, a Next — as far back as you like, and ⇧⌘Z redoes it.',
         },
         {
           tab: 'simple',
