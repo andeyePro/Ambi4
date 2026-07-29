@@ -92,7 +92,8 @@ node tests/voices-smoke.mjs        # 283 — the voice library
 node tests/genre-smoke.mjs         #  29 — genre compiler + every genre played
 node tests/knobscope-smoke.mjs     # 106 — knob.js + scope.js
 node tests/visualiser-smoke.mjs    #  45 — piano roll
-node tests/blocks-smoke.mjs        #  41 — structure blocks
+# blocks-smoke.mjs went with the block editor when the paid-tier code left
+# this repository (2026-07-29). It lives with that code, not here.
 node tests/power-smoke.mjs         #  12 — the governor
 node tests/prefs-smoke.mjs         #  22 — consent + persistence
 node tests/share-name-smoke.mjs    #  13 — three-word link names
