@@ -772,11 +772,26 @@ test('D4: the Volume dial spans its travel in even, audible dB steps', async () 
     `the fader spans only ${span.toFixed(1)} dB across its travel (target ≥ 40 dB)`);
 });
 
-/** The post-compressor listening-level fader — the one gain feeding destination. */
+/**
+ * The post-compressor listening-level fader.
+ *
+ * v0.0.69 put a LIMITER between it and the destination, so it is no longer the
+ * gain wired to the destination — it is the gain wired to the limiter that is.
+ * Looking for the old shape found nothing and failed two measurements that had
+ * nothing to do with the change, which is the usual cost of a test that knows
+ * the topology by memory rather than by walking it.
+ */
 function outputGain(ctx) {
-  const found = ctx.nodes.filter((n) => n.kind === 'gain' && n.connections.includes(ctx.destination));
+  const sink = ctx.nodes.filter((n) => n.connections.includes(ctx.destination));
+  const feeders = sink.length ? sink : [];
+  let found = feeders.filter((n) => n.kind === 'gain');
+  if (!found.length) {
+    // Walk back one hop through the limiter to the fader that feeds it.
+    found = ctx.nodes.filter((n) => n.kind === 'gain'
+      && n.connections.some((c) => feeders.includes(c)));
+  }
   assert.equal(found.length, 1,
-    `expected exactly one gain feeding the destination, found ${found.length}`);
+    `expected exactly one gain feeding the destination (directly or through the limiter), found ${found.length}`);
   return found[0];
 }
 

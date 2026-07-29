@@ -3179,7 +3179,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * positions) takes the midpoint, which is where the walk sits on
        * average and where the piece starts.
        */
-      function setTempo(bpm, { skipSpeedThumb = false, skipEnergyThumb = false, landing = null } = {}) {
+      function setTempo(bpm, { skipSpeedThumb = false, landing = null } = {}) {
         const clampBpm = (v) => Math.round(clamp(v, 20, 220));
         bpm = mapRangeValue(bpm, clampBpm);
         const mid = rangeMid(bpm);
@@ -3190,7 +3190,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // Energy's read-back is tempo-anchored (tempo is the dominant cue the
         // macro owns), so any tempo write moves the Energy dial too — except
         // the one Energy itself is making mid-gesture.
-        if (!skipEnergyThumb) energyDial?.set(mapRangeValue(bpm, energyFromBpm));
+        // v0.0.71: tempo no longer moves the Energy dial. They are separate
+        // controls now, and a tempo edit that dragged Energy with it would be
+        // the same conflation wearing a different hat.
         // v0.0.57: WHERE the change lands is decided by which control moved,
         // per the owner's 2026-07-28 question. Simple's Energy macro lands on
         // the next beat, because a beginner needs to hear that the thing they
@@ -3208,22 +3210,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // the extremes are Advanced territory. Default 0.35 lands on 61 bpm,
       // within a hair of the shipped 60, so nothing about the default sound
       // changes.
-      const ENERGY_BPM_LOW = 42;
-      const ENERGY_BPM_HIGH = 124;
+      // v0.0.71: ENERGY_BPM_LOW/HIGH and bpmFromEnergy are gone with the
+      // tempo coupling. Energy drives complexity and nothing else.
       const ENERGY_DEFAULT = 0.35;
-      function bpmFromEnergy(e) {
-        return ENERGY_BPM_LOW * Math.pow(ENERGY_BPM_HIGH / ENERGY_BPM_LOW, clamp(e, 0, 1));
-      }
-      function energyFromBpm(bpm) {
-        const x = clamp(bpm, 20, 220) / ENERGY_BPM_LOW;
-        return clamp(Math.log(x) / Math.log(ENERGY_BPM_HIGH / ENERGY_BPM_LOW), 0, 1);
-      }
-      // Piecewise-linear rather than straight through: the audible
-      // discontinuities (structure thresholds at 0.33/0.55/0.75 and the
-      // auto-track ladder) bunch under a linear map. These knots spread the
-      // structure changes to roughly even thirds of the travel.
+      // v0.0.71: Energy no longer touches tempo.
+      //
+      // Owner: "Personally I don't think Tempo and Energy should be conflated.
+      // [...] in most modern western genres you don't want to vary the tempo,
+      // but you definitely do want to vary the energy." That is right, and it
+      // is the stronger reading of what the dial is FOR: energy is how much is
+      // going on, and tempo is a property of the piece you chose.
+      //
+      // Tempo was doing most of the work, though, so removing it without
+      // widening what remains would leave a dial that barely does anything.
+      // The knots now span 0.04 to 1.00 rather than 0.10 to 0.95, and the
+      // lower half is steeper — the structure thresholds and the auto-track
+      // ladder are what Energy has left, and it has to cross more of them.
+      //
+      // This CHANGES THE SHIPPED SOUND at any Energy setting away from the
+      // default, which is why the frozen audio reference is regenerated in the
+      // same commit rather than being worked around.
       const ENERGY_COMPLEXITY_KNOTS = [
-        [0.0, 0.10], [0.2, 0.32], [0.35, 0.42], [0.55, 0.58], [0.8, 0.78], [1.0, 0.95],
+        [0.0, 0.04], [0.2, 0.28], [0.35, 0.42], [0.55, 0.62], [0.8, 0.85], [1.0, 1.0],
       ];
       function complexityFromEnergy(e) {
         const x = clamp(e, 0, 1);
@@ -3233,6 +3241,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (x <= x2) return y1 + ((x - x1) / (x2 - x1)) * (y2 - y1);
         }
         return ENERGY_COMPLEXITY_KNOTS[ENERGY_COMPLEXITY_KNOTS.length - 1][1];
+      }
+
+      /**
+       * The inverse, so the Energy dial can read back from the thing it now
+       * drives. Before v0.0.71 it read back from TEMPO, which is exactly the
+       * conflation the owner objected to — and would have left the dial
+       * jumping whenever the Advanced tempo dial moved.
+       */
+      function energyFromComplexity(c) {
+        const y = clamp(rangeMid(c), 0, 1);
+        const knots = ENERGY_COMPLEXITY_KNOTS;
+        if (y <= knots[0][1]) return knots[0][0];
+        for (let i = 1; i < knots.length; i++) {
+          const [x1, y1] = knots[i - 1];
+          const [x2, y2] = knots[i];
+          if (y <= y2) return y2 === y1 ? x1 : x1 + ((y - y1) / (y2 - y1)) * (x2 - x1);
+        }
+        return knots[knots.length - 1][0];
       }
 
       /** Trailing debounce for structural commits — dragging a dial across its
@@ -4200,14 +4226,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           min: 0,
           max: 1,
           step: 0.001,
-          value: mapRangeValue(settings.bpm, energyFromBpm),
+          value: mapRangeValue(settings.complexity, energyFromComplexity),
           format: pctFormat,
           defaultValue: ENERGY_DEFAULT,
         },
         (e) => {
-          // Tempo is cheap and immediate (and beat-quantised in the engine);
-          // the structural half rides the debounce.
-          setTempo(mapRangeValue(e, bpmFromEnergy), { skipEnergyThumb: true, landing: 'beat' });
+          // v0.0.71: no tempo. Energy is how much is going on; the tempo is a
+          // property of the piece, and moving it under someone who did not ask
+          // is what the owner objected to.
           // v0.0.57: `e` may be a span, and BOTH halves of the macro have to
           // map through it. Missing this on the complexity half fed NaN into
           // commitComplexityAuto, which is why a sideways drag on Energy came
@@ -10135,7 +10161,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const g = isPlainObject(globals) ? globals : {};
         const at = (key, map) => (typeof g[key] === 'number' ? map(g[key]) : null);
         speedDial?.setLive?.(at('bpm', speedTFromBpm));
-        energyDial?.setLive?.(at('bpm', energyFromBpm));
+        energyDial?.setLive?.(at('complexity', energyFromComplexity));
         complexityDial?.setLive?.(at('complexity', (v) => v));
         repetitionDial?.setLive?.(at('repetition', (v) => v));
         volumeDial?.setLive?.(at('volume', volumeDialFromParam));
@@ -12501,7 +12527,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (bpmInput) bpmInput.value = String(rangeMid(settings.bpm));
         bpmTypable?.refresh();
         speedDial?.set(mapRangeValue(settings.bpm, speedTFromBpm));
-        energyDial?.set(mapRangeValue(settings.bpm, energyFromBpm));
+        energyDial?.set(mapRangeValue(settings.complexity, energyFromComplexity));
         repetitionDial?.set(settings.repetition);
         volumeDial?.set(mapRangeValue(settings.volume, volumeDialFromParam));
         randomnessDial?.set(changeDialValueFromState());
