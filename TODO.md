@@ -58,6 +58,39 @@ the same change, including the guided tour.**
 - [ ] **Move the paid features out of the public repo** into a private one — "they can't be built in a public repo, then switched off" — reassessing the andeyePro-versus-new-repo thinking, and **purge them from public git history**. The purge is a rewrite of published history and is escalated, not autonomous. Testing hidden features moves to multiple accounts rather than a console flag.
 - [!] **Trademark filing — HOLD** (owner, 2026-07-28): "that's not a cheap diagnostic, it's a good way to get stuck in litigation." Do not file. Do not raise it again unprompted.
 
+## Owner replies, 2026-07-29 (third round)
+
+- [x] *(DONE — history rewritten and force-pushed)* **Purge the paid-tier code from public history.** `src/scripts/blocks.js` and `tests/blocks-smoke.mjs` removed from the working tree, purged from every commit with `filter-branch --index-filter`, local backup refs and reflog dropped, `gc --prune=now` run, both branches and the `v0.0.34-first-weekend` tag force-pushed. The stale `update_worker_name_to_ambi4-dev` branch was deleted too — it was an independent line carrying a full pre-purge copy, and its only unique content was a wrangler name the current config already expresses. Verified: zero refs on the remote reference either path. **The seam stays in index.astro** — `import.meta.glob` resolves to nothing when the file is absent, so a build with the private module present picks it up with no edit. Code preserved at brain2 `andeye/ambi4-private/` pending a private repo this container has no credential to create. **Still outstanding and only Martin can do it: the GitHub gc request** — a rewrite makes the old commits unreachable, not deleted. Text drafted in fromClaude 74.
+- [x] *(SHIPPED v0.0.64)* **Only the genres he did not criticise are offered** — Synthwave and Techno Tools. The other ten stay as files and still compile, so every existing share link keeps playing what it always played.
+- [x] *(DONE)* **The Q&A archive rebuilt from brain2's own git history** — all 67 of his numbered inputs, verbatim, oldest first, recovered from 55 saved versions of the channel file. What was there before was my summary of the items I chose to keep, which made me the filter on his own words. **Nothing had actually been lost; my earlier apology for losing it was wrong and made before checking.**
+
+- [ ] **Dial: bold only the indicator the gesture will move.** Grabbing one end currently bolds both. Both should thicken only when the gesture affects both (a hub drag).
+- [ ] **Dial: the thick arc means "you are editing the spread", not "there is a spread".** Keep a thin arc between min and max at all times; the thick one appears only while the spread itself is being dragged.
+- [ ] **Dial: grabbing an end should move it where you point.** His words: more intuitive than up-to-increase. The wrap at the bottom gap is the whole problem; three schemes put to him in fromClaude 75, recommending the hybrid (follow the finger on the face, revert to vertical once the pointer leaves it).
+- [ ] **The step sequencer is not what he asked for** — "we don't actually have a drum grid anywhere, it was close but you misunderstood what I was asking for and it now has bizarre titles and unusable dropdowns between drum instruments". Do not guess a second time: his description of what he expects to see is asked for in fromClaude 77.
+- [ ] **Remove the auto/manual switch above the step sequencer** — you should simply see what the app chose. And if a choice cannot be expressed in the grid, **add capability to the grid rather than simplify what the app does**.
+- [ ] **Chord editing needs an audible form, not just names** — "that only works for people who can hear chords in their head when they see the names". Names first, but the end goal is that it works for someone who plays any instrument, or none.
+- [ ] **Building from the bottom up, not only editing what exists** — his amendment to step 1 of the plan.
+- [ ] **The patching system comes forward into the preset work**, between plan steps 3 and 4: it is the difference between a parameter being random between two points and a parameter doing what you tell it (a crescendo where you want one).
+- [ ] **Per-section differences per instrument** — what an instrument does in the chorus versus the verse. Decided by the app today, untouchable.
+
+## Genres to fix (bottom of the list, owner's placement)
+
+Each of the ten hidden genres keeps its data and its listening note. In his
+words: "Keep your data for the others though and add fixing them to the very
+bottom of the TODO."
+
+- [ ] Acid Jazz — dissonant throughout
+- [ ] Bossa — dissonant, plus the click on note onset
+- [ ] Cinematic — does not sound like the genre it names
+- [ ] Deep House — bass fine, melody annoying
+- [ ] Lofi Beats — bad melody
+- [ ] Downtempo — bass and drums clash once the drums enter
+- [ ] Minimalism — needs a process mechanism (phasing / additive), not a voicing pass
+- [ ] New Age — accurate to its genre; he does not like the genre
+- [ ] Ambient — the texture saws; keep the whistle, lose the sweep
+- [ ] Soul Groove — the click on note onset
+
 ## Owner replies, 2026-07-29 (second round)
 
 - [x] *(SHIPPED v0.0.63)* **Hidden, not deleted.** He asked for genres hidden from the public list and I deleted New Age's data file, which breaks every share link and stored preset that names it. File restored; four genres are now in `HIDDEN_GENRES` — acid jazz, bossa, cinematic, new age, the four he judged and rejected outright. They still compile, so an old link plays exactly what it always played; they never appear in the picker, the favourites list or the fresh-visit draw, and a hidden genre that IS in play stays listed so the picker cannot silently read as something else. Deep house, lofi and downtempo are deliberately NOT hidden: his complaint about those was a melody or a drum clash, which is a fault to fix, and hiding them would convert "fix this" into "gone".
