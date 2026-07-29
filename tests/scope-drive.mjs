@@ -112,6 +112,27 @@ export default async function drive(page) {
       after.checked, 'per');
   }
 
+  // ---- v0.0.70: the point of the control is to REMOVE dials ----------------
+  // "Universal | Per Instrument was supposed to clear up the interface — with
+  // Swing set to Universal, the Swing dial can disappear from each track."
+  // Adding a switch was only ever half of it; taking the per-track copies away
+  // when they are all following the global one is the half that clears up the
+  // interface, and it is most of the time.
+  const visibleSwing = () => page.evaluate(() =>
+    [...document.querySelectorAll('.track-swing-knob')].filter((el) => !el.hidden).length);
+
+  await page.click('label[for="scope-swing-universal"]');
+  await page.waitForTimeout(500);
+  check('Universal hides the per-track Swing dials', await visibleSwing(), 0);
+
+  await page.click('label[for="scope-swing-per"]');
+  await page.waitForTimeout(500);
+  check('and Per instrument brings them back', await visibleSwing() > 0, true);
+
+  await page.click('label[for="scope-swing-universal"]');
+  await page.waitForTimeout(500);
+  check('and it survives switching back', await visibleSwing(), 0);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

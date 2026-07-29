@@ -4819,6 +4819,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 onInput: onValue,
               });
               describe(handle.el, RANDOMNESS_HINT);
+              // v0.0.70: names the field in getResolved().tracks that this dial
+              // is a view of, so the live mark can be fed without the poller
+              // having to know what any given dial is.
+              handle.liveField = 'randomness';
               if (knobs) knobs.push(handle);
               inst.setRand = (v) => {
                 try {
@@ -5306,6 +5310,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         swing: {
           slot: 'scope-swing',
           label: 'Swing',
+          cellClass: 'track-swing-knob',
           tracks: () => SEQ_TRACKS.filter((id) => engineCaps.trackSwing[id]),
           // The global Swing dial's own value: what each track adopts when the
           // user asks for per-instrument control.
@@ -5314,6 +5319,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         complexity: {
           slot: 'scope-complexity',
           label: 'Complexity',
+          cellClass: 'track-density-knob',
           tracks: () => TUNED_TRACKS.filter((id) => engineCaps.trackDensity[id]),
           // Density is a MULTIPLIER on the rate complexity sets, so 1 is "the
           // rate you already had" — the honest seed for a switch that must not
@@ -5370,7 +5376,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             engine.setParams({ tracks: trackStates });
             syncAllTrackExtras();
             persistSettings();
-            refresh();
+            // syncScopeControls, not refresh: the switch has to re-apply
+            // VISIBILITY as well as re-read its own state, and calling only
+            // refresh left the per-track dials hidden after switching TO Per
+            // instrument — the one direction the control exists for.
+            syncScopeControls();
           });
           group.append(input, label);
           radios.push(input);
@@ -5394,6 +5404,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       /** Re-read every scope control from the settings tree. */
       function syncScopeControls() {
         for (const control of scopeControls.values()) control.refresh();
+        applyScopeVisibility();
+      }
+
+      /**
+       * v0.0.70 (owner): "Universal | Per Instrument was supposed to clear up
+       * the interface — with Swing set to Universal, the Swing dial can
+       * disappear from each track."
+       *
+       * He is right and this is the half I missed. The point of the control was
+       * never to add a switch; it was to REMOVE the per-track dials whenever
+       * they are all following the global one, which is most of the time. A
+       * dial sitting on its auto detent in every track editor is six copies of
+       * "not set" taking up the room where the things you are actually editing
+       * live.
+       *
+       * `hidden` rather than removal: the dials are real controls with live
+       * handles, and rebuilding them on every switch would drop their state and
+       * their tooltips. Hidden takes them out of the layout AND out of the
+       * accessibility tree, which is the correct pairing here — a control that
+       * cannot apply should not be announced either.
+       */
+      function applyScopeVisibility() {
+        for (const [dialId, spec] of Object.entries(SCOPE_SPECS)) {
+          if (!scopeControls.has(dialId)) continue;
+          const universal = scopeIsUniversal(spec);
+          for (const cell of document.querySelectorAll(`.${spec.cellClass}`)) {
+            cell.hidden = universal;
+          }
+        }
       }
 
       // Built HERE and not beside the dials they sit under: `buildScopeControl`
@@ -8607,6 +8646,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         buildDissonanceControl(feelRow, track, ed.knobs);
         buildDriftRateControl(feelRow, track, ed.knobs);
         buildFeelRow(feelRow, track, ed.knobs);
+        // An editor opened while the dial is Universal must arrive with its
+        // per-track copy already hidden, not hide it a frame later.
+        applyScopeVisibility();
         buildPadBreathControl(feelRow, track, ed.knobs);
         if (!feelRow.childElementCount) feelRow.remove();
 
@@ -8973,6 +9015,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                   handle.set?.(v);
                 } catch {}
               },
+              // v0.0.70: the level dial lives in its own registry rather than
+              // in an editor's knob list, so the live-mark feed reaches it by
+              // this handle instead of by walking the editors.
+              setLive: (v) => {
+                try {
+                  handle.setLive?.(v);
+                } catch {}
+              },
             };
           } catch {
             container.innerHTML = '';
@@ -8992,7 +9042,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         input.addEventListener('input', () => commitLevel(parseFloat(input.value)));
         wrap.append(name, input);
         container.append(wrap);
-        return { set: (v) => (input.value = String(readMid(v))) };
+        return { set: (v) => (input.value = String(readMid(v))), setLive: () => {} };
       }
 
       function wireTrackLevel(id) {
@@ -10093,8 +10143,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         reverbTailDial?.setLive?.(at('reverbTail', (v) => v));
       }
 
+      /**
+       * v0.0.70: the live mark on the PER-TRACK dials too.
+       *
+       * His ask was "more importantly can it be applied to every dial", and
+       * v0.0.56 fed only the seven globals — so a spread level or randomness on
+       * a track showed two ends and no indication of where between them the
+       * engine actually was. `getResolved().tracks` has carried exactly that
+       * number since v14; nothing was reading it for this.
+       */
+      function applyResolvedTracks(tracks) {
+        if (!isPlainObject(tracks)) return;
+        for (const [id, control] of levelControls) {
+          const live = tracks[id];
+          control?.setLive?.(live && typeof live.level === 'number' ? live.level : null);
+        }
+        for (const [id, ed] of openEditors) {
+          const live = tracks[id];
+          if (!live || !ed || !Array.isArray(ed.knobs)) continue;
+          for (const handle of ed.knobs) {
+            if (!handle || typeof handle.setLive !== 'function') continue;
+            const field = handle.liveField;
+            if (!field) continue;
+            const value = live[field];
+            handle.setLive(typeof value === 'number' ? value : null);
+          }
+        }
+      }
+
       function applyResolved(resolved) {
         applyResolvedGlobals(resolved && resolved.globals);
+        applyResolvedTracks(resolved && resolved.tracks);
         const tracks = resolved && isPlainObject(resolved.tracks) ? resolved.tracks : null;
         for (const id of TRACK_IDS) {
           const readout = document.getElementById(`resolved-${id}`);
