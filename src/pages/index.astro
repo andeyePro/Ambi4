@@ -992,15 +992,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // and (v21) their voice-kind mapping. The three built-ins keep the ids the
     // engine has always used, so every stored pattern and every `perKind`
     // override still lands on the lane it was written for.
-    // v0.0.65: the built-in lanes are named after the drums they are. Low, Mid
-    // and High are the KINDS — an implementation detail that drives note
-    // duration and pan — and they had been showing through as the user-facing
-    // name of every row, which is the owner's "bizarre titles". The ids are
-    // wire keys and do not change; only what a person reads does.
     const PERC_LANE_KINDS = [
-      ['high', 'Hat'],
-      ['mid', 'Snare'],
-      ['low', 'Kick'],
+      ['high', 'High'],
+      ['mid', 'Mid'],
+      ['low', 'Low'],
     ];
     const PERC_BUILTIN_LANES = ['high', 'mid', 'low'];
     const PERC_MAX_LANES = 8; // v21 cap
@@ -6320,6 +6315,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           head.append(kind);
           }
 
+          // v0.0.66 (owner, item 77): "don't let minor things like title
+          // editing and ordering take up a tonne of UI space, when people will
+          // mainly be editing normally."
+          //
+          // Reordering and removing are rare; playing with the pattern is the
+          // whole point of the panel. So the ▲ ▼ × controls no longer sit in
+          // every lane header permanently — they appear on hover or focus, and
+          // are always present to a screen reader and to the keyboard, which
+          // is what stops "tidier" meaning "unreachable". The grip still drags
+          // at any time and Alt+↑/↓ from the name still reorders, so nothing
+          // that worked before stopped working.
+          const tools = document.createElement('span');
+          tools.className = 'seq-lane-tools';
           const move = (delta, glyph, what) => {
             const button = document.createElement('button');
             button.type = 'button';
@@ -6328,10 +6336,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             button.setAttribute('aria-label', `Move the ${lane.label} lane ${what}`);
             button.disabled = delta < 0 ? index === 0 : index === lanes.length - 1;
             button.addEventListener('click', () => moveLane(index, index + delta));
-            head.append(button);
+            tools.append(button);
           };
           move(-1, '▲', 'up');
           move(1, '▼', 'down');
+          head.append(tools);
 
           if (!builtin) {
             const remove = document.createElement('button');
@@ -6341,7 +6350,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             remove.setAttribute('aria-label', `Remove the ${lane.label} lane`);
             remove.addEventListener('click', () => removeLane(index));
             describe(remove, 'Remove this lane and its pattern.');
-            head.append(remove);
+            tools.append(remove);
           }
 
           // Pointer reorder: the grip drags, and the lane lands on whichever
@@ -14486,6 +14495,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .seq-lane-add {
       padding: 4px 12px;
       line-height: 1;
+    }
+
+    /* v0.0.66: the lane's rare controls recede until wanted. Opacity rather
+       than display, so they hold their space and the header cannot jump as the
+       pointer crosses it — and so they stay in the accessibility tree, which
+       `display: none` would take them out of. Focus reveals them too, which is
+       what keeps the keyboard route real rather than nominal. On touch, where
+       there is no hover, they are simply always visible. */
+    .seq-lane-tools {
+      display: inline-flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    .seq-lane-head:hover .seq-lane-tools,
+    .seq-lane-head:focus-within .seq-lane-tools {
+      opacity: 1;
+    }
+
+    @media (hover: none) {
+      .seq-lane-tools {
+        opacity: 1;
+      }
     }
 
     .seq-lane-head {

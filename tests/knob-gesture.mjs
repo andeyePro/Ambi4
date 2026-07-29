@@ -469,15 +469,27 @@ test('the live pointer is clamped into the span and never commits', () => {
   assert.equal(live.style.display, 'none');
 });
 
+test('angular aiming is off for a touch pointer — vertical wins there', () => {
+  // The owner's instinct, confirmed by the research he asked for: on a small
+  // dial under a fingertip the reported angle is noise, and every professional
+  // audio interface uses vertical drag for exactly that reason.
+  const { el, seen } = makeKnob({ value: 10 });
+  el.dispatch('pointerdown', { clientX: 50, clientY: 74, button: 0, pointerId: 1, pointerType: 'touch' });
+  el.dispatch('pointermove', { clientX: 50, clientY: 28, pointerId: 1, pointerType: 'touch' });
+  el.dispatch('pointerup', { clientX: 50, clientY: 28, pointerId: 1, pointerType: 'touch' });
+  assert.notEqual(last(seen), 50, 'a touch drag must be relative, not an angle');
+  assert.ok(last(seen) > 10, 'and dragging up must still raise the value');
+});
+
 test('grabbing an end on the face moves it to where you point', () => {
   // v0.0.65, the owner's ask: "more intuitive to move it where you want it to
   // go than to move up to increase and down to decrease". Straight up from the
   // centre is the middle of the sweep, so a dial at 10 pointed straight up
   // should land at 50 whatever direction the finger travelled to get there.
   const { el, seen } = makeKnob({ value: 10 });
-  el.dispatch('pointerdown', { clientX: 50, clientY: 74, button: 0, pointerId: 1 });
-  el.dispatch('pointermove', { clientX: 50, clientY: 28, pointerId: 1 });
-  el.dispatch('pointerup', { clientX: 50, clientY: 28, pointerId: 1 });
+  el.dispatch('pointerdown', { clientX: 50, clientY: 74, button: 0, pointerId: 1, pointerType: 'mouse' });
+  el.dispatch('pointermove', { clientX: 50, clientY: 28, pointerId: 1, pointerType: 'mouse' });
+  el.dispatch('pointerup', { clientX: 50, clientY: 28, pointerId: 1, pointerType: 'mouse' });
   assert.equal(last(seen), 50, `pointing at the top of the sweep should read 50, got ${last(seen)}`);
 });
 

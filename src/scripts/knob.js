@@ -1015,6 +1015,21 @@ export function createKnob(container, options) {
    * every caller treats null as "not the hub" so a geometry-less environment
    * still gets ordinary single-value behaviour.
    */
+  /**
+   * A pointer precise enough for angular aiming. A fingertip covers most of a
+   * small dial, so the angle it reports is noise; a mouse or a stylus does not.
+   * `pointerType` is the direct answer where the event carries it, and the
+   * media query is the fallback for environments that do not.
+   */
+  function finePointer(e) {
+    if (e && typeof e.pointerType === 'string') return e.pointerType !== 'touch';
+    try {
+      return typeof matchMedia === 'function' ? matchMedia('(pointer: fine)').matches : true;
+    } catch {
+      return true;
+    }
+  }
+
   /** Is the pointer within the dial's own face circle? */
   function pointerOnFace(e) {
     const c = pointerCentre(e);
@@ -1185,7 +1200,21 @@ export function createKnob(container, options) {
     // of those failing falls through to relative vertical rather than doing
     // nothing — a gesture that silently refuses is worse than one that is
     // merely less direct.
-    const onFace = pointerOnFace(e) && !pointerInHub(e);
+    // v0.0.66, after the research the owner asked for. The finding is one-sided
+    // and it goes against the first cut of this: angular drag breaks down near
+    // the centre, where a millimetre swings the angle wildly, and professional
+    // audio software standardised on vertical drag decades ago precisely
+    // because it is predictable and identical on mouse and touch. The counter-
+    // point is real too — people DO instinctively try to circle a knob, and a
+    // control that ignores that "wrests control away" — which is why angular
+    // stays as an ASSIST rather than being removed.
+    //
+    // So: vertical is the primary everywhere, angular applies only in the
+    // annulus between the hub and the face edge, and only on a FINE pointer.
+    // The owner's own instinct — "for small dials on iOS I guess up/down may
+    // win" — is exactly right and is now the rule: on touch, where the whole
+    // dial may be under the fingertip, there is no angular mode at all.
+    const onFace = finePointer(e) && pointerOnFace(e) && !pointerInHub(e);
     if (onFace && !e.shiftKey) {
       const deg = pointerDeg(e);
       if (deg != null && deg >= START_DEG && deg <= START_DEG + SWEEP_DEG) {
