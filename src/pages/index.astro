@@ -10535,9 +10535,55 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             renderStructureBlocks();
           });
 
+          /**
+           * v0.0.73 — what each instrument does in THIS block.
+           *
+           * Owner's 76, second half. The intensity ladder decided which
+           * instruments played in a section and nothing could touch it, so
+           * "drop the drums in the verse" was unreachable.
+           *
+           * Six initials rather than six labelled selects, and they cycle
+           * rather than opening anything — his 77 in this very panel was
+           * "don't let minor things take up a tonne of UI space". A dash means
+           * the app decides, which is what every block means until you press
+           * one.
+           */
+          const sectionTracks = document.createElement('span');
+          sectionTracks.className = 'block-tracks';
+          const tracksName = document.createElement('span');
+          tracksName.className = 'block-field-name';
+          tracksName.textContent = 'plays';
+          sectionTracks.append(tracksName);
+          const CYCLE = [undefined, 'on', 'off'];
+          const MARK = { undefined: '–', on: '●', off: '○' };
+          for (const id of TRACK_IDS) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'block-track';
+            const paint = () => {
+              const state = settings.customStructure[index].tracks?.[id];
+              button.textContent = TRACK_LABELS[id].slice(0, 1);
+              button.dataset.state = state || 'auto';
+              button.title = `${TRACK_LABELS[id]} in section ${settings.customStructure[index].label}: ${
+                state === 'on' ? 'always plays' : state === 'off' ? 'never plays' : 'the app decides'}`;
+              button.setAttribute('aria-label', button.title);
+            };
+            button.addEventListener('click', () => {
+              const block = settings.customStructure[index];
+              if (!block.tracks || typeof block.tracks !== 'object') block.tracks = {};
+              const current = block.tracks[id];
+              const next = CYCLE[(CYCLE.indexOf(current === 'on' ? 'on' : current === 'off' ? 'off' : undefined) + 1) % CYCLE.length];
+              if (next) block.tracks[id] = next; else delete block.tracks[id];
+              paint();
+              commitCustomStructure();
+            });
+            paint();
+            sectionTracks.append(button);
+          }
+
           barsWrap.append(barsName, barsInput);
           intensityWrap.append(intensityName, intensityInput, intensityOut);
-          row.append(labelSelect, barsWrap, intensityWrap, upButton, downButton, removeButton);
+          row.append(labelSelect, barsWrap, intensityWrap, sectionTracks, upButton, downButton, removeButton);
           structureBlocks.append(row);
         });
 
@@ -15473,6 +15519,44 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       width: auto;
       padding: 4px 6px;
       font-size: 12px;
+    }
+
+    /* v0.0.73: six initials, one per instrument, cycling app-decides → always
+       → never. Sized as text rather than as buttons, because a row of six real
+       buttons in every structure block is exactly the "tonne of UI space" the
+       owner objected to in this panel. */
+    .block-tracks {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 12px;
+      color: var(--secondary);
+    }
+
+    .block-track {
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 20px;
+      color: var(--secondary);
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .block-track[data-state='on'] {
+      color: var(--bg);
+      background: var(--link);
+      border-color: var(--link);
+    }
+
+    .block-track[data-state='off'] {
+      color: var(--secondary);
+      border-style: dashed;
+      opacity: 0.55;
     }
 
     .block-field-name {

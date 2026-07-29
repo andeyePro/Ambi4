@@ -955,9 +955,12 @@ function defaultArp() {
 }
 
 function defaultCustomStructure() {
+  // v0.0.73: the empty per-track map is part of the default shape, so
+  // `sanitiseParams()` and DEFAULT_PARAMS agree — a default that the sanitiser
+  // would rewrite is not a default.
   return [
-    { label: 'A', bars: 8, intensity: 0.4 },
-    { label: 'B', bars: 8, intensity: 0.7 },
+    { label: 'A', bars: 8, intensity: 0.4, tracks: {} },
+    { label: 'B', bars: 8, intensity: 0.7, tracks: {} },
   ];
 }
 
@@ -1635,10 +1638,22 @@ function sanitiseCustomStructure(value, base) {
     if (!raw || typeof raw !== 'object') continue;
     const label = typeof raw.label === 'string' ? raw.label.trim().toUpperCase() : '';
     if (!STRUCTURE_LABELS.includes(label)) continue;
+    // v0.0.73: a block may say what each instrument DOES in it. Owner's item
+    // 76, second half — what an instrument plays in the chorus versus the
+    // verse, which the app decided and nothing could touch. Sparse by design:
+    // a track absent from the map is 'auto', which is what every block written
+    // before this version means, so nothing about an existing structure moves.
+    const tracks = {};
+    if (raw.tracks && typeof raw.tracks === 'object') {
+      for (const [name, state] of Object.entries(raw.tracks)) {
+        if (state === 'on' || state === 'off') tracks[name] = state;
+      }
+    }
     blocks.push({
       label,
       bars: Math.round(numberIn(raw.bars, [1, 32], 8)),
       intensity: numberIn(raw.intensity, [0, 1], 0.5),
+      tracks,
     });
     if (blocks.length === 8) break;
   }
@@ -3250,10 +3265,14 @@ export function sectionAtBar(preset, bar, customStructure = []) {
   const total = blocks.reduce((sum, block) => sum + block.bars, 0);
   let pos = index % total;
   for (const block of blocks) {
-    if (pos < block.bars) return { label: block.label, intensity: block.intensity };
+    if (pos < block.bars) {
+      // v0.0.73: the per-track map travels with the section, so whoever is
+      // deciding whether a track sounds can see what THIS block asked for.
+      return { label: block.label, intensity: block.intensity, tracks: block.tracks || {} };
+    }
     pos -= block.bars;
   }
-  return { label: blocks[0].label, intensity: blocks[0].intensity };
+  return { label: blocks[0].label, intensity: blocks[0].intensity, tracks: blocks[0].tracks || {} };
 }
 
 /**
@@ -4652,6 +4671,15 @@ export function createEngine(initialParams, options = {}) {
     // forced 'on' still waits its turn — with all six eligible by bar 5.
     if (currentBarNumber < stageIndexOf(name)) return false;
     if (state === 'on') return true;
+    // v0.0.73: what this SECTION says about this track, if it says anything.
+    // Sits below the track's own 'on'/'off' — a track switched off by hand
+    // stays off everywhere, which is the less surprising precedence — and
+    // above the intensity ladder, which is the app deciding for you and is
+    // exactly what a per-section statement is meant to override.
+    const inSection = currentSection && currentSection.tracks
+      ? currentSection.tracks[name] : undefined;
+    if (inSection === 'on') return true;
+    if (inSection === 'off') return false;
     return autoActiveTracks(sectionIntensity(), params.complexity,
       trackOrder(), autoThresholdFor).includes(name);
   }

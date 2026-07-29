@@ -501,7 +501,9 @@ test('resolveStructure maps complexity in auto and degrades empty custom', () =>
 test('sectionAtBar sequences every preset', () => {
   // drone — one section, never changes
   for (const b of [0, 1, 7, 99]) {
-    assert.deepEqual(sectionAtBar('drone', b), { label: 'A', intensity: 0.35 });
+    const at = sectionAtBar('drone', b);
+    assert.equal(at.label, 'A');
+    assert.equal(at.intensity, 0.35);
   }
 
   // waves — 16-bar sine between 0.25 and 0.75
@@ -514,7 +516,8 @@ test('sectionAtBar sequences every preset', () => {
   for (let b = 0; b < 16; b++) assert.equal(wave[b], wave[b + 16], 'waves must repeat every 16 bars');
 
   // build — 32-bar rise to 0.85, 8-bar release to 0.3, then repeat
-  assert.deepEqual(sectionAtBar('build', 0), { label: 'A', intensity: 0.2 });
+  assert.equal(sectionAtBar('build', 0).label, 'A');
+  assert.equal(sectionAtBar('build', 0).intensity, 0.2);
   assert.equal(sectionAtBar('build', 31).intensity, 0.85);
   for (let b = 1; b < 32; b++) {
     assert.ok(sectionAtBar('build', b).intensity >= sectionAtBar('build', b - 1).intensity,
@@ -525,8 +528,14 @@ test('sectionAtBar sequences every preset', () => {
   assert.deepEqual(sectionAtBar('build', 40), sectionAtBar('build', 0));
 
   // abab — 8 bars each, alternating
-  for (let b = 0; b < 8; b++) assert.deepEqual(sectionAtBar('abab', b), { label: 'A', intensity: 0.4 });
-  for (let b = 8; b < 16; b++) assert.deepEqual(sectionAtBar('abab', b), { label: 'B', intensity: 0.7 });
+  for (let b = 0; b < 8; b++) {
+    assert.equal(sectionAtBar('abab', b).label, 'A');
+    assert.equal(sectionAtBar('abab', b).intensity, 0.4);
+  }
+  for (let b = 8; b < 16; b++) {
+    assert.equal(sectionAtBar('abab', b).label, 'B');
+    assert.equal(sectionAtBar('abab', b).intensity, 0.7);
+  }
   assert.deepEqual(sectionAtBar('abab', 16), sectionAtBar('abab', 0));
 
   // journey — six 8-bar blocks, looping
@@ -545,7 +554,8 @@ test('sectionAtBar sequences every preset', () => {
   for (let b = 0; b < 10; b++) labels.push(sectionAtBar('custom', b, blocks).label);
   assert.deepEqual(labels, ['A', 'A', 'C', 'C', 'C', 'A', 'A', 'C', 'C', 'C']);
   assert.equal(sectionAtBar('custom', 4, blocks).intensity, 0.9);
-  assert.deepEqual(sectionAtBar('custom', 0, []), { label: 'A', intensity: 0.35 });
+  assert.equal(sectionAtBar('custom', 0, []).label, 'A');
+  assert.equal(sectionAtBar('custom', 0, []).intensity, 0.35);
 });
 
 test('autoActiveTracks activates in track order, arp and percussion last', () => {
@@ -838,10 +848,13 @@ test('sanitiseParams validates structure and custom blocks', () => {
       { label: 'B', bars: 3.6, intensity: 0.42 },
     ],
   }).customStructure;
+  // v0.0.73: a block also carries a per-track map, empty unless the block
+  // says something — so an unstated map is `{}`, never absent and never
+  // invented.
   assert.deepEqual(blocks, [
-    { label: 'A', bars: 32, intensity: 1 },
-    { label: 'D', bars: 1, intensity: 0 },
-    { label: 'B', bars: 4, intensity: 0.42 },
+    { label: 'A', bars: 32, intensity: 1, tracks: {} },
+    { label: 'D', bars: 1, intensity: 0, tracks: {} },
+    { label: 'B', bars: 4, intensity: 0.42, tracks: {} },
   ]);
 
   // at most 8 blocks survive
@@ -852,7 +865,7 @@ test('sanitiseParams validates structure and custom blocks', () => {
 
   // missing fields take block defaults
   assert.deepEqual(sanitiseParams({ customStructure: [{ label: 'C' }] }).customStructure,
-    [{ label: 'C', bars: 8, intensity: 0.5 }]);
+    [{ label: 'C', bars: 8, intensity: 0.5, tracks: {} }]);
 
   // an empty or all-invalid array is legal and falls back to auto at play time
   assert.deepEqual(sanitiseParams({ customStructure: [] }).customStructure, []);
@@ -863,7 +876,7 @@ test('sanitiseParams validates structure and custom blocks', () => {
   // a non-array leaves the base list alone
   const base = sanitiseParams({ customStructure: [{ label: 'B', bars: 5, intensity: 0.6 }] });
   assert.deepEqual(sanitiseParams({ customStructure: 'nope' }, base).customStructure,
-    [{ label: 'B', bars: 5, intensity: 0.6 }]);
+    [{ label: 'B', bars: 5, intensity: 0.6, tracks: {} }]);
 });
 
 test('sanitiseParams merges arp deeply and clamps every field', () => {
@@ -5810,6 +5823,56 @@ test('v0.0.56: a params object with no spreads is byte-identical to a pre-v0.0.5
   const plain = sanitiseParams({ bpm: 90 });
   assert.deepEqual(plain.spans, {}, 'an untouched params object must carry no spans');
   assert.equal(Object.keys(DEFAULT_PARAMS.spans).length, 0);
+});
+
+test('v0.0.73: a section can say what an instrument does in it', () => hiddenTab(async () => {
+  // Owner's 76, second half: what an instrument plays in the chorus versus the
+  // verse. The intensity ladder decided this and nothing could touch it.
+  const engine = createEngine({
+    bpm: 120, speed: 2, complexity: 0.6, repetition: 0.5, structure: 'custom',
+    customStructure: [
+      { label: 'A', bars: 4, intensity: 0.9, tracks: { bass: 'off' } },
+      { label: 'B', bars: 4, intensity: 0.9, tracks: { bass: 'on' } },
+    ],
+    tracks: { ...tracksAll('auto') },
+  }, { rng: seededRng(7301) });
+  const log = record(engine);
+  await engine.start();
+  await advance(24, FAST);
+  engine.stop();
+
+  const byBar = log.byBar('bass');
+  // Bars are counted from the piece's start; staged entry means the first few
+  // bars are sparse whatever a section says, so only bars past the stagger are
+  // judged — asserting over bar 0 would be testing staged entry, not sections.
+  let inA = 0;
+  let inB = 0;
+  for (const [bar, notes] of byBar) {
+    if (bar < 8) continue;
+    const section = Math.floor(bar / 4) % 2 === 0 ? 'A' : 'B';
+    if (!notes.length) continue;
+    if (section === 'A') inA += notes.length; else inB += notes.length;
+  }
+  assert.equal(inA, 0, `bass sounded in a section that switched it off (${inA} notes)`);
+  assert.ok(inB > 0, 'bass never sounded in the section that switched it on');
+}));
+
+test('v0.0.73: a block with no track map behaves exactly as before', () => {
+  // Additive or nothing: every structure written before this version means
+  // "the ladder decides", and must keep meaning it.
+  const blocks = sanitiseParams({
+    structure: 'custom',
+    customStructure: [{ label: 'A', bars: 8, intensity: 0.5 }],
+  }).customStructure;
+  assert.deepEqual(blocks[0].tracks, {}, 'an unstated map must be empty, never invented');
+  const section = sectionAtBar('custom', 0, blocks);
+  assert.deepEqual(section.tracks, {});
+  // And junk never reaches the scheduler.
+  const junk = sanitiseParams({
+    structure: 'custom',
+    customStructure: [{ label: 'A', bars: 8, intensity: 0.5, tracks: { bass: 'maybe', pad: 'off' } }],
+  }).customStructure;
+  assert.deepEqual(junk[0].tracks, { pad: 'off' }, 'only on and off are states');
 });
 
 test('v0.0.72: a rise makes a spread climb instead of wander', () => hiddenTab(async () => {
