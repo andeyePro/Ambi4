@@ -918,6 +918,18 @@ const VOICES: Record<string, [string, string][]> = {
       (USER_TRACK_BY_ID.get(id)?.family ?? TRACK_FAMILY[id]) === 'percussive';
 
     /**
+     * A MIDI number as a note anyone can read. Sharps rather than flats,
+     * because the app writes its scales that way and one spelling everywhere
+     * beats a clever one in half the places. Middle C is C4, which is the
+     * convention every DAW on the owner's machine uses.
+     */
+    const PITCH_LETTERS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+    const pitchName = (midi) => {
+      const n = Math.round(midi);
+      return `${PITCH_LETTERS[((n % 12) + 12) % 12]}${Math.floor(n / 12) - 1}`;
+    };
+
+    /**
      * The voice BANK a track plays from. A built-in plays its own — the bank is
      * named for the track — and a user track plays the stock bank it was made
      * with (the v10 boundary: no new voice code ships for a user track). Every
@@ -6066,7 +6078,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         blocksHost.className = 'seq-blocks';
         blocksHost.hidden = true;
 
-        root.append(head, tabsRow, laneBar, scroll, blocksHost);
+        // v0.0.75: the scale the pitch ticks are drawn against. A contour with
+        // no scale beside it is a picture rather than a readout, and the
+        // window widens as the piece uses more of its range — so it has to say
+        // what it currently is rather than be inferred.
+        const pitchLegend = document.createElement('p');
+        pitchLegend.className = 'seq-pitch-legend';
+        pitchLegend.hidden = true;
+
+        root.append(head, tabsRow, laneBar, scroll, pitchLegend, blocksHost);
 
         let cellRefs = []; // [lane][step] -> { cell, band, bandTop, probFill, dot }
         let focusPos = { lane: 0, step: 0 };
@@ -6081,13 +6101,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const groupPart = Number.isFinite(s.group) ? `, group ${s.group + 1}` : '';
           const gatePart =
             gateAxis && Number.isFinite(s.gate) ? `, length ${s.gate.toFixed(2)} of a step` : '';
+          // v0.0.75: the app's own notes belong in the label too. A tick
+          // drawn on the face is invisible to a screen reader, and "show what
+          // the app is doing" is not a sighted-only promise.
+          const notes = chosenNotesAt(lane, i);
+          const notePart = notes ? `, the app plays ${notes}` : '';
           return (
             `${lanePart}step ${i + 1}: ${s.on ? 'on' : 'off'}, ` +
             `velocity ${Math.round(s.vmin * 100)} to ${Math.round(s.vmax * 100)}%, ` +
             probPart +
             gatePart +
             tiePart +
-            groupPart
+            groupPart +
+            notePart
           );
         }
 
@@ -6848,7 +6874,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               band.className = 'seq-band';
               const bandTop = document.createElement('span');
               bandTop.className = 'seq-band-top';
-              cell.append(band, bandTop);
+              // v0.0.75: where the app's chosen notes sit in pitch. Empty and
+              // invisible until a note actually lands here, so a percussion
+              // grid (whose midi numbers are kit slots, not pitches) and a
+              // silent track both look exactly as they did.
+              const pitch = document.createElement('span');
+              pitch.className = 'seq-pitch';
+              pitch.setAttribute('aria-hidden', 'true');
+              cell.append(band, bandTop, pitch);
               const prob = document.createElement('span');
               prob.className = 'seq-prob';
               prob.setAttribute('aria-hidden', 'true');
@@ -6856,7 +6889,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               probFill.className = 'seq-prob-fill';
               prob.append(probFill);
               probRow.append(prob);
-              cellRefs[li][i] = { cell, band, bandTop, probFill, dot };
+              cellRefs[li][i] = { cell, band, bandTop, probFill, dot, pitch };
               wireCell(li, i, cell, prob, bandTop, dot);
               row.append(cell);
             }
@@ -6866,6 +6899,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           for (let li = 0; li < lanes.length; li++) {
             for (let i = 0; i < n; i++) updateCell(li, i);
           }
+          // A rebuild throws the cells away; the app's own notes survive it,
+          // so repaint them onto the new ones rather than waiting for the next
+          // bar to arrive.
+          paintChosen();
+          paintPitch();
           focusPos = {
             lane: Math.min(focusPos.lane, lanes.length - 1),
             step: Math.min(focusPos.step, n - 1),
@@ -6902,6 +6940,91 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const chosen = new Map(); // laneKey -> Set of step indices
         let chosenBar = -1;
 
+        /**
+         * v0.0.75 — the other half of step 1: the app's chosen PITCHES.
+         *
+         * v0.0.67 made the rhythm visible and the owner's next line was the
+         * obvious one: "a bass line's rhythm is now visible and its notes are
+         * not." The engine's note event has always carried `midi`; nothing was
+         * reading it here, so the grid could show you WHEN the app plays and
+         * never WHICH NOTE.
+         *
+         * Drawn as a tick inside the step, positioned by pitch, so a line's
+         * SHAPE is readable across a bar without reading a single name — which
+         * is what a grid is for. The names are on the cell itself (title and
+         * aria-label) and the range being drawn is stated under the grid,
+         * because a contour with no scale beside it is a picture, not a
+         * readout.
+         *
+         * Percussion is excluded on purpose: a kit lane's midi number is a
+         * slot in a kit, not a pitch, and drawing it as one would be inventing
+         * a melody out of an implementation detail.
+         */
+        const chosenPitch = new Map(); // laneKey -> Map(step -> Set of midi)
+        const tunedGrid = !isPercussiveTrack(track);
+        // The window the ticks are drawn in. It only ever widens while an
+        // editor is open: a range that re-fitted itself every bar would move
+        // every tick whenever one new note arrived, and a contour you cannot
+        // compare with the bar before it is not a contour.
+        let pitchLo = Infinity;
+        let pitchHi = -Infinity;
+        const PITCH_MIN_SPAN = 12; // one octave, so a one-note track is not full-scale
+
+        function pitchWindow() {
+          if (!(pitchLo <= pitchHi)) return null;
+          const mid = (pitchLo + pitchHi) / 2;
+          const half = Math.max(PITCH_MIN_SPAN, pitchHi - pitchLo) / 2;
+          return { lo: mid - half, hi: mid + half };
+        }
+
+        /** The app's notes on one step, named, or null if it chose none. */
+        function chosenNotesAt(lane, i) {
+          if (!tunedGrid) return null;
+          const perStep = chosenPitch.get(lane?.key ?? '') || chosenPitch.get(null) || null;
+          const notes = perStep ? perStep.get(i) : null;
+          if (!notes || !notes.size) return null;
+          return [...notes].sort((a, b) => a - b).map(pitchName).join(', ');
+        }
+
+        function paintPitch() {
+          const win = tunedGrid ? pitchWindow() : null;
+          for (let li = 0; li < cellRefs.length; li++) {
+            const key = lanes[li] ? lanes[li].key : null;
+            const perStep = chosenPitch.get(key ?? '') || chosenPitch.get(null) || null;
+            for (let i = 0; i < cellRefs[li].length; i++) {
+              const ref = cellRefs[li][i];
+              if (!ref || !ref.pitch) continue;
+              const notes = win && perStep ? perStep.get(i) : null;
+              if (!notes || !notes.size) {
+                if (ref.pitch.childElementCount) ref.pitch.replaceChildren();
+                ref.cell.removeAttribute('title');
+                continue;
+              }
+              const sorted = [...notes].sort((a, b) => a - b);
+              ref.pitch.replaceChildren(...sorted.map((midi) => {
+                const mark = document.createElement('i');
+                mark.className = 'seq-pitch-mark';
+                const at = (midi - win.lo) / (win.hi - win.lo);
+                mark.style.bottom = `${clamp(at, 0, 1) * 100}%`;
+                return mark;
+              }));
+              ref.cell.title = sorted.map(pitchName).join(' ');
+              // Re-label rather than wait for the next updateCell: the notes
+              // arrive from the engine, not from an edit, so nothing else
+              // would touch this cell.
+              const lane = lanes[li];
+              if (lane) ref.cell.setAttribute('aria-label', stepText(lane, i, laneSteps(lane)[i]));
+            }
+          }
+          if (pitchLegend) {
+            pitchLegend.hidden = !win;
+            if (win) {
+              pitchLegend.textContent =
+                `The app’s notes are drawn between ${pitchName(win.lo)} and ${pitchName(win.hi)}.`;
+            }
+          }
+        }
+
         function laneIndexFor(laneKey) {
           if (!laneKey) return 0;
           const i = lanes.findIndex((lane) => lane.key === laneKey);
@@ -6921,22 +7044,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
 
         /** One scheduled note, in this grid's coordinates. */
-        function noteChosen(step, laneKey, bar) {
+        function noteChosen(step, laneKey, bar, midi) {
           if (bar !== chosenBar) {
             chosen.clear();
+            chosenPitch.clear();
             chosenBar = bar;
           }
           const key = laneKey ?? '';
           if (!chosen.has(key)) chosen.set(key, new Set());
           chosen.get(key).add(step);
+          if (tunedGrid && Number.isFinite(midi)) {
+            if (!chosenPitch.has(key)) chosenPitch.set(key, new Map());
+            const perStep = chosenPitch.get(key);
+            if (!perStep.has(step)) perStep.set(step, new Set());
+            perStep.get(step).add(midi);
+            if (midi < pitchLo) pitchLo = midi;
+            if (midi > pitchHi) pitchHi = midi;
+          }
           paintChosen();
+          paintPitch();
         }
 
         function clearChosen() {
-          if (!chosen.size) return;
+          if (!chosen.size && !chosenPitch.size) return;
           chosen.clear();
+          chosenPitch.clear();
           chosenBar = -1;
+          // The window is NOT reset with the notes: it is what makes two bars
+          // comparable, and re-fitting it on every stop would redraw the same
+          // line at a different height the moment play resumed.
           paintChosen();
+          paintPitch();
         }
 
         function setPlayhead(index) {
@@ -11421,8 +11559,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const OCTAVE_UP = new Set(['=', '+']);
       const OCTAVE_MIN = 1;
       const OCTAVE_MAX = 7;
-      const NOTE_LETTERS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
-      const noteName = (midi) => `${NOTE_LETTERS[midi % 12]}${Math.floor(midi / 12) - 1}`;
+      // One spelling of a note name in the whole page: see pitchName.
+      const noteName = pitchName;
 
       let playAlongOn = false;
       let playAlongOctave = 4;
@@ -11723,7 +11861,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const within = ((event.time - lastBarTime) % barSeconds + barSeconds) % barSeconds;
           const step = Math.round((within / barSeconds) * n) % n;
           try {
-            ed.seq.noteChosen(step, event.lane ?? null, lastBarIndex + Math.max(0, bar));
+            ed.seq.noteChosen(step, event.lane ?? null, lastBarIndex + Math.max(0, bar), event.midi);
           } catch {}
         });
       }
@@ -12582,7 +12720,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#voice-edit-toggle-percussion',
-          text: 'Edit opens a track\'s panel: its step sequencer at the top, then the dials that build its sound. Drag sideways across sequencer cells to tie them into one long note.',
+          text: 'Edit opens a track\'s panel: its step sequencer at the top, then the dials that build its sound. Drag sideways across sequencer cells to tie them into one long note. An outlined cell is a step the app chose rather than one you typed, and on a tuned track a small line inside it shows how high the note is \u2014 so a bass line\'s shape reads straight off the grid. Hover a cell to read the note names.',
         },
         {
           tab: 'advanced',
@@ -15039,6 +15177,40 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        under the pointer. */
     .seq-cell-chosen {
       box-shadow: inset 0 0 0 2px var(--accent-warm, #c98a4b);
+    }
+
+    /* v0.0.75: where the app's chosen notes sit in pitch. A tick per note,
+       positioned by MIDI number inside the step, so a line's shape reads
+       across a bar without reading a single name. It is a readout: no pointer
+       events, and it never changes the cell's size. */
+    .seq-pitch {
+      position: absolute;
+      inset: 3px 2px;
+      pointer-events: none;
+    }
+
+    .seq-pitch-mark {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 2px;
+      margin-bottom: -1px;
+      border-radius: 1px;
+      background: var(--link);
+      opacity: 0.9;
+    }
+
+    /* On a step the user typed, the fill is already the loud thing — the tick
+       sits on top of it and needs to read against it rather than compete. */
+    .seq-cell-on .seq-pitch-mark {
+      background: var(--bg);
+      opacity: 0.95;
+    }
+
+    .seq-pitch-legend {
+      margin: 6px 0 0;
+      font-size: 0.8rem;
+      opacity: 0.75;
     }
 
     /* A cell that is both chosen and typed reads as typed: the user's own

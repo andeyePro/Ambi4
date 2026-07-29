@@ -2,6 +2,18 @@
 
 ## 2026-07-29
 
+- [x] **v0.0.75 — the grid shows which note the app chose, not just when** — the other half of the agreed plan's step 1. v0.0.67 made the app's rhythm visible and his next line was the obvious one: *"a bass line's rhythm is now visible and its notes are not."*
+
+  The engine's note event has carried `midi` since v28 and nothing on the page was reading it here, so the grid could tell you WHEN the app plays and never WHICH NOTE. Each chosen step now draws a **tick positioned by pitch** inside its own cell, one per note, so a line's shape reads across a bar without reading a single name — which is what a grid is for. The **names are on the cell** (tooltip and accessible label: *"the app plays C2"*), because a contour is not a readout on its own, and because "show what the app is doing" is not a sighted-only promise.
+
+  **The window the ticks are drawn in only ever widens.** A range that re-fitted itself every bar would move every tick the moment one new note arrived, and a contour you cannot compare with the bar before it is not a contour. It never narrows below an octave either, so a track playing one note does not draw it at full scale. What the window currently is gets stated under the grid rather than left to be inferred.
+
+  **Percussion draws nothing, deliberately.** A kit lane's midi number is a slot in a kit, not a pitch, and drawing it as one would invent a melody out of an implementation detail. Its v0.0.67 rhythm readout is untouched, and the test asserts that too — an exclusion that took the rhythm with it would have gone too far.
+
+  `tests/pitch-drive.mjs` plays for real rather than injecting a note stream, because the handler under test reads what the engine emits and a fake stream would only prove the painter works on input the app never produces. It asserts the ticks exist, sit inside their cells, and have **more than one height in them** — if every tick sat at the same height the picture would be a rhythm again. Scoping the queries to one editor is load-bearing: closing an editor hides it rather than removing it, and the first run failed on the bass track's own ticks while checking percussion.
+
+  One tidy-up in passing: there were two note-name spellings in the page and there is now one.
+
 - [x] **v0.0.74 — every dial that describes an amount now takes a range, and the two that do not say why** — the owner's instruction was *"either tell me why you won't add variation to all dials, or add it to them all, including OSCs and picker dials like filter type."*
 
   The v0.0.56 reason did not survive contact and is withdrawn. It said a span between two named switch positions would mean nothing, and named the shape morphs, octave and filter type as the params the engine cannot walk. Two thirds of that was wrong about the app's own code: **the shape morph was always continuous** — fractional positions between sine, triangle, saw and square have been legal since v5, and the dial has drawn the intermediate waveform all along — and **an oscillator jumping octave bar by bar** is an ordinary synth behaviour, not a nonsense one. What was actually blocking both was that `PATCH_SCHEMA` read them with `oneOf`/`numberIn` instead of `sanitiseRangeValue`, which is an engine gap and not a design objection.
