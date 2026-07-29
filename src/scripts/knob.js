@@ -493,7 +493,10 @@ export function createKnob(container, options) {
   hub.style.fill = 'none';
   hub.style.stroke = HUB_STROKE;
   hub.style.pointerEvents = 'none';
-  svg.appendChild(hub);
+  // Not drawn on an enumeration. Its two jobs — carry both ends of a span, and
+  // zero the dial — are both meaningless where there is no span and no zero,
+  // and a circle with nothing behind it is the thing the owner objected to.
+  if (allowRange) svg.appendChild(hub);
 
   // Live pointer: where inside a span the value actually is right now. A span
   // whose drift cannot be seen is a control with no feedback, so this is not
@@ -1188,8 +1191,23 @@ export function createKnob(container, options) {
   }
 
   function onPointerUp(e) {
+    const wasPress = pressed;
+    const wasHub = pressHub;
+    const moved = travelled;
     pressed = false;
     endPointer(e);
+    // v0.0.63: the inner circle is the ZERO button, which is the meaning the
+    // owner assigned it on 2026-07-27 ("single clicking OUTSIDE the zero
+    // button…") and which it then spent six versions without — it was drawn,
+    // it was draggable, and a tap on it did nothing, which is exactly his
+    // "you are just drawing it with no assigned meaning".
+    //
+    // Zero is not the same as default and the two do not compete: this sends
+    // the dial to the bottom of its own scale (where it already renders grey,
+    // shipped in v0.0.56), while double-click anywhere restores the default.
+    // A dial that cannot spread has no hub drawn at all, so there is nothing
+    // to press there.
+    if (wasPress && e && wasHub && allowRange && moved <= TAP_SLOP_PX) toZero();
     // v0.0.60: a single tap does NOTHING. The reset is back on double-click,
     // reversing the v0.0.56 model at the owner's request on 2026-07-28 — and
     // he gave the reason himself: "if you leave a dial still tracking your
@@ -1295,6 +1313,23 @@ export function createKnob(container, options) {
    * nobody with a motor-control difficulty can rely on producing, sharing a
    * target with a single click that has to mean something else.
    */
+  /**
+   * Send the dial to the bottom of its own scale, collapsing any spread. The
+   * zero button's job. Emits like any other edit, so it is undoable by the
+   * same route as a drag.
+   */
+  function toZero() {
+    closeEditor();
+    if (mode === 'single' && value === min) return;
+    mode = 'single';
+    value = min;
+    valueMax = min;
+    activeThumb = 'min';
+    dragRaw = value;
+    updateView();
+    emit();
+  }
+
   function resetToDefault() {
     closeEditor();
     const changed =

@@ -168,11 +168,12 @@ const GENRES = readdirSync(GENRE_DIR)
   .sort()
   .map((name) => JSON.parse(readFileSync(new URL(name, GENRE_DIR), 'utf8')));
 
-// v0.0.61: eleven. New Age was removed at the owner's request on 2026-07-29 —
-// researched and found to match its genre definition on every measurable
-// point, which made the verdict on it taste rather than accuracy, and his
-// answer to that was to take it out rather than tune it.
-const GENRE_COUNT = 11;
+// Back to twelve at v0.0.63. New Age was DELETED at v0.0.61 and that was the
+// wrong shape of fix: the owner asked for genres to be hidden from the public
+// list, and deleting the file breaks every share link and stored preset that
+// names one. All twelve files stay; four are simply never offered (see
+// HIDDEN_GENRES in index.astro).
+const GENRE_COUNT = 12;
 
 const seededRng = (seed) => () => ((seed = (seed * 48271) % 2147483647) / 2147483647);
 

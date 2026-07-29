@@ -139,7 +139,9 @@ const last = (arr) => arr[arr.length - 1];
 test('nothing moves before the lock threshold', () => {
   const { el, seen } = makeKnob();
   // 5 px is inside LOCK_PX (6): a hand resting on the control is not a gesture.
-  drag(el, CENTRE, [[0, -3], [0, -5]]);
+  // Started OFF the hub, because a press-and-release on the hub is now the
+  // zero button and would fire on release.
+  drag(el, { x: 90, y: 50 }, [[0, -3], [0, -5]]);
   assert.equal(seen.length, 0);
 });
 
@@ -327,15 +329,30 @@ test('a tap outside the hub does nothing', () => {
   assert.equal(seen.length, 0, 'an ordinary tap on the face must be inert, never destructive');
 });
 
-test('a SINGLE tap on the hub does nothing either', () => {
-  // v0.0.60, the owner's reason in his own words: if a dial is left tracking
-  // the pointer after release, clicking is the only reflex available — and
-  // under the v0.0.56 model that click reset everything. The single most
-  // likely gesture from someone whose dial is stuck must not be the most
-  // destructive one.
+test('a single tap on the hub ZEROES the dial — the zero button', () => {
+  // v0.0.63: the meaning the owner assigned the inner circle on 2026-07-27,
+  // which it then spent six versions without. Zero is not default: this goes
+  // to the bottom of the dial's own scale, while double-click restores the
+  // default.
   const { el, seen } = makeKnob({ value: 20, defaultValue: 60 });
   tap(el, CENTRE);
-  assert.equal(seen.length, 0);
+  assert.equal(last(seen), 0);
+  assert.equal(el.getAttribute('data-zeroed'), 'true');
+});
+
+test('the zero button collapses a spread as well', () => {
+  const { el, seen } = makeKnob({ value: { min: 30, max: 70 } });
+  tap(el, CENTRE);
+  assert.equal(last(seen), 0, 'a zeroed dial is one value, not a span sitting at the bottom');
+});
+
+test('a dial that cannot spread has no inner circle to press', () => {
+  // "You can also delete the inner circle for dials that cannot be spread."
+  // Both of the hub's jobs are meaningless on an enumeration.
+  const { el, seen } = makeKnob({ allowRange: false, step: 1, max: 3, value: 1 });
+  assert.equal(byRole(el, 'hub'), null);
+  tap(el, CENTRE);
+  assert.equal(seen.length, 0, 'and pressing where it would have been does nothing');
 });
 
 test('a drag that starts on the hub is a drag, not a reset', () => {

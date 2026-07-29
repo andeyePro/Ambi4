@@ -1,0 +1,77 @@
+{
+  "slug": "new-age",
+  "name": "New Age",
+  "cluster": 1,
+  "oneLiner": "Consonance as balm — harp figures in long light, nothing to forgive.",
+  "essence": {
+    "bpm": [50, 78],
+    "swing": [0, 0.12],
+    "timeSignatures": [
+      { "value": "4/4", "weight": 0.4 },
+      { "value": "3/4", "weight": 0.3 },
+      { "value": "6/8", "weight": 0.3 }
+    ],
+    "modes": [
+      { "value": "majorPentatonic", "weight": 0.35 },
+      { "value": "ionian", "weight": 0.25 },
+      { "value": "lydian", "weight": 0.2 },
+      { "value": "mixolydian", "weight": 0.2 }
+    ],
+    "chordLanguage": {
+      "progressionGrammar": [
+        "I IV",
+        "IV I IV I",
+        "I vi IV I",
+        "I ii IV I",
+        "I V IV I",
+        "I VII IV I"
+      ],
+      "substitutionRules": [
+        { "from": "I", "to": "Imaj7", "prob": 0.6 },
+        { "from": "IV", "to": "IVmaj7", "prob": 0.6 },
+        { "from": "V", "to": "IV", "prob": 0.5 },
+        { "from": "vii", "to": "IV", "prob": 1 },
+        { "from": "V7", "to": "V", "prob": 0.9 }
+      ],
+      "extensionBias": 0.6,
+      "harmonicRhythm": [
+        { "value": 4, "weight": 0.4 },
+        { "value": 2, "weight": 0.4 },
+        { "value": "auto", "weight": 0.2 }
+      ]
+    },
+    "grooveGrammar": {
+      "anchorPatterns": [
+        "x---------------",
+        "x-------x-------"
+      ],
+      "syncopationCells": [],
+      "articulation": ["holdOne", "even"],
+      "pocketMs": [5, 25]
+    },
+    "instrumentation": {
+      "perTrack": {
+        "pad": { "state": "on", "voice": "choir", "level": 0.7, "randomness": 0.2 },
+        "arp": { "state": "on", "voice": "crystal", "level": 0.55, "randomness": 0.2 },
+        "melody": { "state": "auto", "voice": "flute", "level": 0.5, "randomness": 0.35 },
+        "bass": { "state": "auto", "voice": "round", "level": 0.55, "randomness": 0.1 },
+        "texture": { "state": "auto", "voice": "chimes", "level": { "min": 0.2, "max": 0.4 }, "randomness": 0.3 },
+        "percussion": { "state": "off", "voice": "hand", "level": 0.3, "randomness": 0.2 }
+      },
+      "reverbTail": 3.5
+    },
+    "energyArc": [
+      { "value": "waves", "weight": 0.5 },
+      { "value": "journey", "weight": 0.3 },
+      { "value": "drone", "weight": 0.2 }
+    ],
+    "dissonanceRange": [0, 0.08],
+    "densityBias": 0.8
+  },
+  "fallbackLists": null,
+  "defiance": [
+    { "param": "mode", "label": "Light to shadow", "range": ["majorPentatonic", "aeolian", "phrygian"] },
+    { "param": "tracks.percussion.state", "label": "Floating to grounded", "range": ["off", "auto", "on"] },
+    { "param": "tracks.melody.dissonance", "label": "Balm to ache", "range": [0, 0.5] }
+  ]
+}

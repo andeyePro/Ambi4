@@ -1204,6 +1204,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     const GENRE_BY_SLUG = new Map(GENRES.map((genre) => [genre.slug, genre]));
 
     /**
+     * Genres that exist but are NOT offered publicly (owner, 2026-07-29:
+     * "it wasn't just New Age I wanted hidden from the public list").
+     *
+     * HIDDEN, not deleted, and that distinction is the whole design. A slug in
+     * here still compiles, so a share link or a stored preset that names one
+     * keeps playing exactly what it always played — deleting the file broke
+     * that, which is why New Age is back. It simply never appears in the
+     * picker, in the fresh-visit draw, or in the favourites list.
+     *
+     * The four are the ones he judged and rejected outright, in his own words:
+     * acid jazz ("dischordant and awful — all of it"), bossa ("dischordant"),
+     * cinematic ("doesn't sound like anything I've heard in a cinema"), and new
+     * age ("not something I would choose to listen to", researched and found
+     * accurate to its genre, so a taste verdict rather than a fault).
+     *
+     * NOT hidden: deep house, lofi beats and downtempo. His complaint about
+     * those three was a melody or a drum clash — a fault to fix, not a genre
+     * to drop — and hiding them would quietly convert "fix this" into "gone".
+     */
+    const HIDDEN_GENRES = new Set(['acid-jazz', 'bossa', 'cinematic', 'new-age']);
+
+    const PUBLIC_GENRES = GENRES.filter((genre) => !HIDDEN_GENRES.has(genre.slug));
+
+    /**
      * Favourites group by MOOD, and the genre files' own `cluster` — the three
      * groups the music director wrote to — is the only grouping the data
      * carries. The LABELS are a UI decision, so they live here rather than in
@@ -1231,7 +1255,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      */
     const BACKGROUND_GENRES = [
       'ambient',
-      'cinematic',
       'downtempo',
       'lofi-beats',
       'minimalism',
@@ -10448,11 +10471,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       /** The genres the list offers: favourites only where the listener asked. */
       function listedGenres() {
         const favourites = genrePrefs.favourites;
-        if (!genrePrefs.hideOthers || !favourites.length) return GENRES;
+        // PUBLIC_GENRES, not GENRES: a hidden genre still exists and still
+        // compiles, so an old link keeps working — it just is not offered.
+        const listable = PUBLIC_GENRES;
         const current = settings.genre;
-        // The genre in play is always listed, favourite or not — a select
-        // cannot show a value it has no option for.
-        return GENRES.filter(
+        // A hidden genre that IS in play stays listed, because a select cannot
+        // show a value it has no option for — the alternative is a picker that
+        // silently reads as some other genre.
+        const withCurrent = HIDDEN_GENRES.has(current) && GENRE_BY_SLUG.has(current)
+          ? [...listable, GENRE_BY_SLUG.get(current)]
+          : listable;
+        if (!genrePrefs.hideOthers || !favourites.length) return withCurrent;
+        return withCurrent.filter(
           (genre) => favourites.includes(genre.slug) || genre.slug === current
         );
       }
@@ -10461,7 +10491,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function favouriteMoodGroups() {
         const groups = [];
         for (const mood of [...MOODS, OTHER_MOOD]) {
-          const members = GENRES.filter(
+          const members = PUBLIC_GENRES.filter(
             (genre) => genrePrefs.favourites.includes(genre.slug) && moodOf(genre).id === mood.id
           );
           if (members.length) groups.push({ mood, members });

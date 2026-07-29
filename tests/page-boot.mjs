@@ -1184,12 +1184,23 @@ try {
       failures.push('the genre picker (#genre-select) is missing from the transport');
     } else {
       const values = () => Array.from(select.options).map((option) => option.value);
+      // v0.0.63: four genres are deliberately hidden from the public list.
+      // They must still COMPILE — a share link or a stored preset naming one
+      // has to keep playing what it always played, which is the whole reason
+      // they are hidden rather than deleted — but they must not be offered.
+      const HIDDEN = new Set(['acid-jazz', 'bossa', 'cinematic', 'new-age']);
+      const shownButHidden = genres
+        .filter((genre) => HIDDEN.has(genre.slug) && values().includes(`g:${genre.slug}`))
+        .map((genre) => genre.slug);
+      if (shownButHidden.length) {
+        failures.push(`hidden genres are being offered in the picker: ${shownButHidden.join(', ')}`);
+      }
       const missing = genres
-        .filter((genre) => !values().includes(`g:${genre.slug}`))
+        .filter((genre) => !HIDDEN.has(genre.slug) && !values().includes(`g:${genre.slug}`))
         .map((genre) => genre.slug);
       if (missing.length) {
         failures.push(
-          `the genre list is missing ${missing.length} of the ${genres.length} genre files: ${missing.join(', ')}`
+          `the genre list is missing ${missing.length} of the ${genres.length - HIDDEN.size} public genre files: ${missing.join(', ')}`
         );
       }
       if (!values().includes('surprise')) {
@@ -1265,7 +1276,20 @@ try {
 
       // Picking a genre compiles it into the live params: the proof is that
       // the params land inside the rules that genre declares.
-      const target = genres.find((genre) => genre.slug !== opened) || genres[0];
+      // v0.0.63: pick from what the PICKER actually offers. Four genres are
+      // hidden from the public list (they still exist and still compile, so
+      // old links keep working), and selecting one that has no <option> sets
+      // the select to "" — which reads as "picking it did not stick" when the
+      // real fault is that the test asked for something off the menu.
+      const offered = new Set(
+        [...select.querySelectorAll('option')]
+          .map((o) => o.value)
+          .filter((v) => v.startsWith('g:'))
+          .map((v) => v.slice(2))
+      );
+      const target = genres.find((genre) => genre.slug !== opened && offered.has(genre.slug))
+        || genres.find((genre) => offered.has(genre.slug))
+        || genres[0];
       select.value = `g:${target.slug}`;
       select.dispatchEvent(new window.Event('change', { bubbles: true }));
       const picked = await waitUntil(() => select.value === `g:${target.slug}`);

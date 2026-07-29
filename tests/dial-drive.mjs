@@ -105,13 +105,25 @@ export default async function drive(page) {
   check('a vertical drag does not open a span', !spread(raised), (v) => v === true);
   check('a vertical drag changed the value', raised.text !== closed.text, (v) => v === true);
 
-  // v0.0.60: a SINGLE click does nothing — the reflex available to someone
-  // whose dial is stuck must not be the destructive one.
+  // v0.0.63: a single click on the INNER CIRCLE is the zero button. Anywhere
+  // else on the face is still inert, which is what keeps the reflex available
+  // to someone whose dial is stuck from being destructive.
+  const rim = await dialAt(page, 'Tempo', ADV);
+  await page.mouse.click(rim.x + 40, rim.y);
+  await page.waitForTimeout(320);
+  const tapped = await dialAt(page, 'Tempo', ADV);
+  check('a single click away from the centre changes nothing', tapped.text, raised.text);
+
   const beforeTap = await dialAt(page, 'Tempo', ADV);
   await page.mouse.click(beforeTap.x, beforeTap.y);
   await page.waitForTimeout(320);
-  const tapped = await dialAt(page, 'Tempo', ADV);
-  check('a single click on the dial changes nothing', tapped.text, raised.text);
+  const zeroed = await page.evaluate(() => {
+    const k = [...document.querySelectorAll('#panel-advanced .knob')]
+      .find((el) => el.getAttribute('aria-label') === 'Tempo');
+    return { zeroed: k.getAttribute('data-zeroed'), text: k.querySelector('.knob-value')?.textContent?.trim() };
+  });
+  check('a click on the inner circle zeroes the dial', zeroed.zeroed, 'true');
+  results.push({ name: 'Tempo at zero', ok: true, got: zeroed.text, want: '(informational)' });
 
   // A double-click is the reset.
   await page.mouse.dblclick(beforeTap.x, beforeTap.y);
