@@ -1204,26 +1204,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     const GENRE_BY_SLUG = new Map(GENRES.map((genre) => [genre.slug, genre]));
 
     /**
-     * Genres that exist but are NOT offered publicly (owner, 2026-07-29:
-     * "it wasn't just New Age I wanted hidden from the public list").
+     * The genres offered publicly. Everything else still EXISTS and still
+     * compiles — a share link or a stored preset naming one plays exactly what
+     * it always played — it simply is not on the menu.
      *
-     * HIDDEN, not deleted, and that distinction is the whole design. A slug in
-     * here still compiles, so a share link or a stored preset that names one
-     * keeps playing exactly what it always played — deleting the file broke
-     * that, which is why New Age is back. It simply never appears in the
-     * picker, in the fresh-visit draw, or in the favourites list.
+     * Owner, 2026-07-29: "Only keep ones that work now. I don't want to waste
+     * time and tokens now on your fixing genre. Were there any I didn't insult
+     * other than Synthwave? If not, just keep Synthwave on the list."
      *
-     * The four are the ones he judged and rejected outright, in his own words:
-     * acid jazz ("dischordant and awful — all of it"), bossa ("dischordant"),
-     * cinematic ("doesn't sound like anything I've heard in a cinema"), and new
-     * age ("not something I would choose to listen to", researched and found
-     * accurate to its genre, so a taste verdict rather than a fault).
-     *
-     * NOT hidden: deep house, lofi beats and downtempo. His complaint about
-     * those three was a melody or a drum clash — a fault to fix, not a genre
-     * to drop — and hiding them would quietly convert "fix this" into "gone".
+     * Two survive that test, not one. Synthwave: "Good job with Synthwave [...]
+     * I can listen to it for hours." Techno Tools: "I do actually quite like it
+     * — the second most musical of your set", where the only reservation was
+     * that its bass is repetitive, which he then said may simply be the genre.
+     * Every other genre drew a criticism in his listening notes, so every other
+     * genre is off the list until its own note is answered.
      */
-    const HIDDEN_GENRES = new Set(['acid-jazz', 'bossa', 'cinematic', 'new-age']);
+    const PUBLIC_GENRE_SLUGS = new Set(['synthwave', 'techno-tools']);
+
+    const HIDDEN_GENRES = new Set(
+      GENRES.map((genre) => genre.slug).filter((slug) => !PUBLIC_GENRE_SLUGS.has(slug))
+    );
 
     const PUBLIC_GENRES = GENRES.filter((genre) => !HIDDEN_GENRES.has(genre.slug));
 
@@ -1253,12 +1253,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * favourite that is also in this pool is drawn ten times as often as a
      * genre the listener has never marked.
      */
-    const BACKGROUND_GENRES = [
-      'ambient',
-      'downtempo',
-      'lofi-beats',
-      'minimalism',
-    ];
+    // The genres a fresh visit may open on. Drawn from the public set — a
+    // listener cannot be opened on a genre they cannot then find in the picker.
+    const BACKGROUND_GENRES = ['synthwave', 'techno-tools'];
     const FAVOURITE_WEIGHT = 10;
 
     /**
@@ -10608,7 +10605,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function renderFavourites() {
         favouritesList.innerHTML = '';
         for (const mood of [...MOODS, OTHER_MOOD]) {
-          const members = GENRES.filter((genre) => moodOf(genre).id === mood.id);
+          // Only the public set: offering a favourites tick-box for a genre
+          // the picker will not list is a control that cannot do anything.
+          const members = PUBLIC_GENRES.filter((genre) => moodOf(genre).id === mood.id);
           if (!members.length) continue;
           const group = document.createElement('div');
           group.className = 'genre-fav-group';

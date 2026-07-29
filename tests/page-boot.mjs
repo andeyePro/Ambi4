@@ -1188,7 +1188,11 @@ try {
       // They must still COMPILE — a share link or a stored preset naming one
       // has to keep playing what it always played, which is the whole reason
       // they are hidden rather than deleted — but they must not be offered.
-      const HIDDEN = new Set(['acid-jazz', 'bossa', 'cinematic', 'new-age']);
+      // v0.0.64: only the two genres the owner did not criticise are offered.
+      // The rest still exist as files — that is what keeps old share links
+      // playing — and must not appear in the picker.
+      const PUBLIC = new Set(['synthwave', 'techno-tools']);
+      const HIDDEN = new Set(genres.map((g) => g.slug).filter((s) => !PUBLIC.has(s)));
       const shownButHidden = genres
         .filter((genre) => HIDDEN.has(genre.slug) && values().includes(`g:${genre.slug}`))
         .map((genre) => genre.slug);
@@ -1342,9 +1346,12 @@ try {
       if (!editor || editor.hidden) {
         failures.push('the favourites entry did not open the favourites editor');
       }
-      if (boxes.length !== genres.length) {
+      // The editor offers the PUBLIC set, not every file: a tick-box for a
+      // genre the picker will not list is a control that cannot do anything.
+      const publicCount = genres.filter((g) => PUBLIC.has(g.slug)).length;
+      if (boxes.length !== publicCount) {
         failures.push(
-          `the favourites editor offers ${boxes.length} genres where the set has ${genres.length}`
+          `the favourites editor offers ${boxes.length} genres where ${publicCount} are public`
         );
       }
       if (!hideOthers) {
