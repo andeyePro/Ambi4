@@ -614,6 +614,33 @@ const RANDOMNESS_HOLD_EPSILON = 0.001;
  * a params object that never mentions the field sounds exactly as it did.
  */
 const DEFAULT_TRACK_DRIFT_RATE = 1;
+
+/**
+ * v0.0.72 — what a spread DOES between its two ends.
+ *
+ * Owner, on the patching system: "so you can have a voice crescendo when you
+ * want it to rather than just setting it to be a random volume between min and
+ * max." That sentence is the whole of this. Until now every {min,max} did
+ * exactly one thing — a bounded random walk — so a spread could only ever mean
+ * "somewhere in here, unpredictably". A crescendo was unreachable, and it is
+ * one of the most ordinary things a musician asks for.
+ *
+ *   drift  the bounded random walk, unchanged and still the default
+ *   rise   min to max over `driftBars`, then straight back to min
+ *   fall   max to min over `driftBars`, then back to max
+ *   swell  min up to max and back down again across `driftBars`
+ *
+ * This is not the modulation graph. The graph lets any source drive any
+ * destination and is a much larger build; this gives the ONE shape a spread
+ * most obviously wants, on the machinery that already exists, and it composes
+ * with the graph rather than blocking it — a shaped span is just a source with
+ * a fixed waveform.
+ */
+const DRIFT_SHAPES = Object.freeze(['drift', 'rise', 'fall', 'swell']);
+const DEFAULT_DRIFT_SHAPE = 'drift';
+/** How many bars a shaped drift takes to complete one pass. */
+const DRIFT_BARS_RANGE = Object.freeze([1, 64]);
+const DEFAULT_DRIFT_BARS = 8;
 const DRIFT_RATE_RANGE = Object.freeze([0.02, 1]);
 
 /**
@@ -893,6 +920,8 @@ function defaultTracks() {
       level: DEFAULT_TRACK_LEVEL,
       randomness: { ...DEFAULT_TRACK_RANDOMNESS },
       driftRate: DEFAULT_TRACK_DRIFT_RATE,
+      driftShape: DEFAULT_DRIFT_SHAPE,
+      driftBars: DEFAULT_DRIFT_BARS,
       swing: null,
       density: null,
       hold: false,
@@ -1502,6 +1531,10 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
         ?? { ...DEFAULT_TRACK_RANDOMNESS },
       driftRate: numberIn(partial && partial.driftRate, DRIFT_RATE_RANGE,
         numberIn(baseTrack.driftRate, DRIFT_RATE_RANGE, DEFAULT_TRACK_DRIFT_RATE)),
+      driftShape: oneOf(partial && partial.driftShape, DRIFT_SHAPES,
+        oneOf(baseTrack.driftShape, DRIFT_SHAPES, DEFAULT_DRIFT_SHAPE)),
+      driftBars: Math.round(numberIn(partial && partial.driftBars, DRIFT_BARS_RANGE,
+        numberIn(baseTrack.driftBars, DRIFT_BARS_RANGE, DEFAULT_DRIFT_BARS))),
       swing: nullableNumber(partial, baseTrack, 'swing', TRACK_SWING_RANGE),
       density: nullableNumber(partial, baseTrack, 'density', TRACK_DENSITY_RANGE),
       hold: partial && 'hold' in partial ? Boolean(partial.hold) : Boolean(baseTrack.hold),
@@ -4067,6 +4100,43 @@ export function createEngine(initialParams, options = {}) {
     return position;
   }
 
+  /** Which shape this track's spreads follow between their two ends. */
+  function driftShapeFor(track) {
+    const config = params.tracks[track];
+    return config && DRIFT_SHAPES.includes(config.driftShape) ? config.driftShape : DEFAULT_DRIFT_SHAPE;
+  }
+
+  /** How many bars one pass of a shaped drift takes. */
+  function driftBarsFor(track) {
+    const config = params.tracks[track];
+    const bars = config && Number.isFinite(config.driftBars) ? config.driftBars : DEFAULT_DRIFT_BARS;
+    return Math.max(1, Math.round(clamp(bars, DRIFT_BARS_RANGE[0], DRIFT_BARS_RANGE[1])));
+  }
+
+  // One phase counter per shaped walk key, in bars. Kept beside walkPhases
+  // rather than inside it because the phase is a COUNT and the walk position
+  // is a value — folding them would make a resumed piece jump.
+  const driftPhases = new Map();
+
+  /**
+   * The next walk position for a shaped drift. `driftRate` still scales it, so
+   * the one dial that already meant "how fast does this move" keeps meaning
+   * that for every shape rather than only for the random one.
+   */
+  function shapedNext(track, key, position, shape) {
+    const bars = driftBarsFor(track);
+    const rate = params.tracks[track] && typeof params.tracks[track].driftRate === 'number'
+      ? clamp(params.tracks[track].driftRate, DRIFT_RATE_RANGE[0], DRIFT_RATE_RANGE[1])
+      : DEFAULT_TRACK_DRIFT_RATE;
+    const step = rate / bars;
+    const phase = ((driftPhases.get(key) ?? 0) + step) % 1;
+    driftPhases.set(key, phase);
+    if (shape === 'rise') return phase;
+    if (shape === 'fall') return 1 - phase;
+    // swell: up over the first half, back down over the second.
+    return phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+  }
+
   /** v21: this track's walk step, driftRate scaling the ±0.15/bar default. */
   function walkStep(track) {
     const config = params.tracks[track];
@@ -4085,6 +4155,15 @@ export function createEngine(initialParams, options = {}) {
       // step probability included — therefore sit still until it is released.
       const track = key.slice(0, key.indexOf(':'));
       if (held.has(track) || frozen.has(track)) continue;
+      // v0.0.72: a SHAPED drift advances on a fixed path instead of wandering.
+      // The walk position is the same 0–1 number either way, so every consumer
+      // — resolveRange, the live readouts, the dial's own live mark — is
+      // untouched by this; only how the number gets from bar to bar changes.
+      const shape = driftShapeFor(track);
+      if (shape !== 'drift') {
+        walkPhases.set(key, shapedNext(track, key, position, shape));
+        continue;
+      }
       let next = position + (rng() * 2 - 1) * walkStep(track);
       if (next < 0) next = -next;
       if (next > 1) next = 2 - next;

@@ -5812,6 +5812,88 @@ test('v0.0.56: a params object with no spreads is byte-identical to a pre-v0.0.5
   assert.equal(Object.keys(DEFAULT_PARAMS.spans).length, 0);
 });
 
+test('v0.0.72: a rise makes a spread climb instead of wander', () => hiddenTab(async () => {
+  // The owner's sentence this exists for: "so you can have a voice crescendo
+  // when you want it to rather than just setting it to be a random volume
+  // between min and max." A crescendo is not a random walk that happens to end
+  // higher — it is monotone, and that is what is asserted.
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.5,
+    tracks: {
+      ...tracksAll('off'),
+      pad: { state: 'on', level: { min: 0.1, max: 0.9 }, driftShape: 'rise', driftBars: 16, randomness: 0.4 },
+    },
+  }, { rng: seededRng(7201) });
+  await engine.start();
+  const seen = [];
+  for (let i = 0; i < 8; i++) {
+    await advance(1, FAST);
+    seen.push(engine.getResolved().tracks.pad.level);
+  }
+  engine.stop();
+  for (const v of seen) {
+    assert.equal(typeof v, 'number');
+    assert.ok(v >= 0.1 - 1e-6 && v <= 0.9 + 1e-6, `a rise left its span: ${v}`);
+  }
+  // Eight bars of a SIXTEEN-bar pass, so the shape is sampled over half a
+  // cycle. Sampling a whole cycle would end where it began, which is right for
+  // a cyclic drift and says nothing about direction.
+  // Monotone up, which a random walk essentially never is over eight bars.
+  let rises = 0;
+  for (let i = 1; i < seen.length; i++) if (seen[i] >= seen[i - 1] - 1e-9) rises++;
+  assert.ok(rises >= seen.length - 2,
+    `a rise must climb, got ${seen.map((v) => v.toFixed(3)).join(' ')}`);
+  assert.ok(seen[seen.length - 1] > seen[0],
+    'and must end above where it started');
+}));
+
+test('v0.0.72: drift is still the default, and still random', () => hiddenTab(async () => {
+  // The shape is additive. A params object that says nothing about it must
+  // behave exactly as every build before this one did.
+  assert.equal(sanitiseParams({}).tracks.pad.driftShape, 'drift');
+  assert.equal(sanitiseParams({ tracks: { pad: { driftShape: 'nonsense' } } }).tracks.pad.driftShape,
+    'drift', 'junk must fall back, never reach the scheduler');
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.5,
+    tracks: { ...tracksAll('off'), pad: { state: 'on', level: { min: 0.1, max: 0.9 }, randomness: 0.4 } },
+  }, { rng: seededRng(7202) });
+  await engine.start();
+  const seen = [];
+  for (let i = 0; i < 10; i++) {
+    await advance(1, FAST);
+    seen.push(engine.getResolved().tracks.pad.level);
+  }
+  engine.stop();
+  let ups = 0;
+  for (let i = 1; i < seen.length; i++) if (seen[i] > seen[i - 1]) ups++;
+  assert.ok(ups > 0 && ups < seen.length - 1,
+    `an unshaped drift must wander both ways, got ${seen.map((v) => v.toFixed(3)).join(' ')}`);
+}));
+
+test('v0.0.72: a fall is a rise upside down, and a swell turns round', () => hiddenTab(async () => {
+  const run = async (shape, seed) => {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.5,
+      tracks: {
+        ...tracksAll('off'),
+        pad: { state: 'on', level: { min: 0.1, max: 0.9 }, driftShape: shape, driftBars: 16, randomness: 0.4 },
+      },
+    }, { rng: seededRng(seed) });
+    await engine.start();
+    const seen = [];
+    for (let i = 0; i < 8; i++) { await advance(1, FAST); seen.push(engine.getResolved().tracks.pad.level); }
+    engine.stop();
+    return seen;
+  };
+  const falling = await run('fall', 7203);
+  assert.ok(falling[falling.length - 1] < falling[0],
+    `a fall must end below where it started: ${falling.map((v) => v.toFixed(3)).join(' ')}`);
+  const swell = await run('swell', 7204);
+  const peak = Math.max(...swell);
+  assert.ok(peak > swell[0] && peak > swell[swell.length - 1],
+    `a swell must rise and come back: ${swell.map((v) => v.toFixed(3)).join(' ')}`);
+}));
+
 test('v21: driftRate scales a track\'s walk step, and never stops it dead', () => {
   const rateOf = (driftRate) => sanitiseParams({ tracks: { pad: { driftRate } } }).tracks.pad.driftRate;
   assert.equal(sanitiseParams({}).tracks.pad.driftRate, 1, 'driftRate must ship at 1');

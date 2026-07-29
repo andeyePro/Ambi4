@@ -2331,6 +2331,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         mono: {},
         glide: {},
         driftRate: {},
+        driftShape: {},
         trackSwing: {},
         trackDensity: {},
       };
@@ -2377,6 +2378,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         engineCaps.mono[id] = typeof entry.mono === 'boolean';
         engineCaps.glide[id] = typeof entry.glide === 'number';
         engineCaps.driftRate[id] = typeof entry.driftRate === 'number';
+        // v0.0.72: does this engine know what a spread should DO between its
+        // ends? Probed by round-trip, not by presence — an engine that ignores
+        // the key returns its own default, which reads as acceptance.
+        engineCaps.driftShape[id] = (() => {
+          try {
+            const probed = sanitiseParams({ tracks: { [id]: { driftShape: 'rise' } } });
+            return probed?.tracks?.[id]?.driftShape === 'rise';
+          } catch {
+            return false;
+          }
+        })();
       }
 
       // v18 patch-schema probe: percussion trades its 3-position Octave switch
@@ -5123,6 +5135,54 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // v26: every feel dial this track owns lands in ONE row (the caller's),
       // so drift rate can never be stranded on a line of its own — the
       // percussion editor's drift/swing pair was the named offender.
+      /**
+       * v0.0.72 — what a spread DOES between its ends.
+       *
+       * Owner, asking for the patching system: "so you can have a voice
+       * crescendo when you want it to rather than just setting it to be a
+       * random volume between min and max." Until now a spread meant exactly
+       * one thing — somewhere in here, unpredictably — so a crescendo, one of
+       * the most ordinary things a musician asks for, was unreachable.
+       *
+       * Four words rather than four icons, because the difference between
+       * these is a sentence and not a picture, and a row of glyphs for
+       * rise/fall/swell would be guessed wrong by everyone.
+       */
+      const DRIFT_SHAPES = [
+        ['drift', 'Drift'],
+        ['rise', 'Rise'],
+        ['fall', 'Fall'],
+        ['swell', 'Swell'],
+      ];
+      const DRIFT_SHAPE_HINT =
+        'What this track’s min–max dials do between their two ends. Drift wanders between them at random, which is what they have always done. Rise climbs from the bottom to the top and starts again — a crescendo. Fall is the same going down. Swell goes up and comes back.';
+
+      function buildDriftShapeControl(container, track) {
+        if (!engineCaps.driftShape || !engineCaps.driftShape[track]) return;
+        const wrap = document.createElement('label');
+        wrap.className = 'drift-shape';
+        const name = document.createElement('span');
+        name.className = 'block-field-name';
+        name.textContent = 'between';
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', `${TRACK_LABELS[track]} spread shape`);
+        for (const [value, label] of DRIFT_SHAPES) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = label;
+          select.append(option);
+        }
+        select.value = settings.tracks[track].driftShape || 'drift';
+        select.addEventListener('change', () => {
+          settings.tracks[track].driftShape = select.value;
+          engine.setParams({ tracks: { [track]: { driftShape: select.value } } });
+          persistSettings();
+        });
+        wrap.append(name, select);
+        container.append(wrap);
+        describe(select, DRIFT_SHAPE_HINT);
+      }
+
       function buildDriftRateControl(container, track, knobs) {
         if (!engineCaps.driftRate[track]) return;
         const commitDrift = (v) => {
@@ -8671,6 +8731,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         container.append(feelRow);
         buildDissonanceControl(feelRow, track, ed.knobs);
         buildDriftRateControl(feelRow, track, ed.knobs);
+        // Beside the rate, because the two are one idea: what the spread does,
+        // and how fast it does it.
+        buildDriftShapeControl(feelRow, track);
         buildFeelRow(feelRow, track, ed.knobs);
         // An editor opened while the dial is Universal must arrive with its
         // per-track copy already hidden, not hide it a frame later.
@@ -15394,6 +15457,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .block-field-wide input[type='range'] {
       flex: 1 1 auto;
       min-width: 80px;
+    }
+
+    /* v0.0.72: the spread-shape picker, sized to sit in the feel row beside
+       the drift-rate dial rather than starting a line of its own. */
+    .drift-shape {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--secondary);
+    }
+
+    .drift-shape select {
+      width: auto;
+      padding: 4px 6px;
+      font-size: 12px;
     }
 
     .block-field-name {
