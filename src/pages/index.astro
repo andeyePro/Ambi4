@@ -12239,8 +12239,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (el.isContentEditable) return true;
         const tag = (el.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'option') return true;
-        return typeof el.closest === 'function' &&
-          !!el.closest('[role="dialog"], dialog, [contenteditable="true"]');
+        // The play-along popover is itself role="dialog", and enabling the
+        // keys leaves focus on the Enable button inside it — so treating any
+        // dialog as "typing" swallowed every note exactly when the panel was
+        // open, which is the only state in which the keys are armed (the
+        // popover disarms on close, by design). That killed the instrument
+        // outright from the v0.0.40 popover collapse until v0.0.82. The
+        // instrument's own panel is the one dialog that is NOT typing; every
+        // other dialog, and the track select above, still is.
+        if (typeof el.closest !== 'function') return false;
+        const scope = el.closest('[role="dialog"], dialog, [contenteditable="true"]');
+        return !!scope && scope.id !== 'play-along';
       }
 
       const midiForKey = (key) => {
