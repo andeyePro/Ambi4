@@ -28,6 +28,20 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## FIRST — investigate the 10 Dependabot alerts (owner ask, 2026-07-29)
+
+His instruction, after his own `git push` surfaced them: make this the first
+item. It is an INVESTIGATION, not a version bump — the point is to know what
+each alert actually is before deciding anything.
+
+- [ ] **Investigate all 10 Dependabot alerts on `main` (3 high, 4 moderate, 3 low)** — github.com/andeyePro/Ambi4/security/dependabot.
+  1. **Read all ten.** Local `npm audit` finds only 3 (2 high) — every one resolved solely by `astro@7.1.4`, which is a breaking major. So **7 of the 10 are visible only to GitHub**: they are either transitive dev-only packages `npm audit` scores differently, or advisories against a lockfile entry npm no longer reaches. Name each one; do not assume it is the same three.
+  2. **Say what each one is actually exposed to HERE.** This is a prebuilt static site with no server and no user-supplied input reaching the build. What is already known: esbuild's file-read needs the dev server on Windows; sharp's libvips CVEs are build-time image processing; the two Astro XSS advisories need unescaped spread attributes or `transition:*` directives on hydrated islands, which this page does not use with untrusted input. Reach the same judgement for the other seven rather than inheriting this one.
+  3. **Then decide, and write the decision down.** If the root fix really is the Astro 4→7 major, plan it as a deliberate migration — upgrade, full engine suite, every browser drive, the layout sweep, and `tests/audio-reference.mjs` unchanged — never `npm audit fix --force`. If some alerts are genuinely inert here, say so explicitly and dismiss them in GitHub with that reason, so the count stops being noise that hides a real one later.
+  4. **Report the finding to Martin in fromClaude** before doing any upgrade, since an Astro major changes the build for everything else in flight.
+
+---
+
 ## Next up (owner ask, 2026-07-28)
 
 - [x] *(SHIPPED v0.0.55)* **The Stop key does nothing** — the second press that cuts the outro short was written in v0.0.41 and made unreachable by a `if (finishing) return;` guard left over from the era of a separate Stop key. Guard removed; the Stop caption also gained its own square glyph, having been drawn beside the finish barline since v0.0.41.
@@ -37,8 +51,6 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] *(SHIPPED v0.0.57)* **Next-beat tempo quantisation is now Simple-only, so it can be A/B'd** — new engine param `tempoLanding` ('beat' | 'bar', default 'beat'). Simple's Energy macro writes 'beat' so a beginner hears what they just dragged; the Advanced Tempo dial writes 'bar' so the change lands on the barline, which is what every build before v0.0.48 did and is the "sounds better than immediate" option. Turning the two dials against each other IS the A/B, and it needs no switch. Both directions have their own engine test.
 - [x] *(SHIPPED — `docs/deploying.md`)* **Write the deploy gate down in the repo** — branch-to-environment table, the four-step gate with the reason it exists, the pre-push commands, and the note that pushing `main` IS the publish. Referenced from CONTRIBUTING.md.
 - [x] *(SHIPPED — `docs/rendering-host.md`)* **Document the Mac test account for every vibe on this machine** — what the two scripts do, why `measure` and not `shot` decides anything, the one-time setup, and how a vibe in another project reuses the account.
-
-- [ ] **Dependabot: 10 alerts on the default branch (3 high) — root fix is the Astro 4→7 major** — local `npm audit`: 3 findings (2 high), ALL resolved only by astro@7.1.4 (breaking). Honest exposure for a prebuilt static site is low: esbuild's file-read is dev-server-on-Windows, sharp's libvips CVEs are build-time image processing, and the two Astro XSS advisories need unescaped spread attrs / transition:* directives on hydrated islands, which this page doesn't use with untrusted input. Plan it as a deliberate migration (astro 7 upgrade + full suite + shot sweep + frozen-reference check), not an `npm audit fix --force` drive-by. Review the 7 GitHub-only alerts at github.com/andeyePro/Ambi4/security/dependabot when wiring the upgrade.
 
 - [x] *(SHIPPED 5e14459 + cf30b1a, 2026-07-28)* **Adopt CLA v1.0** — CLA.md (verbatim, stamped) + CONTRIBUTORS.md live; the CLA Assistant workflow commit cf30b1a is LOCAL-ONLY (PAT lacks workflow scope — Martin pushes from the Mac checkout: plain `git push` in Projects/Ambi4). After it lands, optionally add the `CLAAssistant` check to required status checks in branch protection (GitHub settings, Martin).
 - [x] *(SHIPPED bf0f978, 2026-07-28 — owner go in-session)* **Land the AGPL section-7 audio-output additional permission in LICENSE BEFORE merging any outside PR** — the cla.md analysis says it must land while andeye owns 100% of the copyright; Martin's "yes, draft it" (fromClaude item on the section-7 exception) still comes via fromMartin. Draft is ready to write the moment he says yes.
