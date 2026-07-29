@@ -2,6 +2,20 @@
 
 ## 2026-07-29
 
+- [x] **v0.0.76 — chords you can hear, not only read** — his amendment to step 2 of the agreed plan, verbatim: *"that only works for people who can hear chords in their head when they see the names, we need an audible version of this with a nice visual manipulator for those who can't."*
+
+  v0.0.68 shipped the numerals, which was his own instruction and the right first move — roman numerals are the vocabulary the twelve genre files are written in. But a numeral is a name for a sound, and naming a sound to someone who cannot summon it is not showing it to them.
+
+  **Every chord in the loop is now a card.** Press its face and it sounds, through the piece's own pad voice on the same live-note path a played key uses — not a second synth that would drift out of agreement with the music. Printed on the card: the numeral, the chord's honest name from the semitones it actually contains, and **the notes themselves in the current key**. Arrows move the chord through the scale, a button widens it (triad → 7th → 9th), × removes it, Add a chord copies the one you were just listening to, and **Hear the loop** plays them all in order.
+
+  **The text field stays.** It is faster for anyone fluent in numerals, and deleting the expert route to serve the beginner is the trade this project keeps refusing to make. The two are views of one value, which the test proves by writing through the field and reading the cards.
+
+  **Nothing new is stored.** The loop is still degrees; everything on a card is derived from those degrees plus the key and scale currently set, so a share link written before this version reads exactly the same. Change the key and every card re-colours while the stored loop sits still — which is the engine's model made visible rather than papered over. It is the same re-colouring the hint has warned about in words since v0.0.68.
+
+  **One honesty fix the test forced.** The widen button writes a real change every time, but the engine treats the extension as a NUDGE relative to Complexity rather than an absolute width — so at some Complexity settings a triad and a 7th land on the same chord. A button that silently changes nothing is the thing this app keeps ruling against, so when that happens the hint now says why and what to move instead. The test asserts *either* the chord changed *or* the app explained itself, which is the honest pair of outcomes.
+
+  `tests/chordchip-drive.mjs` counts the sounded notes at the ENGINE rather than listening: a card that lights up and plays nothing is precisely the failure this feature exists to fix. It also pins the scale before writing a loop — a fresh visit draws a random genre, and a five-note scale refuses a loop containing vii outright, which would have made the test pass or fail on which genre was drawn.
+
 - [x] **v0.0.75 — the grid shows which note the app chose, not just when** — the other half of the agreed plan's step 1. v0.0.67 made the app's rhythm visible and his next line was the obvious one: *"a bass line's rhythm is now visible and its notes are not."*
 
   The engine's note event has carried `midi` since v28 and nothing on the page was reading it here, so the grid could tell you WHEN the app plays and never WHICH NOTE. Each chosen step now draws a **tick positioned by pitch** inside its own cell, one per note, so a line's shape reads across a bar without reading a single name — which is what a grid is for. The **names are on the cell** (tooltip and accessible label: *"the app plays C2"*), because a contour is not a readout on its own, and because "show what the app is doing" is not a sighted-only promise.

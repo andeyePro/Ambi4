@@ -686,6 +686,7 @@ const VOICES: Record<string, [string, string][]> = {
           <label id="progression-label">Chords</label>
           <span id="progression-info"></span>
         </div>
+        <div id="progression-chords" class="progression-chords"></div>
         <div id="progression-row" class="progression-row"></div>
         <p class="hint" id="progression-hint"></p>
       </div>
@@ -3391,6 +3392,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               } catch {}
             }
           }
+          // v0.0.76: the chord chips name the NOTES a degree sounds, so a
+          // change of key or scale re-colours every one of them. The stored
+          // loop is untouched — this is the re-colouring the hint has always
+          // warned about, now visible instead of only described.
+          if (key === 'root' || key === 'mode') {
+            try { renderProgression(); } catch {}
+          }
           persistSettings();
         });
       }
@@ -4670,6 +4678,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const PROGRESSION_INFO = [
         'The chord loop the piece keeps coming back to. Leave it empty and the app writes one for you, which is what it does today.',
         '',
+        'Every chord in the loop has a card of its own. Press one to hear it, and the notes it plays are printed on it — you never have to be able to imagine a chord from its name.',
+        '',
+        'The arrows move a chord through the scale and the button beside them makes it wider (a triad, a 7th, a 9th). Hear the loop plays them all in order.',
+        '',
         'Chords are written as numbers of the scale, in roman numerals — the same way the built-in styles are written. I is the home chord, IV and V are the two it leans on most.',
         '',
         'Small letters are minor, capitals are major: i is a minor home chord, I a major one. Add a 7 or a 9 for a wider, jazzier chord.',
@@ -4680,7 +4692,176 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const PROGRESSION_MAX = 8;
       const progressionControl = document.getElementById('control-progression');
       const progressionRow = document.getElementById('progression-row');
+      const progressionChords = document.getElementById('progression-chords');
       const progressionHint = document.getElementById('progression-hint');
+
+      /**
+       * v0.0.76 — the audible half of chord editing.
+       *
+       * His amendment to step 2, verbatim: "that only works for people who can
+       * hear chords in their head when they see the names, we need an audible
+       * version of this with a nice visual manipulator for those who can't."
+       *
+       * v0.0.68 shipped the names, which was his own instruction and the right
+       * first move — it is the vocabulary the twelve genres are written in. But
+       * a numeral is a name for a sound, and naming a sound to someone who
+       * cannot summon it is not showing it to them. So each chord in the loop
+       * is now a chip you can PRESS TO HEAR, showing the notes it actually
+       * contains in the current key, with the degree and the colour moved by
+       * buttons rather than by typing.
+       *
+       * The text field stays. It is faster for anyone fluent in numerals, and
+       * deleting the expert route to serve the beginner is the trade this
+       * project keeps refusing to make.
+       *
+       * Everything here is DERIVED. The stored loop is degrees, exactly as
+       * before; the notes shown are what those degrees mean in the scale and
+       * root currently set, recomputed whenever either changes. Nothing new is
+       * persisted, so a share link written before this version reads the same.
+       */
+      const CHORD_PREVIEW_TRACK = 'pad';
+      const CHORD_PREVIEW_SECONDS = 1.1;
+      const CHORD_PREVIEW_GAP = 0.42;
+      let chordPreviewTimer = null;
+      let chordPreviewHeld = [];
+
+      /** The scale the engine is actually playing, as a degree array. */
+      function currentScale() {
+        const scales = engineModule && engineModule.SCALES;
+        if (!scales) return null;
+        return scales[settings.mode] || scales.minor || null;
+      }
+
+      /**
+       * One seed slot as the MIDI notes it sounds, voiced upward from a low
+       * pad octave with no crossings — the same shape the engine's own
+       * chordMidis builds, because a preview that voiced it differently would
+       * be teaching the wrong sound.
+       */
+      function slotMidis(slot) {
+        const scale = currentScale();
+        const voice = engineModule && engineModule.voiceHookChord;
+        const toMidi = engineModule && engineModule.scaleDegreeToMidi;
+        const pc = engineModule && engineModule.pitchClass;
+        if (!scale || !voice || !toMidi || !pc) return [];
+        const degrees = voice(slot.degree, clamp(rangeMid(settings.complexity), 0, 1), {
+          extension: slot.extension,
+          scaleLength: scale.length,
+        }).slice(0, 4);
+        const rootPc = pc(settings.root) ?? 0;
+        const midis = [];
+        let previous = -Infinity;
+        for (const degree of degrees) {
+          let midi = toMidi(degree, scale, rootPc, 3);
+          while (midi <= previous) midi += 12;
+          previous = midi;
+          midis.push(midi);
+        }
+        return midis;
+      }
+
+      /** The chord's honest name, from the semitones it actually contains. */
+      function slotChordName(midis) {
+        const name = engineModule && engineModule.nameChord;
+        if (!name || !midis.length) return '';
+        // The engine spells accidentals with an ASCII #, which is right for a
+        // wire format and wrong beside a note list that uses ♯. One spelling
+        // on screen.
+        return name(midis[0] % 12, midis.map((m) => m - midis[0])).replace(/#/g, '♯');
+      }
+
+      function stopChordPreview() {
+        if (chordPreviewTimer) {
+          clearTimeout(chordPreviewTimer);
+          chordPreviewTimer = null;
+        }
+        for (const midi of chordPreviewHeld) {
+          try { engine.noteOff(CHORD_PREVIEW_TRACK, midi); } catch {}
+        }
+        chordPreviewHeld = [];
+        if (progressionChords) {
+          for (const chip of progressionChords.querySelectorAll('.chord-chip-sounding')) {
+            chip.classList.remove('chord-chip-sounding');
+          }
+        }
+      }
+
+      /**
+       * Sound one chord. Uses the SAME live-note path a played key uses, so
+       * the preview is the piece's own pad voice rather than a second synth
+       * that would drift out of agreement with it.
+       */
+      function playChord(midis, chip) {
+        stopChordPreview();
+        if (!midis.length) return;
+        try { if (typeof engine.arm === 'function') engine.arm(); } catch {}
+        let sounded = 0;
+        for (const midi of midis) {
+          try {
+            if (engine.noteOn(CHORD_PREVIEW_TRACK, midi, 0.7) === true) {
+              chordPreviewHeld.push(midi);
+              sounded += 1;
+            }
+          } catch {}
+        }
+        if (!sounded) {
+          // The audio graph is not up yet and nothing was heard. Say so rather
+          // than leave a button that looks like it worked.
+          if (progressionHint) {
+            progressionHint.textContent =
+              'Press Play once and the chord buttons will sound — the audio has not started yet.';
+          }
+          return;
+        }
+        if (chip) chip.classList.add('chord-chip-sounding');
+        chordPreviewTimer = setTimeout(stopChordPreview, CHORD_PREVIEW_SECONDS * 1000);
+      }
+
+      /** The whole loop, in order, one chord after another. */
+      function playProgression(slots, chips) {
+        stopChordPreview();
+        let i = 0;
+        const step = () => {
+          if (i >= slots.length) return;
+          const index = i;
+          i += 1;
+          playChord(slotMidis(slots[index]), chips[index]);
+          chordPreviewTimer = setTimeout(() => {
+            stopChordPreview();
+            chordPreviewTimer = setTimeout(step, CHORD_PREVIEW_GAP * 250);
+          }, CHORD_PREVIEW_SECONDS * 1000);
+        };
+        step();
+      }
+
+      /** The stored loop as slots, or null when the app is choosing. */
+      function progressionSlots() {
+        const seed = settings.harmony && settings.harmony.seed;
+        if (!Array.isArray(seed) || !seed.length) return null;
+        const scale = currentScale();
+        const length = scale ? scale.length : 7;
+        return seed.map((entry) => {
+          if (entry && typeof entry === 'object') {
+            return {
+              degree: clamp(Math.round(entry.degree ?? 0), 0, length - 1),
+              extension: clamp(Math.round(entry.extension ?? 0), -1, 1),
+            };
+          }
+          const text = String(entry);
+          const match = /^([ivIV]+)(.*)$/.exec(text.trim());
+          const degree = match ? NUMERALS.indexOf(match[1].toLowerCase()) : -1;
+          const suffix = match ? match[2] : '';
+          return {
+            degree: degree === -1 ? 0 : clamp(degree, 0, length - 1),
+            extension: /9|11|13/.test(suffix) ? 1 : /7/.test(suffix) ? 0 : -1,
+          };
+        });
+      }
+
+      /** Write a whole loop of slots back, in the form the engine stores. */
+      function commitSlots(slots) {
+        commitProgression(slots.map(slotToNumeral).join(' '));
+      }
 
       /** The stored loop as display text, or '' when the app is choosing. */
       function progressionText() {
@@ -4716,7 +4897,149 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         renderProgression();
       }
 
+      /**
+       * The visual manipulator: one chip per chord, showing what it sounds
+       * like rather than only what it is called.
+       */
+      function renderChordChips() {
+        if (!progressionChords) return;
+        stopChordPreview();
+        progressionChords.replaceChildren();
+        const slots = progressionSlots();
+        const scale = currentScale();
+        progressionChords.hidden = !slots || !scale;
+        if (!slots || !scale) return;
+
+        const chips = [];
+        slots.forEach((slot, index) => {
+          const midis = slotMidis(slot);
+          const chip = document.createElement('div');
+          chip.className = 'chord-chip';
+          chips.push(chip);
+
+          // Pressing the chord itself is the primary act, so it is the whole
+          // face of the chip rather than a small icon on it.
+          const hear = document.createElement('button');
+          hear.type = 'button';
+          hear.className = 'chord-chip-hear';
+          const numeral = document.createElement('span');
+          numeral.className = 'chord-chip-numeral';
+          numeral.textContent = slotToNumeral(slot);
+          const named = document.createElement('span');
+          named.className = 'chord-chip-name';
+          named.textContent = slotChordName(midis);
+          const notes = document.createElement('span');
+          notes.className = 'chord-chip-notes';
+          notes.textContent = midis.map(pitchName).join(' ');
+          hear.append(numeral, named, notes);
+          hear.setAttribute(
+            'aria-label',
+            `Hear chord ${index + 1} of ${slots.length}: ${slotToNumeral(slot)}, ` +
+            `${slotChordName(midis)}, the notes ${midis.map(pitchName).join(', ')}`
+          );
+          hear.addEventListener('click', () => playChord(slotMidis(slot), chip));
+          chip.append(hear);
+
+          const tools = document.createElement('div');
+          tools.className = 'chord-chip-tools';
+
+          // Up and down move the chord through the scale. Wrapping rather than
+          // stopping: a loop of degrees has no top or bottom, and a button
+          // that goes dead at the ends reads as broken.
+          const stepDegree = (delta) => {
+            const next = slots.map((s, i) => (i === index
+              ? { ...s, degree: ((s.degree + delta) % scale.length + scale.length) % scale.length }
+              : s));
+            commitSlots(next);
+            const chipsAfter = progressionChords.querySelectorAll('.chord-chip');
+            playChord(slotMidis(next[index]), chipsAfter[index] || null);
+          };
+          for (const [glyph, delta, what] of [['▲', 1, 'up'], ['▼', -1, 'down']]) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'chord-chip-step';
+            button.textContent = glyph;
+            button.setAttribute('aria-label', `Move chord ${index + 1} one step ${what} the scale`);
+            button.addEventListener('click', () => stepDegree(delta));
+            tools.append(button);
+          }
+
+          // The colour cycle. Three states, in the order they widen, and the
+          // button says which one it is IN rather than which it will go to —
+          // a control that names its own next state is a control you have to
+          // press to find out where you are.
+          const colour = document.createElement('button');
+          colour.type = 'button';
+          colour.className = 'chord-chip-colour';
+          const COLOURS = [[-1, 'triad'], [0, '7th'], [1, '9th']];
+          const at = COLOURS.findIndex(([value]) => value === slot.extension);
+          colour.textContent = COLOURS[at === -1 ? 0 : at][1];
+          colour.setAttribute(
+            'aria-label',
+            `Chord ${index + 1} is a ${COLOURS[at === -1 ? 0 : at][1]}. Press to widen it.`
+          );
+          colour.addEventListener('click', () => {
+            const next = slots.map((s, i) => (i === index
+              ? { ...s, extension: COLOURS[((at === -1 ? 0 : at) + 1) % COLOURS.length][0] }
+              : s));
+            // The extension is a NUDGE relative to complexity, not an absolute
+            // width — the engine's own design, and it means a widen can land
+            // on the chord you already had. Say so when it does. A button that
+            // silently changes nothing is the exact thing this app keeps
+            // ruling against, and the honest fix is to name the reason rather
+            // than to hide the button.
+            const wasNotes = midis.join(',');
+            const nowNotes = slotMidis(next[index]).join(',');
+            commitSlots(next);
+            const chipsAfter = progressionChords.querySelectorAll('.chord-chip');
+            playChord(slotMidis(next[index]), chipsAfter[index] || null);
+            if (wasNotes === nowNotes && progressionHint) {
+              progressionHint.textContent =
+                'That chord is written wider, but it sounds the same here: how wide chords actually get is decided by Complexity, and this one is already as wide as Complexity allows. Raise Complexity to hear the difference.';
+            }
+          });
+          tools.append(colour);
+
+          // Removing a chord is deliberately last and deliberately quiet.
+          const drop = document.createElement('button');
+          drop.type = 'button';
+          drop.className = 'chord-chip-drop';
+          drop.textContent = '×';
+          drop.setAttribute('aria-label', `Remove chord ${index + 1}`);
+          drop.disabled = slots.length <= 1;
+          drop.addEventListener('click', () => commitSlots(slots.filter((_, i) => i !== index)));
+          tools.append(drop);
+
+          chip.append(tools);
+          progressionChords.append(chip);
+        });
+
+        const trailing = document.createElement('div');
+        trailing.className = 'chord-chip-trailing';
+
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'secondary-button chord-chip-add';
+        add.textContent = 'Add a chord';
+        add.disabled = slots.length >= PROGRESSION_MAX;
+        // A new chord copies the last one rather than arriving as the tonic:
+        // it is the note you were just listening to, so what you hear when it
+        // appears is what you were already hearing.
+        add.addEventListener('click', () => commitSlots([...slots, { ...slots[slots.length - 1] }]));
+        trailing.append(add);
+
+        const hearAll = document.createElement('button');
+        hearAll.type = 'button';
+        hearAll.className = 'secondary-button chord-chip-all';
+        hearAll.textContent = 'Hear the loop';
+        hearAll.addEventListener('click', () => playProgression(slots, chips));
+        trailing.append(hearAll);
+
+        progressionChords.append(trailing);
+      }
+
       function renderProgression() {
+        renderChordChips();
         if (!progressionRow) return;
         progressionRow.innerHTML = '';
         const text = progressionText();
@@ -12714,6 +13037,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           tab: 'advanced',
+          target: '#control-progression',
+          text: 'Chords is the loop the piece keeps coming back to. Each chord has a card: press one to hear it, and the notes it plays are printed on it, so you never have to imagine a chord from its name. The arrows move a chord through the scale and the button beside them makes it wider. Leave the box empty and the app writes the loop itself.',
+        },
+        {
+          tab: 'advanced',
           target: '.track-rows',
           text: 'Six tracks, one line each. The coloured lamp beside the name cycles off, auto and on, the box beside it picks that track\'s voice, and the two dials are its level and its own randomness.',
         },
@@ -12828,6 +13156,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         rootSelect.value = settings.root;
         modeSelect.value = settings.mode;
         timeSignatureSelect.value = settings.timeSignature;
+        // A preset, a genre or a share link can bring its own loop, key and
+        // scale in together, so the chords are re-read here rather than only
+        // when someone edits them.
+        if (engineCaps.harmonySeed) {
+          try { renderProgression(); } catch {}
+        }
         syncGenreUI();
         if (engineCaps.harmonyRhythm) chordLengthSelect.value = String(settings.harmony.rhythm);
         syncStructureUI();
@@ -15145,6 +15479,115 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* v0.0.68: the chord loop. One line — a text field and a way out of it —
        because a row of chip widgets for something most people will never touch
        would take more of the panel than the thing deserves. */
+    /* v0.0.76: the audible chord editor. One chip per chord in the loop —
+       press its face to hear it, use the small tools to move it through the
+       scale or widen it. The face is the whole chip because hearing the chord
+       is the primary act; the tools recede until wanted. */
+    .progression-chords {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .chord-chip {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      min-width: 96px;
+      background: var(--bg);
+    }
+
+    .chord-chip-hear {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 8px 10px 6px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      text-align: center;
+    }
+
+    .chord-chip-hear:hover,
+    .chord-chip-hear:focus-visible {
+      background: color-mix(in srgb, var(--link) 12%, transparent);
+    }
+
+    .chord-chip-numeral {
+      font-family: var(--label-font, inherit);
+      font-size: 1.15rem;
+      letter-spacing: 0.08em;
+    }
+
+    .chord-chip-name {
+      font-size: 0.78rem;
+      opacity: 0.8;
+    }
+
+    .chord-chip-notes {
+      font-size: 0.72rem;
+      opacity: 0.62;
+      letter-spacing: 0.04em;
+    }
+
+    /* While a chord is sounding. The same accent the playhead uses, so "this
+       is the thing making the noise right now" means one thing in the app. */
+    .chord-chip-sounding {
+      border-color: var(--link);
+      box-shadow: inset 0 0 0 1px var(--link);
+    }
+
+    .chord-chip-tools {
+      display: flex;
+      align-items: stretch;
+      border-top: 1px solid var(--border);
+    }
+
+    .chord-chip-tools button {
+      flex: 1 1 auto;
+      border: 0;
+      border-left: 1px solid var(--border);
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-size: 0.72rem;
+      padding: 4px 2px;
+      cursor: pointer;
+      min-height: 28px;
+    }
+
+    .chord-chip-tools button:first-child {
+      border-left: 0;
+    }
+
+    .chord-chip-tools button:hover:not(:disabled),
+    .chord-chip-tools button:focus-visible {
+      background: color-mix(in srgb, var(--link) 16%, transparent);
+    }
+
+    .chord-chip-tools button:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    .chord-chip-colour {
+      flex: 2 1 auto !important;
+      letter-spacing: 0.02em;
+    }
+
+    .chord-chip-trailing {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      justify-content: center;
+    }
+
     .progression-row {
       display: flex;
       gap: 8px;
