@@ -6559,6 +6559,66 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
          * events at step rate (see schedulePlayhead) — a class swap on two
          * DOM nodes, never a rAF loop.
          */
+        /**
+         * v0.0.67 — the grid shows what the app actually chose.
+         *
+         * The first thing on the agreed plan, and the thing everything else
+         * depends on: "Right now the app decides the chords, the rhythm and
+         * which notes get played, and shows you none of it." In Auto the grid
+         * rendered only steps a user had typed, so the panel was blank while
+         * the engine played a full pattern through it — undimmed, unannotated,
+         * with a playhead sweeping across nothing.
+         *
+         * The engine already emits every scheduled note (track, lane, time,
+         * velocity). This turns that stream into the grid's own coordinates
+         * and paints it as a layer BENEATH the user's steps: a chosen step is
+         * outlined, a step the user typed is filled. The two are deliberately
+         * different marks, because the difference between "the app decided
+         * this" and "I decided this" is the whole point of showing it.
+         *
+         * It is a READOUT and holds no state the engine reads back. Editing a
+         * step still writes the sequencer exactly as before.
+         */
+        const chosen = new Map(); // laneKey -> Set of step indices
+        let chosenBar = -1;
+
+        function laneIndexFor(laneKey) {
+          if (!laneKey) return 0;
+          const i = lanes.findIndex((lane) => lane.key === laneKey);
+          return i === -1 ? 0 : i;
+        }
+
+        function paintChosen() {
+          for (let li = 0; li < cellRefs.length; li++) {
+            const key = lanes[li] ? lanes[li].key : null;
+            const set = chosen.get(key ?? '') || chosen.get(null) || null;
+            for (let i = 0; i < cellRefs[li].length; i++) {
+              const ref = cellRefs[li][i];
+              if (!ref) continue;
+              ref.cell.classList.toggle('seq-cell-chosen', !!set && set.has(i));
+            }
+          }
+        }
+
+        /** One scheduled note, in this grid's coordinates. */
+        function noteChosen(step, laneKey, bar) {
+          if (bar !== chosenBar) {
+            chosen.clear();
+            chosenBar = bar;
+          }
+          const key = laneKey ?? '';
+          if (!chosen.has(key)) chosen.set(key, new Set());
+          chosen.get(key).add(step);
+          paintChosen();
+        }
+
+        function clearChosen() {
+          if (!chosen.size) return;
+          chosen.clear();
+          chosenBar = -1;
+          paintChosen();
+        }
+
         function setPlayhead(index) {
           const n = stepsPerBarFor(track);
           for (let li = 0; li < cellRefs.length; li++) {
@@ -6689,7 +6749,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
 
         render();
-        return { refresh: render, setPlayhead, destroy };
+        return { refresh: render, setPlayhead, noteChosen, clearChosen, destroy };
       }
 
       // ---- v6: arpeggiator section (lives in the Arp track's Edit panel) --
@@ -9774,7 +9834,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         for (const ed of openEditors.values()) ed.seq?.setPlayhead(-1);
       }
 
+      // The last barline the engine announced, which is the origin every note
+      // time is measured from when placing it on a grid.
+      let lastBarTime = 0;
+      let lastBarIndex = 0;
+      let currentBeatsPerBar = 4;
+
       function schedulePlayhead(barTime, beatsPerBar) {
+        lastBarTime = barTime;
+        lastBarIndex += 1;
+        currentBeatsPerBar = beatsPerBar || 4;
         clearPlayheadTimers();
         const barSeconds = (beatsPerBar || 4) * (60 / clamp(settings.bpm, 40, 120));
         for (const [track, ed] of openEditors) {
@@ -11218,6 +11287,32 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
         engine.on('bar', ({ time, beatsPerBar }) => {
           schedulePlayhead(time, beatsPerBar);
+        });
+
+        // v0.0.67: every scheduled note lands in its track's grid as a CHOSEN
+        // step, so an Auto sequencer shows the pattern it is actually playing
+        // instead of an empty grid with a playhead sweeping over it.
+        //
+        // A note is placed by WHEN it sounds, quantised to that grid's own step
+        // resolution — which is the only honest mapping, because the engine
+        // does not think in steps at all. Live play-along notes are skipped:
+        // they are the listener's hands, not the app's choice, and marking them
+        // as chosen would credit the app with something a person did.
+        engine.on('note', (event) => {
+          if (!event || event.live) return;
+          const ed = openEditors.get(event.track);
+          if (!ed || !ed.seq || typeof ed.seq.noteChosen !== 'function') return;
+          const n = stepsPerBarFor(event.track);
+          if (!n || !Number.isFinite(event.time)) return;
+          const beats = currentBeatsPerBar || 4;
+          const barSeconds = beats * (60 / clamp(rangeMid(settings.bpm), 20, 220));
+          if (!(barSeconds > 0)) return;
+          const bar = Math.floor((event.time - lastBarTime) / barSeconds);
+          const within = ((event.time - lastBarTime) % barSeconds + barSeconds) % barSeconds;
+          const step = Math.round((within / barSeconds) * n) % n;
+          try {
+            ed.seq.noteChosen(step, event.lane ?? null, lastBarIndex + Math.max(0, bar));
+          } catch {}
         });
       }
 
@@ -14495,6 +14590,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .seq-lane-add {
       padding: 4px 12px;
       line-height: 1;
+    }
+
+    /* v0.0.67: a step the APP chose, as distinct from one you typed.
+       Outlined, not filled — the fill is reserved for a user's own step, and
+       the difference between "the app decided this" and "I decided this" is
+       the entire reason for showing it. Drawn with an inset shadow rather
+       than a border so it cannot change the cell's size and shift the grid
+       under the pointer. */
+    .seq-cell-chosen {
+      box-shadow: inset 0 0 0 2px var(--accent-warm, #c98a4b);
+    }
+
+    /* A cell that is both chosen and typed reads as typed: the user's own
+       statement wins, and the outline would only muddy a filled cell. */
+    .seq-cell-chosen.seq-cell-on {
+      box-shadow: none;
     }
 
     /* v0.0.66: the lane's rare controls recede until wanted. Opacity rather

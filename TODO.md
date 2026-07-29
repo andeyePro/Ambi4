@@ -58,6 +58,13 @@ the same change, including the guided tour.**
 - [ ] **Move the paid features out of the public repo** into a private one — "they can't be built in a public repo, then switched off" — reassessing the andeyePro-versus-new-repo thinking, and **purge them from public git history**. The purge is a rewrite of published history and is escalated, not autonomous. Testing hidden features moves to multiple accounts rather than a console flag.
 - [!] **Trademark filing — HOLD** (owner, 2026-07-28): "that's not a cheap diagnostic, it's a good way to get stuck in litigation." Do not file. Do not raise it again unprompted.
 
+## The agreed plan — step 1: show what the app is doing
+
+- [x] *(SHIPPED v0.0.67)* **The step grid shows what the ENGINE chose.** In Auto the grid rendered only steps a user had typed, so the panel sat blank while the engine played a full pattern through it — undimmed, unannotated, with a playhead sweeping across nothing. Every scheduled note now lands in its track's grid as a chosen step, placed by WHEN it sounds and quantised to that grid's own resolution, which is the only honest mapping because the engine does not think in steps. **Chosen is outlined, typed is filled** — two different marks, because the difference between "the app decided this" and "I decided this" is the entire reason for showing it. Live play-along notes are excluded: they are the listener's hands, and marking them would credit the app with something a person did. It is a readout and holds no state the engine reads back.
+
+- [ ] **Pitch is still invisible.** The grid carries on/off, velocity, probability, tie and gate — never pitch — so a bass line's rhythm is now visible and its notes are not. The piano roll shows chosen pitches read-only. This is the other half of step 1.
+- [ ] **The auto/manual switch should go**, per his item 3: you should simply see what was chosen. Now that Auto shows its choices, the switch has less to justify — but promoting a chosen step to a typed one needs a defined rule first (does editing one step flip the whole track to Manual, or does that step pin while Auto keeps the rest?), which is the open `[decide]` in the Fable-gaps section.
+
 ## Owner replies, 2026-07-29 (fourth round) — three of which I destroyed before reading
 
 **I rewrote fromMartin wholesale again, in the same file where I had just
