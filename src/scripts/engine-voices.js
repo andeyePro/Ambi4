@@ -1521,12 +1521,17 @@ const DEFAULTS = {
       adsr: { attack: 1.2, decay: 0.01, sustain: 1, release: 2.4 },
       sends: { reverb: 0.75, delay: 0.4 },
     },
-    // The texture reading of the same call primitive: slow, low and falling,
-    // where melody's is quick, high and rising.
+    // The texture reading of the same call primitive: slower and sitting
+    // lower than melody's quick bright bird — but still RISING, and up where
+    // a whistle lives. It used to be "slow, low and falling" (glide −9
+    // through formants at 620/1400 Hz), and a low resonance falling and dying
+    // every 1⅓ seconds is acoustically a saw stroke, which is exactly what
+    // the owner kept reporting (2026-07-29, item 85: sawing with Texture set
+    // to Call). His ruling: call is a bird. Birds rise.
     call: {
       source: {
         osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0,
-        glide: -9, glideCurve: 0.4, formant1: 620, formant2: 1400, cadence: 1.5, irregular: 0.35,
+        glide: 6, glideCurve: 0.4, formant1: 1300, formant2: 2600, cadence: 1.5, irregular: 0.35,
       },
       filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.008, decay: 0.05, sustain: 1, release: 1.4 },
@@ -3276,9 +3281,15 @@ function callVoice(ctx, destination, note, patch, d, basePeak) {
   // The breath runs the length of the note and is gated per chirp, which costs
   // one source rather than one per call.
   const breath = rig.noise(t, { colour: 'pink', rate: 1 });
-  const breathMakeup = noiseMakeup(
+  // Half of the item-85 saw fix (the other half is the texture defaults: a
+  // bird rises). The makeup compensates the noise's loss through a narrow
+  // formant, but it clamps at 6× — which could put the breath at ~2× the
+  // whistle it is meant to sit BESIDE. Capping it at 2 keeps the equalisation
+  // for wide formants and pins the breath under the tone; the balance is
+  // reported by tests/call-breath-render.mjs.
+  const breathMakeup = Math.min(2, noiseMakeup(
     clamp(Math.max(s.formant1, s.formant2), 60, 12000), 4.5, rig.sampleRate,
-  );
+  ));
 
   // Cadence is a RATE, so it sets the gap between calls and the note's length
   // sets how many of them fit. Past the cap the phrase simply stops early
