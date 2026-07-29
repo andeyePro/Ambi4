@@ -8053,8 +8053,18 @@ test('v26: getAnalysers() taps the post-compressor master on both output routes'
     // compressor itself. The tap deliberately stays on the compressor — the
     // scope should show the music, not how loud it is being played — which is
     // why these are now two different nodes.
-    const sink = compressor.connections.find((node) => node.kind === 'gain');
-    assert.ok(sink, 'the compressor must feed the post-compressor output gain');
+    // v0.0.69: the chain past the compressor is now
+    //   compressor -> makeup (gain) -> output fader (gain) -> limiter -> sink
+    // The makeup is post-compressor on purpose (raising the level going IN
+    // would turn a safety net into the thing doing the mixing), and the
+    // limiter is post-FADER so it protects the real output at any listening
+    // level. What the route test cares about is the last node before the sink.
+    const makeup = compressor.connections.find((node) => node.kind === 'gain');
+    assert.ok(makeup, 'the compressor must feed the post-compressor makeup gain');
+    const fader = makeup.connections.find((node) => node.kind === 'gain');
+    assert.ok(fader, 'the makeup must feed the listening-level fader');
+    const sink = fader.connections.find((node) => node.kind === 'compressor');
+    assert.ok(sink, 'the fader must feed the limiter — an unlimited output can clip');
     assert.ok(expectSink(ctx, sink), 'the engine wired the wrong output route');
     // Every track's signal actually reaches it: this is the trace that lights
     // up white on the scope, not a node that happens to exist.

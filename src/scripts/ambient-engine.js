@@ -3396,7 +3396,11 @@ const FINISH_FADE = 8;       // finish() default outro fade
 const FINISH_FADE_RANGE = [1, 30];
 const FINISH_TAIL = 0.6;     // reverb/delay allowance after the outro fade
 const SILENCE = 0.0001;      // exponential ramps cannot reach zero
-const MASTER_HEADROOM = 0.7; // keeps volume=1 comfortably clear of clipping
+const MASTER_HEADROOM = 0.7; // keeps the compressor's input where it was
+// v0.0.69: +24 dB after the compressor. Sized from a measurement, not a guess
+// — the mix peaked at −32.6 dBFS, so this lands it near −9 dBFS with the
+// limiter below catching whatever a dense bar adds on top.
+const MASTER_MAKEUP = 16;
 
 /** Pitches the fallback percussion voice uses for each hit kind. */
 const PERCUSSION_TONES = { low: 72, mid: 220, high: 1500 };
@@ -3734,7 +3738,55 @@ function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.ran
    */
   const output = ctx.createGain();
   output.gain.value = SILENCE;
-  compressor.connect(output);
+
+  /**
+   * v0.0.69 — MAKEUP AND A LIMITER, because the whole thing was far too quiet.
+   *
+   * The owner's report: at full volume with the Mac at full it is "not
+   * particularly loud, but turning on YouTube is deafening", so system alarms
+   * are startling by comparison. Measured through the master analyser on a
+   * real playing mix: peak −32.6 dBFS, RMS −44.4 dBFS. Streaming music sits
+   * near −14 LUFS with peaks close to full scale, so this was roughly thirty
+   * decibels below any normal listening level. Not "a bit quiet".
+   *
+   * The makeup goes AFTER the compressor deliberately. Raising the level going
+   * IN would have pushed programme through the −18 dB threshold and turned a
+   * safety net into the thing doing the mixing — the same class of mistake
+   * v0.0.47 fixed by moving the fader out of the compressor.
+   *
+   * The limiter is the price of the makeup: with 24 dB of gain a dense bar can
+   * reach full scale, and clipping is the one artefact a listener will not
+   * forgive. It sits AFTER the fader so it protects the actual output whatever
+   * the listening level, and it is a brick wall in intent — a high ratio, no
+   * knee, fast attack — not a second glue stage.
+   */
+  const makeup = ctx.createGain();
+  makeup.gain.value = MASTER_MAKEUP;
+  compressor.connect(makeup);
+  makeup.connect(output);
+
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -1;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.001;
+  limiter.release.value = 0.08;
+  output.connect(limiter);
+
+  /**
+   * A second analyser, on what actually LEAVES the engine.
+   *
+   * `masterAnalyser` deliberately taps the compressor so the oscilloscope
+   * shows the music rather than how loud it is being played — that is the
+   * right call for a scope and the wrong one for a meter. Nothing could
+   * measure the real output level, which is how it went thirty decibels quiet
+   * without anyone noticing. This is the meter: post-fader, post-limiter, a
+   * dead end that costs the mix nothing.
+   */
+  const outputAnalyser = ctx.createAnalyser();
+  outputAnalyser.fftSize = 1024;
+  outputAnalyser.smoothingTimeConstant = 0;
+  limiter.connect(outputAnalyser);
   // The OUTPUT's route (ctx.destination, or a media element via a
   // MediaStreamDestination on iOS) is wired by the engine, not here.
 
@@ -3780,7 +3832,7 @@ function buildGraph(ctx, tracks = TRACK_ORDER, mixFor = floorMix, rng = Math.ran
   // `convolver`, `reverbReturn` and `reverbSeconds` are the LIVE tail: a swap
   // replaces all three, which is why nothing else holds a reference to them.
   const graph = {
-    master, compressor, output, masterAnalyser, reverbBus, convolver, reverbReturn,
+    master, compressor, output, limiter, masterAnalyser, outputAnalyser, reverbBus, convolver, reverbReturn,
     reverbSeconds: DEFAULT_PARAMS.reverbTail, delay, feedback, tracks: {},
   };
   for (const name of tracks) graph.tracks[name] = createTrackChain(ctx, graph, mixFor(name));
@@ -7501,22 +7553,22 @@ export function createEngine(initialParams, options = {}) {
         const streamDest = ctx.createMediaStreamDestination();
         const el = new Audio();
         el.srcObject = streamDest.stream;
-        graph.output.connect(streamDest);
+        graph.limiter.connect(streamDest);
         return { mode: 'element', streamDest, el };
       }
     } catch {
       // Any failure along the element route means the plain destination route.
     }
-    graph.output.connect(ctx.destination);
+    graph.limiter.connect(ctx.destination);
     return { mode: 'direct' };
   }
 
   /** A sink element that will not play() is a silent engine: rewire direct. */
   function fallbackToDirect() {
     if (!output || output.mode !== 'element' || !ctx || !graph) return;
-    try { graph.output.disconnect(output.streamDest); } catch { /* already detached */ }
+    try { graph.limiter.disconnect(output.streamDest); } catch { /* already detached */ }
     try { output.el.pause(); } catch { /* never played */ }
-    try { graph.output.connect(ctx.destination); } catch { /* context is gone */ }
+    try { graph.limiter.connect(ctx.destination); } catch { /* context is gone */ }
     output = { mode: 'direct' };
   }
 
@@ -8009,6 +8061,11 @@ export function createEngine(initialParams, options = {}) {
     return graph ? graph.masterAnalyser : null;
   }
 
+  /** What actually leaves the engine — post-fader, post-limiter. See buildGraph. */
+  function getOutputAnalyser() {
+    return graph ? graph.outputAnalyser : null;
+  }
+
   function now() {
     return ctx ? ctx.currentTime : 0;
   }
@@ -8119,6 +8176,7 @@ export function createEngine(initialParams, options = {}) {
     getTrackManifest,
     getAnalysers,
     getMasterAnalyser,
+    getOutputAnalyser,
     getStats,
     setPowerBudget,
     setReverbSeconds,

@@ -2220,6 +2220,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       const engine = createEngine();
+      // v0.0.69: a deliberate test seam, not a leak. The engine is AGPL and
+      // runs entirely in the reader's own browser, so nothing here is hidden
+      // from anyone who opens the source — and without it the OUTPUT LEVEL is
+      // unmeasurable from outside, which is precisely how the mix came to sit
+      // thirty decibels below every other thing a listener plays without
+      // anyone noticing. tests/loudness-drive.mjs is the reason it exists.
+      if (typeof window !== 'undefined') window.__ambi4Engine = engine;
 
       // ---- v21 track registry -------------------------------------------
       // Probed like every other capability, and for the same reason: an
@@ -4461,9 +4468,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             label: 'Volume',
             // dB relative to full output; the dial position is tapered, so
             // the readout converts back first.
+            // v0.0.69: the top of the dial reads −0.0 dB, not 0.0 dB. A fader
+            // attenuates and never boosts, and the minus sign is what says so
+            // — at unity the reading is "no attenuation", which is a different
+            // statement from "zero decibels of gain".
             format: (t) => {
               const v = volumeParamFromDial(t);
-              return v <= 0.001 ? '-\u221e dB' : `${(20 * Math.log10(v)).toFixed(v > 0.5 ? 1 : 0)} dB`;
+              if (v <= 0.001) return '-\u221e dB';
+              const db = 20 * Math.log10(v);
+              const text = Math.abs(db).toFixed(v > 0.5 ? 1 : 0);
+              return `-${text} dB`;
             },
           },
           (t) => {
