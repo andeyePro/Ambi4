@@ -1341,6 +1341,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       mode: 'majorPentatonic',
       timeSignature: '4/4',
       bpm: 60,
+      // v0.0.62: what this setup grew from — {kind:'genre', id, seed} or
+      // {kind:'blank'}. A genre compile is deterministic in (id, seed), so
+      // these two values rebuild the base exactly without carrying any of it.
+      origin: { kind: 'blank' },
       structure: 'auto',
       customStructure: [
         { label: 'A', bars: 8, intensity: 0.4 },
@@ -2649,11 +2653,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // persisted: touching any control saves the whole settings object,
           // which is the point at which this becomes the listener's setup.
           const genre = weightedDraw(openingGenrePool());
-          const compiled = compileGenreParams(genre, randomSeed());
+          // v0.0.62: the seed is held, not thrown away. This is the one place
+          // a setup is built without going through applyGenre, and it is the
+          // setup MOST people submit from — so leaving its provenance blank
+          // made the diff a full settings tree for exactly the common case.
+          const openingSeed = randomSeed();
+          const compiled = compileGenreParams(genre, openingSeed);
           if (compiled) {
             const ui = settings.ui;
             settings = deepMerge(DEFAULTS, settingsFromGenre(compiled, genre.slug));
             normaliseV6Tracks(settings);
+            settings.origin = { kind: 'genre', id: genre.slug, seed: openingSeed };
             settings.ui = ui;
           }
         }
@@ -10419,7 +10429,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function applyGenre(genre, seed = randomSeed()) {
         const compiled = compileGenreParams(genre, seed);
         if (!compiled) return false;
-        loadParamsSnapshot(settingsFromGenre(compiled, genre.slug));
+        const next = settingsFromGenre(compiled, genre.slug);
+        // The SEED is the half of the provenance that was being thrown away.
+        // `settings.genre` said which genre; nothing said which compile, and
+        // one genre has as many bases as there are seeds.
+        next.origin = { kind: 'genre', id: genre.slug, seed };
+        loadParamsSnapshot(next);
         return true;
       }
 
@@ -11722,29 +11737,167 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         refreshPresetSelect();
       });
 
+      /**
+       * v0.0.62 — a preset is a BASE plus what you changed, not a settings dump.
+       *
+       * The owner hit the wall this exists to remove: Submit built a URL out of
+       * the entire settings tree and it came to 115,897 characters. Browsers
+       * cap a URL somewhere between two and eight thousand, and Cloudflare
+       * closes the connection on a long one — which is exactly the
+       * ERR_CONNECTION_CLOSED he saw. His fix, and it is the right one: "take
+       * the preset or genre that the preset is based on and send an ID of that
+       * and a diff. That will also give provenance of presets and should give
+       * you an idea of which can be considered AI-free."
+       *
+       * `settings.origin` is that anchor. A genre compile is deterministic in
+       * (slug, seed), so those two numbers reproduce the base byte for byte
+       * without shipping any of it — which is what makes the diff meaningful
+       * rather than just smaller.
+       *
+       * Provenance falls out of it for free: a submission says what it grew
+       * from and exactly how far it moved. So does the AI-free question — a
+       * piece that is one of our own genres plus a human's edits is a very
+       * different object from one that arrived as an opaque settings blob, and
+       * until now the two were indistinguishable on arrival.
+       */
+      function originSnapshot() {
+        const o = settings && isPlainObject(settings.origin) ? settings.origin : null;
+        if (!o || typeof o.kind !== 'string') return { kind: 'unknown' };
+        return { ...o };
+      }
+
+      /** The settings tree the current origin reproduces, or null if it cannot. */
+      function originBase() {
+        const o = originSnapshot();
+        if (o.kind === 'genre' && typeof o.id === 'string' && Number.isFinite(o.seed)) {
+          const genre = GENRE_BY_SLUG.get(o.id);
+          const compiled = genre ? compileGenreParams(genre, o.seed) : null;
+          if (!compiled) return null;
+          // Rebuilt through the SAME pipeline a genre takes when it is
+          // applied — deepMerge onto DEFAULTS, then normaliseV6Tracks. Skip
+          // the normalise step and the base differs from the live tree in
+          // every field the normaliser rebuilds (per-track sequencer mirrors,
+          // kit lanes, arp steps), which turns a three-dial edit into a diff
+          // of the whole tree.
+          const base = deepMerge(DEFAULTS, settingsFromGenre(compiled, o.id));
+          normaliseV6Tracks(base);
+          base.origin = { kind: 'genre', id: o.id, seed: o.seed };
+          delete base.ui;
+          return base;
+        }
+        if (o.kind === 'blank' || o.kind === 'unknown') {
+          const base = deepMerge(DEFAULTS, {});
+          normaliseV6Tracks(base);
+          base.origin = { ...o };
+          delete base.ui;
+          return base;
+        }
+        return null;
+      }
+
+      /**
+       * A sparse tree of everything in `now` that differs from `base`.
+       *
+       * Arrays are all-or-nothing: a step grid or a block list is a shape, and
+       * half of one is not a smaller version of it, it is a different thing.
+       * A key absent from the result means "unchanged", which is why the
+       * decoder must apply a diff onto a freshly rebuilt base rather than onto
+       * whatever the recipient happens to be playing.
+       */
+      function diffTree(base, now) {
+        if (!isPlainObject(base) || !isPlainObject(now)) {
+          return JSON.stringify(base) === JSON.stringify(now) ? undefined : now;
+        }
+        const out = {};
+        for (const key of Object.keys(now)) {
+          const a = base[key];
+          const b = now[key];
+          if (Array.isArray(a) || Array.isArray(b)) {
+            if (JSON.stringify(a) !== JSON.stringify(b)) out[key] = b;
+            continue;
+          }
+          if (isPlainObject(a) && isPlainObject(b)) {
+            const nested = diffTree(a, b);
+            if (nested !== undefined && Object.keys(nested).length) out[key] = nested;
+            continue;
+          }
+          if (JSON.stringify(a) !== JSON.stringify(b)) out[key] = b;
+        }
+        // A key the base has and the current tree does not is a real removal,
+        // and silence about it would restore it on decode.
+        for (const key of Object.keys(base)) {
+          if (!(key in now)) out[key] = null;
+        }
+        return out;
+      }
+
+      /**
+       * What a submission actually carries. Falls back to the whole tree only
+       * when the origin cannot rebuild a base — better a big payload than a
+       * diff against something we cannot name.
+       */
+      function submissionPayload(name) {
+        const base = originBase();
+        const now = paramsSnapshot();
+        if (!base) {
+          return { v: 1, name, origin: originSnapshot(), params: now, note: 'full tree — origin could not be rebuilt' };
+        }
+        return { v: 1, name, origin: originSnapshot(), diff: diffTree(base, now) };
+      }
+
       function presetJSON() {
         const name = presetName.value.trim() || 'Untitled';
         return JSON.stringify({ name, params: paramsSnapshot() }, null, 2);
       }
 
-      presetSubmit.addEventListener('click', () => {
+      presetSubmit.addEventListener('click', async () => {
         const name = presetName.value.trim() || 'Untitled';
         // The anonymous choice rides in the message, because the contact form
         // is a plain form with no field of its own for it. Stated as the first
         // line so it cannot be missed by whoever reads the submission.
         const anonymous = document.getElementById('preset-anonymous')?.checked;
+        // Compact, not pretty-printed: every newline and run of indent is
+        // three characters once URL-encoded, and this rides in a query string.
+        // Copy JSON beside the button still hands over the readable form.
+        const payload = JSON.stringify(submissionPayload(name));
         const body = anonymous
-          ? `ANONYMOUS SUBMISSION — do not credit the sender.\n\n${presetJSON()}`
-          : presetJSON();
+          ? `ANONYMOUS SUBMISSION — do not credit the sender.\n\n${payload}`
+          : payload;
         // The contact form's param contract v1 (brain2 coordination.md,
         // 2026-07-23): `source` is REQUIRED and is the calling site's
         // hostname, recorded with every submission. Without it a submission
         // arrives with no idea which andeye site sent it.
-        const url =
+        // A HARD CEILING on the URL. The previous version had none, and a
+        // full settings tree URL-encoded came to 115,897 characters — far past
+        // any browser's limit and past what Cloudflare will accept, which is
+        // why the form answered with a closed connection rather than an error
+        // anyone could read. 1,800 leaves room for the base URL and the other
+        // params inside the ~2,000 that even the strictest stack allows.
+        const MAX_URL = 1800;
+        const base =
           `${CONTACT_URL}?source=${encodeURIComponent(location.hostname || 'ambi4.work')}` +
-          `&subject=${encodeURIComponent(`Ambi4 preset: ${name}`)}` +
-          `&message=${encodeURIComponent(body)}`;
-        window.open(url, '_blank', 'noopener');
+          `&subject=${encodeURIComponent(`Ambi4 preset: ${name}`)}`;
+        const withBody = `${base}&message=${encodeURIComponent(body)}`;
+        if (withBody.length <= MAX_URL) {
+          window.open(withBody, '_blank', 'noopener');
+          return;
+        }
+        // Too big even as a diff — a heavily edited preset can be. Put it on
+        // the clipboard and open the form with a line telling them to paste,
+        // which is what the hint under the button has always offered as the
+        // fallback. Never a truncated payload: half a preset is not a preset.
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(body);
+          copied = true;
+        } catch {
+          // Clipboard refused (no gesture, insecure context) — say so rather
+          // than pretend.
+        }
+        const note = copied
+          ? 'This preset is too long for a web address, so it is on your clipboard — paste it into the message box.'
+          : 'This preset is too long for a web address. Use Copy JSON beside Submit, then paste it into the message box.';
+        window.open(`${base}&message=${encodeURIComponent(note)}`, '_blank', 'noopener');
       });
 
       // Share: params only, in the fragment, straight to the clipboard. If the

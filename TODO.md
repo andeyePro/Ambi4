@@ -60,6 +60,12 @@ the same change, including the guided tour.**
 
 ## Owner replies, 2026-07-29
 
+- [x] *(SHIPPED v0.0.62)* **A preset is a base plus a diff, not a settings dump.** He pressed Submit and got ERR_CONNECTION_CLOSED — the button built a URL out of the whole settings tree and it came to **115,897 characters**, past every browser limit and past what Cloudflare accepts, which is why the failure arrived as a dead socket rather than an error anyone could read. His fix: send the ID of the genre or preset it is based on, plus a diff, which also gives provenance and a handle on the AI-free question. Built: `settings.origin` records `{kind, id, seed}`; a genre compile is deterministic in (slug, seed) so those two numbers rebuild the base byte-for-byte without carrying any of it. **Untouched off a genre: 262-character URL with an EMPTY diff** — the empty diff is the property that proves the rebuild is exact rather than approximate. After five dials moved: 741 characters, naming only what moved. A hard 1,800-character cap with a clipboard fallback means it can never silently produce an unusable URL again.
+- [ ] **Share links should use the same base-and-diff.** They still base64 the whole tree into the fragment, which is the same fault in a place that has not bitten yet — a fragment is not sent to a server, so it fails later and quieter (a link too long to paste into a chat window). Same `origin` anchor, same diff, plus a permanent decode-side shim: links already in the wild carry the full tree and must keep working forever.
+- [ ] **Use the provenance for the AI-free label.** A piece that is one of our genres plus a human's edits is a different object from one that arrived as an opaque blob, and until v0.0.62 the two were indistinguishable on arrival. The pledge item can now be evidence-backed rather than self-declared.
+
+
+
 - [x] *(SHIPPED — pushed to production, 467cac6)* Full screen and the voice-editor row split, both approved.
 - [x] *(SHIPPED v0.0.61)* **Remove New Age from the genre list** — his answer to the research was to take it out rather than tune it. Data file deleted, dropped from the fresh-visit pool, genre count updated.
 - [x] *(SHIPPED v0.0.61)* **Preset Submit conforms to the contact-form param contract** (brain2 `coordination.md`, 2026-07-23): `source` is REQUIRED and is the calling site's hostname, recorded with every submission. It was being sent without one.
