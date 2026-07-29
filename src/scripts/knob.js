@@ -398,7 +398,7 @@ export function createKnob(container, options) {
   // the value lives in. Wide and in the pointer's own colour, it reads as one
   // span with two ends.
   const rangeArc = document.createElementNS(SVG_NS, 'path');
-  rangeArc.setAttribute('stroke-width', '11');
+  rangeArc.setAttribute('stroke-width', '4');
   rangeArc.setAttribute('stroke-linecap', 'butt');
   rangeArc.style.fill = 'none';
   rangeArc.style.stroke = POINTER_STROKE;
@@ -694,12 +694,29 @@ export function createKnob(container, options) {
   const POINTER_W_DRAG = 5.2;
   const MAX_POINTER_W = 2;
   const MAX_POINTER_W_DRAG = 4.4;
+  const ARC_W = 4;
+  const ARC_W_DRAG = 11;
 
   function applyGripLook() {
+    // v0.0.65 (owner, 2026-07-29): "Grabbing one indicator shouldn't have both
+    // indicators bold. They should only both bold if what you are going to do
+    // will affect both." So the thickening is a statement about what THIS
+    // gesture will move, not about the dial being touched.
     const held = dragging;
-    pointer.setAttribute('stroke-width', String(held ? POINTER_W_DRAG : POINTER_W));
-    maxPointer.setAttribute('stroke-width', String(held ? MAX_POINTER_W_DRAG : MAX_POINTER_W));
+    const spreading = held && dragAxis === 'spread';
+    // A spread drag moves both ends outward; a hub drag carries both along.
+    const both = spreading || dragThumb === 'both';
+    const minHeld = held && (both || dragThumb === 'min' || mode !== 'range');
+    const maxHeld = held && (both || dragThumb === 'max');
+    pointer.setAttribute('stroke-width', String(minHeld ? POINTER_W_DRAG : POINTER_W));
+    maxPointer.setAttribute('stroke-width', String(maxHeld ? MAX_POINTER_W_DRAG : MAX_POINTER_W));
+    // The arc is the SPREAD's own indicator, so it thickens only when the
+    // spread itself is being dragged — and is thin but always present the rest
+    // of the time, which is what says "there is a range here" without claiming
+    // you are editing it.
+    rangeArc.setAttribute('stroke-width', String(spreading ? ARC_W_DRAG : ARC_W));
     root.setAttribute('data-dragging', held ? 'true' : 'false');
+    root.setAttribute('data-grip', !held ? 'none' : both ? 'both' : dragThumb);
   }
 
   function applyZeroedLook() {
@@ -998,6 +1015,16 @@ export function createKnob(container, options) {
    * every caller treats null as "not the hub" so a geometry-less environment
    * still gets ordinary single-value behaviour.
    */
+  /** Is the pointer within the dial's own face circle? */
+  function pointerOnFace(e) {
+    const c = pointerCentre(e);
+    if (!c) return false;
+    const dx = e.clientX - c.cx;
+    const dy = e.clientY - c.cy;
+    const faceRadiusPx = (FACE_R / 100) * c.rect.width;
+    return Math.sqrt(dx * dx + dy * dy) <= faceRadiusPx;
+  }
+
   function pointerInHub(e) {
     const c = pointerCentre(e);
     if (!c) return null;
@@ -1136,6 +1163,60 @@ export function createKnob(container, options) {
       applySpread(dragSpread + dx * (range / SPREAD_RANGE_PX));
       lastY = e.clientY;
       return;
+    }
+
+    // v0.0.65 (owner, 2026-07-29): "Grabbing a min or max line it seems more
+    // intuitive to move it where you want it to go than to move up to increase
+    // and down to decrease."
+    //
+    // He is right, and the reason it was not built that way is the gap at the
+    // bottom of a 270° dial: a pointer that follows the finger exactly jumps
+    // from maximum to minimum the moment the finger crosses it. So the finger
+    // leads WHILE IT IS ON THE FACE, and the moment it leaves, control reverts
+    // to relative vertical — which is also how a hardware-style dial gives
+    // fine control, by moving further from the centre. Aim first, trim second.
+    //
+    // Crossing the gap is refused rather than wrapped: the value clamps at
+    // whichever end it reached. Nothing a user does with one finger should be
+    // able to take a dial from full to nothing in a millimetre.
+    // Angle-following needs the pointer to be somewhere an angle MEANS
+    // something: on the face, outside the hub (where a millimetre swings the
+    // angle wildly), and out of the dead zone at the bottom of the sweep. Any
+    // of those failing falls through to relative vertical rather than doing
+    // nothing — a gesture that silently refuses is worse than one that is
+    // merely less direct.
+    const onFace = pointerOnFace(e) && !pointerInHub(e);
+    if (onFace && !e.shiftKey) {
+      const deg = pointerDeg(e);
+      if (deg != null && deg >= START_DEG && deg <= START_DEG + SWEEP_DEG) {
+        const t = (deg - START_DEG) / SWEEP_DEG;
+        const aimed = min + t * range;
+        lastY = e.clientY;
+        dragRaw = aimed;
+        if (mode === 'range' && dragThumb === 'both') {
+          const width = valueMax - value;
+          let lo = aimed - width / 2;
+          if (lo < min) lo = min;
+          if (lo + width > max) lo = max - width;
+          const nextLo = quantise(lo);
+          const nextHi = quantise(lo + width);
+          if (nextLo !== value || nextHi !== valueMax) {
+            value = nextLo;
+            valueMax = nextHi;
+            updateView();
+            emit();
+          }
+          return;
+        }
+        if (mode === 'range') {
+          activeThumb = dragThumb;
+          if (dragThumb === 'max') { commitMax(aimed, true); return; }
+        }
+        commit(aimed, true);
+        return;
+      }
+      // In the dead zone at the bottom of the sweep: fall through to the
+      // relative drag below rather than jumping across it.
     }
 
     const dy = lastY - e.clientY; // drag up = increase

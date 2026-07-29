@@ -351,7 +351,18 @@ export const PERCUSSION_KINDS = Object.freeze(['low', 'mid', 'high']);
 /** Lanes per kit, built-ins included. More than this is a UI accident. */
 export const MAX_PERCUSSION_LANES = 8;
 
-const PERCUSSION_LANE_LABELS = Object.freeze({ low: 'Low', mid: 'Mid', high: 'High' });
+/**
+ * v0.0.65: the built-in lanes are named after the drums they are, not after
+ * the pitch bands they occupy. The owner's report was that the percussion
+ * editor has "bizarre titles" — and Low / Mid / High are indeed not drums;
+ * they are an implementation detail (the kind drives note duration and pan)
+ * that had been showing through as the user-facing name of every lane.
+ *
+ * The `kind` ids stay low/mid/high — they are wire keys and every stored kit
+ * and share link uses them. Only the default LABEL changes, and a lane whose
+ * label a user has already edited keeps whatever they called it.
+ */
+const PERCUSSION_LANE_LABELS = Object.freeze({ low: 'Kick', mid: 'Snare', high: 'Hat' });
 
 /** Tracks that sound a pitch, so a chord discipline means anything to them. */
 export const TUNED_TRACKS = Object.freeze(TRACK_REGISTRY

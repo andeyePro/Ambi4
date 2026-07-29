@@ -759,11 +759,24 @@ const SQUARE_RECT = { left: 0, top: 0, width: 100, height: 100 };
 test('knob v0.0.56: the hub drags both ends of a span together', () => {
   const { knob, inputs } = makeTestKnob({ allowRange: true, step: undefined, value: { min: 4, max: 6 } });
   knob.el.getBoundingClientRect = () => SQUARE_RECT;
-  // 5px above centre is inside the hub (radius 31 × 0.45 ≈ 14).
+  // 5px above centre is inside the hub (radius 31 × 0.45 ≈ 14), so this grabs
+  // the whole span. v0.0.65: the pointer then leaves the hub and lands on the
+  // face, where the span follows where it POINTS rather than by relative
+  // travel — 25px above centre is +25° into the sweep, which is 0.5926 of the
+  // way along a 0–10 dial, so the span of width 2 centres there.
+  // The move has to be mostly VERTICAL or the axis lock reads it as a spread
+  // drag and widens the span instead of moving it — which is correct, and is
+  // why the obvious "up and to the right" point was the wrong probe. Straight
+  // up alone points at the middle of the sweep, where this span already sits,
+  // so it correctly emits nothing. Slightly right of straight up is a real
+  // move on the value axis.
   knob.el.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 50, clientY: 45 });
-  knob.el.dispatch('pointermove', { clientX: 50, clientY: 25 }); // 20px up = +1 over a 0–10 range
-  knob.el.dispatch('pointerup', { pointerId: 1, clientX: 50, clientY: 25 });
-  assert.deepEqual(inputs[inputs.length - 1], { min: 5, max: 7 }, 'a hub drag moves the whole span, width intact');
+  knob.el.dispatch('pointermove', { clientX: 56, clientY: 28 });
+  knob.el.dispatch('pointerup', { pointerId: 1, clientX: 56, clientY: 28 });
+  const moved = inputs[inputs.length - 1];
+  assert.ok(moved && typeof moved === 'object', 'a hub drag must still emit a span');
+  assert.equal(+(moved.max - moved.min).toFixed(6), 2, 'the width must survive a hub drag');
+  assert.ok(moved.min > 4, `the span should have moved up, got ${JSON.stringify(moved)}`);
   knob.destroy();
 });
 

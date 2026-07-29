@@ -878,9 +878,14 @@ try {
     if (!built) {
       failures.push('the percussion sequencer rendered no lane headers');
     } else {
+      // v0.0.65: the ORDER contract is unchanged — the highest-pitched lane is
+      // at the top and the lowest at the bottom, which is how every drum grid
+      // and every piano roll is drawn. What changed is that the rows are named
+      // after the drums they are (Hat / Snare / Kick) rather than after the
+      // pitch bands they occupy, which is what the owner called bizarre.
       const names = laneNames();
-      if (names[0] !== 'High' || names[names.length - 1] !== 'Low') {
-        failures.push(`percussion lanes are not HIGH-first / LOW-last: ${names.join(', ')}`);
+      if (names[0] !== 'Hat' || names[names.length - 1] !== 'Kick') {
+        failures.push(`percussion lanes are not HAT-first / KICK-last: ${names.join(', ')}`);
       }
       const addButton = editor.querySelector('.seq-lane-add');
       if (!engineTakesLanes) {

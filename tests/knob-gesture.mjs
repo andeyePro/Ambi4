@@ -355,10 +355,15 @@ test('a dial that cannot spread has no inner circle to press', () => {
   assert.equal(seen.length, 0, 'and pressing where it would have been does nothing');
 });
 
-test('a drag that starts on the hub is a drag, not a reset', () => {
-  const { el, seen } = makeKnob({ value: 20, defaultValue: 60 });
+test('a drag that starts on the hub is a drag, not a reset or a zero', () => {
+  // defaultValue is deliberately a value the drag arithmetic cannot land on
+  // by coincidence — 60 used to be reachable exactly, which made this pass and
+  // fail for reasons that had nothing to do with the reset.
+  const { el, seen } = makeKnob({ value: 20, defaultValue: 7 });
   drag(el, CENTRE, [[0, -20], [0, -40]]);
-  assert.notEqual(last(seen), 60, 'travel past the tap slop must rule out the reset');
+  assert.ok(seen.length > 0, 'the drag must commit something');
+  assert.notEqual(last(seen), 7, 'travel past the tap slop must rule out the reset');
+  assert.notEqual(last(seen), 0, 'and must rule out the zero button');
 });
 
 test('the keyboard reset stays an equal route, not an afterthought', () => {
@@ -462,6 +467,60 @@ test('the live pointer is clamped into the span and never commits', () => {
   assert.ok(/rotate\(/.test(t), `expected a rotation, got ${t}`);
   handle.setLive(null);
   assert.equal(live.style.display, 'none');
+});
+
+test('grabbing an end on the face moves it to where you point', () => {
+  // v0.0.65, the owner's ask: "more intuitive to move it where you want it to
+  // go than to move up to increase and down to decrease". Straight up from the
+  // centre is the middle of the sweep, so a dial at 10 pointed straight up
+  // should land at 50 whatever direction the finger travelled to get there.
+  const { el, seen } = makeKnob({ value: 10 });
+  el.dispatch('pointerdown', { clientX: 50, clientY: 74, button: 0, pointerId: 1 });
+  el.dispatch('pointermove', { clientX: 50, clientY: 28, pointerId: 1 });
+  el.dispatch('pointerup', { clientX: 50, clientY: 28, pointerId: 1 });
+  assert.equal(last(seen), 50, `pointing at the top of the sweep should read 50, got ${last(seen)}`);
+});
+
+test('the dead zone at the bottom is refused, never wrapped', () => {
+  // Directly below the centre IS the gap in a 270° sweep. A dial that followed
+  // the finger there would jump from full to nothing in a millimetre.
+  const { el, seen } = makeKnob({ value: 50 });
+  el.dispatch('pointerdown', { clientX: 50, clientY: 40, button: 0, pointerId: 1 });
+  el.dispatch('pointermove', { clientX: 50, clientY: 68, pointerId: 1 });
+  el.dispatch('pointerup', { clientX: 50, clientY: 68, pointerId: 1 });
+  assert.ok(last(seen) === undefined || (last(seen) > 0 && last(seen) < 100),
+    `the value must not have jumped to an extreme, got ${last(seen)}`);
+});
+
+test('leaving the face reverts to relative vertical, which is the fine control', () => {
+  const { el, seen } = makeKnob({ value: 50 });
+  // Start on the face pointing at the top …
+  el.dispatch('pointerdown', { clientX: 50, clientY: 30, button: 0, pointerId: 1 });
+  el.dispatch('pointermove', { clientX: 50, clientY: 26, pointerId: 1 });
+  const aimed = last(seen);
+  // … then travel well outside it, where 20px is a measured 10 units rather
+  // than an angle.
+  el.dispatch('pointermove', { clientX: 50, clientY: -20, pointerId: 1 });
+  el.dispatch('pointerup', { clientX: 50, clientY: -20, pointerId: 1 });
+  assert.notEqual(last(seen), aimed, 'the drag must keep working past the face edge');
+});
+
+test('only the end being moved is bolded', () => {
+  const { el } = makeKnob({ value: { min: 20, max: 80 } });
+  // Press on the right rim: nearer max, so max alone should read as gripped.
+  el.dispatch('pointerdown', { clientX: 90, clientY: 50, button: 0, pointerId: 1 });
+  el.dispatch('pointermove', { clientX: 90, clientY: 30, pointerId: 1 });
+  assert.equal(el.getAttribute('data-grip'), 'max');
+  el.dispatch('pointerup', { clientX: 90, clientY: 30, pointerId: 1 });
+  assert.equal(el.getAttribute('data-grip'), 'none');
+});
+
+test('a spread drag bolds both, because it moves both', () => {
+  const { el } = makeKnob({ value: { min: 20, max: 80 } });
+  el.dispatch('pointerdown', { clientX: 90, clientY: 50, button: 0, pointerId: 1 });
+  el.dispatch('pointermove', { clientX: 130, clientY: 50, pointerId: 1 });
+  assert.equal(el.getAttribute('data-grip'), 'both');
+  el.dispatch('pointerup', { clientX: 130, clientY: 50, pointerId: 1 });
 });
 
 test('the centre hub is drawn', () => {

@@ -992,10 +992,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // and (v21) their voice-kind mapping. The three built-ins keep the ids the
     // engine has always used, so every stored pattern and every `perKind`
     // override still lands on the lane it was written for.
+    // v0.0.65: the built-in lanes are named after the drums they are. Low, Mid
+    // and High are the KINDS — an implementation detail that drives note
+    // duration and pan — and they had been showing through as the user-facing
+    // name of every row, which is the owner's "bizarre titles". The ids are
+    // wire keys and do not change; only what a person reads does.
     const PERC_LANE_KINDS = [
-      ['high', 'High'],
-      ['mid', 'Mid'],
-      ['low', 'Low'],
+      ['high', 'Hat'],
+      ['mid', 'Snare'],
+      ['low', 'Kick'],
     ];
     const PERC_BUILTIN_LANES = ['high', 'mid', 'low'];
     const PERC_MAX_LANES = 8; // v21 cap
@@ -6280,7 +6285,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
           head.append(name);
 
+          const kindNote = () => document.createElement('span');
           const builtin = PERC_BUILTIN_LANES.includes(lane.key);
+          // v0.0.65: a built-in lane gets NO sound picker. It used to get a
+          // DISABLED one whose only option was the lane's own name, so the
+          // editor showed three greyed dropdowns each repeating the row label
+          // beside them — the owner's "unusable dropdowns between drum
+          // instruments". A control that cannot be used and says nothing new
+          // is worse than no control. A user-added lane still gets one,
+          // because there it is a real choice.
+          if (builtin) {
+            head.append(kindNote(lane));
+          } else {
           const kind = document.createElement('select');
           kind.className = 'seq-lane-kind';
           kind.setAttribute('aria-label', `${lane.label} lane sound`);
@@ -6302,6 +6318,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               : 'Which of the kit’s sounds this lane plays.'
           );
           head.append(kind);
+          }
 
           const move = (delta, glyph, what) => {
             const button = document.createElement('button');
