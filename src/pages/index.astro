@@ -677,6 +677,19 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
+      <!-- v0.0.68: the chord progression, visible and editable. Step two of
+           the agreed plan and the single biggest thing that could not be
+           touched. Built by the page script only where the engine accepts a
+           hook seed. -->
+      <div class="control" id="control-progression" hidden>
+        <div class="control-label-row">
+          <label id="progression-label">Chords</label>
+          <span id="progression-info"></span>
+        </div>
+        <div id="progression-row" class="progression-row"></div>
+        <p class="hint" id="progression-hint"></p>
+      </div>
+
       <div class="control">
         <div class="control-label-row">
           <label for="structure">Structure</label>
@@ -2491,6 +2504,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       try {
         const probed = sanitiseParams({ harmony: { rhythm: 4 } });
         engineCaps.harmonyRhythm = isPlainObject(probed?.harmony) && probed.harmony.rhythm === 4;
+      } catch {}
+
+      // v0.0.68: does this engine accept a hand-written chord loop? Probed the
+      // same way as everything else — a candidate that comes back UNCHANGED,
+      // never "the call did not throw", because the seed law keeps the stored
+      // value for anything it cannot use, which is indistinguishable from
+      // acceptance if you only check for an exception.
+      engineCaps.harmonySeed = false;
+      try {
+        const probed = sanitiseParams({ mode: 'aeolian', harmony: { seed: ['i', 'VI', 'III', 'VII'] } });
+        const seed = probed?.harmony?.seed;
+        engineCaps.harmonySeed = Array.isArray(seed) && seed.length === 4
+          && seed[0] && seed[0].degree === 0 && seed[1].degree === 5;
       } catch {}
 
       // Pad breath depth (0-1): scoped to the pad track's own params, the
@@ -4545,6 +4571,124 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       // ---- v21 chord length (harmony.rhythm; Advanced tab, near Structure) --
+      /**
+       * v0.0.68 — the chord progression, visible and editable.
+       *
+       * Step two of the agreed plan and the biggest thing a user could not
+       * touch: the app chose the chords and showed them nowhere you could
+       * change them. The engine has taken a hand-written loop since v26
+       * (`harmony.seed`) and nothing in the page ever wrote one.
+       *
+       * The vocabulary is roman numerals, which is deliberate rather than
+       * convenient: it is the same language the genre files are written in, so
+       * a user editing chords here is speaking exactly what I wrote the twelve
+       * genres in. Lower case is a minor degree, upper case major, and a 7 or
+       * a 9 on the end widens the chord.
+       *
+       * Empty means the app is choosing, which is the state everything ships
+       * in — so this control has to READ as "nothing set" rather than as an
+       * empty box someone has to fill before the app works.
+       *
+       * KNOWN GAP, stated rather than hidden: the degree is what the engine
+       * stores, so what a numeral SOUNDS like depends on the scale. Change the
+       * scale and the same loop is re-coloured. That is the engine's model and
+       * this control does not paper over it — the hint says so.
+       */
+      const PROGRESSION_INFO = [
+        'The chord loop the piece keeps coming back to. Leave it empty and the app writes one for you, which is what it does today.',
+        '',
+        'Chords are written as numbers of the scale, in roman numerals — the same way the built-in styles are written. I is the home chord, IV and V are the two it leans on most.',
+        '',
+        'Small letters are minor, capitals are major: i is a minor home chord, I a major one. Add a 7 or a 9 for a wider, jazzier chord.',
+        '',
+        'So "i VI III VII" is a common minor loop, and "I IV V IV" is about as ordinary as music gets.',
+      ].join('\n');
+
+      const PROGRESSION_MAX = 8;
+      const progressionControl = document.getElementById('control-progression');
+      const progressionRow = document.getElementById('progression-row');
+      const progressionHint = document.getElementById('progression-hint');
+
+      /** The stored loop as display text, or '' when the app is choosing. */
+      function progressionText() {
+        const seed = settings.harmony && settings.harmony.seed;
+        if (!Array.isArray(seed) || !seed.length) return '';
+        return seed.map(slotToNumeral).join(' ');
+      }
+
+      const NUMERALS = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii'];
+
+      /** A stored slot back into the numeral a person reads. */
+      function slotToNumeral(slot) {
+        if (typeof slot === 'string') return slot;
+        if (!slot || typeof slot !== 'object') return 'i';
+        const base = NUMERALS[clamp(Math.round(slot.degree ?? 0), 0, 6)];
+        const ext = Math.round(slot.extension ?? 0);
+        return ext >= 1 ? `${base}9` : ext === 0 ? `${base}7` : base;
+      }
+
+      function commitProgression(text) {
+        const tokens = String(text || '').trim().split(/[\s,]+/).filter(Boolean).slice(0, PROGRESSION_MAX);
+        const seed = tokens.length ? tokens : null;
+        settings.harmony = { ...settings.harmony, seed };
+        engine.setParams({ harmony: { seed } });
+        persistSettings();
+        // Re-read from the engine rather than trusting the typing: the seed law
+        // silently keeps the stored loop for anything the current scale cannot
+        // play, and a control that showed the rejected text would be lying.
+        try {
+          const live = engine.getParams()?.harmony?.seed;
+          settings.harmony.seed = Array.isArray(live) && live.length ? live : null;
+        } catch {}
+        renderProgression();
+      }
+
+      function renderProgression() {
+        if (!progressionRow) return;
+        progressionRow.innerHTML = '';
+        const text = progressionText();
+        const field = document.createElement('input');
+        field.type = 'text';
+        field.className = 'progression-input';
+        field.value = text;
+        field.placeholder = 'the app is choosing';
+        field.setAttribute('aria-labelledby', 'progression-label');
+        field.setAttribute('spellcheck', 'false');
+        field.addEventListener('change', () => commitProgression(field.value));
+        field.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') { event.preventDefault(); commitProgression(field.value); }
+          if (event.key === 'Escape') { field.value = progressionText(); field.blur(); }
+        });
+        progressionRow.append(field);
+
+        const clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'secondary-button progression-clear';
+        clear.textContent = 'Let the app choose';
+        clear.disabled = !text;
+        clear.addEventListener('click', () => commitProgression(''));
+        progressionRow.append(clear);
+
+        if (progressionHint) {
+          // Deliberately does NOT claim the loop is yours. A genre supplies one,
+          // so what is usually in this box on arrival is the app's own choice
+          // being shown for the first time — which is the point of the control —
+          // and calling that "your loop" would be a small lie on every load.
+          progressionHint.textContent = text
+            ? 'The loop being played. Edit it, or hand it back to the app. Written as scale numbers, so changing the scale re-colours it rather than moving it.'
+            : 'The app is writing its own loop. Type something like i VI III VII to set one yourself.';
+        }
+      }
+
+      if (engineCaps.harmonySeed && progressionControl) {
+        progressionControl.hidden = false;
+        {
+          const slot = document.getElementById('progression-info');
+          if (slot) infoButton(slot, 'the chord loop', PROGRESSION_INFO);
+        }
+        renderProgression();
+      }
+
       if (engineCaps.harmonyRhythm) {
         if (chordLengthControl) chordLengthControl.hidden = false;
         chordLengthSelect.value = String(settings.harmony.rhythm);
@@ -14590,6 +14734,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .seq-lane-add {
       padding: 4px 12px;
       line-height: 1;
+    }
+
+    /* v0.0.68: the chord loop. One line — a text field and a way out of it —
+       because a row of chip widgets for something most people will never touch
+       would take more of the panel than the thing deserves. */
+    .progression-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .progression-input {
+      flex: 1 1 220px;
+      min-width: 0;
+      font-family: var(--label-font, inherit);
+      letter-spacing: 0.06em;
+    }
+
+    .progression-input::placeholder {
+      letter-spacing: normal;
+      font-style: italic;
+      opacity: 0.7;
+    }
+
+    .progression-clear {
+      flex: 0 0 auto;
     }
 
     /* v0.0.67: a step the APP chose, as distinct from one you typed.
