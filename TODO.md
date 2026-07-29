@@ -61,7 +61,7 @@ the Q&A archive. Rulings from the second reply, so nothing below is re-proposed:
 what tweaking dials in Advanced already is), and MIDI-file import belongs to the
 PLAY side, not create.
 
-- [ ] **Write the compose-mode spec.** Entry points on starting a piece, his numbering kept:
+- [x] *(DRAFTED 2026-07-29 — `docs/compose-mode-spec.md`, awaiting his review; fromClaude 96)* **Write the compose-mode spec.** The draft folds both his briefs and the everything-editable ruling; its three open questions (where Create lives, the blank slate's palette, tap quantisation) are bundled in the doc rather than asked piecemeal. His original entry-point list, kept for the record:
   1. **Play or type a melody**, chords derived algorithmically on request — play-along works again as of v0.0.82 (the regression item above), Web MIDI note input ships in it, and "derive chords from played MIDI" is already in the input backlog. Typing needs note entry the grid does not have yet (pitch is a readout, not a field).
   2. **Play or type a chord sequence**, melody derived on request — the roman-numeral loop editor (v0.0.68/v0.0.76) IS the typing half; it needs a start-here framing rather than edit-what-exists, plus a played input on top.
   3. **Start with a beat** — the step editor is the substrate; the drum-grid rebuild he asked for (fromClaude 82) should be specified as part of this mode, not separately. **Tap a rhythm is in: space bar or button** ("love it").
