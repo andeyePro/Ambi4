@@ -2,6 +2,14 @@
 
 ## 2026-07-29
 
+- [x] **v0.0.80 — the Ambient wash stops sawing, and the full-screen bar is one row of one kind of button** — two of his smaller notes, both measured rather than eyeballed.
+
+  **The saw.** His words: *"the whistling is fine, it's called 'call' so let it be a bird sound not a sawing sound."* Two things were moving in the wash voice and only one of them is the bird. The Q wobble is the bird and is untouched. The band CENTRE was travelling from 320 Hz up past f × 2.4 × brightness and back down again over every single note — a filter sweep, and a filter sweep repeated forever is what a saw sounds like. It holds still now, at the geometric mean of the two ends it used to travel between: the centre of the region it spent the note passing through, which is the least-surprising place to stop it, and the frequency the noise makeup gain was **already** computed at — so the level is exact now rather than an average of a moving target.
+
+  **Measured, because "it sounds better" is not a result anybody can check** and nobody in this container can hear it anyway. A sweep is the spectral centroid moving over time. `tests/wash-sweep-render.mjs` renders one six-second note of the shipped voice offline and measures the centroid in eight windows across the body: **1.11 octaves of travel before, 0.27 after**. The lower bound is asserted too — a completely static spectrum would mean the Q wobble had gone with the sweep, which is the bird. The test was run against the old code first and fails on it.
+
+  **The full-screen bar.** His note on approving it: one consistent button style on one line; it had two styles on two rows. The ☰ was a bare transparent glyph pinned above a pair of secondary buttons. All three are secondary buttons in one row now, stretched to a common height so they line up exactly. The ☰ stays outside the collapsing group because it is the control that brings the group back — it fades rather than sliding away, and comes to full strength the moment a pointer or the keyboard finds it. `tests/fullscreenbar-drive.mjs` measures the boxes rather than looking at them, because "on one line" and "1px apart" are the same screenshot.
+
 - [x] **v0.0.79 — a share link is a base plus a diff, and provenance became evidence** — two items off the same v0.0.62 foundation.
 
   **Share links.** His note: *"share links should use the same base-and-diff. They still base64 the whole tree into the fragment, which is the same fault in a place that has not bitten yet — a fragment is not sent to a server, so it fails later and quieter (a link too long to paste into a chat window)."* A link now carries `{o: origin, d: diff}` — the style's id and seed, plus only what the sender changed. **A clean link off a genre is 116 characters**; the same setup used to be a base64 of the whole tree. After a key and scale change: 150.

@@ -135,7 +135,7 @@ bottom of the TODO."
 - [x] *(SHIPPED v0.0.63)* **The inner circle is the zero button** — the meaning he assigned it on 2026-07-27 ("single clicking outside the zero button…") and which it then spent six versions without: drawn, draggable, and doing nothing when pressed. Zero is not default and the two do not compete — the hub sends the dial to the bottom of its own scale, where it already renders grey; double-click restores the default. **A dial that cannot spread now has no inner circle drawn at all**, since both of the hub's jobs are meaningless there.
 - [x] *(CORRECTED)* **contact.andeye.com is LIVE and always was.** I reported it 404 from a stale note without ever testing it, and then broke it myself with the 115,897-character URL — which is what he actually saw. The form works; our Submit now fits inside it.
 
-- [ ] **The sawing in Ambient, not the whistling** — "the whistling is fine, it's called 'call' so let it be a bird sound not a sawing sound". So keep the resonant Q wobble, which is the bird; remove the noise band's slow sweep, which is the saw. In `textureWald`/`textureWash`: the band ramps 320 Hz → `f × 2.4 × brightness` over the note and back. Not a priority, his words.
+- [x] *(SHIPPED v0.0.80)* **The sawing in Ambient, not the whistling.** The Q wobble (the bird) is untouched; the band centre's ramp from 320 Hz to `f × 2.4 × brightness` and back is gone. It holds at the geometric mean of those two ends — the centre of the region it used to travel through, and the frequency the noise makeup gain was already computed at, so the level is exact rather than an average of a moving target. Measured, not eyeballed: `tests/wash-sweep-render.mjs` renders the shipped voice offline and reports spectral-centroid travel across the note — **1.11 octaves before, 0.27 after** — and asserts a lower bound too, because a frozen spectrum would mean the wobble had gone with the sweep.
 
 ## Owner replies, 2026-07-29
 
@@ -151,7 +151,7 @@ bottom of the TODO."
 
 - [x] *(SHIPPED v0.0.78 — the same item, recorded twice)* **cmd-z undoes the last user input, whatever it was — including Next.** See the entry above.
 - [ ] **Purge the paid-feature code from public git history — AUTHORISED 2026-07-29.** "You shouldn't have put that data in a public repo and you MUST remove it." He has no reason to think anyone holds a clone. Sequence: write up BFG versus filter-repo with what each breaks, move the code to a private repo first, then rewrite, then force-push, then confirm the objects are gone from GitHub's own view (a rewrite alone does not evict them until GitHub's gc runs — an unreferenced blob stays fetchable by SHA, which is the part people miss).
-- [ ] **Fullscreen bar: one consistent button style on one line.** His note on approving it — it currently has two different button styles on two rows.
+- [x] *(SHIPPED v0.0.80)* **Fullscreen bar: one consistent button style on one line.** All three are secondary buttons in one row, stretched to a common height. The ☰ stays outside the collapsing group — it is what brings the group back — so it fades rather than sliding away. Measured by box geometry rather than by screenshot, because "on one line" and "1px apart" look identical in a picture.
 
 ## Low priority — the scale list, in his own words
 

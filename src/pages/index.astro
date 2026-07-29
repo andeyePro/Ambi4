@@ -777,10 +777,18 @@ const VOICES: Record<string, [string, string][]> = {
        canvas bitmap, its listeners and its module handle; the modules resize
        themselves off their own ResizeObserver. -->
   <div id="fullscreen-stage" class="fullscreen-stage" hidden>
-    <button type="button" id="fullscreen-menu" class="fullscreen-menu" aria-label="Show the full-screen menu" aria-expanded="true">&#9776;</button>
+    <!-- v0.0.80: one row, one button style. His note on approving full screen
+         was that the bar "currently has two different button styles on two
+         rows" — the ☰ was a bare glyph pinned above a pair of secondary
+         buttons. All three are secondary buttons in one row now. The ☰ stays
+         OUTSIDE the collapsing group, because it is the control that brings
+         the group back; it just fades rather than sliding away. -->
     <div class="fullscreen-bar" id="fullscreen-bar">
-      <button type="button" id="fullscreen-add" class="secondary-button fullscreen-add" hidden></button>
-      <button type="button" id="fullscreen-exit" class="secondary-button" aria-label="Leave full screen">Exit (Esc)</button>
+      <div class="fullscreen-actions">
+        <button type="button" id="fullscreen-add" class="secondary-button fullscreen-add" hidden></button>
+        <button type="button" id="fullscreen-exit" class="secondary-button" aria-label="Leave full screen">Exit (Esc)</button>
+      </div>
+      <button type="button" id="fullscreen-menu" class="secondary-button fullscreen-menu" aria-label="Show the full-screen menu" aria-expanded="true">&#9776;</button>
     </div>
     <div id="fullscreen-slots" class="fullscreen-slots"></div>
   </div>
@@ -14319,15 +14327,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .fullscreen-bar {
       position: absolute;
       top: 8px;
-      right: 48px;
-      z-index: 4;
+      right: 8px;
+      z-index: 5;
       display: flex;
+      /* stretch, not center: the ☰ is a glyph and the others are words, so
+         their natural heights differ by a couple of pixels — which is exactly
+         the kind of not-quite-aligned the owner was looking at. */
+      align-items: stretch;
       justify-content: flex-end;
+      gap: 8px;
+    }
+
+    /* Only the ACTIONS slide away. The ☰ beside them is what brings them
+       back, so it cannot travel with them — it fades to a quiet glyph and
+       stays exactly where the pointer last saw it. */
+    .fullscreen-actions {
+      display: flex;
       gap: 8px;
       transition: transform 0.4s ease, opacity 0.4s ease;
     }
 
-    .fullscreen-bar[data-collapsed] {
+    .fullscreen-bar[data-collapsed] .fullscreen-actions {
       transform: translateX(calc(100% + 56px));
       opacity: 0;
       pointer-events: none;
@@ -14356,27 +14376,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       transition: opacity 0.4s ease;
     }
 
+    /* Same secondary button as the two beside it — that is the whole point of
+       this change — sized to its glyph rather than to a word. */
     .fullscreen-menu {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      z-index: 5;
-      width: 32px;
-      height: 32px;
-      padding: 0;
-      border: none;
-      background: transparent;
-      color: var(--secondary);
-      font-size: 16px;
-      line-height: 32px;
-      opacity: 0.25;
-      cursor: pointer;
+      flex: 0 0 auto;
+      min-width: 2.4em;
+      text-align: center;
       transition: opacity 0.3s ease;
+    }
+
+    /* Once the actions have gone, this recedes with them rather than sitting
+       alone and lit over the visuals, which is the thing full screen exists
+       not to do. Still fully reachable, and full strength the moment a
+       pointer or the keyboard finds it. */
+    .fullscreen-bar[data-collapsed] .fullscreen-menu {
+      opacity: 0.3;
     }
 
     .fullscreen-menu:hover,
     .fullscreen-menu:focus-visible {
-      opacity: 0.85;
+      opacity: 1;
     }
 
     .fullscreen-slots {

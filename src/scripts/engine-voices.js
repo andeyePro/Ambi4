@@ -3069,16 +3069,30 @@ function textureWash(ctx, destination, note, patch) {
   const release = p ? p.adsr.release : between(2.5, 4);
   const hold = Math.max(0.3, dur - attack);
 
-  // The sweeping band is this voice's filter, so the patch takes it over.
+  // v0.0.80 — the band no longer sweeps.
+  //
+  // The owner on Ambient: "the whistling is fine, it's called 'call' so let it
+  // be a bird sound not a sawing sound." Two things were moving in this voice
+  // and only one of them is the bird. The Q wobble is the bird and stays. The
+  // BAND's slow ramp — 320 Hz up to f × 2.4 × brightness across the note and
+  // back down again — is the saw, and it is gone: a band centre travelling two
+  // and a half octaves over six seconds, on every note, is a filter sweep, and
+  // a filter sweep repeated forever is the sound of an instrument being played
+  // by a machine.
+  //
+  // The band now HOLDS at the geometric mean of the two ends it used to travel
+  // between, which is the centre of the region it spent the note passing
+  // through — the least-surprising place to stop it, and the frequency the
+  // makeup gain below was already computed at, so the level is now exact
+  // rather than an average of a moving target.
   const { node: band, out: filtered } = mainFilter(rig, p, {
     type: 'bandpass', freq: 320, q: 1.2,
   });
   filtered.connect(amp);
   const at = cutoffAt(p, 320);
   const top = clamp(f * 2.4 * brightness(v), 600, 5000);
-  band.frequency.setValueAtTime(at(320), t);
-  band.frequency.exponentialRampToValueAtTime(at(top), t + attack + hold * 0.4);
-  band.frequency.exponentialRampToValueAtTime(at(420), t + attack + hold + release);
+  const centre = clamp(Math.sqrt(at(320) * at(top)), 120, 5000);
+  band.frequency.setValueAtTime(centre, t);
   lfo(rig, band.Q, { t, rate: 0.06, depth: 0.5 * envDepth(p) });
 
   // Two layers at slightly different playback rates decorrelate, which is what
@@ -3086,7 +3100,7 @@ function textureWash(ctx, destination, note, patch) {
   // sense for a band: anything wider passes the noise whole already.
   const q = p ? p.filter.q : 1.2;
   const makeup = (p ? p.filter.type : 'bandpass') === 'bandpass'
-    ? noiseMakeup(Math.sqrt(at(320) * at(top)), q, rig.sampleRate)
+    ? noiseMakeup(centre, q, rig.sampleRate)
     : 1;
   for (const rate of [0.92, 1.07]) {
     const noise = rig.noise(t, { colour: 'pink', rate });
