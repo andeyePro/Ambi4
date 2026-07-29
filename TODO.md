@@ -42,25 +42,33 @@ each alert actually is before deciding anything.
 
 ---
 
+## Play-along is broken — regression (owner report, in-chat 2026-07-29)
+
+- [ ] **Play-along does not work** — "play-along hasn't worked since some time after my asking for the latency to be improved." The latency item itself (v0.0.42, still open) was never built, so the break came from something else that has touched the keyboard or panel path since — candidates to bisect: the play-along collapse behind one button (v0.0.38), the global key handlers added since (⌘Z/⇧⌘Z undo v0.0.78, the Back and Stop keys v0.0.58/v0.0.55), and the gesture rebuild's key handling (v0.0.56). First step is a browser drive asserting keydown reaches the ENGINE (`noteOn`), not just the DOM, to split "input swallowed" from "note scheduled but silent". Every "play" entry of compose mode below depends on this path, so it is a prerequisite for that spec, not polish.
+
 ## Compose/create mode — the owner's design brief (in-chat, 2026-07-29), spec before build
 
 His ask: an explicit compose/create mode offering ways to START a piece, not only
 editing what the app wrote. It must work in both Simple and Advanced, and it comes
 early because "it will largely dictate how everything else you are working on gets
 implemented". Taken as the answer to the open bottom-up ask (fromClaude 83, now
-archived): blank slate was not what he meant — starting from your OWN material is.
-Verbatim text in the Q&A archive.
+archived), and amended by his second reply the same day. Both messages verbatim in
+the Q&A archive. Rulings from the second reply, so nothing below is re-proposed:
+**create starts from a BLANK SLATE** — capture-what-is-playing is ruled out (it is
+what tweaking dials in Advanced already is), and MIDI-file import belongs to the
+PLAY side, not create.
 
 - [ ] **Write the compose-mode spec.** Entry points on starting a piece, his numbering kept:
-  1. **Play or type a melody**, chords derived algorithmically on request — the play half is nearer than it looks: Web MIDI note input already ships in play-along (index.astro:9854), and "derive chords from played MIDI" is already a v0.0.42 item. Typing needs note entry the grid does not have yet (pitch is a readout, not a field).
+  1. **Play or type a melody**, chords derived algorithmically on request — Web MIDI note input exists in play-along (index.astro:9854) but is reported broken (regression item above), and "derive chords from played MIDI" is already a v0.0.42 item. Typing needs note entry the grid does not have yet (pitch is a readout, not a field).
   2. **Play or type a chord sequence**, melody derived on request — the roman-numeral loop editor (v0.0.68/v0.0.76) IS the typing half; it needs a start-here framing rather than edit-what-exists, plus a played input on top.
-  3. **Start with a beat** — the step editor is the substrate; the drum-grid rebuild he asked for (fromClaude 82) should be specified as part of this mode, not separately.
-  4. **Long-term: sing into the mic** — wants the v0.2.x audio-in track first. The spec should name hum/whistle too: monophonic pitch tracking on a hum is far more reliable than on sung words, so it may arrive earlier than singing.
+  3. **Start with a beat** — the step editor is the substrate; the drum-grid rebuild he asked for (fromClaude 82) should be specified as part of this mode, not separately. **Tap a rhythm is in: space bar or button** ("love it").
+  4. **Long-term: hum or whistle into the mic, BEFORE sing** (his ordering) — monophonic pitch tracking on a hum is far more reliable than on sung words. Both want the v0.2.x audio-in track first, "likely still some time off".
   5. **Long-term: start with words** — melody attempted algorithmically from syllable count, stress and contour rules. No external AI involved, so the AI-free position is untouched.
-
-  Methods to add to his five: **capture what is playing** — promote the engine's current output into your starting material, the most Ambi4-native entry there is, and cheap, since origin + seed + diff provenance already reconstructs any moment; **import a MIDI file** — same derivation paths as playing one; **start with a bassline** — bass-first is the ordinary workflow in half the dance genres, and it is "play a melody" pointed at a different track; **tap a rhythm** — the touch-first face of starting with a beat.
+- [ ] **Start with ANY track, not a privileged few** — his extension of the bassline idea: chords=pad, melody=melody, drums=percussion, bass, arp, "or even texture if they like". Diving in on any track must be easy; the entry points above are derivation paths, not a gate on which track goes first.
+- [ ] **Guided start** — alongside the dive-in paths, ask the user questions about what they want to make and recommend where to begin. Simple's face of the mode; the same entry points underneath.
 - [ ] **The spec must settle the authored-versus-generated seam ONCE, for the whole app.** Every entry point produces material the user owns that the engine must accompany without rewriting — the same ownership rule as the auto/manual promotion question (fromClaude 79 a/b) and the pitch-editing item. 79(a) — your edits pin, the app keeps deciding the rest — is the rule compose mode wants, which puts that blocked decision on this item's critical path.
 - [ ] **Simple and Advanced both get the mode, same entry points.** Simple derives without asking — play a melody and it just makes chords; Advanced exposes what the derivation is doing (which harmonisation, constraints, per-track regeneration) as controls over the same machinery, not a second implementation.
+- [ ] **MIDI-file import lands on the PLAY side** (his ruling) — an import that feeds the same derivation paths as live playing, filed with the play/latency work rather than compose mode.
 
 ---
 
