@@ -984,8 +984,28 @@ export const REVERB_TAIL_RANGE = Object.freeze([0.5, 6]);
  * the repetition-weighted one-or-two-bar draw every version so far has made;
  * a fixed number pins it, and the loop's PASS length follows from it — eight
  * chords at four bars each is a thirty-two bar pass.
+ *
+ * v0.0.77: the four-value whitelist became a RANGE plus a named option. The
+ * owner's note was "chord length still has no custom option in beats, bars or
+ * sections", and 3, 5, 6 and 12 bars are all perfectly ordinary lengths that
+ * the whitelist simply had no room for — a whitelist was the wrong shape for a
+ * bar count, not a deliberate restriction.
+ *
+ * `'section'` holds one chord for a whole structure block, which is the other
+ * unit he named: the length is read from the section itself as it starts, so a
+ * verse of six bars and a chorus of eight each get one chord of their own
+ * length without anyone typing either number.
+ *
+ * BEATS are deliberately absent and the reason is in the code rather than in a
+ * promise: harmony advances once per BAR here — every track plans a whole bar
+ * against one chord — so a sub-bar chord is a change to the harmony frame and
+ * to every scheduler that reads it, not a new option on this list.
  */
-export const HARMONY_RHYTHMS = Object.freeze(['auto', 1, 2, 4, 8]);
+export const HARMONY_RHYTHM_MAX_BARS = 16;
+export const HARMONY_RHYTHMS = Object.freeze([
+  'auto', 'section',
+  ...Array.from({ length: HARMONY_RHYTHM_MAX_BARS }, (_, i) => i + 1),
+]);
 
 /**
  * v21 padBreath: the depth of the pad's bar-phased swell, which is exactly
@@ -1185,9 +1205,11 @@ export function randomnessIsHold(value) {
  */
 function harmonyRhythm(value) {
   if (value === 'auto') return 'auto';
+  if (value === 'section') return 'section';
   const num = typeof value === 'number' ? value : Number(value);
   if (value === undefined || value === null || value === '' || !Number.isFinite(num)) return null;
-  return HARMONY_RHYTHMS.includes(num) ? num : null;
+  const bars = Math.round(num);
+  return bars >= 1 && bars <= HARMONY_RHYTHM_MAX_BARS ? bars : null;
 }
 
 /**
@@ -5945,8 +5967,34 @@ export function createEngine(initialParams, options = {}) {
    */
   function chordSpanBars() {
     const rhythm = params.harmony.rhythm;
+    // v0.0.77: one chord for a whole structure block. The length comes from
+    // the section that is STARTING, so a six-bar verse and an eight-bar chorus
+    // each hold one chord for their own length — and a chord that begins
+    // mid-section runs only to that section's end, which is what makes the
+    // next one land on the boundary rather than one bar past it.
+    if (rhythm === 'section') return Math.max(1, sectionBarsLeft());
     if (rhythm !== 'auto') return rhythm;
     return rng() < 0.5 + params.repetition * 0.2 ? 2 : 1;
+  }
+
+  /**
+   * How many bars of the current structure block remain, counting this one.
+   * Falls back to a single bar for the shapeless presets (drone, waves), which
+   * have no blocks to end — there, 'section' is simply 'every bar', and that
+   * is more honest than pretending a boundary exists.
+   */
+  function sectionBarsLeft() {
+    const preset = params.structure;
+    const blocks = preset === 'custom' ? params.customStructure : PRESET_BLOCKS[preset];
+    if (!Array.isArray(blocks) || !blocks.length) return 1;
+    const total = blocks.reduce((sum, block) => sum + block.bars, 0);
+    if (!(total > 0)) return 1;
+    let pos = ((structureBar % total) + total) % total;
+    for (const block of blocks) {
+      if (pos < block.bars) return block.bars - pos;
+      pos -= block.bars;
+    }
+    return 1;
   }
 
   /**

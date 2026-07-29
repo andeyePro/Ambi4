@@ -959,7 +959,17 @@ space, so users sculpt real-world impressions themselves:
   sizes; default 1 = current ±0.15/bar).
 - reverbTail: 0.5-6 seconds (global preset-capturable; engine rebuilds the IR
   async on change, crossfading sends — governor tier caps still apply on top).
-- harmony.rhythm: 'auto'|1|2|4|8 bars-per-chord (hook pass length adapts).
+- harmony.rhythm: 'auto' | 'section' | 1..16 bars-per-chord (hook pass length
+  adapts). v0.0.77 widened this from the Auto/1/2/4/8 whitelist: 3, 5, 6 and 12
+  bars are ordinary chord lengths that the whitelist had no room for, and a
+  whitelist was the wrong shape for a bar count. `'section'` holds one chord for
+  a whole structure block, reading the length from the block itself as it starts
+  — so a six-bar verse and an eight-bar chorus each get one chord of their own
+  length. On the shapeless presets (drone, waves) it degrades to one bar, which
+  is more honest than pretending a boundary exists. **Beats are deliberately
+  absent**: harmony advances once per BAR and every scheduler plans a whole bar
+  against one chord, so a sub-bar chord is a change to the harmony frame and to
+  every track that reads it — not a new value on this list.
 - Pad breathing: swell phase locks to bar phase (existing sin contour keyed to
   bar clock — already bar-phased; expose padBreath 0-1 depth param).
 - Modes add: ionian, mixolydian, phrygian (scale tables + chord naming).

@@ -667,12 +667,13 @@ const VOICES: Record<string, [string, string][]> = {
 
         <div class="control" id="control-chord-length" hidden>
           <label for="chordLength">Chord length</label>
+          <!-- v0.0.77: every whole bar count up to sixteen, plus one chord per
+               structure block. The old list was Auto/1/2/4/8, which left 3, 5,
+               6 and 12 unreachable for no musical reason. Populated by the page
+               script from the engine's own HARMONY_RHYTHMS, so the list can
+               never drift from what the engine will accept. -->
           <select id="chordLength">
             <option value="auto">Auto</option>
-            <option value="1">1 bar</option>
-            <option value="2">2 bars</option>
-            <option value="4">4 bars</option>
-            <option value="8">8 bars</option>
           </select>
         </div>
       </div>
@@ -5087,17 +5088,34 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       if (engineCaps.harmonyRhythm) {
         if (chordLengthControl) chordLengthControl.hidden = false;
+        // Built from the engine's own list rather than written out here: a
+        // hand-kept copy is exactly how a control comes to offer a value the
+        // engine then silently drops.
+        {
+          const rhythms = (engineModule && engineModule.HARMONY_RHYTHMS) || ['auto', 1, 2, 4, 8];
+          const label = (value) => {
+            if (value === 'auto') return 'Auto';
+            if (value === 'section') return 'One per section';
+            return value === 1 ? '1 bar' : `${value} bars`;
+          };
+          chordLengthSelect.replaceChildren(...rhythms.map((value) => {
+            const option = document.createElement('option');
+            option.value = String(value);
+            option.textContent = label(value);
+            return option;
+          }));
+        }
         chordLengthSelect.value = String(settings.harmony.rhythm);
         chordLengthSelect.addEventListener('change', () => {
           const raw = chordLengthSelect.value;
-          const value = raw === 'auto' ? 'auto' : Number(raw);
+          const value = raw === 'auto' || raw === 'section' ? raw : Number(raw);
           settings.harmony.rhythm = value;
           engine.setParams({ harmony: { rhythm: value } });
           persistSettings();
         });
         describe(
           chordLengthSelect,
-          'How many bars the chord progression holds each chord for. Auto lets the hook decide.'
+          'How many bars the chord progression holds each chord for. Auto lets the hook decide, and One per section gives each part of the piece a single chord of its own length. Beats are not offered: chords change on the bar here, and every instrument plans a whole bar against one chord.'
         );
       }
 

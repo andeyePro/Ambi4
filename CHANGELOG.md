@@ -2,6 +2,18 @@
 
 ## 2026-07-29
 
+- [x] **v0.0.77 — chord length in any number of bars, or one chord per section** — his note was *"chord length still has no custom option in beats, bars or sections."*
+
+  The list was Auto / 1 / 2 / 4 / 8, which left **3, 5, 6 and 12 bars unreachable for no musical reason** — a whitelist was simply the wrong shape for a bar count, not a deliberate restriction. It is now every whole bar count up to sixteen.
+
+  **One per section** is the other unit he named. It holds a single chord for a whole structure block and reads the length from the block itself as it begins, so a six-bar verse and an eight-bar chorus each get one chord of their own length without anyone typing either number. A chord that starts mid-section runs only to that section's end, which is what makes the next one land on the boundary rather than one bar past it. On the shapeless presets (drone, waves) it degrades to one bar, which is more honest than pretending a boundary exists.
+
+  **Beats are not offered, and the reason is in the code rather than in a promise.** Harmony advances once per BAR here — every instrument plans a whole bar against one chord — so a sub-bar chord is a change to the harmony frame and to every scheduler that reads it, not a new entry on a list. The tooltip says so, and TODO carries the shape of the change rather than a vague "later".
+
+  The select is now **built from the engine's own `HARMONY_RHYTHMS`** rather than written out in the markup: a hand-kept copy of an engine list is exactly how a control comes to offer a value the engine then silently drops. The browser test asserts the two agree.
+
+  The section test is the one worth keeping: two blocks of *different* lengths, so no fixed bar count could produce the same pattern by accident — the changes have to land on 5, 8, 13 and 16 rather than on any regular grid.
+
 - [x] **v0.0.76 — chords you can hear, not only read** — his amendment to step 2 of the agreed plan, verbatim: *"that only works for people who can hear chords in their head when they see the names, we need an audible version of this with a nice visual manipulator for those who can't."*
 
   v0.0.68 shipped the numerals, which was his own instruction and the right first move — roman numerals are the vocabulary the twelve genre files are written in. But a numeral is a name for a sound, and naming a sound to someone who cannot summon it is not showing it to them.

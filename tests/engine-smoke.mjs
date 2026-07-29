@@ -6364,7 +6364,11 @@ test('v21: density scales an auto track\'s event rate, and null is exactly the o
 // --------------------------------------------------------------------------
 
 test("v21: harmony.rhythm takes 'auto' or a bar count, and survives a preset round-trip", () => {
-  assert.deepEqual([...HARMONY_RHYTHMS], ['auto', 1, 2, 4, 8]);
+  // v0.0.77: the four-value whitelist became a range plus a named option. A
+  // whitelist was the wrong SHAPE for a bar count — 3, 5, 6 and 12 bars are
+  // all ordinary lengths it simply had no room for.
+  assert.deepEqual([...HARMONY_RHYTHMS].slice(0, 2), ['auto', 'section']);
+  assert.deepEqual([...HARMONY_RHYTHMS].slice(2), Array.from({ length: 16 }, (_, i) => i + 1));
   assert.deepEqual(DEFAULT_PARAMS.harmony, { rhythm: 'auto', seed: null },
     'the harmonic rhythm ships on auto, with no supplied loop');
 
@@ -6372,8 +6376,12 @@ test("v21: harmony.rhythm takes 'auto' or a bar count, and survives a preset rou
   assert.equal(rhythmOf(4), 4);
   assert.equal(rhythmOf('8'), 8, 'a select sends its options as strings');
   assert.equal(rhythmOf('auto'), 'auto');
-  assert.equal(rhythmOf(3), 'auto', 'a bar count that is not on the dial falls back');
+  assert.equal(rhythmOf(3), 3, 'three bars a chord is an ordinary length and is now allowed');
+  assert.equal(rhythmOf('section'), 'section', 'one chord per structure block');
+  assert.equal(rhythmOf(16), 16, 'the top of the range');
+  assert.equal(rhythmOf(17), 'auto', 'past the top falls back rather than clamping');
   assert.equal(rhythmOf(0), 'auto', 'nought bars a chord is not a harmonic rhythm');
+  assert.equal(rhythmOf(2.4), 2, 'a fractional bar count rounds — bars are whole here');
   assert.equal(rhythmOf('nope'), 'auto');
   assert.equal(sanitiseParams({ harmony: 'four' }).harmony.rhythm, 'auto',
     'a harmony that is not an object at all falls back to auto');
@@ -6444,6 +6452,34 @@ test('v21: a fixed harmony.rhythm holds every chord for exactly that many bars',
     assert.deepEqual(changes, [bars, bars * 2, bars * 3, bars * 4],
       `harmony.rhythm ${bars} did not hold each chord for ${bars} bars`);
   }
+}));
+
+test("v0.0.77: an odd bar count is an ordinary chord length", () => hiddenTab(async () => {
+  // 3, 5 and 6 bars were unreachable under the old whitelist for no musical
+  // reason — a whitelist was simply the wrong shape for a bar count.
+  for (const bars of [3, 5, 6]) {
+    const chords = await chordRun({ harmony: { rhythm: bars } }, bars * 3 + 1);
+    const changes = chordChangePositions(chords).filter((at) => at <= bars * 3);
+    assert.deepEqual(changes, [bars, bars * 2, bars * 3],
+      `harmony.rhythm ${bars} did not hold each chord for ${bars} bars`);
+  }
+}));
+
+test("v0.0.77: 'section' holds one chord for each structure block, at its own length", () => hiddenTab(async () => {
+  // Two blocks of different lengths, so a fixed bar count could not produce
+  // this pattern by accident: the changes have to land at 5, 8, 13, 16 — the
+  // block boundaries themselves — rather than on any regular grid.
+  const chords = await chordRun({
+    harmony: { rhythm: 'section' },
+    structure: 'custom',
+    customStructure: [
+      { label: 'A', bars: 5, intensity: 0.6 },
+      { label: 'B', bars: 3, intensity: 0.9 },
+    ],
+  }, 17);
+  const changes = chordChangePositions(chords).filter((at) => at <= 16);
+  assert.deepEqual(changes, [5, 8, 13, 16],
+    "'section' must change chord on the block boundaries and nowhere else");
 }));
 
 test("v21: 'auto' harmonic rhythm is the one-or-two-bar draw it always was", () => hiddenTab(async () => {
