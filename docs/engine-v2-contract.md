@@ -436,8 +436,31 @@ between min and max.
 Rangeable + DEFAULT RANGE mode (ships as {min,max} in defaults where marked *):
 filter cutoff*, sends reverb/delay, sequencer step prob, track randomness macro.
 Rangeable + default SINGLE: mix, detune, Q, envAmount, ADSR (all four), vary aspects,
-volume knobs. NOT rangeable: shapes (morph dial), octave, filter type, structure/arp
-discrete selects, bpm/speed/timeSignature/root/mode, master volume.
+volume knobs. NOT rangeable: filter type, structure/arp discrete selects,
+timeSignature/root/mode.
+
+v0.0.74 amendment. The owner's instruction was "either tell me why you won't add
+variation to all dials, or add it to them all, including OSCs and picker dials
+like filter type", and most of the v7 exclusions did not survive it:
+
+- **shapes (shape1/shape2)** — rangeable. The morph was always CONTINUOUS
+  (fractional positions between sine, triangle, saw and square have been legal
+  since v5), so calling it discrete was simply wrong.
+- **octave** — rangeable, rounded at RESOLUTION rather than at sanitise, so the
+  stored span keeps the ends the dial drew and the walk still only ever lands
+  on a stop the switch has.
+- **track glide** — rangeable. It was a plain number only because nothing had
+  walked it yet; the fix was `sanitiseRangeValue` in the sanitiser and
+  `resolveRange` in `glideSeconds`.
+- **bpm/speed and master volume** — already walked, through `params.spans`.
+- **filter type** — still single, and this is the one reason that does survive:
+  it is a STRING enum, so a `{min, max}` has no numeric axis to mean anything
+  along. Same for the processor tier and the groove feel, which are named
+  positions rather than points on a scale.
+
+The manifest compiler derives `rangeable` per field by ROUND TRIP against the
+schema (`patchFieldRange`), never from a hand-kept list — which is why it
+followed this change with no edit.
 Sanitisers (engine + voices patch layer) accept both forms everywhere rangeable;
 `number` behaves exactly as today. getParams returns whatever form is stored.
 

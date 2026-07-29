@@ -2013,6 +2013,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     function readShape(source, n) {
       const shape = source[`shape${n}`];
+      // v0.0.74: the morph is rangeable, so a stored {min,max} comes back as
+      // one — collapsing it here is exactly the silent drop that made the
+      // dial draw a span the engine had never been given.
+      if (isPlainObject(shape) && Number.isFinite(shape.min) && Number.isFinite(shape.max)) {
+        return { min: clamp(shape.min, 0, 3), max: clamp(shape.max, 0, 3) };
+      }
       if (typeof shape === 'number' && Number.isFinite(shape)) return clamp(shape, 0, 3);
       if (typeof shape === 'string' && shape in SHAPE_FROM_STRING) {
         return SHAPE_FROM_STRING[shape];
@@ -2031,9 +2037,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         source[`osc${n}`] = null;
         return;
       }
-      const v = clamp(value, 0, 3);
+      const v = mapRV(value, (x) => clamp(x, 0, 3));
       source[`shape${n}`] = v;
-      source[`osc${n}`] = SHAPE_NAMES[Math.round(v)];
+      // The legacy osc name is a single enum and cannot hold a span, so it
+      // takes the middle of one. shape1/shape2 stay authoritative on any
+      // build that understands them; this only matters to an older engine.
+      source[`osc${n}`] = SHAPE_NAMES[Math.round(rangeMid(v))];
     }
 
     // ---- v12/v18 detune dial --------------------------------------------
@@ -5071,15 +5080,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           describe(group, MONO_HINT);
         }
         if (!engineCaps.glide[track]) return;
-        // Not rangeable: the engine reads glide with numberIn(), so a
-        // {min,max} would be dropped on the floor.
+        // v0.0.74: rangeable. Until this version the engine read glide with
+        // numberIn(), so the dial collapsed a span to its midpoint before
+        // writing — the engine now walks it, so the span travels whole.
         const commitGlide = (v) => {
-          const value = clamp(rangeMid(v), 0, 1);
+          const value = isPlainObject(v)
+            ? { min: clamp(v.min, 0, 1), max: clamp(v.max, 0, 1) }
+            : clamp(v, 0, 1);
           settings.tracks[track].glide = value;
           engine.setParams({ tracks: { [track]: { glide: value } } });
           persistSettings();
         };
-        const value = clamp(settings.tracks[track].glide ?? 0, 0, 1);
+        const stored = settings.tracks[track].glide ?? 0;
+        const value = isPlainObject(stored)
+          ? { min: clamp(stored.min, 0, 1), max: clamp(stored.max, 0, 1) }
+          : clamp(stored, 0, 1);
         const glideFormat = (v) => (v <= 0.005 ? 'Off' : pctFormat(v));
         if (knobApi) {
           const cell = document.createElement('div');
@@ -5088,12 +5103,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try {
             const handle = knobApi.createKnob(cell, {
               label: 'Glide',
-              // v0.0.56 opt-out: the TRACK's glide is a plain number in the
-              // engine (`numberIn`, not `sanitiseRangeValue`) — unlike the
-              // patch-level glide, which is rangeable. Until the engine walks
-              // it, offering the gesture would be advertising a spread that
-              // is silently dropped on the next setParams.
-              allowRange: false,
+              // v0.0.74: the engine walks it now, so the spread is real. The
+              // v0.0.56 opt-out named the engine gap as the reason and the gap
+              // is closed — track glide takes a {min,max} exactly as the
+              // patch-level glide always did.
               min: 0,
               max: 1,
               value,
@@ -5263,10 +5276,31 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       const feelRawFromValue = (v, max) =>
         v === null || v === undefined ? 0 : 1 + Math.round((clamp(v, 0, max) / max) * (FEEL_STEPS - 1));
+      const feelStepValue = (n, max) =>
+        (n <= 0 ? null : clamp(((n - 1) / (FEEL_STEPS - 1)) * max, 0, max));
+      /**
+       * v0.0.74: this dial spreads, with one rule the others do not need.
+       * Its bottom stop is AUTO, which is not a smaller amount of swing — it
+       * is "follow the global dial", a different KIND of answer. So a span is
+       * pushed up off that stop rather than allowed to include it: a range
+       * reading "Auto to heavy" would be claiming the track alternates
+       * between following and leading, which the engine has no way to do.
+       */
       const feelValueFromRaw = (raw, max) => {
-        const n = Math.round(rangeMid(raw));
-        return n <= 0 ? null : clamp(((n - 1) / (FEEL_STEPS - 1)) * max, 0, max);
+        if (isPlainObject(raw)) {
+          const lo = Math.max(1, Math.round(raw.min));
+          const hi = Math.max(lo, Math.round(raw.max));
+          if (hi <= 0) return null;
+          return hi === lo
+            ? feelStepValue(lo, max)
+            : { min: feelStepValue(lo, max), max: feelStepValue(hi, max) };
+        }
+        return feelStepValue(Math.round(raw), max);
       };
+      const feelRawFromStored = (stored, max) =>
+        (isPlainObject(stored)
+          ? { min: feelRawFromValue(stored.min, max), max: feelRawFromValue(stored.max, max) }
+          : feelRawFromValue(typeof stored === 'number' ? stored : null, max));
 
       function buildFeelControl(parent, track, knobs, spec) {
         const { key, label, max, hint, format, className } = spec;
@@ -5281,8 +5315,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           persistSettings();
         };
         const stored = settings.tracks[track][key];
-        const raw = feelRawFromValue(typeof stored === 'number' ? stored : null, max);
-        const rawFormat = (v) => (Math.round(v) <= 0 ? 'Auto' : format(feelValueFromRaw(v, max)));
+        const raw = feelRawFromStored(stored, max);
+        const rawFormat = (v) => (Math.round(v) <= 0 ? 'Auto' : format(feelStepValue(Math.round(v), max)));
         if (knobApi) {
           const cell = document.createElement('div');
           cell.className = `knob-cell ${className}`;
@@ -5290,8 +5324,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try {
             const handle = knobApi.createKnob(cell, {
               label,
-              // v0.0.56 opt-out: feel is an enumeration of named grooves.
-              allowRange: false,
+              // v0.0.74: it spreads. The v0.0.56 note called this "an
+              // enumeration of named grooves", which it is not — the steps are
+              // a quantised view of a continuous 0–max amount, and the engine
+              // walks a span between two of them. See feelValueFromRaw for the
+              // one stop a span may not include.
               min: 0,
               max: FEEL_STEPS,
               step: 1,
@@ -8106,7 +8143,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             label: 'OSC 1',
             field: 'source.shape1',
             glyphOnly: true,
-            allowRange: false, // shape morph — see the Octave dial below
+            // v0.0.74: the morph spreads. It was always CONTINUOUS — fractional
+            // positions between sine, triangle, saw and square have been legal
+            // since v5 — so calling it discrete was simply wrong.
             min: 0,
             max: 3,
             value: readShape(patch.source, 1) ?? 0,
@@ -8147,7 +8186,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
           const shape2Knob = addKnob(source, {
             label: 'OSC 2',
-            allowRange: false, // shape morph — see the Octave dial below
+            // v0.0.74: the morph spreads. It was always CONTINUOUS — fractional
+            // positions between sine, triangle, saw and square have been legal
+            // since v5 — so calling it discrete was simply wrong.
             field: 'source.shape2',
             glyphOnly: true,
             min: 0,
@@ -8163,7 +8204,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // (0) while the cell is reachable at all (i.e. toggled on).
             ...(shape2Default != null ? { defaultValue: shape2Default } : {}),
             onInput: (v) => {
-              lastShape2 = clamp(v, 0, 3);
+              lastShape2 = mapRV(v, (x) => clamp(x, 0, 3));
               writeShape(patch.source, 2, lastShape2);
               commit();
             },
@@ -8261,22 +8302,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           addKnob(source, {
             label: 'Octave',
             field: 'source.octave',
-            // v0.0.56: spreadable is the default, and this is one of the few
-            // dials that must opt out — the engine names octave, filter type
-            // and the shape morphs as the params it cannot walk, and a span
-            // between two named switch positions would not mean anything.
-            // The Pitch dial that replaces this one on percussion IS
-            // continuous, and does spread.
-            allowRange: false,
+            // v0.0.74: this spreads now. The owner's "either tell me why you
+            // won't add variation to all dials, or add it to them all" — and
+            // the reason I had given did not survive contact. An oscillator
+            // that jumps octave bar by bar is an ordinary synth behaviour;
+            // the engine takes a span here and rounds the walk to one of the
+            // switch's own stops, so a span never lands between them.
             min: -1,
             max: 1,
             step: 1,
-            value: clamp(patch.source.octave, -1, 1),
+            value: sanitiseRangeValueIn(patch.source.octave, -1, 1, 0),
             marks: [-1, 0, 1],
             format: (v) => (v > 0 ? `+${Math.round(v)}` : String(Math.round(v))),
             defaultValue: defaults.source.octave,
             onInput: (v) => {
-              patch.source.octave = Math.round(clamp(v, -1, 1));
+              patch.source.octave = mapRV(v, (n) => Math.round(clamp(n, -1, 1)));
               commit();
             },
           });
@@ -12514,7 +12554,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#panel-simple .sliders-module',
-          text: 'These dials are the whole instrument for most people. Drag one up and down for its value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type an exact one. Double-click puts a dial back to its default. While you are dragging, the dial\u2019s pointer thickens \u2014 so you can always tell whether it is still following you. Change at zero means hold: the generator keeps looping exactly what it is playing.',
+          text: 'These dials are the whole instrument for most people. Drag one up and down for its value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type an exact one. Double-click puts a dial back to its default. While you are dragging, the dial\u2019s pointer thickens \u2014 so you can always tell whether it is still following you. Change at zero means hold: the generator keeps looping exactly what it is playing. Every dial in the app takes a range, including the ones inside an instrument \u2014 the only exceptions are the few that pick a named thing rather than an amount, like the filter Type.',
         },
         {
           tab: 'simple',

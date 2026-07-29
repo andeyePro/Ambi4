@@ -1129,6 +1129,19 @@ function nullableNumber(partial, base, key, range) {
 }
 
 /**
+ * The nullable-number helper's rangeable twin (v0.0.74): the same three-way
+ * answer — explicit null, a sent value, the stored one — except the value may
+ * be a `{ min, max }` span rather than a plain number.
+ */
+function nullableRange(partial, base, key, range) {
+  if (partial && key in partial && partial[key] === null) return null;
+  const sent = sanitiseRangeValue(partial ? partial[key] : undefined, range[0], range[1]);
+  if (sent !== undefined) return sent;
+  const stored = sanitiseRangeValue(base ? base[key] : undefined, range[0], range[1]);
+  return stored !== undefined ? stored : null;
+}
+
+/**
  * v7 RangeValue: a rangeable param accepts a plain number or `{ min, max }`.
  * Both bounds are clamped into [lo, hi] and swapped if they arrive reversed, so
  * `{ min: 0.9, max: 0.1 }` stores as `{ min: 0.1, max: 0.9 }`. An object needs
@@ -1538,13 +1551,22 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
         oneOf(baseTrack.driftShape, DRIFT_SHAPES, DEFAULT_DRIFT_SHAPE)),
       driftBars: Math.round(numberIn(partial && partial.driftBars, DRIFT_BARS_RANGE,
         numberIn(baseTrack.driftBars, DRIFT_BARS_RANGE, DEFAULT_DRIFT_BARS))),
-      swing: nullableNumber(partial, baseTrack, 'swing', TRACK_SWING_RANGE),
-      density: nullableNumber(partial, baseTrack, 'density', TRACK_DENSITY_RANGE),
+      // v0.0.74: both rangeable. `null` still means "follow the global dial",
+      // which is why these keep their own nullable helper rather than joining
+      // the plain sanitiseRangeValue fields — a span and an absence are
+      // different answers and collapsing either into the other loses one.
+      swing: nullableRange(partial, baseTrack, 'swing', TRACK_SWING_RANGE),
+      density: nullableRange(partial, baseTrack, 'density', TRACK_DENSITY_RANGE),
       hold: partial && 'hold' in partial ? Boolean(partial.hold) : Boolean(baseTrack.hold),
       mono: partial && 'mono' in partial ? Boolean(partial.mono)
         : 'mono' in baseTrack ? Boolean(baseTrack.mono) : shape.mono,
-      glide: numberIn(partial && partial.glide, [0, 1],
-        numberIn(baseTrack.glide, [0, 1], shape.glide)),
+      // v0.0.74: rangeable. It was a plain number only because nothing had
+      // walked it yet — glide is continuous seconds of portamento, so a span
+      // is a track whose notes slide further on some bars than others, which
+      // is a real musical behaviour and not a switch between named positions.
+      glide: sanitiseRangeValue(partial && partial.glide, 0, 1)
+        ?? sanitiseRangeValue(baseTrack.glide, 0, 1)
+        ?? shape.glide,
       vary: sanitiseVary(partial && partial.vary, baseTrack.vary),
     };
     if (shape.tuned) {
@@ -1677,9 +1699,9 @@ function patchNumber(value, lo, hi) {
  *
  * The v7 rangeable fields take `number | { min, max }` — the range dials in the
  * voice editor write the object form, and the field's OWN bounds clamp both
- * ends. NOT rangeable, per v7: the shape morph dials, octave and filter type,
- * which are discrete or enum-like and take a single value engine-side —
- * percussion's v18 `pitch` is continuous, so unlike octave it IS rangeable.
+ * ends. As of v0.0.74 that is every NUMERIC field, the shape morphs and octave
+ * included; the one field still refusing a span is the filter `type`, which is
+ * a string enum and has no numeric axis for a span to mean anything along.
  * `perKind` runs through the very same field table, so a kit override is
  * rangeable exactly where the common patch is.
  */
@@ -1692,16 +1714,29 @@ const PATCH_SCHEMA = Object.freeze({
     // A null osc2 is meaningful: "single oscillator", not "unset".
     osc2: (v) => (v === null ? null : oneOf(v, PATCH_OSC_TYPES, undefined)),
     // v5 morph dial: 0 sine, 1 triangle, 2 sawtooth, 3 square; fractional legal.
-    shape1: (v) => patchNumber(v, 0, 3),
-    shape2: (v) => (v === null ? null : patchNumber(v, 0, 3)),
+    //
+    // v0.0.74: RANGEABLE. The owner's ask was "either tell me why you won't add
+    // variation to all dials, or add it to them all, including OSCs and picker
+    // dials like filter type", and the reason I had given did not survive
+    // contact: an oscillator morphing between two shapes bar by bar is a
+    // perfectly ordinary thing for a synth to do, and the morph is CONTINUOUS
+    // anyway — fractional positions were always legal here. The only reason it
+    // was excluded is that v7 called it discrete, which it is not.
+    shape1: (v) => sanitiseRangeValue(v, 0, 3),
+    shape2: (v) => (v === null ? null : sanitiseRangeValue(v, 0, 3)),
     mix: (v) => sanitiseRangeValue(v, 0, 1),
     // Bipolar since v12: the dial detunes flat as readily as sharp, and the
     // octave switch reaches two either way. Defaults are unchanged, so every
     // stored patch keeps sounding exactly as it did.
     detune: (v) => sanitiseRangeValue(v, -50, 50),
+    // v0.0.74: rangeable, and rounded at RESOLUTION rather than here — a span
+    // of −1 to +1 is a meaningful ask (the voice jumps octave bar by bar) and
+    // rounding the ends kept it meaningful while letting the walk pick one.
     octave: (v) => {
-      const num = patchNumber(v, -2, 2);
-      return num === undefined ? undefined : Math.round(num);
+      const ranged = sanitiseRangeValue(v, -2, 2);
+      if (ranged === undefined) return undefined;
+      if (typeof ranged === 'number') return Math.round(ranged);
+      return { min: Math.round(ranged.min), max: Math.round(ranged.max) };
     },
     // v18: the percussion kits tune in semitones instead of by the octave
     // switch — the same two octaves either way, but continuous and rangeable,
@@ -2249,6 +2284,9 @@ function copyTrack(track) {
     ...track,
     level: copyRangeValue(track.level),
     randomness: copyRangeValue(track.randomness),
+    glide: copyRangeValue(track.glide),
+    swing: copyRangeValue(track.swing),
+    density: copyRangeValue(track.density),
     vary: Object.fromEntries(
       Object.entries(track.vary).map(([aspect, value]) => [aspect, copyRangeValue(value)]),
     ),
@@ -4301,7 +4339,8 @@ export function createEngine(initialParams, options = {}) {
    */
   function trackSwing(track) {
     const own = params.tracks[track].swing;
-    return clamp(own === null || own === undefined ? params.swing : own, 0, 1);
+    if (own === null || own === undefined) return clamp(params.swing, 0, 1);
+    return clamp(resolveRange(track, 'swing', own) ?? params.swing, 0, 1);
   }
 
   /**
@@ -4312,7 +4351,8 @@ export function createEngine(initialParams, options = {}) {
    */
   function trackDensity(track) {
     const value = params.tracks[track].density;
-    return value === null || value === undefined ? 1 : value;
+    if (value === null || value === undefined) return 1;
+    return resolveRange(track, 'density', value) ?? 1;
   }
 
   /** The kit as it currently stands: the lane list the drum grid is keyed by. */
@@ -4752,7 +4792,14 @@ export function createEngine(initialParams, options = {}) {
         if (!value || typeof value !== 'object') continue;
         if (!out) out = { ...patch };
         if (out[section] === fields) out[section] = { ...fields };
-        out[section][field] = resolveRange(track, `patch.${voiceId}.${section}.${field}`, value);
+        const resolved = resolveRange(track, `patch.${voiceId}.${section}.${field}`, value);
+        // v0.0.74: octave is a switch, not a slider. A span of −1 to +1 is a
+        // real ask — the voice jumps octave bar by bar — but landing on 0.37 of
+        // an octave is not a thing a switch can be, so the walk picks a
+        // position and this rounds it to one of the switch's own stops.
+        out[section][field] = field === 'octave' && typeof resolved === 'number'
+          ? Math.round(resolved)
+          : resolved;
       }
     }
     return out ?? patch;
@@ -5293,7 +5340,8 @@ export function createEngine(initialParams, options = {}) {
 
   /** A track's portamento, in seconds: the 0–1 param across GLIDE_RANGE. */
   function glideSeconds(track) {
-    const amount = clamp(Number(params.tracks[track].glide) || 0, 0, 1);
+    const walked = resolveRange(track, 'glide', params.tracks[track].glide);
+    const amount = clamp(Number(walked) || 0, 0, 1);
     return GLIDE_RANGE[0] + (GLIDE_RANGE[1] - GLIDE_RANGE[0]) * amount;
   }
 

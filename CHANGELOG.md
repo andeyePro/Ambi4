@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-29
+
+- [x] **v0.0.74 — every dial that describes an amount now takes a range, and the two that do not say why** — the owner's instruction was *"either tell me why you won't add variation to all dials, or add it to them all, including OSCs and picker dials like filter type."*
+
+  The v0.0.56 reason did not survive contact and is withdrawn. It said a span between two named switch positions would mean nothing, and named the shape morphs, octave and filter type as the params the engine cannot walk. Two thirds of that was wrong about the app's own code: **the shape morph was always continuous** — fractional positions between sine, triangle, saw and square have been legal since v5, and the dial has drawn the intermediate waveform all along — and **an oscillator jumping octave bar by bar** is an ordinary synth behaviour, not a nonsense one. What was actually blocking both was that `PATCH_SCHEMA` read them with `oneOf`/`numberIn` instead of `sanitiseRangeValue`, which is an engine gap and not a design objection.
+
+  **Now spreadable, engine and dial together:** the two shape morphs, octave (rounded at RESOLUTION rather than at sanitise, so the stored span keeps the ends the dial drew while the walk only ever lands on a stop the switch has), per-track **glide**, and per-track **swing** and **density**. Swing and density needed a new sanitiser helper rather than a swapped one: `null` on those two means "follow the global dial", which is a different KIND of answer from a small amount, and flattening it into the bottom of a range would have lost it.
+
+  **Still single, and this is the reason that does survive:** the filter **Type**, the **Processor** tier and — as their own case — the **Drift rate**. The first two are string enumerations with no numeric axis for a span to mean anything along; a `{min, max}` there is not a smaller claim than the engine can honour, it is a claim about a scale that does not exist. Drift rate is the speed at which every other span walks, so spreading it asks a walk to set its own step size.
+
+  **The feel dials have one extra rule.** Swing and Density are drawn as 21 steps whose bottom stop is **Auto**, and Auto is not less swing — it is "follow the global dial". A span is therefore pushed up off that stop rather than allowed to include it, because a range reading "Auto to heavy" would claim the track alternates between following and leading, which the engine has no way to do.
+
+  **A browser test now holds the line.** `tests/spread-all-drive.mjs` opens the voice editor, drags every visible dial sideways, and asserts there are exactly two categories: dials that spread, and named enumerations that do not. It checks the **engine's stored value**, not only the dial's readout — which is what caught the two real bugs in this change: track glide was collapsing its span to a midpoint in `commitGlide` before it ever reached `setParams`, and the octave dial was doing the same through `Math.round`. Both drew a range the engine had never been given, which is exactly the silent drop the owner has objected to twice. 31 dials are proven spreadable end to end.
+
+  The manifest compiler needed no edit at all: it derives `rangeable` per field by round-tripping a probe value through the schema rather than from a hand-kept list, so it followed the engine change on its own — and there is now a test asserting that it did.
+
+  Docs updated in the same commit per the standing rule: the RangeValue section of `docs/engine-v2-contract.md` carries the amendment and the withdrawn reason, and the guided tour's dial step says plainly that every dial takes a range except the few that pick a named thing.
+
 ## 2026-07-28
 
 - [x] **v0.0.60 — you can see when a dial is still listening to you** — the owner's first and most repeated complaint on reviewing v0.0.59: *"far too often I set the dial as I want it then move to go elsewhere and I've ruined it."*

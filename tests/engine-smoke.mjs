@@ -5050,16 +5050,33 @@ test('v7: every rangeable patch field takes a {min,max}, and the fixed ones refu
       range.min, `${section}.${field} stopped taking a plain number`);
   }
 
-  // NOT rangeable (v7): the morph dials, octave and the filter type.
+  // v0.0.74: the morph dials and octave ARE rangeable now. The owner's "either
+  // tell me why you won't add variation to all dials, or add it to them all",
+  // and the v7 reason did not survive: the morph was always continuous
+  // (fractional positions between sine, triangle, saw and square have been
+  // legal since v5), and an oscillator jumping octave bar by bar is ordinary
+  // synth behaviour.
   for (const [section, field, range] of [
     ['source', 'shape1', { min: 0, max: 3 }],
     ['source', 'shape2', { min: 0, max: 3 }],
     ['source', 'octave', { min: -1, max: 1 }],
-    ['filter', 'type', { min: 0, max: 1 }],
   ]) {
-    assert.deepEqual(sanitiseParams(patchWith(section, field, range)).patches, {},
-      `${section}.${field} accepted a range the engine can only take a single value for`);
+    const stored = sanitiseParams(patchWith(section, field, range)).patches.pad?.warm?.[section];
+    assert.deepEqual(stored?.[field], range,
+      `${section}.${field} dropped a range it should now take`);
   }
+
+  // Octave rounds BOTH ends: it is a switch, and a span that lands between its
+  // stops is not a position the switch has.
+  const octaveSpan = sanitiseParams(patchWith('source', 'octave', { min: -0.6, max: 0.6 }))
+    .patches.pad.warm.source.octave;
+  assert.deepEqual(octaveSpan, { min: -1, max: 1 }, 'octave must round its span to switch stops');
+
+  // Filter type is STILL not rangeable, and for a reason that does survive: it
+  // is a string enum, so a {min,max} has no meaning without an index mapping
+  // the engine does not have. Named here rather than left implied.
+  assert.deepEqual(sanitiseParams(patchWith('filter', 'type', { min: 0, max: 1 })).patches, {},
+    'filter.type is a string enum and cannot take a numeric span');
 
   // perKind follows the same field rules as the common patch.
   const kit = sanitiseParams({
@@ -7796,6 +7813,42 @@ const GOOD_DIALS = [
   { section: 'adsr', field: 'attack', label: 'Attack', min: 0.01, max: 4, default: 1.2, unit: 's' },
 ];
 
+test('v0.0.74: the per-track feel and portamento dials take a span, and null still means follow', () => {
+  // The owner's "add it to them all" reached the track row too. glide was a
+  // plain number for want of a walk; swing and density were plain numbers with
+  // a THIRD state (null = follow the global dial) that a naive change would
+  // have flattened into "the bottom of the range".
+  const spread = sanitiseParams({
+    tracks: {
+      pad: { glide: { min: 0, max: 1 }, swing: { min: 0.1, max: 0.5 }, density: { min: 0.5, max: 1.5 } },
+    },
+  }).tracks.pad;
+  assert.deepEqual(spread.glide, { min: 0, max: 1 });
+  assert.deepEqual(spread.swing, { min: 0.1, max: 0.5 });
+  assert.deepEqual(spread.density, { min: 0.5, max: 1.5 });
+
+  // null survives as null — "follow" is not a quantity and a span cannot say it.
+  const following = sanitiseParams({ tracks: { pad: { swing: null, density: null } } }).tracks.pad;
+  assert.equal(following.swing, null);
+  assert.equal(following.density, null);
+
+  // Reversed and out-of-range behave as everywhere else: swapped, then clamped
+  // into the field's OWN bounds.
+  const wild = sanitiseParams({
+    tracks: { pad: { glide: { min: 9, max: -9 }, swing: { min: 5, max: -5 } } },
+  }).tracks.pad;
+  assert.deepEqual(wild.glide, { min: 0, max: 1 });
+  assert.deepEqual(wild.swing, { min: 0, max: 1 });
+
+  // getParams hands back a COPY of the span, not the engine's own object — a
+  // caller mutating what it reads must not reach inside the engine.
+  const engine = createEngine();
+  engine.setParams({ tracks: { pad: { glide: { min: 0.2, max: 0.8 } } } });
+  const read = engine.getParams();
+  read.tracks.pad.glide.min = 0.99;
+  assert.equal(engine.getParams().tracks.pad.glide.min, 0.2);
+});
+
 test('v23 manifest: dials naming unknown fields are dropped, out-of-range min/max are clamped, a code-shaped string rejects the manifest', () => {
   // A dial the engine would silently drop is worse than no dial: the field has
   // to be one PATCH_SCHEMA actually has.
@@ -7821,13 +7874,21 @@ test('v23 manifest: dials naming unknown fields are dropped, out-of-range min/ma
   assert.equal(clamped.dials[1].min, 40);
   assert.equal(clamped.dials[1].max, 12000);
 
-  // Discrete engine-side stays discrete: a manifest cannot make `octave` take
-  // a {min,max} the sanitiser would then drop.
+  // v0.0.74: octave spreads, so a manifest dial on it is offered as rangeable —
+  // and the probe derives that by ROUND TRIP, never from a hand-kept list, so
+  // it followed the engine change without anyone editing the compiler.
   const octave = withManifest(manifestSpec([
     { section: 'source', field: 'octave', label: 'Octave', min: -9, max: 9, default: 0, rangeable: true },
   ])).manifest;
-  assert.equal(octave.dials[0].rangeable, false);
+  assert.equal(octave.dials[0].rangeable, true);
   assert.deepEqual([octave.dials[0].min, octave.dials[0].max], [-2, 2]);
+
+  // The enum still cannot: a manifest dial on filter.type is dropped, not
+  // rendered as a knob the sanitiser would then refuse.
+  assert.deepEqual(withManifest(manifestSpec([
+    ...GOOD_DIALS,
+    { section: 'filter', field: 'type', label: 'Type', min: 0, max: 1, default: 0, rangeable: true },
+  ])).manifest.dials.map((dial) => dial.field), ['detune', 'attack']);
 
   // Duplicate field within a section: last wins, in its own place.
   const duped = withManifest(manifestSpec([
