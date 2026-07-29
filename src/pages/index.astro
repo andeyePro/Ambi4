@@ -750,6 +750,10 @@ const VOICES: Record<string, [string, string][]> = {
           </label>
           <span id="submit-terms-info"></span>
         </p>
+        <!-- v0.0.79: what this piece grew from and how much of it is yours.
+             Evidence for the AI-free question rather than a verdict on it —
+             the label is a claim a person signs about the music. -->
+        <p class="hint" id="preset-provenance"></p>
       </fieldset>
 
     </section>
@@ -2124,6 +2128,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /** True when the link this visit arrived on was minted by a newer build. */
     let arrivedFromNewerBuild = false;
 
+    /**
+     * v0.0.79 — a share link is a base plus a diff, exactly as a submission
+     * has been since v0.0.62.
+     *
+     * His note: "share links should use the same base-and-diff. They still
+     * base64 the whole tree into the fragment, which is the same fault in a
+     * place that has not bitten yet — a fragment is not sent to a server, so
+     * it fails later and quieter (a link too long to paste into a chat
+     * window)."
+     *
+     * The compact payload is `{ o: origin, d: diff }`. Everything else — the
+     * schema version, the word-name hashing, the arrival note — is unchanged,
+     * and a payload WITHOUT `o`/`d` is still read as a whole tree. That last
+     * clause is permanent, not transitional: every link already in the wild
+     * carries the full tree and must keep working forever.
+     */
+    const SHARE_ORIGIN_KEY = 'o';
+    const SHARE_DIFF_KEY = 'd';
+
+    const isCompactShare = (parsed) =>
+      isPlainObject(parsed) && isPlainObject(parsed[SHARE_ORIGIN_KEY]) && SHARE_DIFF_KEY in parsed;
+
     function encodeShareParams(params) {
       const payload = { ...params, [SHARE_VERSION_KEY]: SHARE_SCHEMA };
       const bytes = new TextEncoder().encode(JSON.stringify(payload));
@@ -2661,8 +2687,56 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+      /**
+       * v0.0.79 — a compact share payload back into a whole settings tree.
+       *
+       * A payload with no `o`/`d` is a WHOLE TREE and is returned untouched.
+       * That branch is permanent: every link minted before this version
+       * carries the full tree, and links live in other people's chat logs
+       * forever.
+       *
+       * If the origin cannot be rebuilt — an unknown genre slug, a compiler
+       * that refused, a link from a build whose genre files we do not have —
+       * the diff is applied to the plain defaults instead. That is a worse
+       * reproduction than the sender heard and the arrival note says so; it is
+       * still better than a blank page, because the diff carries every field
+       * the sender actually changed.
+       */
+      function expandSharedParams(payload) {
+        if (!isCompactShare(payload)) return payload;
+        let base = null;
+        try { base = baseFromOrigin(payload[SHARE_ORIGIN_KEY]); } catch { base = null; }
+        if (!base) {
+          shareBaseMissing = true;
+          base = deepMerge(DEFAULTS, {});
+          normaliseV6Tracks(base);
+          delete base.ui;
+          base.origin = { ...payload[SHARE_ORIGIN_KEY] };
+        }
+        return applyShareDiff(base, payload[SHARE_DIFF_KEY]);
+      }
+
+      /**
+       * A diff written by diffTree, applied back onto its base. `null` at a
+       * key means the key was REMOVED — diffTree writes that deliberately, and
+       * treating it as the value null instead would restore a track the sender
+       * had deleted.
+       */
+      function applyShareDiff(base, diff) {
+        if (!isPlainObject(diff)) return base;
+        const out = isPlainObject(base) ? { ...base } : {};
+        for (const [key, value] of Object.entries(diff)) {
+          if (value === null) { delete out[key]; continue; }
+          out[key] = isPlainObject(value) && isPlainObject(out[key])
+            ? applyShareDiff(out[key], value)
+            : value;
+        }
+        return out;
+      }
+
       // ---- settings load + legacy migration -----------------------------
 
+      let shareBaseMissing = false;
       let settings;
       let sharedParams = null;
       let routePreset = null;
@@ -2722,7 +2796,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (sharedParams) {
           const ui = settings.ui;
           try {
-            const clone = structuredClone(sharedParams);
+            const clone = structuredClone(expandSharedParams(sharedParams));
             migrateLegacyArpSteps(clone);
             settings = deepMerge(DEFAULTS, clone);
             normaliseV6Tracks(settings);
@@ -11805,7 +11879,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return true;
       }
 
-      onSettingsCommitted = noteUndoPoint;
+      onSettingsCommitted = () => {
+        noteUndoPoint();
+        // Cheap: a diff of two trees, at most once per settled edit.
+        if (typeof syncProvenance === 'function') syncProvenance();
+      };
 
       window.addEventListener('keydown', (event) => {
         if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
@@ -12758,6 +12836,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * long arrays, and a share link is a URL somebody has to paste — this
        * roughly halves it, losslessly.
        */
+      /**
+       * v0.0.79 — what a share link actually carries: the origin plus a diff,
+       * falling back to the whole tree only when the origin cannot rebuild a
+       * base. Same shape and same reasoning as submissionPayload; the
+       * difference is only in the key names, which are one letter each because
+       * this one rides in a URL somebody has to paste.
+       */
+      function sharePayload() {
+        const base = originBase();
+        if (!base) return shareSnapshot();
+        const compact = {
+          [SHARE_ORIGIN_KEY]: originSnapshot(),
+          [SHARE_DIFF_KEY]: diffTree(base, paramsSnapshot()),
+        };
+        // A safety net rather than an optimisation: if the diff somehow came
+        // out bigger than the tree it was diffed against, send the tree. The
+        // whole point of this change is that a link stays paste-able.
+        const full = shareSnapshot();
+        return JSON.stringify(compact).length < JSON.stringify(full).length ? compact : full;
+      }
+
       function shareSnapshot() {
         const s = paramsSnapshot();
         for (const id of SEQ_TRACKS) {
@@ -12955,7 +13054,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       /** The settings tree the current origin reproduces, or null if it cannot. */
       function originBase() {
-        const o = originSnapshot();
+        return baseFromOrigin(originSnapshot());
+      }
+
+      /**
+       * The settings tree a given origin reproduces, or null if it cannot.
+       * Split out from originBase so the share DECODER can reach it: a link
+       * arrives long before the submission code exists, and it needs the same
+       * rebuild rather than a second copy of it.
+       */
+      function baseFromOrigin(origin) {
+        const o = isPlainObject(origin) && typeof origin.kind === 'string'
+          ? { ...origin }
+          : { kind: 'unknown' };
         if (o.kind === 'genre' && typeof o.id === 'string' && Number.isFinite(o.seed)) {
           const genre = GENRE_BY_SLUG.get(o.id);
           const compiled = genre ? compileGenreParams(genre, o.seed) : null;
@@ -13023,13 +13134,100 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * when the origin cannot rebuild a base — better a big payload than a
        * diff against something we cannot name.
        */
+      /**
+       * v0.0.79 — provenance as EVIDENCE, which is what the AI-free label
+       * needs to stop being self-declared.
+       *
+       * TODO's wording: "a piece that is one of our genres plus a human's
+       * edits is a different object from one that arrived as an opaque blob,
+       * and until v0.0.62 the two were indistinguishable on arrival."
+       *
+       * This does not decide whether anything is AI-free — the label is a
+       * claim a person signs about the MUSIC, not a fact about the source, and
+       * CONTRIBUTING.md is explicit about that. What it does is put the
+       * evidence beside the claim: what this grew from, whether that base can
+       * be rebuilt from two numbers, and how many fields the person actually
+       * moved. A reviewer reading a submission can then see the difference
+       * between "our Synthwave, eleven fields changed" and "an opaque tree
+       * with no origin at all", which is exactly the distinction he asked for.
+       */
+      function countDiffLeaves(diff) {
+        if (!isPlainObject(diff)) return diff === undefined ? 0 : 1;
+        let n = 0;
+        for (const value of Object.values(diff)) n += countDiffLeaves(value);
+        return n;
+      }
+
+      const provenanceLine = document.getElementById('preset-provenance');
+
+      /**
+       * Kept current from the settings funnel, like every other readout that
+       * has to agree with the tree: a provenance line that was right when the
+       * panel opened and wrong ever after would be worse than none.
+       */
+      function syncProvenance() {
+        // Wrapped whole, not just the sentence: this is called from the
+        // settings funnel, which fires during boot — before `provenanceLine`
+        // above it has been initialised. Reading a const in its dead zone
+        // throws, and a throw here would take the page down.
+        try {
+          if (!provenanceLine) return;
+          provenanceLine.textContent = provenanceSentence();
+        } catch {}
+      }
+      syncProvenance();
+
+      function provenanceSummary() {
+        const o = originSnapshot();
+        const base = originBase();
+        const rebuildable = !!base;
+        const changed = rebuildable ? countDiffLeaves(diffTree(base, paramsSnapshot())) : null;
+        let from;
+        if (o.kind === 'genre' && typeof o.id === 'string') {
+          const genre = GENRE_BY_SLUG.get(o.id);
+          from = genre ? genre.name || o.id : o.id;
+        } else if (o.kind === 'blank') {
+          from = 'a blank slate';
+        } else {
+          from = null;
+        }
+        return { kind: o.kind, id: o.id ?? null, seed: o.seed ?? null, from, rebuildable, changed };
+      }
+
+      /** The provenance in one plain sentence, for the person about to submit. */
+      function provenanceSentence() {
+        const p = provenanceSummary();
+        if (!p.rebuildable) {
+          return 'This setup carries no record of what it grew from, so a submission can only send the whole thing. That is still fine — it just cannot show its working.';
+        }
+        if (p.kind === 'blank') {
+          return p.changed === 0
+            ? 'Built from a blank slate, with nothing changed yet — everything you hear is silence.'
+            : `Built from a blank slate: every one of the ${p.changed} setting${p.changed === 1 ? '' : 's'} in this piece is yours.`;
+        }
+        if (p.kind === 'genre' && p.from) {
+          return p.changed === 0
+            ? `This is our ${p.from} style exactly as the app compiled it — nothing of yours in it yet.`
+            : `Built on our ${p.from} style, with ${p.changed} setting${p.changed === 1 ? '' : 's'} changed by you. A submission sends that style's id and your changes, not a copy of the style.`;
+        }
+        return 'A submission sends what this grew from plus your own changes.';
+      }
+
       function submissionPayload(name) {
         const base = originBase();
         const now = paramsSnapshot();
         if (!base) {
           return { v: 1, name, origin: originSnapshot(), params: now, note: 'full tree — origin could not be rebuilt' };
         }
-        return { v: 1, name, origin: originSnapshot(), diff: diffTree(base, now) };
+        return {
+          v: 1,
+          name,
+          origin: originSnapshot(),
+          diff: diffTree(base, now),
+          // Evidence beside the claim, never instead of it: the AI-free label
+          // is something a person signs about the music.
+          provenance: provenanceSummary(),
+        };
       }
 
       function presetJSON() {
@@ -13095,7 +13293,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         let url = '';
         let name = '';
         try {
-          const fragment = `${SHARE_PARAM}=${encodeShareParams(shareSnapshot())}`;
+          const fragment = `${SHARE_PARAM}=${encodeShareParams(sharePayload())}`;
           url = `${SHARE_BASE}#${fragment}`;
           // The same fragment the receiver's browser will hash on arrival, so
           // both ends read the same three words off the same link.
@@ -13225,7 +13423,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#preset-share',
-          text: 'Share copies a link that carries the whole setup in the address itself — nothing is uploaded, and no code travels with it. Each link works out its own three-word name, shown on the line below, so you can say which link you mean out loud. Save keeps a setup on this device under Your presets.',
+          text: 'Share copies a link that carries the style it grew from plus your own changes — nothing is uploaded, and no code travels with it, so a link stays short enough to paste anywhere. Each link works out its own three-word name, shown on the line below, so you can say which link you mean out loud. Save keeps a setup on this device under Your presets.',
         },
         {
           target: null,
@@ -13374,11 +13572,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const newerNote = arrivedFromNewerBuild
           ? ' This link was made with a newer version of Ambi4, so some of its settings may be missing here.'
           : '';
+        // v0.0.79: a base-and-diff link names the genre it grew from and
+        // carries only the sender's changes. If that genre cannot be rebuilt
+        // here — an unknown slug, a compiler that refused — the changes are
+        // applied to the plain defaults instead, which is a worse reproduction
+        // than the sender heard. Saying so beats a listener wondering why it
+        // sounds wrong.
+        const baseNote = shareBaseMissing
+          ? ' The style this was built from could not be rebuilt here, so only the sender’s own changes are loaded.'
+          : '';
         shareNote.textContent = (routePreset
           ? `Loaded the ${routePreset.name} preset — Save to keep it.`
           : arrivedShareName
             ? `Loaded ${arrivedShareName} — this link's name. Save to keep it.`
-            : 'Loaded shared preset — Save to keep it.') + madeNote + newerNote;
+            : 'Loaded shared preset — Save to keep it.') + madeNote + newerNote + baseNote;
         shareNote.hidden = false;
       }
       // v29: a link announces itself by name in the Share row too, and offers
