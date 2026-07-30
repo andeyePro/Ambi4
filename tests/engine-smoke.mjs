@@ -4037,6 +4037,72 @@ test('Energy stages 1a+1b: below the midpoint the kick-lock loosens and the arti
   );
 });
 
+test('v0.0.109 pitch-per-step: a pinned step plays EXACTLY its note — no fold, no re-pitch — and unpinned steps keep the harmonic logic', async () => {
+  // The pin is far outside the melody band (centre ~octave 4): if the fold
+  // still applied it would move by octaves; if the chord logic applied it
+  // would land on a scale tone. 97 (C#7) is neither in C major nor in band.
+  const mkSeq = (withPin) => [{
+    mode: 'manual',
+    weights: [1],
+    steps: Array.from({ length: 20 }, (unused, i) => (
+      i === 0
+        ? { on: true, prob: 1, vmin: 0.6, vmax: 0.6, ...(withPin ? { midi: 97 } : {}) }
+        : { on: false, prob: 1, vmin: 0.5, vmax: 0.9 }
+    )),
+  }];
+
+  const run = async (withPin, track) => {
+    const engine = createEngine({
+      root: 'C', mode: 'major', bpm: 120, timeSignature: '4/4', complexity: 0.6,
+      tracks: {
+        melody: { state: track === 'melody' ? 'on' : 'off',
+          ...(track === 'melody' ? { sequencers: mkSeq(withPin) } : {}) },
+        bass: { state: track === 'bass' ? 'on' : 'off',
+          ...(track === 'bass' ? { sequencers: mkSeq(withPin) } : {}) },
+        pad: { state: 'off' }, arp: { state: 'off' },
+        texture: { state: 'off' }, percussion: { state: 'off' },
+      },
+    });
+    const notes = [];
+    engine.on('note', (n) => notes.push(n));
+    await engine.start();
+    await advance(6); // three bars at 120 bpm
+    engine.stop();
+    return notes.filter((n) => n.track === track);
+  };
+
+  // A pinned melody step plays 97 VERBATIM — outside both the scale logic's
+  // reach and the register band, so any fold or re-pitch would move it.
+  const pinnedMelody = await run(true, 'melody');
+  assert.ok(pinnedMelody.length > 0, 'the pinned melody step must sound');
+  assert.ok(pinnedMelody.every((n) => n.midi === 97),
+    `every pinned note must be 97 verbatim, got ${[...new Set(pinnedMelody.map((n) => n.midi))].join(',')}`);
+  const freeMelody = await run(false, 'melody');
+  assert.ok(freeMelody.length > 0 && freeMelody.every((n) => n.midi !== 97),
+    'an unpinned step keeps the harmonic logic (97 is not in C major)');
+
+  const pinnedBass = await run(true, 'bass');
+  assert.ok(pinnedBass.length > 0 && pinnedBass.every((n) => n.midi === 97),
+    `every pinned bass note must be 97 verbatim, got ${[...new Set(pinnedBass.map((n) => n.midi))].join(',')}`);
+
+  // Sanitise: the pin survives the round trip, clamps, and null clears.
+  const engine = createEngine({ tracks: { melody: { sequencers: mkSeq(true) } } });
+  const stored = engine.getParams().tracks.melody.sequencers[0].steps[0];
+  assert.equal(stored.midi, 97, 'the pin must survive setParams');
+  engine.setParams({ tracks: { melody: { sequencers: [{ steps: [{ midi: 412 }] }] } } });
+  assert.equal(engine.getParams().tracks.melody.sequencers[0].steps[0].midi, undefined,
+    'an explicitly-sent garbage pin CLEARS, exactly as a garbage gate does');
+  engine.setParams({ tracks: { melody: { sequencers: [{ steps: [{ midi: 61 }] }] } } });
+  assert.equal(engine.getParams().tracks.melody.sequencers[0].steps[0].midi, 61);
+  engine.setParams({ tracks: { melody: { sequencers: [{ steps: [{ on: true }] }] } } });
+  assert.equal(engine.getParams().tracks.melody.sequencers[0].steps[0].midi, 61,
+    'an ABSENT pin inherits the stored one (merge law)');
+  engine.setParams({ tracks: { melody: { sequencers: [{ steps: [{ midi: null }] }] } } });
+  assert.equal(engine.getParams().tracks.melody.sequencers[0].steps[0].midi, undefined,
+    'null clears the pin — delete would not survive the merge');
+  engine.stop();
+}, );
+
 test('Energy 1c, auto kit: below the midpoint velocities scale, the kick yields and a ride arrives first; at 0.5+ streams are untouched', () => {
   const stats = (complexity, seeds = 400) => {
     let velocity = 0, hits = 0, kickBars = 0, rideOpens = 0;

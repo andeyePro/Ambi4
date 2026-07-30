@@ -1375,7 +1375,20 @@ function sanitiseStep(value, base) {
   if (gate !== undefined) step.gate = gate;
   const group = at('group') !== undefined ? groupId(at('group')) : groupId(from.group);
   if (group !== null) step.group = group;
+  // v0.0.109: an optional PITCH. A step that names one plays exactly that
+  // MIDI note — no chord re-pitch, no register fold, no cadence rewrite; a
+  // step without one keeps today's harmonic logic entirely. Same merge law
+  // as tie/group/gate: absent inherits the stored step, null clears.
+  const midi = at('midi') !== undefined ? stepMidi(at('midi')) : stepMidi(from.midi);
+  if (midi !== null) step.midi = midi;
   return step;
+}
+
+/** A step's pinned pitch: an integer MIDI note 0–127, or null for "unpinned". */
+function stepMidi(value) {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) && num >= 0 && num <= 127 ? Math.round(num) : null;
 }
 
 /** A probability group's id: a non-negative integer, or null for "ungrouped". */
@@ -6509,6 +6522,7 @@ export function createEngine(initialParams, options = {}) {
       steps.push({
         index: i,
         beat,
+        pinned: Number.isFinite(step.midi) ? step.midi : null,
         fifth: !isStrongBeat(beat) && rng() < 0.35,
         // v21: undefined here means "ring until the next step", the length
         // every manual bass grid before it had.
@@ -6665,7 +6679,7 @@ export function createEngine(initialParams, options = {}) {
           ? gatedSpan(step, step.gate, SEQUENCER_STEP_BEATS) * bar.secPerBeat
           : (swung(next, 'bass') - at) * bar.secPerBeat * 0.9;
         playNote('bass', {
-          midi: step.fifth ? fifth : root,
+          midi: step.pinned ?? (step.fifth ? fifth : root),
           when: time + at * bar.secPerBeat + step.nudge,
           duration: Math.max(0.08, gated),
           velocity: step.velocity,
@@ -6770,6 +6784,8 @@ export function createEngine(initialParams, options = {}) {
         beat: i / 4,
         degree: stray && !stray.chromatic ? degree + stray.dir : degree,
         bend: stray && stray.chromatic ? stray.dir : 0,
+        // v0.0.109: a pinned step is the user's stated note, verbatim.
+        pinned: Number.isFinite(step.midi) ? step.midi : null,
         duration: 1,
         gate: step.gate,
         velocity: between(step.vmin, step.vmax, rng) * velocityJitter('melody'),
@@ -6792,7 +6808,7 @@ export function createEngine(initialParams, options = {}) {
     // The cadence rule applies whoever owns the rhythm: the last note of a
     // phrase, or of a section, lands on a chord tone.
     const last = notes[notes.length - 1];
-    if (last && (phraseBar === PHRASE_BARS - 1 || sectionEndsThisBar())) {
+    if (last && last.pinned == null && (phraseBar === PHRASE_BARS - 1 || sectionEndsThisBar())) {
       last.degree = nearestChordTone(last.degree, scale().length);
       last.octave = 0;
     }
@@ -7245,6 +7261,7 @@ export function createEngine(initialParams, options = {}) {
       notes.push({
         index: i,
         beat: i / 4,
+        pinned: Number.isFinite(step.midi) ? step.midi : null,
         degree: stray && !stray.chromatic ? degree + stray.dir : degree,
         bend: stray && stray.chromatic ? stray.dir : 0,
         duration: 1,
@@ -7601,15 +7618,22 @@ export function createEngine(initialParams, options = {}) {
           )
           : Infinity;
         const at = time + (swung(note.beat, 'melody') - from) * bar.secPerBeat + (note.nudge ?? 0);
-        let midi = scaleDegreeToMidi(
-          chordDegree + note.degree, bar.scale, bar.rootPc, 4,
-        ) + 12 * (melodyShift + (melodyPlan.octave ?? 0) + (note.octave ?? 0))
-          + (note.bend ?? 0);
-        // The band is a last guard behind the bar's own transposition, and it
-        // FOLDS by octaves rather than clamping: clamping would land the note
-        // on the band edge, which is not necessarily a note of the scale.
-        while (midi > centre + MELODY_BAND) midi -= 12;
-        while (midi < centre - MELODY_BAND) midi += 12;
+        let midi;
+        if (note.pinned != null) {
+          // A pinned step plays the note it names — no transposition, no
+          // register fold: folding a stated pitch would be the readout lying.
+          midi = note.pinned;
+        } else {
+          midi = scaleDegreeToMidi(
+            chordDegree + note.degree, bar.scale, bar.rootPc, 4,
+          ) + 12 * (melodyShift + (melodyPlan.octave ?? 0) + (note.octave ?? 0))
+            + (note.bend ?? 0);
+          // The band is a last guard behind the bar's own transposition, and it
+          // FOLDS by octaves rather than clamping: clamping would land the note
+          // on the band edge, which is not necessarily a note of the scale.
+          while (midi > centre + MELODY_BAND) midi -= 12;
+          while (midi < centre - MELODY_BAND) midi += 12;
+        }
         playNote(responder ?? 'melody', {
           midi,
           when: at,
@@ -7693,7 +7717,7 @@ export function createEngine(initialParams, options = {}) {
       }
       for (const note of plan.events) {
         if (note.beat < from || note.beat >= to) continue;
-        const midi = clamp(
+        const midi = note.pinned != null ? note.pinned : clamp(
           scaleDegreeToMidi(chordDegree + note.degree, bar.scale, bar.rootPc, USER_TRACK_OCTAVE)
             + 12 * (note.octave ?? 0) + (note.bend ?? 0),
           24, 108,

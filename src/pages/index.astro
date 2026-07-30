@@ -1806,6 +1806,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // engine plays this step by default", so an untouched step never grows
         // the key.
         if (Number.isFinite(s.gate)) step.gate = clamp(s.gate, SEQ_GATE_MIN, SEQ_GATE_MAX);
+        // v0.0.109: a pinned pitch is the user's stated note — it round-trips.
+        if (Number.isFinite(s.midi) && s.midi >= 0 && s.midi <= 127) step.midi = Math.round(s.midi);
         out[i] = step;
       }
       return out;
