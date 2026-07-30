@@ -299,6 +299,18 @@ const VOICES: Record<string, [string, string][]> = {
             </select>
             <button type="button" id="compose-chords" class="secondary-button">Type the chords</button>
           </div>
+          <div class="create-row create-melody-row">
+            <label class="visually-hidden" for="compose-melody-text">Type a melody, one note per beat</label>
+            <input
+              type="text"
+              id="compose-melody-text"
+              class="create-melody-input"
+              placeholder="Type a melody: C4 E4 G4 - . B3 (dash holds, dot rests)"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
+          </div>
           <p class="hint" id="guided-tip" aria-live="polite"></p>
           <div class="control-label-row">
             <span class="panel-label timer-section" id="play-along-section-title">Musical typing</span>
@@ -13310,7 +13322,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor \u2014 typed melody, words and MIDI-file import land there next.'
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, and Type a melody writes note names straight onto the melody grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). Words and MIDI-file import land next.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -13355,7 +13367,100 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           createSeed?.focus();
         });
 
-        composeChords?.addEventListener('click', () => {
+        // v0.0.110 — typed melody (his compose list: "type in notes/chords/
+        // words"). One token per BEAT: a note name writes a PINNED step (the
+        // v0.0.109 schema), a dash holds the note through the next beat, a
+        // dot rests it. One bar per write — the grid's own span — and the
+        // writer says what it wrote and what it dropped.
+        const melodyText = document.getElementById('compose-melody-text');
+        const melodyWrite = document.getElementById('compose-melody-write');
+
+        function parseTypedNote(token) {
+          const m = /^([A-Ga-g])([#b\u266F\u266D]?)(-?\d)?$/.exec(token);
+          if (!m) return null;
+          const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
+          const acc = m[2] === '#' || m[2] === '\u266F' ? 1 : m[2] === 'b' || m[2] === '\u266D' ? -1 : 0;
+          const octave = m[3] === undefined ? 4 : parseInt(m[3], 10);
+          const midi = 12 * (octave + 1) + base + acc;
+          return midi >= 0 && midi <= 127 ? midi : null;
+        }
+
+        function writeTypedMelody() {
+          const raw = (melodyText?.value || '').trim();
+          if (!raw) return;
+          const tokens = raw.split(/[\s,|]+/).filter(Boolean);
+          const slotsPerBar = stepsPerBarFor('melody');
+          const beats = Math.floor(slotsPerBar / 4);
+          const blank = () => ({ on: false, prob: 1, vmin: 0.6, vmax: 0.8 });
+          const steps = Array.from({ length: 20 }, blank);
+          let beat = 0;
+          let lastSlot = null;
+          let written = 0;
+          const dropped = [];
+          for (const token of tokens) {
+            if (beat >= beats) { dropped.push(token); continue; }
+            if (token === '.' || token.toLowerCase() === 'r') {
+              lastSlot = null;
+              beat += 1;
+              continue;
+            }
+            if (token === '-') {
+              // Hold: tie the previous note's slots through this beat.
+              if (lastSlot !== null) {
+                for (let s = lastSlot; s < (beat + 1) * 4 - 1 && s < 19; s++) {
+                  if (!steps[s].on) { steps[s].on = true; steps[s].midi = steps[lastSlot].midi; }
+                  steps[s].tie = true;
+                  if (!steps[s + 1].on) {
+                    steps[s + 1] = { ...blank(), on: true, midi: steps[lastSlot].midi };
+                  }
+                }
+              }
+              beat += 1;
+              continue;
+            }
+            const midi = parseTypedNote(token);
+            if (midi === null) { dropped.push(token); continue; }
+            const slot = beat * 4;
+            steps[slot] = { ...blank(), on: true, midi };
+            lastSlot = slot;
+            written += 1;
+            beat += 1;
+          }
+          if (!written) {
+            if (guidedTip) guidedTip.textContent = 'No notes understood — write note names like C4, E♭4, G3; dash holds, dot rests.';
+            return;
+          }
+          const track = settings.tracks.melody;
+          const list = Array.isArray(track.sequencers) ? track.sequencers : [track.sequencer];
+          const active = 0;
+          list[active] = { mode: 'manual', weights: list[active]?.weights ?? [1], steps };
+          track.sequencers = list;
+          track.sequencer = list[0];
+          if (track.state === 'off') track.state = 'on';
+          engine.setParams({
+            tracks: { melody: { state: track.state, sequencers: structuredClone(list) } },
+          });
+          syncTrackStateUI();
+          const editor = document.getElementById('voice-editor-melody');
+          if (editor && !editor.hidden) renderVoiceEditor('melody');
+          persistSettings();
+          if (guidedTip) {
+            guidedTip.textContent =
+              `Melody written: ${written} note${written === 1 ? '' : 's'} onto the melody grid, one per beat` +
+              (dropped.length ? ` — dropped: ${dropped.join(' ')} (a bar holds ${beats} beats here).` : '.');
+          }
+        }
+
+        melodyWrite?.addEventListener('click', writeTypedMelody);
+        melodyText?.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            writeTypedMelody();
+          }
+        });
+        describe(melodyWrite, 'Writes the typed notes onto the melody grid as PINNED steps — each plays exactly the note you named. One token per beat: C4, then - to hold it, . to rest.');
+
+                composeChords?.addEventListener('click', () => {
           activateTab('advanced', { focus: false });
           document.getElementById('control-progression')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
@@ -15092,6 +15197,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       align-items: center;
       flex-wrap: wrap;
       margin: 4px 0;
+    }
+
+    .create-melody-input {
+      flex: 1 1 220px;
+      min-width: 0;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.85rem;
     }
     /* v0.0.84: the Create button stays lit while the keys are armed, so an
        armed instrument behind a closed popover is never invisible state. */
