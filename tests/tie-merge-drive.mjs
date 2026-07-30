@@ -104,6 +104,35 @@ export default async function drive(page) {
   });
   check('group dots sit BELOW the cells, beside probability', !!order && order.dotBelowCells && order.probBelowCells, (v) => v === true);
 
+  // v0.0.94 (his 89): mass edit, asserted at the ENGINE's stored lane.
+  // The stored lane can outrun the visible bar (fixed-length lane, metre
+  // decides what is in play): mass edit acts on the VISIBLE steps, so the
+  // assertions read exactly that many.
+  const visibleN = await page.evaluate(() =>
+    document.getElementById('voice-editor-bass').querySelectorAll('.seq-cell').length);
+  const laneAtEngine = () => page.evaluate((n) => {
+    const seq = window.__ambi4Engine.getParams().tracks.bass.sequencer;
+    const steps = Array.isArray(seq.steps) ? seq.steps : Object.values(seq.steps)[0];
+    return steps.slice(0, n).map((st) => st.on === true);
+  }, visibleN);
+  const massClick = async (label) => {
+    await page.evaluate((text) => {
+      const editor = document.getElementById('voice-editor-bass');
+      [...editor.querySelectorAll('.seq-mass-action')]
+        .find((b) => b.textContent === text)?.click();
+    }, label);
+    await page.waitForTimeout(400);
+  };
+  await massClick('Fill');
+  const filled = await laneAtEngine();
+  check('Fill turns every ENGINE step on', filled.every(Boolean), (v) => v === true);
+  await massClick('Every 2nd');
+  const alternating = await laneAtEngine();
+  check('Every 2nd is the alternating pulse at the ENGINE', alternating.every((on, i) => on === (i % 2 === 0)), (v) => v === true);
+  await massClick('Clear');
+  const cleared = await laneAtEngine();
+  check('Clear turns every ENGINE step off', cleared.every((on) => !on), (v) => v === true);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

@@ -6556,6 +6556,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           'Add a kit lane — it copies the pattern of the lane it lands beside, and you can rename it and pick which of the kit’s sounds it plays.'
         );
 
+        // v0.0.94 (his 89): mass edit — "fill a whole row, or every second
+        // note". Three actions on the focused lane (single-lane tracks have
+        // only lane 0, so focus is moot there). Wired after the grid exists;
+        // handlers resolve the lane at click time.
+        const massBar = document.createElement('div');
+        massBar.className = 'seq-lane-bar seq-mass-bar';
+        const massActions = ['Fill', 'Every 2nd', 'Clear'].map((text) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'secondary-button seq-mass-action';
+          b.textContent = text;
+          massBar.append(b);
+          return b;
+        });
+        describe(massActions[0], 'Turn every step in this lane on.');
+        describe(massActions[1], 'Every second step on, the rest off — the quickest pulse.');
+        describe(massActions[2], 'Turn every step in this lane off.');
+
         const scroll = document.createElement('div');
         scroll.className = 'seq-scroll';
         const beatsEl = document.createElement('div');
@@ -6579,7 +6597,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         pitchLegend.className = 'seq-pitch-legend';
         pitchLegend.hidden = true;
 
-        root.append(head, tabsRow, laneBar, scroll, pitchLegend, blocksHost);
+        root.append(head, tabsRow, laneBar, massBar, scroll, pitchLegend, blocksHost);
 
         let cellRefs = []; // [lane][step] -> { cell, band, bandTop, probFill, dot }
         let focusPos = { lane: 0, step: 0 };
@@ -6691,6 +6709,31 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const ref = cellRefs[li][i];
           ref.cell.tabIndex = 0;
           if (focus) ref.cell.focus();
+        }
+
+        // v0.0.94 (his 89): the mass actions land on the focused lane —
+        // which is lane 0 everywhere but the kit, where the last-touched
+        // lane is the one under the hand.
+        {
+          const massFns = [
+            (st) => { st.on = true; },
+            (st, i) => { st.on = i % 2 === 0; },
+            (st) => { st.on = false; },
+          ];
+          massActions.forEach((btn, idx) => {
+            btn.addEventListener('click', () => {
+              const li = clamp(focusPos.lane, 0, lanes.length - 1);
+              const steps = laneSteps(lanes[li]);
+              // The stored lane can be longer than the bar being shown (the
+              // engine keeps a fixed-length lane; the metre decides how many
+              // steps are in play) — mass edit acts on the VISIBLE bar.
+              const n = Math.min(stepsPerBarFor(track), steps.length, cellRefs[li].length);
+              for (let i = 0; i < n; i++) massFns[idx](steps[i], i);
+              for (let i = 0; i < n; i++) updateCell(li, i);
+              applyTieSpans(li);
+              commitSequencer(track);
+            });
+          });
         }
 
         /** Join the group above, or start a new one; a grouped step leaves. */
