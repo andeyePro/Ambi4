@@ -447,6 +447,45 @@ const VOICES: Record<string, [string, string][]> = {
             <button type="button" id="genre-favourites-done" class="secondary-button">Done</button>
           </div>
         </div>
+        <!-- v0.0.104: the genre's RULES, on screen and editable — the owner's
+             ruling on where the everything-editable build starts. The genre
+             files are generative rules and the compiler is pure and seed-
+             deterministic, so an edit recompiles the SAME seed under new
+             rules: same dice, only what you change, changes. -->
+        <button
+          type="button"
+          id="genre-rules-toggle"
+          class="secondary-button genre-rules-toggle"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+          hidden
+        >Rules</button>
+        <div
+          id="genre-rules"
+          class="popover module-panel genre-rules"
+          role="dialog"
+          aria-labelledby="genre-rules-title"
+          hidden
+        >
+          <span class="panel-label popover-title" id="genre-rules-title">Genre rules</span>
+          <p class="hint">
+            The rules this genre draws every bar from. Edit them and Apply: the
+            piece is re-drawn from YOUR rules with the same dice, so only what
+            you change, changes. One entry per line; empty a box to fall back
+            to the genre's own rules.
+          </p>
+          <label class="genre-rules-label" for="genre-rules-progressions">Chord progressions (roman numerals — the app seeds its loop from one)</label>
+          <textarea id="genre-rules-progressions" class="genre-rules-text" rows="5" spellcheck="false" autocomplete="off"></textarea>
+          <label class="genre-rules-label" for="genre-rules-anchors" id="genre-rules-anchors-label">Kit patterns (x is a hit, - a rest, sixteenths)</label>
+          <textarea id="genre-rules-anchors" class="genre-rules-text" rows="4" spellcheck="false" autocomplete="off"></textarea>
+          <label class="genre-rules-label" for="genre-rules-cells">Syncopation cells (short x/- fragments the bass leans on)</label>
+          <textarea id="genre-rules-cells" class="genre-rules-text" rows="2" spellcheck="false" autocomplete="off"></textarea>
+          <p id="genre-rules-error" class="hint genre-rules-error" role="alert" hidden></p>
+          <div class="genre-fav-actions">
+            <button type="button" id="genre-rules-apply" class="secondary-button">Apply</button>
+            <button type="button" id="genre-rules-reset" class="secondary-button" hidden>Back to the genre's rules</button>
+          </div>
+        </div>
       </div>
 
       <div class="transport-row">
@@ -11832,6 +11871,230 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return true;
       }
 
+      // ---- v0.0.104: editable genre rules (his ruling — the GENRE layer) --
+      // settings.genreRules is a SPARSE override: only the boxes that differ
+      // from the genre file are stored, an empty box means "the genre's own".
+      // Recompiles reuse settings.origin.seed, so bpm, mode, time signature,
+      // swing, harmonic rhythm and structure survive every edit untouched —
+      // the fixed draw order spends its rng calls before the grammar does.
+      /** Kit-path genres write their kit from fallbackLists.grooves (three
+       * lanes per groove); grammar-path genres only carry anchorPatterns as
+       * density guidance. The panel edits WHICHEVER of those is live —
+       * showing an anchor box that the kit never reads would be the exact
+       * dial-the-engine-ignores failure this project tests against. */
+      function genreKitPath(genre) {
+        return Array.isArray(genre?.fallbackLists?.grooves) && genre.fallbackLists.grooves.length > 0;
+      }
+
+      function groovesToLines(grooves) {
+        const blocks = [];
+        for (const groove of grooves || []) {
+          if (!isPlainObject(groove)) continue;
+          const block = [];
+          for (const lane of ['low', 'mid', 'high']) {
+            if (typeof groove[lane] === 'string') block.push(`${lane}: ${groove[lane]}`);
+          }
+          if (block.length) blocks.push(block.join('\n'));
+        }
+        return blocks.join('\n\n');
+      }
+
+      function effectiveGenreRules(genre) {
+        const rules = isPlainObject(settings.genreRules) ? settings.genreRules : {};
+        const essence = genre?.essence || {};
+        return {
+          progressionGrammar:
+            rules.progressionGrammar || essence.chordLanguage?.progressionGrammar || [],
+          grooves: rules.grooves || genre?.fallbackLists?.grooves || [],
+          anchorPatterns:
+            rules.anchorPatterns || essence.grooveGrammar?.anchorPatterns || [],
+          syncopationCells:
+            rules.syncopationCells || essence.grooveGrammar?.syncopationCells || [],
+        };
+      }
+
+      function genreRulesEdited() {
+        return isPlainObject(settings.genreRules) && Object.keys(settings.genreRules).length > 0;
+      }
+
+      function syncGenreRulesUI() {
+        const toggle = document.getElementById('genre-rules-toggle');
+        if (!toggle) return;
+        const genre = currentGenre();
+        toggle.hidden = !genre || !genreCompiler || genreRow.hidden;
+        const edited = genreRulesEdited();
+        toggle.textContent = edited ? 'Rules · edited' : 'Rules';
+        const reset = document.getElementById('genre-rules-reset');
+        if (reset) reset.hidden = !edited;
+        if (!genre) return;
+        const rules = effectiveGenreRules(genre);
+        const fill = (id, text) => {
+          const el = document.getElementById(id);
+          if (el && document.activeElement !== el) el.value = text;
+        };
+        const kitPath = genreKitPath(genre);
+        const kitLabel = document.getElementById('genre-rules-anchors-label');
+        if (kitLabel) {
+          kitLabel.textContent = kitPath
+            ? 'Kit patterns (low / mid / high lanes, x is a hit, - a rest; blank line between patterns)'
+            : 'Kit anchor patterns (x is a hit, - a rest; guidance for the auto kit)';
+        }
+        fill('genre-rules-progressions', rules.progressionGrammar.join('\n'));
+        fill(
+          'genre-rules-anchors',
+          kitPath ? groovesToLines(rules.grooves) : rules.anchorPatterns.join('\n')
+        );
+        fill('genre-rules-cells', rules.syncopationCells.join('\n'));
+      }
+
+      function readGenreRulesForm(kitPath) {
+        const raw = (id) => document.getElementById(id)?.value || '';
+        const lines = (id) =>
+          raw(id)
+            .split('\n')
+            .map((s) => s.trim())
+            .filter(Boolean);
+        const form = {
+          progressionGrammar: lines('genre-rules-progressions'),
+          syncopationCells: lines('genre-rules-cells'),
+          anchorPatterns: [],
+          grooves: [],
+        };
+        if (kitPath) {
+          for (const blockText of raw('genre-rules-anchors').split(/\n\s*\n/)) {
+            const groove = {};
+            for (const line of blockText.split('\n')) {
+              const m = /^\s*(low|mid|high)\s*:\s*([x-]+)\s*$/i.exec(line);
+              if (m) groove[m[1].toLowerCase()] = m[2];
+              else if (line.trim()) groove.INVALID = line.trim();
+            }
+            if (Object.keys(groove).length) form.grooves.push(groove);
+          }
+        } else {
+          form.anchorPatterns = lines('genre-rules-anchors');
+        }
+        return form;
+      }
+
+      /** The first thing wrong with the form, in plain words — or null. */
+      function validateGenreRules(form) {
+        for (const line of form.progressionGrammar) {
+          for (const token of line.split(/\s+/)) {
+            if (!genreCompiler.parseChordToken(token)) {
+              return `Chord line not understood — "${token}" in "${line}" is not a roman-numeral chord.`;
+            }
+          }
+        }
+        for (const groove of form.grooves) {
+          if (groove.INVALID) {
+            return `Kit lines are "low: x---", "mid: …" or "high: …" — not "${groove.INVALID}"`;
+          }
+          for (const lane of ['low', 'mid', 'high']) {
+            if (groove[lane] !== undefined && !/^[x-]{4,32}$/.test(groove[lane])) {
+              return `Kit patterns use only x and - (4 to 32 steps): "${groove[lane]}"`;
+            }
+          }
+        }
+        for (const pattern of form.anchorPatterns) {
+          if (!/^[x-]{4,32}$/.test(pattern)) {
+            return `Anchor patterns use only x and - (4 to 32 steps): "${pattern}"`;
+          }
+        }
+        for (const cell of form.syncopationCells) {
+          if (!/^[x-]{2,16}$/.test(cell)) {
+            return `Syncopation cells use only x and - (2 to 16 steps): "${cell}"`;
+          }
+        }
+        return null;
+      }
+
+      function applyGenreRules() {
+        const genre = currentGenre();
+        const errorEl = document.getElementById('genre-rules-error');
+        const say = (text) => {
+          if (!errorEl) return;
+          errorEl.textContent = text || '';
+          errorEl.hidden = !text;
+        };
+        if (!genre || !genreCompiler) return;
+        const kitPath = genreKitPath(genre);
+        const form = readGenreRulesForm(kitPath);
+        const error = validateGenreRules(form);
+        if (error) {
+          say(error);
+          return;
+        }
+        const own = genre.essence || {};
+        const differs = (lines, base) =>
+          lines.length > 0 && JSON.stringify(lines) !== JSON.stringify(base || []);
+        const overrides = {};
+        if (differs(form.progressionGrammar, own.chordLanguage?.progressionGrammar)) {
+          overrides.progressionGrammar = form.progressionGrammar;
+        }
+        if (kitPath && differs(form.grooves, genre.fallbackLists?.grooves)) {
+          overrides.grooves = form.grooves;
+        }
+        if (!kitPath && differs(form.anchorPatterns, own.grooveGrammar?.anchorPatterns)) {
+          overrides.anchorPatterns = form.anchorPatterns;
+        }
+        if (differs(form.syncopationCells, own.grooveGrammar?.syncopationCells)) {
+          overrides.syncopationCells = form.syncopationCells;
+        }
+        const edited = structuredClone(genre);
+        edited.essence = edited.essence || {};
+        if (overrides.progressionGrammar) {
+          edited.essence.chordLanguage = edited.essence.chordLanguage || {};
+          edited.essence.chordLanguage.progressionGrammar = overrides.progressionGrammar;
+          // The seed pool also draws from fallbackLists.progressions (they
+          // weigh double, deliberately) — a user rewriting the chord rules
+          // means THESE rules, so the fallback pool empties too.
+          edited.fallbackLists = edited.fallbackLists || {};
+          edited.fallbackLists.progressions = [];
+        }
+        if (overrides.grooves) {
+          edited.fallbackLists = edited.fallbackLists || {};
+          edited.fallbackLists.grooves = overrides.grooves.map((groove) => {
+            const clean = {};
+            for (const lane of ['low', 'mid', 'high']) {
+              if (groove[lane] !== undefined) clean[lane] = groove[lane];
+            }
+            return clean;
+          });
+        }
+        if (overrides.anchorPatterns || overrides.syncopationCells) {
+          edited.essence.grooveGrammar = edited.essence.grooveGrammar || {};
+          if (overrides.anchorPatterns) {
+            edited.essence.grooveGrammar.anchorPatterns = overrides.anchorPatterns;
+          }
+          if (overrides.syncopationCells) {
+            edited.essence.grooveGrammar.syncopationCells = overrides.syncopationCells;
+          }
+        }
+        const seed = Number.isFinite(settings.origin?.seed) ? settings.origin.seed : randomSeed();
+        const compiled = compileGenreParams(edited, seed);
+        if (!compiled) {
+          say('These rules did not compile — nothing was changed.');
+          return;
+        }
+        const next = settingsFromGenre(compiled, genre.slug);
+        next.origin = { kind: 'genre', id: genre.slug, seed };
+        if (Object.keys(overrides).length) next.genreRules = overrides;
+        loadParamsSnapshot(next);
+        say(null);
+        syncGenreRulesUI();
+        sayUnderDials('Re-drawn from your rules — same dice, so only what you changed, changes.', 4000);
+      }
+
+      function resetGenreRules() {
+        const genre = currentGenre();
+        if (!genre) return;
+        const seed = Number.isFinite(settings.origin?.seed) ? settings.origin.seed : randomSeed();
+        applyGenre(genre, seed);
+        const errorEl = document.getElementById('genre-rules-error');
+        if (errorEl) errorEl.hidden = true;
+        syncGenreRulesUI();
+      }
+
       function clearGenreTag() {
         settings.genre = null;
         engine.setParams({ genre: null });
@@ -11913,7 +12176,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         );
         genreSelect.append(extras);
 
+        // The tag stays honest: a genre playing under edited rules says so
+        // right in the picker, where the claim is made.
+        if (genreRulesEdited() && settings.genre) {
+          const current = [...genreSelect.options].find((o) => o.value === `g:${settings.genre}`);
+          if (current) current.textContent += ' · edited rules';
+        }
         genreSelect.value = settings.genre ? `g:${settings.genre}` : '';
+        syncGenreRulesUI();
       }
 
       function syncGenreUI() {
@@ -11967,6 +12237,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const favouritesPopover = setupPopover(null, 'genre-favourites', {
         focusReturn: genreSelect,
       });
+
+      setupPopover('genre-rules-toggle', 'genre-rules');
+      document.getElementById('genre-rules-apply')?.addEventListener('click', applyGenreRules);
+      document.getElementById('genre-rules-reset')?.addEventListener('click', resetGenreRules);
+      describe(
+        document.getElementById('genre-rules-toggle'),
+        'See and edit the rules this genre draws from — its chord grammar, kit anchors and syncopation cells. Applying re-draws the piece from your rules with the same dice.'
+      );
+      syncGenreRulesUI();
       const favouritesList = document.getElementById('genre-favourites-list');
       const hideOthersToggle = document.getElementById('genre-hide-others');
 
@@ -14483,6 +14762,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     /* The favourites editor hangs off the row itself, not off a button of its
        own — the genre list is where it is opened from. */
+    .genre-rules-toggle {
+      flex: 0 0 auto;
+    }
+
+    .genre-rules {
+      width: min(480px, calc(100vw - 32px));
+    }
+
+    .genre-rules-label {
+      display: block;
+      margin: 10px 0 4px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    .genre-rules-text {
+      width: 100%;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.85rem;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      resize: vertical;
+    }
+
+    .genre-rules-error {
+      color: var(--warn, #c0392b);
+    }
+
     .genre-favourites {
       display: flex;
       flex-direction: column;
