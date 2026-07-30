@@ -392,22 +392,55 @@ function kitFloorDouble(steps, kitComplexity, slots) {
 /** Keep hit k of a lane on an even stride at rate r — the first hit always survives. */
 const keepHit = (k, r) => k === 0 || Math.floor((k + 1) * r) > Math.floor(k * r);
 
+/**
+ * Energy stage 2b — the genre kit's FILL, as its own weighted sequencer. The
+ * Markov tab machinery already knows how to visit a variant at loop end, so
+ * from 0.75 the compiled kit gains one more sequencer: the first groove with
+ * its last beat cleared for a crescendo run on the mid lane. The weights say
+ * how often it is visited — rising with the dial — and the fill always hands
+ * straight back. Honest by construction: it is a TAB in the grid the user
+ * can open, edit or silence, not an improvisation over their data.
+ */
+function kitFillVariant(main, kitComplexity, slots) {
+  const c = numberOr(kitComplexity, undefined);
+  if (c === undefined || c < 0.75 || !main) return null;
+  const fill = {
+    mode: 'manual',
+    weights: [],
+    steps: Object.fromEntries(Object.entries(main.steps).map(([lane, steps]) => [
+      lane,
+      steps.map((step) => ({ ...step })),
+    ])),
+  };
+  const lastBeat = Math.max(0, slots - 4);
+  for (const lane of ['mid', 'high']) {
+    const steps = fill.steps[lane];
+    if (!steps) continue;
+    for (let i = lastBeat; i < slots; i++) steps[i] = { ...steps[i], on: false };
+  }
+  const run = fill.steps.mid || fill.steps.high;
+  if (run) {
+    for (let k = 0; k < Math.min(4, slots - lastBeat); k++) {
+      const i = lastBeat + k;
+      run[i] = { ...run[i], on: true, vmin: round3(0.35 + k * 0.12), vmax: round3(0.5 + k * 0.12) };
+    }
+  }
+  return fill;
+}
+
 /** The genre's fallback kit as manual sequencers — one per groove, evenly weighted. */
 function compileKit(grooves, timeSignature, kitComplexity) {
   const list = (Array.isArray(grooves) ? grooves : []).filter(isObject);
   if (!list.length) return null;
   const softness = kitSoftness(kitComplexity);
-  return list.map((groove) => ({
+  const slots = Math.min(sequencerStepsPerBar(timeSignature), SEQUENCER_STEP_COUNT);
+  const compiled = list.map((groove) => ({
     mode: 'manual',
     weights: list.map(() => 1),
     steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => {
       const steps = maskToLane(groove[lane], timeSignature, KIT_VELOCITIES[lane] ?? DEFAULT_KIT_VELOCITY);
       if (lane === 'low') {
-        kitFloorDouble(
-          steps,
-          kitComplexity,
-          Math.min(sequencerStepsPerBar(timeSignature), SEQUENCER_STEP_COUNT),
-        );
+        kitFloorDouble(steps, kitComplexity, slots);
       }
       if (!softness) return [lane, steps];
       const rate = softness.keep[lane] ?? 1;
@@ -422,6 +455,16 @@ function compileKit(grooves, timeSignature, kitComplexity) {
       return [lane, steps];
     })),
   }));
+  const fill = kitFillVariant(compiled[0], kitComplexity, slots);
+  if (fill) {
+    const c = clamp(numberOr(kitComplexity, 0.75), 0.75, 1);
+    // Visit rate rises with the dial: ~1 bar in 5 at 0.75, ~1 in 2 at full.
+    const fillWeight = round3(0.25 + (c - 0.75) * 3);
+    for (const sequencer of compiled) sequencer.weights = [...compiled.map(() => 1), fillWeight];
+    fill.weights = [...compiled.map(() => 1), 0]; // the fill always hands back
+    compiled.push(fill);
+  }
+  return compiled;
 }
 
 /** The articulations that live BELOW buildBassGroove's density band boundary. */

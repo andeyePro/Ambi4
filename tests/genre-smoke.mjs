@@ -332,6 +332,25 @@ test('kit softness (Energy 1c): below the midpoint velocities scale and hats thi
   assert.ok(inserted.length >= on(plain, 'low').length,
     'inserted hits sit under the written accents');
   assert.equal(stripKit(doubled), stripKit(plain), 'the doubling is kit-only too');
+
+  // Energy 2b: the FILL variant — one more sequencer from 0.75, visited by
+  // weight, always handing straight back, crescendo on the last beat.
+  const mains = plain.tracks.percussion.sequencers.length;
+  assert.equal(inWindow.tracks.percussion.sequencers.length, mains,
+    'no fill inside the identity window');
+  const seqs = doubled.tracks.percussion.sequencers;
+  assert.equal(seqs.length, mains + 1, 'from 0.75 the kit gains its fill tab');
+  const fill = seqs[seqs.length - 1];
+  assert.equal(fill.weights[seqs.length - 1], 0, 'the fill never repeats itself');
+  assert.ok(seqs[0].weights[seqs.length - 1] > 0, 'the mains can visit the fill');
+  const fullSeqs = flooded.tracks.percussion.sequencers;
+  assert.ok(
+    fullSeqs[0].weights[fullSeqs.length - 1] > seqs[0].weights[seqs.length - 1],
+    'the fill comes oftener the higher the dial'
+  );
+  const midRun = fill.steps.mid.slice(12, 16).filter((s) => s.on);
+  assert.ok(midRun.length >= 3, 'the fill runs on the mid lane into the barline');
+  assert.ok(midRun[midRun.length - 1].vmax > midRun[0].vmax, 'and it crescendos');
 });
 
 test('chord tokens parse to mode-relative degrees, and junk is dropped', () => {
