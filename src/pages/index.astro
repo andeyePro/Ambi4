@@ -12123,22 +12123,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       if (!engineCaps.playAlong) UNAVAILABLE_TRANSPORT.add('playalong');
 
       /**
-       * v0.0.40: the panel is a popover off the keyboard icon (wired with the
-       * other transport icons), so it no longer needs its own fold state. What
-       * it DOES still need is to disarm when it closes — leaving the keys live
-       * under a shut popover would mean stray keystrokes making noise with
-       * nothing on screen to explain why.
-       *
-       * Called from the popover's own close path rather than watched for:
-       * an earlier attempt used a MutationObserver on the `hidden` attribute,
-       * which threw in environments that do not provide one (the page-boot
-       * harness among them) and took the whole init down with it.
-       */
-      function disarmPlayAlong() {
-        if (playAlongToggle?.getAttribute('aria-pressed') === 'true') playAlongToggle.click();
-      }
-
-      /**
        * The two-row keyboard every DAW ships: the bottom row is one octave
        * from C (z x c v b n m, with the black keys on s d / g h j), and the
        * upper row the octave above it (q w e r t y u, black keys 2 3 / 5 6 7).
@@ -12200,9 +12184,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * no label swaps, no controls appearing or disappearing. The readout is
        * a fixed-width box, so even the note name cannot move its neighbours.
        */
+      const playAlongOpen = document.getElementById('play-along-open');
       function setPlayAlongUI() {
         const capture = captureState();
         playAlongToggle.setAttribute('aria-pressed', String(playAlongOn));
+        playAlongOpen?.classList.toggle('play-along-live', playAlongOn);
         captureButton.setAttribute('aria-pressed', String(capture.armed));
         captureButton.disabled = !playAlongOn || !canCapture(playAlongTarget());
         captureUndoButton.disabled = !capture.undoable;
@@ -12569,7 +12555,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // v0.0.40: one clock, one popover holding both timers, plus the
       // play-along keyboard as a third peer icon.
       setupPopover('timers-toggle', 'timers-popover');
-      setupPopover('play-along-open', 'play-along', { onClose: disarmPlayAlong });
+      // v0.0.84 (his item 95): closing the popover no longer disarms the
+      // keys — the popover toggles keyboard-playing and its close is just a
+      // close. The old worry (stray keystrokes making noise with nothing on
+      // screen to explain why) is answered by the icon: it stays pressed and
+      // orange while the keys are live, so the state IS on screen.
+      setupPopover('play-along-open', 'play-along');
 
       let sleepTarget = null; // epoch ms
       let alarmTarget = null; // epoch ms
@@ -14182,6 +14173,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       height: 56px;
     }
 
+    /* v0.0.84: the keyboard icon stays lit while the keys are armed, so an
+       armed instrument behind a closed popover is never invisible state. */
+    .play-along-live {
+      color: var(--accent, #e8892c);
+      border-color: currentColor;
+    }
     .popover-anchor {
       position: relative;
     }
@@ -14234,13 +14231,31 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .popover {
       position: absolute;
       top: calc(100% + 8px);
-      left: 0;
+      /* v0.0.84 (his item 95): anchored icons sit at the page's right edge,
+         so a popover growing rightward left the screen. Right-aligned to the
+         anchor, growing left. */
+      left: auto;
+      right: 0;
       z-index: 20;
       width: max-content;
       min-width: 240px;
       max-width: calc(100vw - 32px);
     }
 
+    /* v0.0.84: on a narrow screen no anchored placement can fit — an icon at
+       the right edge right-aligns to a popover wider than the space left of
+       it. Below 560px the popover takes the viewport instead: fixed, inset
+       16px each side, under the header. */
+    @media (max-width: 560px) {
+      .popover {
+        position: fixed;
+        left: 16px;
+        right: 16px;
+        top: 84px;
+        width: auto;
+        min-width: 0;
+      }
+    }
     .popover-title {
       display: block;
       margin-bottom: 10px;

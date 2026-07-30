@@ -86,6 +86,25 @@ export default async function drive(page) {
   const afterSelect = await page.evaluate(() => window.__pa.on.length);
   check('keys in the track select still do not play', afterSelect === beforeSelect, (v) => v === true);
 
+  // v0.0.84 (his item 95): closing the popover must NOT disarm the keys.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(250);
+  const closedState = await page.evaluate(() => ({
+    hidden: document.getElementById('play-along').hidden,
+    armed: document.getElementById('play-along-toggle').getAttribute('aria-pressed'),
+    lit: document.getElementById('play-along-open')?.classList.contains('play-along-live'),
+    count: window.__pa.on.length,
+  }));
+  check('Escape closes the popover', closedState.hidden, (v) => v === true);
+  check('…and the keys STAY armed', closedState.armed, 'true');
+  check('…with the keyboard icon lit to say so', closedState.lit, (v) => v === true);
+  await page.keyboard.down('x');
+  await page.waitForTimeout(150);
+  await page.keyboard.up('x');
+  await page.waitForTimeout(150);
+  const afterClose = await page.evaluate(() => window.__pa.on.length);
+  check('a key still plays with the popover shut', afterClose > closedState.count, (v) => v === true);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(
