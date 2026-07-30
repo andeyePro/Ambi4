@@ -210,117 +210,6 @@ const VOICES: Record<string, [string, string][]> = {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
             </span>
           </button>
-          <div class="popover-anchor">
-            <!-- v0.0.85 (his item 96): the piano icon becomes the second
-                 main door of the app — Create, orange, at the Play button's
-                 own height. The id stays play-along-open (it is wired
-                 everywhere); the panel behind it now holds all three ways in:
-                 create, compose, play along. -->
-            <button
-              type="button"
-              id="play-along-open"
-              class="play-toggle create-button"
-              data-transport="playalong"
-              aria-label="Create — make your own music"
-              aria-haspopup="dialog"
-              aria-expanded="false"
-              aria-controls="play-along"
-            >
-              <span class="transport-glyph" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="2.5" y="6" width="19" height="12" rx="1.5" />
-                  <path d="M7 6v7M11 6v7M15 6v7M19 6v7" />
-                </svg>
-              </span>
-              <span>Create</span>
-            </button>
-        <!-- v0.0.40: the panel is a POPOVER hanging off the keyboard icon up in
-             the transport icon row, beside the clock — it is the same kind of
-             thing as the timers (an occasional tool), not a permanent strip
-             below the genre picker. The comment above about no control ever
-             moving still holds INSIDE the panel: once open, nothing shifts under
-             the user's hand. -->
-        <div class="play-along popover module-panel" id="play-along" role="dialog" aria-labelledby="play-along-title" hidden>
-          <span class="panel-label popover-title" id="play-along-title">Create</span>
-          <!-- v0.0.85 (his item 96), his three doors in his words: create is
-               anything that makes an immediate sound as you do it; compose is
-               typing or uploading what you already hear in your head; play
-               along rides whatever is playing. -->
-          <span class="panel-label timer-section" id="create-section-title">Create</span>
-          <div class="create-row">
-            <button type="button" id="create-blank" class="secondary-button">Blank slate</button>
-            <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
-            <label class="visually-hidden" for="create-seed">Seed the instrument voices from a genre</label>
-            <select id="create-seed" class="genre-select create-seed">
-              <option value="">Seed voices from…</option>
-            </select>
-          </div>
-          <p class="hint" id="guided-tip">
-            Blank slate switches every instrument off so you build from silence.
-            Seeding borrows a genre's instrument voices without playing anything —
-            and names what that genre's composers usually start with, if you are
-            not sure where to begin.
-          </p>
-          <span class="panel-label timer-section" id="compose-section-title">Compose</span>
-          <div class="create-row">
-            <button type="button" id="compose-chords" class="secondary-button">Type the chords</button>
-          </div>
-          <p class="hint">
-            Typed chords are live today — roman numerals, press any chord to hear
-            it. Typed melody, words and MIDI-file import join here as they land.
-          </p>
-          <span class="panel-label timer-section" id="play-along-section-title">Play along</span>
-          <div class="play-along-row" id="play-along-row">
-            <button
-              type="button"
-              id="play-along-toggle"
-              class="transport-button play-along-button"
-              aria-pressed="false"
-              aria-describedby="play-along-note"
-            >
-              <span class="transport-glyph" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <rect x="3" y="6" width="18" height="12" rx="1" />
-                  <path d="M8 6v7M12 6v7M16 6v7" />
-                </svg>
-              </span>
-              <span>Play along</span>
-            </button>
-            <label class="visually-hidden" for="play-along-track">Track the keys play</label>
-            <select id="play-along-track" class="genre-select play-along-select"></select>
-            <span id="play-along-readout" class="value-readout play-along-readout" role="status"></span>
-            <button
-              type="button"
-              id="play-along-capture"
-              class="transport-button play-along-capture"
-              aria-pressed="false"
-              aria-describedby="play-along-note"
-              disabled
-            >
-              <span class="transport-glyph record-dot" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
-              </span>
-              <span>Capture</span>
-            </button>
-            <button
-              type="button"
-              id="play-along-undo"
-              class="transport-button"
-              aria-describedby="play-along-note"
-              disabled
-            >
-              <span>Undo</span>
-            </button>
-          </div>
-          <p id="play-along-note" class="hint play-along-note">
-            Keys z x c v b n m play one octave and q w e r t y u the next, with the
-            black keys above them; <kbd>-</kbd> and <kbd>=</kbd> change octave, and a
-            MIDI instrument plays the same track. Capture records the rhythm, velocity
-            and note length you play into that track's step grid — the pitch comes from
-            the piece's own harmony — and Undo puts the old grid back.
-          </p>
-        </div>
-          </div>
           <button id="pause-toggle" type="button" class="transport-button pause-button" data-transport="pause" aria-pressed="false" disabled>
             <span class="transport-glyph pause-glyph" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="7" y="5" width="4" height="14" rx="1" /><rect x="13" y="5" width="4" height="14" rx="1" /></svg>
@@ -356,6 +245,115 @@ const VOICES: Record<string, [string, string][]> = {
              side; merged, the row reads as three distinct jobs rather than
              five ambiguous glyphs. -->
         <div class="transport-icons">
+          <div class="popover-anchor">
+            <!-- v0.0.89 (his 103): icon-only, back in the icon row, CREATE
+                 in the tooltip — the wide in-row button forced the transport
+                 onto two lines. The id stays play-along-open (wired
+                 everywhere); the orange colour marks it as the second main
+                 door without costing a single pixel of row space. -->
+            <button
+              type="button"
+              id="play-along-open"
+              class="icon-button create-button"
+              data-transport="playalong"
+              aria-label="Create"
+              title="Create"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="play-along"
+            >
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.5" y="6" width="19" height="12" rx="1.5" />
+                <path d="M7 6v7M11 6v7M15 6v7M19 6v7" />
+              </svg>
+            </button>
+        <!-- v0.0.40: the panel is a POPOVER hanging off the keyboard icon up in
+             the transport icon row, beside the clock — it is the same kind of
+             thing as the timers (an occasional tool), not a permanent strip
+             below the genre picker. The comment above about no control ever
+             moving still holds INSIDE the panel: once open, nothing shifts under
+             the user's hand. -->
+        <div class="play-along popover module-panel" id="play-along" role="dialog" aria-labelledby="play-along-title" hidden>
+          <div class="control-label-row">
+            <span class="panel-label popover-title" id="play-along-title">Create</span>
+            <span id="create-info"></span>
+          </div>
+          <!-- v0.0.89 (his 103): one title, buttons not paragraphs, the
+               instructions in the ⓘ. Blank slate is the real one; the Zero
+               buttons strip one layer at a time so ANY preset can be the
+               source. -->
+          <div class="create-row">
+            <button type="button" id="create-blank" class="secondary-button">Blank slate</button>
+            <button type="button" id="zero-voices" class="secondary-button">Zero voices</button>
+            <button type="button" id="zero-chords" class="secondary-button">Zero chords</button>
+            <button type="button" id="zero-notes" class="secondary-button">Zero notes</button>
+            <button type="button" id="zero-rhythms" class="secondary-button">Zero rhythms</button>
+            <button type="button" id="zero-fx" class="secondary-button">Zero FX</button>
+          </div>
+          <div class="create-row">
+            <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
+            <label class="visually-hidden" for="create-seed">Seed the instrument voices from a genre</label>
+            <select id="create-seed" class="genre-select create-seed">
+              <option value="">Seed voices from…</option>
+            </select>
+            <button type="button" id="compose-chords" class="secondary-button">Type the chords</button>
+          </div>
+          <p class="hint" id="guided-tip" aria-live="polite"></p>
+          <div class="control-label-row">
+            <span class="panel-label timer-section" id="play-along-section-title">Musical typing</span>
+            <span id="musical-typing-info"></span>
+          </div>
+          <div class="play-along-row" id="play-along-row">
+            <button
+              type="button"
+              id="play-along-toggle"
+              class="transport-button play-along-button"
+              aria-pressed="false"
+              aria-describedby="play-along-note"
+            >
+              <span class="transport-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <rect x="3" y="6" width="18" height="12" rx="1" />
+                  <path d="M8 6v7M12 6v7M16 6v7" />
+                </svg>
+              </span>
+              <span>Keys</span>
+            </button>
+            <label class="visually-hidden" for="play-along-track">Track the keys play</label>
+            <select id="play-along-track" class="genre-select play-along-select"></select>
+            <span id="play-along-readout" class="value-readout play-along-readout" role="status"></span>
+            <button
+              type="button"
+              id="play-along-capture"
+              class="transport-button play-along-capture"
+              aria-pressed="false"
+              aria-describedby="play-along-note"
+              disabled
+            >
+              <span class="transport-glyph record-dot" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
+              </span>
+              <span>Capture</span>
+            </button>
+            <button
+              type="button"
+              id="play-along-undo"
+              class="transport-button"
+              aria-describedby="play-along-note"
+              disabled
+            >
+              <span>Undo</span>
+            </button>
+          </div>
+          <p id="play-along-note" class="visually-hidden">
+            Keys z x c v b n m play one octave and q w e r t y u the next; minus and
+            equals change octave; a MIDI instrument plays the same track. Capture
+            records the rhythm, velocity and note length you play into the track's
+            step grid — the pitch comes from the piece's own harmony — and Undo puts
+            the old grid back.
+          </p>
+        </div>
+          </div>
           <div class="popover-anchor">
             <button
               type="button"
@@ -12640,13 +12638,90 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             createSeed.appendChild(option);
           }
         }
+        // The REAL blank (his 103: "blank slate isn't working… still have
+        // massive reverb and delay"): the same full snapshot the Advanced
+        // Blank-slate button loads — tracks off, grids cleared, no genre, FX
+        // zeroed — not a stub that only switched states off.
         createBlank?.addEventListener('click', () => {
-          for (const id of TRACK_IDS) setTrackState(id, 'off');
+          loadParamsSnapshot(buildBlankParams());
+          clearGenreTag();
+          presetName.value = '';
           if (guidedTip) {
             guidedTip.textContent =
-              'Silence. Switch instruments on under Advanced → Tracks as you add parts, or seed voices from a genre first.';
+              'Silence, genuinely: instruments off, grids cleared, FX zeroed. Build up from here.';
           }
         });
+
+        // Zero one layer at a time, so ANY preset can be the source.
+        const zeroWith = (mutate, said) => () => {
+          const p = structuredClone(engine.getParams());
+          mutate(p);
+          loadParamsSnapshot(p);
+          if (guidedTip) guidedTip.textContent = said;
+        };
+        document.getElementById('zero-voices')?.addEventListener('click', zeroWith((p) => {
+          for (const [id, t] of Object.entries(p.tracks || {})) {
+            if (DEFAULTS.tracks[id]?.voice) t.voice = DEFAULTS.tracks[id].voice;
+            if (p.patches && p.patches[id]) delete p.patches[id];
+          }
+        }, 'Voices back to stock, patches cleared. Everything else kept.'));
+        document.getElementById('zero-chords')?.addEventListener('click', zeroWith((p) => {
+          p.harmony = { ...(p.harmony || {}), seed: 'I' };
+        }, 'One chord: the loop is just I now. Everything else kept.'));
+        document.getElementById('zero-notes')?.addEventListener('click', zeroWith((p) => {
+          if (p.arp && Array.isArray(p.arp.steps)) p.arp.steps = p.arp.steps.map(() => false);
+          for (const [id, t] of Object.entries(p.tracks || {})) {
+            if (id === 'percussion' || !t.sequencer) continue;
+            t.sequencer.mode = 'manual';
+            const clearLane = (lane) => lane.forEach((step) => { step.on = false; });
+            if (Array.isArray(t.sequencer.steps)) clearLane(t.sequencer.steps);
+            else Object.values(t.sequencer.steps).forEach(clearLane);
+          }
+        }, 'Melodic grids cleared and set to Manual. Rhythms and chords kept.'));
+        document.getElementById('zero-rhythms')?.addEventListener('click', zeroWith((p) => {
+          p.swing = 0;
+          const t = p.tracks && p.tracks.percussion;
+          if (t && t.sequencer) {
+            t.sequencer.mode = 'manual';
+            const clearLane = (lane) => lane.forEach((step) => { step.on = false; });
+            if (Array.isArray(t.sequencer.steps)) clearLane(t.sequencer.steps);
+            else Object.values(t.sequencer.steps).forEach(clearLane);
+          }
+        }, 'Drum grid cleared, swing straight. Notes and chords kept.'));
+        document.getElementById('zero-fx')?.addEventListener('click', zeroWith((p) => {
+          p.reverbTail = 0.5;
+          p.patches = p.patches && typeof p.patches === 'object' ? p.patches : {};
+          for (const [id, t] of Object.entries(p.tracks || {})) {
+            if (typeof t.voice !== 'string') continue;
+            p.patches[id] = {
+              ...(p.patches[id] || {}),
+              [t.voice]: {
+                ...((p.patches[id] || {})[t.voice] || {}),
+                sends: { reverb: 0, delay: 0 },
+              },
+            };
+          }
+        }, 'Dry: room to its smallest, every send to zero. Notes untouched.'));
+
+        // The instructions live in the ⓘ, not the panel (his rule).
+        {
+          const createInfo = document.getElementById('create-info');
+          if (createInfo) {
+            infoButton(
+              createInfo,
+              'create',
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor \u2014 typed melody, words and MIDI-file import land there next.'
+            );
+          }
+          const typingInfo = document.getElementById('musical-typing-info');
+          if (typingInfo) {
+            infoButton(
+              typingInfo,
+              'musical typing',
+              'Your computer keyboard plays the selected track: z x c v b n m are one octave and q w e r t y u the next, black keys on the rows above, - and = shift octave. A MIDI keyboard plays the same track the moment it is connected \u2014 nothing to set up (Chrome and Edge; iOS Safari has no MIDI). Capture records the rhythm, velocity and note length you play into that track\u2019s step grid \u2014 pitches follow the piece\u2019s own harmony \u2014 and Undo puts the old grid back.'
+            );
+          }
+        }
         createSeed?.addEventListener('change', () => {
           const genre = GENRE_BY_SLUG.get(createSeed.value);
           if (!genre) return;
@@ -13116,6 +13191,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         blank.complexity = 0;
         blank.repetition = 0;
         blank.arp.steps = new Array(16).fill(false);
+        // v0.0.89 (his 103): blank means the FX too — he pressed Blank slate
+        // and "still [had] massive reverb and delay", because the voices'
+        // default sends and the room survived. Room to its smallest, every
+        // default voice's sends to zero.
+        blank.reverbTail = 0.5;
+        blank.patches = blank.patches && typeof blank.patches === 'object' ? blank.patches : {};
         // The user's own tracks survive a Blank slate and are silenced with
         // everything else — the button empties the piece, it does not delete
         // the instruments the listener built.
@@ -13124,6 +13205,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const t = blank.tracks[track];
           t.state = 'off';
           t.randomness = 0;
+          if (typeof t.voice === 'string') {
+            blank.patches[track] = {
+              ...(blank.patches[track] || {}),
+              [t.voice]: {
+                ...((blank.patches[track] || {})[t.voice] || {}),
+                sends: { reverb: 0, delay: 0 },
+              },
+            };
+          }
           if (t.sequencer) {
             t.sequencer.mode = 'manual';
             const clearLane = (lane) => lane.forEach((step) => { step.on = false; });
@@ -13566,7 +13656,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#play-along',
-          text: 'The orange Create button is the app\'s second main door. Create starts you from a blank slate — every instrument off — with a genre\'s voices as an optional seed, tells you what that genre\'s composers usually start with, and Tap a rhythm turns the Space bar into a drum: every tap sounds the kit and Capture writes it into the drum grid. Compose is for writing chords down (melody, words and MIDI files join it as they land). Play along hands the keyboard to one track: z x c v b n m play an octave and q w e r t y u the next, with the black keys above them, and a MIDI instrument plays the same track. Capture writes the rhythm, velocity and note length you play into that track\'s step grid — the pitches come from the piece\'s own harmony — and Undo puts the old grid back.',
+          text: 'The orange piano icon (its tooltip says Create) is the app\'s second main door. Blank slate silences and empties EVERYTHING — including the FX — so what follows is entirely yours; the Zero buttons strip one layer at a time (voices, chords, notes, rhythms, FX) so any preset can be your starting material; a genre seed borrows instruments without playing a note and tells you what that genre\'s composers usually start with; and Tap a rhythm turns the Space bar into a drum that writes straight into the drum grid. Compose is for writing chords down (melody, words and MIDI files join it as they land). Musical typing hands your computer keyboard to one track: z x c v b n m play an octave and q w e r t y u the next, with the black keys above them, and a MIDI instrument plays the same track. Capture writes the rhythm, velocity and note length you play into that track\'s step grid — the pitches come from the piece\'s own harmony — and Undo puts the old grid back.',
         },
         {
           target: '#front-scope-module',
@@ -14316,11 +14406,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       height: 56px;
     }
 
-    /* v0.0.85: Create is the second main door — orange, at Play's height. */
+    /* v0.0.89: Create is the second main door — the orange ICON in the icon
+       row (his 103: icon-only, CREATE in the tooltip, no row space taken). */
     .create-button {
       color: var(--accent-warm, var(--link));
-      border: 1px solid var(--accent-warm, var(--link));
-      flex: 0 1 auto;
     }
     .create-row {
       display: flex;

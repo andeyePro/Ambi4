@@ -1635,10 +1635,11 @@ try {
       if (transport && !transport.contains(row)) {
         failures.push('the play-along panel is not in the transport panel');
       }
-      // v0.0.85: the opener is the orange Create button BESIDE Play — the
-      // app's second main door (his item 96) — no longer an icon-row glyph.
-      if (!doc.querySelector('.transport-buttons #play-along-open')) {
-        failures.push('the Create button is not in the transport button row beside Play');
+      // v0.0.89 (his 103, reversing v0.0.85's placement): Create is the
+      // orange ICON in the icon row — icon-only, CREATE in the tooltip; the
+      // wide in-row button forced the transport onto two lines.
+      if (!doc.querySelector('.transport-icons #play-along-open')) {
+        failures.push('the Create icon is not in the transport icon row');
       }
       const toggle = doc.getElementById('play-along-toggle');
       const picker = doc.getElementById('play-along-track');

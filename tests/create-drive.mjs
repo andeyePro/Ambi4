@@ -21,38 +21,63 @@ export default async function drive(page) {
   await page.click('#consent-slot button:has-text("Save on this device")').catch(() => {});
   await page.waitForTimeout(300);
 
-  // The button: Play's height, within a pixel.
-  const geometry = await page.evaluate(() => {
-    const play = document.getElementById('toggle-play')?.getBoundingClientRect();
-    const create = document.getElementById('play-along-open')?.getBoundingClientRect();
-    const label = document.getElementById('play-along-open')?.textContent.trim();
-    return play && create ? { dh: Math.abs(play.height - create.height), label } : null;
+  // v0.0.89 (his 103): icon-only, in the icon row, CREATE in the tooltip —
+  // and the transport buttons stay on ONE line, which is what the wide
+  // button broke.
+  const shape = await page.evaluate(() => {
+    const btn = document.getElementById('play-along-open');
+    const inIconRow = !!btn?.closest('.transport-icons');
+    const tops = [...document.querySelectorAll('.transport-buttons > button')]
+      .filter((b) => b.offsetParent !== null)
+      .map((b) => Math.round(b.getBoundingClientRect().top));
+    return btn ? {
+      inIconRow,
+      title: btn.title,
+      textOnly: btn.textContent.trim(),
+      oneLine: tops.length > 1 && Math.max(...tops) - Math.min(...tops) <= 2,
+    } : null;
   });
-  check('the Create button exists', !!geometry, (v) => v === true);
-  check('it says Create', geometry?.label, 'Create');
-  check('it stands at the Play button’s height', geometry && geometry.dh <= 1, (v) => v === true);
+  check('the Create icon exists in the icon row', !!shape && shape.inIconRow, (v) => v === true);
+  check('CREATE lives in the tooltip, not the row', shape?.title, 'Create');
+  check('the button carries no visible text', shape?.textOnly, '');
+  check('the transport buttons sit on one line', shape?.oneLine, (v) => v === true);
 
   // The panel: three doors.
   await page.click('#play-along-open');
   await page.waitForTimeout(250);
   const doors = await page.evaluate(() => ({
     open: !document.getElementById('play-along').hidden,
-    create: !!document.getElementById('create-section-title'),
-    compose: !!document.getElementById('compose-section-title'),
-    playalong: !!document.getElementById('play-along-section-title'),
+    titles: [...document.querySelectorAll('#play-along .panel-label')].map((el) => el.textContent.trim()),
+    zeros: ['zero-voices', 'zero-chords', 'zero-notes', 'zero-rhythms', 'zero-fx']
+      .every((id) => !!document.getElementById(id)),
+    infos: !!document.querySelector('#create-info button') && !!document.querySelector('#musical-typing-info button'),
     seedOptions: document.getElementById('create-seed')?.options.length ?? 0,
   }));
-  check('the panel opens with all three doors', doors.open && doors.create && doors.compose && doors.playalong, (v) => v === true);
+  check('the panel opens', doors.open, (v) => v === true);
+  check('ONE Create title, and Musical typing below it', doors.titles.filter((t) => t === 'Create').length === 1 && doors.titles.includes('Musical typing'), (v) => v === true);
+  check('the five Zero buttons are there', doors.zeros, (v) => v === true);
+  check('the instructions live in ⓘ buttons', doors.infos, (v) => v === true);
   check('the seed list carries the public genres', doors.seedOptions >= 3, (v) => v === true);
 
-  // Blank slate: every ENGINE track state goes off.
+  // Blank slate is the REAL one now: states off AND the FX zeroed (his
+  // "still have massive reverb and delay" was the stub's gap).
   await page.click('#create-blank');
-  await page.waitForTimeout(400);
-  const states = await page.evaluate(() => {
-    const t = window.__ambi4Engine.getParams().tracks;
-    return Object.fromEntries(Object.entries(t).map(([k, v]) => [k, v.state]));
+  await page.waitForTimeout(500);
+  const blank = await page.evaluate(() => {
+    const p = window.__ambi4Engine.getParams();
+    const sends = Object.entries(p.tracks).map(([id, t]) => {
+      const patch = p.patches?.[id]?.[t.voice];
+      return patch && patch.sends ? patch.sends.reverb + patch.sends.delay : null;
+    });
+    return {
+      states: Object.values(p.tracks).map((t) => t.state),
+      reverbTail: p.reverbTail,
+      sends,
+    };
   });
-  check('blank slate turns every track off at the ENGINE', Object.values(states).every((v) => v === 'off'), (v) => v === true);
+  check('blank slate turns every track off at the ENGINE', blank.states.every((v) => v === 'off'), (v) => v === true);
+  check('…drops the room to its smallest', blank.reverbTail <= 0.5, (v) => v === true);
+  check('…and zeroes every default voice’s sends', blank.sends.every((v) => v === 0), (v) => v === true);
 
   // Seeding: voices arrive from the genre, states stay off.
   // The fresh visit draws a RANDOM genre, so "did a voice change" races the
