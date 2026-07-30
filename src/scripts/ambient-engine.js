@@ -5593,6 +5593,11 @@ export function createEngine(initialParams, options = {}) {
   const heldKeys = new Map();
   let capture = null;      // { track, notes } while the record button is armed
   let captureUndo = null;  // { track, sequencers } — the lane the last write replaced
+  // v0.0.107 (his "keep the raw tap data so the user can re-quantise"): the
+  // last take, RAW, in beat-domain — quantisation-independent, so it can be
+  // re-fitted after the metre or tempo changes. Runtime state, deliberately:
+  // a take is a performance moment, not a document.
+  let lastTake = null; // { track, beats: [{ start, end, lane, velocity, midi }] }
 
   /** A percussive track's kit, or null for anything that sounds a pitch. */
   function liveKit(name) {
@@ -5870,6 +5875,21 @@ export function createEngine(initialParams, options = {}) {
     const index = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
     const grid = captureGrid();
     const kit = liveKit(track);
+    // The RAW take survives the quantiser: beats, not seconds, so a later
+    // re-fit lands the same performance on whatever grid is current then.
+    if (notes.length) {
+      const secPerBeat = grid.stepSeconds / SEQUENCER_STEP_BEATS;
+      lastTake = {
+        track,
+        beats: notes.map((note) => ({
+          start: (Number(note.start) - grid.origin) / secPerBeat,
+          end: Number.isFinite(Number(note.end)) ? (Number(note.end) - grid.origin) / secPerBeat : null,
+          lane: note.lane ?? null,
+          velocity: Number.isFinite(Number(note.velocity)) ? Number(note.velocity) : null,
+          midi: Number.isFinite(Number(note.midi)) ? Number(note.midi) : null,
+        })),
+      };
+    }
     const { steps, written } = quantiseCapture(notes, {
       ...grid,
       lanes: kit ? kit.map((lane) => lane.id) : null,
@@ -5882,6 +5902,40 @@ export function createEngine(initialParams, options = {}) {
     next[index] = explicitSequencer({ mode: 'manual', weights: list[index].weights, steps });
     setParams({ tracks: { [track]: { sequencers: next } } });
     return { track, captured: notes.length, written, sequencer: index };
+  }
+
+  /**
+   * Re-fit the last RAW take onto the CURRENT grid — the metre or the tempo
+   * may have changed since it was played; the performance has not. Writes
+   * through the same path as stopCapture (manual mode, undo kept).
+   */
+  function requantiseCapture() {
+    if (!lastTake) return null;
+    const { track, beats } = lastTake;
+    const config = params.tracks[track];
+    if (!config || !config.sequencers) return null;
+    const list = Array.isArray(config.sequencers) ? config.sequencers : [config.sequencer];
+    const index = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
+    const grid = captureGrid();
+    const secPerBeat = grid.stepSeconds / SEQUENCER_STEP_BEATS;
+    const notes = beats.map((row) => ({
+      start: grid.origin + row.start * secPerBeat,
+      end: row.end === null ? undefined : grid.origin + row.end * secPerBeat,
+      lane: row.lane ?? undefined,
+      velocity: row.velocity ?? undefined,
+      midi: row.midi ?? undefined,
+    }));
+    const kit = liveKit(track);
+    const { steps, written } = quantiseCapture(notes, {
+      ...grid,
+      lanes: kit ? kit.map((lane) => lane.id) : null,
+    });
+    if (!written) return { track, written: 0, sequencer: index };
+    captureUndo = { track, sequencers: list.map(explicitSequencer) };
+    const next = list.map(explicitSequencer);
+    next[index] = explicitSequencer({ mode: 'manual', weights: list[index].weights, steps });
+    setParams({ tracks: { [track]: { sequencers: next } } });
+    return { track, written, sequencer: index };
   }
 
   /** Put back the lane the last written capture replaced. One click, once. */
@@ -5902,6 +5956,9 @@ export function createEngine(initialParams, options = {}) {
       notes: capture ? capture.notes.length : 0,
       held: heldKeys.size,
       undoable: Boolean(captureUndo),
+      undoTrack: captureUndo ? captureUndo.track : null,
+      // The raw-take handle: which track's performance a re-fit would land.
+      take: lastTake ? lastTake.track : null,
     };
   }
 
@@ -8491,6 +8548,7 @@ export function createEngine(initialParams, options = {}) {
     armCapture,
     stopCapture,
     undoCapture,
+    requantiseCapture,
     getCapture,
     // Post-master mix as a MediaStream (what the listener hears), for
     // page-side MediaRecorder. Null on the direct-output route or pre-start.

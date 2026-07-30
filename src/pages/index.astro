@@ -292,6 +292,7 @@ const VOICES: Record<string, [string, string][]> = {
           <div class="create-row">
             <button type="button" id="guided-start" class="secondary-button">Help me start</button>
             <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
+            <button type="button" id="create-refit" class="secondary-button" hidden>Re-fit the last take</button>
             <label class="visually-hidden" for="create-seed">Seed the instrument voices from a genre</label>
             <select id="create-seed" class="genre-select create-seed">
               <option value="">Seed voices from…</option>
@@ -12797,11 +12798,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         captureButton.setAttribute('aria-pressed', String(capture.armed));
         captureButton.disabled = !playAlongOn || !canCapture(playAlongTarget());
         captureUndoButton.disabled = !capture.undoable;
+        const refit = document.getElementById('create-refit');
+        if (refit) {
+          refit.hidden = !(
+            engineCaps.capture && typeof engine.requantiseCapture === 'function' && capture.take
+          );
+        }
       }
 
       const showPlayed = (text) => {
         playAlongReadout.textContent = text;
       };
+
+      /**
+       * v0.0.107 — the missing half of every capture write: the ENGINE had
+       * the take and the PAGE never learned. The grid drew the pre-take
+       * lane, the next page-side edit silently wiped the take, and a reload
+       * lost it outright (persistence saves the page's settings, which were
+       * stale). Any capture-path write now pulls the written track's
+       * sequencers back into settings, refreshes an open editor, persists.
+       */
+      function adoptEngineSequencers(track) {
+        try {
+          const live = engine.getParams()?.tracks?.[track];
+          if (!live || !Array.isArray(live.sequencers) || !settings.tracks[track]) return;
+          settings.tracks[track].sequencers = structuredClone(live.sequencers);
+          settings.tracks[track].sequencer = settings.tracks[track].sequencers[0];
+          const editor = document.getElementById(`voice-editor-${track}`);
+          if (editor && !editor.hidden) renderVoiceEditor(track);
+          persistSettings();
+        } catch {}
+      }
 
       /** Stop a running take and say what it wrote. */
       function endCapture() {
@@ -12810,6 +12837,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         try {
           take = engine.stopCapture();
         } catch {}
+        if (take && take.written) adoptEngineSequencers(take.track);
         showPlayed(take && take.written ? `♪ ${take.written}` : '');
         setPlayAlongUI();
       }
@@ -12997,9 +13025,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           setPlayAlongUI();
         });
         captureUndoButton.addEventListener('click', () => {
+          const undoing = captureState().undoTrack;
+          let undone = false;
           try {
-            engine.undoCapture();
+            undone = engine.undoCapture();
           } catch {}
+          if (undone && undoing) adoptEngineSequencers(undoing);
           showPlayed('');
           setPlayAlongUI();
         });
@@ -13277,7 +13308,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor \u2014 typed melody, words and MIDI-file import land there next.'
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor \u2014 typed melody, words and MIDI-file import land there next.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -13348,6 +13379,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             endCapture();
           }
         });
+
+        // v0.0.107 (his "keep the raw tap data so the user can re-quantise"):
+        // the raw take survives in the engine; this lands it on whatever grid
+        // is CURRENT — change the time signature or tempo first, then re-fit.
+        const createRefit = document.getElementById('create-refit');
+        createRefit?.addEventListener('click', () => {
+          let result = null;
+          try {
+            result = engine.requantiseCapture();
+          } catch {}
+          if (result && result.written) {
+            adoptEngineSequencers(result.track);
+            if (guidedTip) {
+              guidedTip.textContent = `Re-fitted: ${result.written} notes landed on the current grid.`;
+            }
+          } else if (guidedTip) {
+            guidedTip.textContent = 'Nothing to re-fit yet — tap or capture a take first.';
+          }
+          setPlayAlongUI();
+        });
+        describe(createRefit, 'Lands your last take on the grid as it is NOW — change the time signature or tempo first, and the raw timing you played is re-fitted to it.');
       }
 
       setupPopover('timers-toggle', 'timers-popover');

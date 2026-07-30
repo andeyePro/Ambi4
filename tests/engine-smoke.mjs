@@ -9141,7 +9141,7 @@ test('v28 armCapture: only a track with a step grid can be armed', async () => {
   // The last successful arm is the one that stands: arming is a re-point, not a stack.
   assert.equal(engine.armCapture('melody'), true);
   assert.deepEqual(engine.getCapture(),
-    { armed: true, track: 'melody', notes: 0, held: 0, undoable: false });
+    { armed: true, track: 'melody', notes: 0, held: 0, undoable: false, undoTrack: null, take: null });
   engine.noteOn('melody', 60, 0.6);
   assert.equal(engine.getCapture().notes, 1, 'an armed capture must be taking the notes down');
   engine.noteOn('bass', 40, 0.6);
@@ -9188,6 +9188,53 @@ test('v28 record-arm: a take is quantised into the armed track\'s active lane, a
     'undo must put the lane back exactly as it was');
   assert.equal(engine.undoCapture(), false, 'undo is one click, once');
   assert.equal(engine.getCapture().undoable, false);
+  engine.stop();
+});
+
+test('v0.0.107 re-fit: the raw take survives quantisation and lands on the CURRENT grid when asked again', async () => {
+  // 120 bpm: a sixteenth is 0.125 s. One note is played past the 4/4 barline
+  // (slot 17), so the first quantise WRAPS it onto slot 1 — and that wrap is
+  // exactly what a re-fit under 5/4 undoes: twenty slots to the bar now, the
+  // same performance lands where it was really played.
+  const engine = createEngine({ bpm: 120, speed: 1, timeSignature: '4/4' });
+  engine.arm();
+  const ctx = liveContexts.at(-1);
+  assert.equal(engine.armCapture('melody'), true);
+  const SLOT = 0.125;
+  for (const slot of [0, 4, 17]) {
+    ctx.currentTime = slot * SLOT;
+    engine.noteOn('melody', 60 + slot, 0.6);
+    ctx.currentTime += 0.06;
+    engine.noteOff('melody', 60 + slot);
+  }
+  ctx.currentTime = 20 * SLOT;
+  const take = engine.stopCapture();
+  assert.equal(take.written, 3);
+  assert.equal(engine.getCapture().take, 'melody', 'the raw take must survive the write');
+  const wrapped = engine.getParams().tracks.melody.sequencers[take.sequencer];
+  assert.equal(laneMask(wrapped.steps), '11001000000000000000',
+    'in 4/4 the beat-4¼ note wraps onto slot 1');
+
+  // The metre changes; the performance has not. Re-fit onto the new grid.
+  engine.setParams({ timeSignature: '5/4' });
+  const refit = engine.requantiseCapture();
+  assert.deepEqual({ track: refit.track, written: refit.written }, { track: 'melody', written: 3 });
+  const refitted = engine.getParams().tracks.melody.sequencers[refit.sequencer];
+  assert.equal(laneMask(refitted.steps), '10001000000000000100',
+    'in 5/4 the same take lands slot 17 where it was really played');
+  assert.equal(refitted.mode, 'manual');
+
+  // The re-fit is undoable like any capture write.
+  assert.equal(engine.getCapture().undoable, true);
+  assert.equal(engine.undoCapture(), true);
+  assert.equal(laneMask(engine.getParams().tracks.melody.sequencers[take.sequencer].steps),
+    '11001000000000000000', 'undo restores the pre-refit lane');
+
+  // No take, no re-fit.
+  const fresh = createEngine();
+  fresh.arm();
+  assert.equal(fresh.requantiseCapture(), null);
+  fresh.stop();
   engine.stop();
 });
 

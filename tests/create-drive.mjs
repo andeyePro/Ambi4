@@ -155,6 +155,30 @@ export default async function drive(page) {
   }));
   check('a second press stops tapping and Capture', tapOff.pressed === 'false' && tapOff.captureArmed === 'false', (v) => v === true);
 
+  // v0.0.107 — the take must land on BOTH sides of the seam: the engine
+  // played it, and the PAGE's own settings carry it (the grid, the next edit
+  // and the persistence all read settings — an engine-only take was lost to
+  // a reload and wiped by the next step click, which shipped unnoticed
+  // because every earlier check looked at the engine alone).
+  await page.waitForTimeout(600); // past the 250 ms persist debounce
+  const adopted = await page.evaluate(() => {
+    const eng = window.__ambi4Engine.getParams().tracks.percussion.sequencers;
+    let stored = null;
+    try {
+      const all = JSON.parse(localStorage.getItem('ambi4:generator'));
+      stored = all?.tracks?.percussion?.sequencers ?? null;
+    } catch {}
+    const hits = (seqs) => {
+      if (!Array.isArray(seqs)) return -1;
+      const lanes = seqs[seqs.length - 1]?.steps || {};
+      return Object.values(lanes).flat().filter((s) => s && s.on === true).length;
+    };
+    return { engineHits: hits(eng), storedHits: stored === null ? null : hits(stored), refitVisible: !document.getElementById('create-refit')?.hidden };
+  });
+  check('the take reached the engine', adopted.engineHits > 0, (v) => v === true);
+  check('…and the page ADOPTED it (persisted settings carry the take)', adopted.storedHits, adopted.engineHits);
+  check('the re-fit button appears once a take exists', adopted.refitVisible, (v) => v === true);
+
   // His 103 repro: "press [blank slate] then press play, I get a complex
   // bassline I didn't programme". The real blank must stay SILENT under Play.
   const panelShut2 = await page.evaluate(() => document.getElementById('play-along').hidden);
