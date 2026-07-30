@@ -4183,6 +4183,41 @@ test('Energy 1c, auto kit: below the midpoint velocities scale, the kick yields 
   assert.ok(lots >= 0.5, `at full Energy fills are all over the place, measured ${lots.toFixed(2)}`);
 });
 
+test('v0.0.116 chain mode: the sequencer list plays IN ORDER and wraps — a composed sequence, not a shuffle', async () => {
+  const oneNote = (midi) => ({
+    mode: 'manual',
+    weights: [1, 1, 1],
+    steps: Array.from({ length: 20 }, (unused, i) => (
+      i === 0
+        ? { on: true, prob: 1, vmin: 0.6, vmax: 0.6, midi }
+        : { on: false, prob: 1, vmin: 0.5, vmax: 0.9 }
+    )),
+  });
+  const engine = createEngine({
+    root: 'C', mode: 'major', bpm: 120, timeSignature: '4/4', complexity: 0.6,
+    tracks: {
+      melody: { state: 'on', mono: false, sequencerAdvance: 'chain',
+        sequencers: [oneNote(60), oneNote(62), oneNote(64)] },
+      pad: { state: 'off' }, arp: { state: 'off' }, bass: { state: 'off' },
+      texture: { state: 'off' }, percussion: { state: 'off' },
+    },
+  });
+  assert.equal(engine.getParams().tracks.melody.sequencerAdvance, 'chain',
+    'the advance mode survives the sanitiser');
+  const notes = [];
+  engine.on('note', (n) => notes.push(n));
+  await engine.start();
+  await advance(16);
+  engine.stop();
+  const midis = notes.filter((n) => n.track === 'melody').map((n) => n.midi);
+  assert.ok(midis.length >= 5, `need bars to prove the cycle, got ${midis.length}`);
+  for (let i = 1; i < midis.length; i++) {
+    const expected = { 60: 62, 62: 64, 64: 60 }[midis[i - 1]];
+    assert.equal(midis[i], expected,
+      `bar ${i}: after ${midis[i - 1]} the chain plays ${expected}, got ${midis[i]}`);
+  }
+});
+
 test('Energy 2d: from 0.85 the tune doubles an octave up — quieter, mirrored, and never on a pinned note', async () => {
   const seq = (midi) => [{
     mode: 'manual',

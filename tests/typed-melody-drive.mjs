@@ -71,6 +71,25 @@ export default async function drive(page) {
   check('garbage leaves the engine untouched', after.pin0, 60);
   check('…and says why', /understood/.test(after.tip), (v) => v === true);
 
+  // A phrase longer than a bar writes MORE BARS, chained in order.
+  await page.fill('#compose-melody-text', 'C4 D4 E4 F4 G4 A4');
+  await page.click('#compose-melody-write');
+  await page.waitForTimeout(400);
+  const multi = await page.evaluate(() => {
+    const track = window.__ambi4Engine.getParams().tracks.melody;
+    return {
+      bars: track.sequencers.length,
+      advance: track.sequencerAdvance ?? null,
+      bar1: track.sequencers[0]?.steps[0]?.midi ?? null,
+      bar2: track.sequencers[1]?.steps[0]?.midi ?? null,
+      tip: document.getElementById('guided-tip')?.textContent || '',
+    };
+  });
+  check('six beats in 4/4 make two bars', multi.bars, 2);
+  check('…played in order (chain mode reached the ENGINE)', multi.advance, 'chain');
+  check('bar 2 starts on the fifth note', multi.bar2, 67);
+  check('the writer says so', /2 bars/.test(multi.tip) && /in order/.test(multi.tip), (v) => v === true);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

@@ -13511,26 +13511,48 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const slotsPerBar = stepsPerBarFor('melody');
           const beats = Math.floor(slotsPerBar / 4);
           const blank = () => ({ on: false, prob: 1, vmin: 0.6, vmax: 0.8 });
-          const steps = Array.from({ length: 20 }, blank);
+          // v0.0.116: a phrase longer than a bar writes MORE BARS — one
+          // sequencer each, chained in order (the engine's chain mode), so a
+          // typed melody of any length plays back as composed. Cap at eight
+          // bars, saying so.
+          const MAX_BARS = 8;
+          const bars = [Array.from({ length: 20 }, blank)];
           let beat = 0;
-          let lastSlot = null;
+          let lastRef = null; // { bar, slot } of the previous NOTE, for holds
           let written = 0;
           const dropped = [];
+          const barBeat = () => beat % beats;
+          const barIndex = () => Math.floor(beat / beats);
+          const ensureBar = () => {
+            while (bars.length <= barIndex() && bars.length < MAX_BARS) {
+              bars.push(Array.from({ length: 20 }, blank));
+            }
+            return barIndex() < MAX_BARS;
+          };
           for (const token of tokens) {
-            if (beat >= beats) { dropped.push(token); continue; }
+            if (!ensureBar()) { dropped.push(token); continue; }
+            const steps = bars[barIndex()];
             if (token === '.' || token.toLowerCase() === 'r') {
-              lastSlot = null;
+              lastRef = null;
               beat += 1;
               continue;
             }
             if (token === '-') {
-              // Hold: tie the previous note's slots through this beat.
-              if (lastSlot !== null) {
-                for (let s = lastSlot; s < (beat + 1) * 4 - 1 && s < 19; s++) {
-                  if (!steps[s].on) { steps[s].on = true; steps[s].midi = steps[lastSlot].midi; }
+              // Hold: tie through this beat. Within one bar it ties slots;
+              // across a barline it re-states the note tied through the new
+              // bar's beat (a lane cannot tie into the next sequencer).
+              if (lastRef !== null) {
+                const midi = bars[lastRef.bar][lastRef.slot].midi;
+                const from = lastRef.bar === barIndex() ? lastRef.slot : barBeat() * 4;
+                if (lastRef.bar !== barIndex() && !steps[from].on) {
+                  steps[from] = { ...blank(), on: true, midi };
+                  lastRef = { bar: barIndex(), slot: from };
+                }
+                for (let s = from; s < (barBeat() + 1) * 4 - 1 && s < 19; s++) {
+                  if (!steps[s].on) { steps[s].on = true; steps[s].midi = midi; }
                   steps[s].tie = true;
                   if (!steps[s + 1].on) {
-                    steps[s + 1] = { ...blank(), on: true, midi: steps[lastSlot].midi };
+                    steps[s + 1] = { ...blank(), on: true, midi };
                   }
                 }
               }
@@ -13539,9 +13561,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
             const midi = parseNoteNameToMidi(token);
             if (midi === null) { dropped.push(token); continue; }
-            const slot = beat * 4;
+            const slot = barBeat() * 4;
             steps[slot] = { ...blank(), on: true, midi };
-            lastSlot = slot;
+            lastRef = { bar: barIndex(), slot };
             written += 1;
             beat += 1;
           }
@@ -13550,14 +13572,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             return;
           }
           const track = settings.tracks.melody;
-          const list = Array.isArray(track.sequencers) ? track.sequencers : [track.sequencer];
-          const active = 0;
-          list[active] = { mode: 'manual', weights: list[active]?.weights ?? [1], steps };
+          const list = bars.map((steps) => ({
+            mode: 'manual',
+            weights: bars.map(() => 1),
+            steps,
+          }));
           track.sequencers = list;
           track.sequencer = list[0];
+          if (bars.length > 1) track.sequencerAdvance = 'chain';
           if (track.state === 'off') track.state = 'on';
           engine.setParams({
-            tracks: { melody: { state: track.state, sequencers: structuredClone(list) } },
+            tracks: {
+              melody: {
+                state: track.state,
+                sequencers: structuredClone(list),
+                ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
+              },
+            },
           });
           syncTrackStateUI();
           const editor = document.getElementById('voice-editor-melody');
@@ -13565,8 +13596,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           persistSettings();
           if (guidedTip) {
             guidedTip.textContent =
-              `Melody written: ${written} note${written === 1 ? '' : 's'} onto the melody grid, one per beat` +
-              (dropped.length ? ` — dropped: ${dropped.join(' ')} (a bar holds ${beats} beats here).` : '.');
+              `Melody written: ${written} note${written === 1 ? '' : 's'} across ` +
+              `${bars.length} bar${bars.length === 1 ? '' : 's'}` +
+              (bars.length > 1 ? ' (played in order)' : '') +
+              (dropped.length ? ` — dropped: ${dropped.join(' ')} (eight bars is the cap).` : '.');
           }
         }
 

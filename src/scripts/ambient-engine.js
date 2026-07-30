@@ -1653,6 +1653,14 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
       track.sequencers = sanitiseSequencerList(shape.percussive, partial, storedList,
         track.lanes ? track.lanes.map((lane) => lane.id) : undefined);
       track.sequencer = track.sequencers[0];
+      // v0.0.116: how the list advances at loop end. 'weights' is the Markov
+      // shuffle every build has had; 'chain' plays the list IN ORDER and
+      // wraps — the linear multi-bar sequence a typed melody or a MIDI file
+      // is. Absent inherits, anything unrecognised falls back to weights.
+      const advance = partial && 'sequencerAdvance' in partial
+        ? partial.sequencerAdvance
+        : baseTrack.sequencerAdvance;
+      if (advance === 'chain') track.sequencerAdvance = 'chain';
     }
     tracks[name] = track;
   }
@@ -4612,6 +4620,14 @@ export function createEngine(initialParams, options = {}) {
       if (!list || list.length < 2) continue;
       if (held.has(track) || isFrozenTrack(track)) continue;
       const from = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
+      // v0.0.116 chain mode: the list plays IN ORDER and wraps — a composed
+      // sequence, not a shuffle. No draw, so a chained track never moves the
+      // stream of anything else.
+      if (params.tracks[track].sequencerAdvance === 'chain') {
+        activeSequencer.set(track, (from + 1) % list.length);
+        clearFrozen(track);
+        continue;
+      }
       const weights = list[from].weights;
       const total = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
       if (total <= 0) continue;
