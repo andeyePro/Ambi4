@@ -331,17 +331,53 @@ function maskHits(mask, timeSignature) {
   return hits;
 }
 
+/**
+ * Energy stage 1c — the kit-softness ladder, applied AT COMPILE so the grid
+ * shows exactly what plays (the owner's no-secrets rule forbids a hidden
+ * note-on multiplier). Below the midpoint the whole kit's velocity band
+ * scales down (soft kicks are real kicks — his "a kit can arrive very
+ * gently") and the high then mid lanes thin on an even, deterministic stride;
+ * the LOW lane never loses a hit, because four-to-the-floor is the genre's
+ * identity ("0% would remove the acid articulation IF 4 to the floor is
+ * genre-defining" — the floor stays). No rng is consumed, so the compile's
+ * draw stream is untouched at any value. At 0.5 and above every factor is
+ * exactly 1 and the kit is byte-identical to an unshaped compile.
+ */
+function kitSoftness(kitComplexity) {
+  const c = numberOr(kitComplexity, undefined);
+  if (c === undefined || c >= 0.5) return null;
+  const x = clamp(c, 0, 0.5);
+  return {
+    velocity: 0.6 + 0.8 * x, // 0.6 at the bottom, 1 at the midpoint
+    keep: { low: 1, mid: 0.55 + 0.9 * x, high: 0.35 + 1.3 * x },
+  };
+}
+
+/** Keep hit k of a lane on an even stride at rate r — the first hit always survives. */
+const keepHit = (k, r) => k === 0 || Math.floor((k + 1) * r) > Math.floor(k * r);
+
 /** The genre's fallback kit as manual sequencers — one per groove, evenly weighted. */
-function compileKit(grooves, timeSignature) {
+function compileKit(grooves, timeSignature, kitComplexity) {
   const list = (Array.isArray(grooves) ? grooves : []).filter(isObject);
   if (!list.length) return null;
+  const softness = kitSoftness(kitComplexity);
   return list.map((groove) => ({
     mode: 'manual',
     weights: list.map(() => 1),
-    steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => [
-      lane,
-      maskToLane(groove[lane], timeSignature, KIT_VELOCITIES[lane] ?? DEFAULT_KIT_VELOCITY),
-    ])),
+    steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => {
+      const steps = maskToLane(groove[lane], timeSignature, KIT_VELOCITIES[lane] ?? DEFAULT_KIT_VELOCITY);
+      if (!softness) return [lane, steps];
+      const rate = softness.keep[lane] ?? 1;
+      let hit = 0;
+      for (const step of steps) {
+        if (!step.on) continue;
+        if (!keepHit(hit, rate)) step.on = false;
+        hit += 1;
+        step.vmin = round3(clamp(step.vmin * softness.velocity, 0.05, 1));
+        step.vmax = round3(clamp(step.vmax * softness.velocity, 0.05, 1));
+      }
+      return [lane, steps];
+    })),
   }));
 }
 
@@ -471,7 +507,7 @@ const DENSITY_TRACKS = Object.freeze(['bass', 'melody', 'texture', 'arp', 'percu
  * the same genre), and `defiance` is a map of dial `param` path → position 0–1,
  * overlaid after everything the genre itself asked for.
  */
-export function compileGenre(genreJson, { rng = Math.random, defiance = {} } = {}) {
+export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitComplexity } = {}) {
   const genre = isObject(genreJson) ? genreJson : {};
   const essence = isObject(genre.essence) ? genre.essence : {};
   const language = isObject(essence.chordLanguage) ? essence.chordLanguage : {};
@@ -526,7 +562,7 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {} } = {
   const dissonance = lo === undefined || hi === undefined ? undefined
     : lo === hi ? lo : { min: Math.min(lo, hi), max: Math.max(lo, hi) };
 
-  const kit = compileKit(fallbacks.grooves, metre);
+  const kit = compileKit(fallbacks.grooves, metre, kitComplexity);
   const bias = clamp(numberOr(essence.densityBias, 1), 0, 2);
   const bassDrive = bassDensityDrive(groove);
   const percussionDrive = kit ? 1 : percussionDensityDrive(groove, metre);

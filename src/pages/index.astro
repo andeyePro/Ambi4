@@ -2779,10 +2779,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /** One compiled setup from a genre, or null if the compiler refuses it. */
-      function compileGenreParams(genre, seed) {
+      function compileGenreParams(genre, seed, opts = {}) {
         if (!genreCompiler || !genre) return null;
         try {
-          return genreCompiler.compileGenre(genre, { rng: makeRng(seed) });
+          return genreCompiler.compileGenre(genre, { rng: makeRng(seed), ...opts });
         } catch {
           return null;
         }
@@ -4500,6 +4500,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           tracks: trackStates,
         });
         if (syncDial) complexityDial?.set(value);
+        // Energy stage 1c: while the kit is still the genre's own, the dial
+        // re-shapes it VISIBLY (recompiled, written to the grid) — soft kicks
+        // and thinned hats below the midpoint, the genre's identity lane kept.
+        followGenreKit(value);
         announceDialEffect(effectBefore, dialEffectSnapshot(rangeMid(value)));
         persistSettings();
       }
@@ -11868,6 +11872,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // one genre has as many bases as there are seeds.
         next.origin = { kind: 'genre', id: genre.slug, seed };
         loadParamsSnapshot(next);
+        recordCleanGenreKit();
         return true;
       }
 
@@ -12008,6 +12013,83 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return null;
       }
 
+      /** The genre deep-copied with the stored rule OVERRIDES laid on. */
+      function genreWithOverrides(genre, overrides) {
+        const edited = structuredClone(genre);
+        edited.essence = edited.essence || {};
+        if (overrides.progressionGrammar) {
+          edited.essence.chordLanguage = edited.essence.chordLanguage || {};
+          edited.essence.chordLanguage.progressionGrammar = overrides.progressionGrammar;
+          // The seed pool also draws from fallbackLists.progressions (they
+          // weigh double, deliberately) — a user rewriting the chord rules
+          // means THESE rules, so the fallback pool empties too.
+          edited.fallbackLists = edited.fallbackLists || {};
+          edited.fallbackLists.progressions = [];
+        }
+        if (overrides.grooves) {
+          edited.fallbackLists = edited.fallbackLists || {};
+          edited.fallbackLists.grooves = overrides.grooves.map((groove) => {
+            const clean = {};
+            for (const lane of ['low', 'mid', 'high']) {
+              if (groove[lane] !== undefined) clean[lane] = groove[lane];
+            }
+            return clean;
+          });
+        }
+        if (overrides.anchorPatterns || overrides.syncopationCells) {
+          edited.essence.grooveGrammar = edited.essence.grooveGrammar || {};
+          if (overrides.anchorPatterns) {
+            edited.essence.grooveGrammar.anchorPatterns = overrides.anchorPatterns;
+          }
+          if (overrides.syncopationCells) {
+            edited.essence.grooveGrammar.syncopationCells = overrides.syncopationCells;
+          }
+        }
+        return edited;
+      }
+
+      /**
+       * Energy stage 1c bookkeeping: the kit as the GENRE machinery last wrote
+       * it. While the grid still matches this string the kit is provably the
+       * genre's own and Energy may re-shape it; the first hand edit breaks the
+       * match and the follow stands down for good — the user's data wins.
+       */
+      function recordCleanGenreKit() {
+        settings.genreKitClean = JSON.stringify(settings.tracks?.percussion?.sequencers ?? null);
+      }
+
+      /**
+       * Energy stage 1c — the kit-softness ladder, applied by RECOMPILING the
+       * genre's kit at the dial's new value (same seed, so nothing else moves)
+       * and writing it into the grid where it can be SEEN. Never a hidden
+       * note-on multiplier: the grid showing one velocity while another plays
+       * is the exact lie this project tests against. Only runs while the kit
+       * is provably untouched by hand (recordCleanGenreKit above).
+       */
+      function followGenreKit(complexityValue) {
+        const genre = currentGenre();
+        if (!genre || !genreCompiler) return;
+        if (!Array.isArray(genre.fallbackLists?.grooves) || !genre.fallbackLists.grooves.length) return;
+        const seed = Number.isFinite(settings.origin?.seed) ? settings.origin.seed : null;
+        if (seed === null) return;
+        const clean = settings.genreKitClean;
+        if (typeof clean !== 'string') return;
+        const currentKit = JSON.stringify(settings.tracks?.percussion?.sequencers ?? null);
+        if (currentKit !== clean) return; // hand-edited: theirs, not the dial's
+        const overrides = isPlainObject(settings.genreRules) ? settings.genreRules : {};
+        const compiled = compileGenreParams(genreWithOverrides(genre, overrides), seed, {
+          kitComplexity: clamp(rangeMid(complexityValue), 0, 1),
+        });
+        const kit = compiled?.tracks?.percussion?.sequencers;
+        if (!Array.isArray(kit)) return;
+        settings.tracks.percussion.sequencers = structuredClone(kit);
+        settings.tracks.percussion.sequencer = settings.tracks.percussion.sequencers[0];
+        engine.setParams({ tracks: { percussion: { sequencers: structuredClone(kit) } } });
+        recordCleanGenreKit();
+        const editor = document.getElementById('voice-editor-percussion');
+        if (editor && !editor.hidden) renderVoiceEditor('percussion');
+      }
+
       function applyGenreRules() {
         const genre = currentGenre();
         const errorEl = document.getElementById('genre-rules-error');
@@ -12040,36 +12122,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (differs(form.syncopationCells, own.grooveGrammar?.syncopationCells)) {
           overrides.syncopationCells = form.syncopationCells;
         }
-        const edited = structuredClone(genre);
-        edited.essence = edited.essence || {};
-        if (overrides.progressionGrammar) {
-          edited.essence.chordLanguage = edited.essence.chordLanguage || {};
-          edited.essence.chordLanguage.progressionGrammar = overrides.progressionGrammar;
-          // The seed pool also draws from fallbackLists.progressions (they
-          // weigh double, deliberately) — a user rewriting the chord rules
-          // means THESE rules, so the fallback pool empties too.
-          edited.fallbackLists = edited.fallbackLists || {};
-          edited.fallbackLists.progressions = [];
-        }
-        if (overrides.grooves) {
-          edited.fallbackLists = edited.fallbackLists || {};
-          edited.fallbackLists.grooves = overrides.grooves.map((groove) => {
-            const clean = {};
-            for (const lane of ['low', 'mid', 'high']) {
-              if (groove[lane] !== undefined) clean[lane] = groove[lane];
-            }
-            return clean;
-          });
-        }
-        if (overrides.anchorPatterns || overrides.syncopationCells) {
-          edited.essence.grooveGrammar = edited.essence.grooveGrammar || {};
-          if (overrides.anchorPatterns) {
-            edited.essence.grooveGrammar.anchorPatterns = overrides.anchorPatterns;
-          }
-          if (overrides.syncopationCells) {
-            edited.essence.grooveGrammar.syncopationCells = overrides.syncopationCells;
-          }
-        }
+        const edited = genreWithOverrides(genre, overrides);
         const seed = Number.isFinite(settings.origin?.seed) ? settings.origin.seed : randomSeed();
         const compiled = compileGenreParams(edited, seed);
         if (!compiled) {
@@ -12080,6 +12133,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         next.origin = { kind: 'genre', id: genre.slug, seed };
         if (Object.keys(overrides).length) next.genreRules = overrides;
         loadParamsSnapshot(next);
+        recordCleanGenreKit();
         say(null);
         syncGenreRulesUI();
         sayUnderDials('Re-drawn from your rules — same dice, so only what you changed, changes.', 4000);

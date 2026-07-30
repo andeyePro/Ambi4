@@ -289,6 +289,36 @@ test('the draw order is fixed: one rng call per draw, whatever a genre declares'
 // 2. The chord grammar
 // ---------------------------------------------------------------------------
 
+test('kit softness (Energy 1c): below the midpoint velocities scale and hats thin; the low lane and everything at 0.5+ are untouched', () => {
+  const genre = bySlug('techno-tools');
+  const compile = (opts) => compileGenre(genre, { rng: seededRng(4242), ...opts });
+
+  const plain = compile({});
+  const atMid = compile({ kitComplexity: 0.5 });
+  assert.equal(JSON.stringify(atMid), JSON.stringify(plain),
+    'kitComplexity 0.5 must compile byte-identical to an unshaped compile');
+
+  const soft = compile({ kitComplexity: 0 });
+  const lanes = (params) => params.tracks.percussion.sequencers[0].steps;
+  const on = (params, lane) => lanes(params)[lane].filter((s) => s.on === true);
+
+  // The identity lane keeps every hit; the hats thin; every surviving hit is
+  // quieter — and it is all IN the compiled lane, where the grid shows it.
+  assert.equal(on(soft, 'low').length, on(plain, 'low').length, 'the low lane must never lose a hit');
+  assert.ok(on(soft, 'high').length < on(plain, 'high').length, 'the high lane must thin at the bottom');
+  assert.ok(on(soft, 'high').length >= 1, 'the first high hit always survives');
+  assert.ok(on(soft, 'low')[0].vmax < on(plain, 'low')[0].vmax, 'soft kicks are quieter kicks');
+
+  // The shaping is kit-only and draw-free: every non-percussion param is
+  // identical, so the compile stream is untouched.
+  const stripKit = (params) => {
+    const copy = JSON.parse(JSON.stringify(params));
+    delete copy.tracks.percussion;
+    return JSON.stringify(copy);
+  };
+  assert.equal(stripKit(soft), stripKit(plain), 'kit softness must not move any other draw or param');
+});
+
 test('chord tokens parse to mode-relative degrees, and junk is dropped', () => {
   assert.deepEqual(parseChordToken('I'), { token: 'I', degree: 0, minor: false, suffix: '' });
   assert.deepEqual(parseChordToken('vii'), { token: 'vii', degree: 6, minor: true, suffix: '' });
