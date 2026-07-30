@@ -11202,11 +11202,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           select.prepend(live);
         }
         const engineType = edited ? voiceEngineType(track, sounding) : null;
+        // v0.0.100 (his item 91): a pure wander SAYS it is one. He read
+        // "Texture: Call" in Synthwave as a setting, because the sounding
+        // voice was labelled exactly like a chosen one — the generator's
+        // gentle anti-monotony wander was indistinguishable from his own
+        // choice. The label now carries the state, and the title carries the
+        // escape hatch.
+        const wandering = !edited && sounding !== chosen;
         const text = edited
           ? engineType
             ? `Custom (${engineType})`
             : 'Custom'
-          : voiceLabel(track, sounding);
+          : wandering
+            ? `${voiceLabel(track, sounding)} · wandering`
+            : voiceLabel(track, sounding);
+        live.title = wandering
+          ? 'The generator wandered onto this voice for variety — your own choice is unchanged, and picking any voice ends the wander at once.'
+          : '';
         if (live.textContent !== text) live.textContent = text;
         live.selected = true;
       }

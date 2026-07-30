@@ -3020,6 +3020,29 @@ test('vary.voice wanders the sounding voice; getParams keeps the user\'s', () =>
     }, { rng: seededRng(515) });
     await engine.start();
     await advance(26, FAST);
+    // v0.0.100, the owner's item 91 ("I never selected Call myself"): the
+    // WANDERED voice is what getResolved reports — that is the readout he
+    // saw — and the wander draws only from the track's own bank. Walk while
+    // RUNNING until a wander is live, then assert at the seam (a stopped
+    // engine has no wander to show, which bit this test's first draft).
+    {
+      let resolvedVoice = engine.getResolved().tracks.melody.voice;
+      for (let i = 0; i < 40 && resolvedVoice === userVoice; i++) {
+        await advance(2, FAST);
+        resolvedVoice = engine.getResolved().tracks.melody.voice;
+      }
+      assert.notEqual(resolvedVoice, userVoice,
+        'eighty bars of vary.voice 1 never showed a wander at getResolved()');
+      assert.ok(Object.keys(bank).includes(resolvedVoice),
+        `the wander left the track's own bank: ${resolvedVoice}`);
+      assert.equal(engine.getParams().tracks.melody.voice, userVoice,
+        'getParams must hold the user voice even while getResolved reports the wander');
+      // An explicit choice ends the wander at once — the escape hatch the
+      // select's wander label points at.
+      engine.setParams({ tracks: { melody: { voice: userVoice } } });
+      assert.equal(engine.getResolved().tracks.melody.voice, userVoice,
+        'an explicit voice choice must end the wander immediately');
+    }
     engine.stop();
     assert.ok(spy.plays.length > 0, 'the melody never sounded');
     const sounded = new Set(spy.plays.map((p) => p.id));
