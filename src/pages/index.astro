@@ -183,7 +183,6 @@ const VOICES: Record<string, [string, string][]> = {
     <div class="module-panel transport-module">
       <div class="transport-head">
         <span class="panel-label transport-label" aria-hidden="true">Transport</span>
-        <span class="panel-label processor-label" id="processor-label">Processor</span>
       </div>
       <div class="transport-main">
         <div class="transport-buttons">
@@ -410,8 +409,14 @@ const VOICES: Record<string, [string, string][]> = {
           </div>
 
         </div>
+        <!-- v0.0.96: label, dial and readout are ONE block. They were split
+             across three containers (header, transport row, genre row) — the
+             no-orphan rule's worst offender, recorded as deliberate at the
+             time and reversed now. -->
         <div class="processor-row">
+          <span class="panel-label processor-label" id="processor-label">Processor</span>
           <div class="dial-slot dial-label-external" id="processor-dial"></div>
+          <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
         </div>
       </div>
 
@@ -442,7 +447,6 @@ const VOICES: Record<string, [string, string][]> = {
             <button type="button" id="genre-favourites-done" class="secondary-button">Done</button>
           </div>
         </div>
-        <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
       </div>
 
       <div class="transport-row">
@@ -10248,11 +10252,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         );
         setProcessorTier(settings.ui.processor);
       } else {
+        // Label, dial and readout live in the one row now: one removal.
         document.querySelector('.processor-row')?.remove();
-        // The dial's title lives in the transport panel's header row now, so
-        // it has to go with it or the header names a control that isn't there.
-        document.getElementById('processor-label')?.remove();
-        document.getElementById('processor-readout')?.remove();
       }
 
       // ---- v13/v18 front-page oscilloscope (above the tabs) ---------------
@@ -13725,12 +13726,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#toggle-play',
-          text: 'Press Play. Sound starts within a second or so; the button becomes Finish, which ends the piece musically instead of cutting it off. Press it again while it is finishing and it becomes Stop, which cuts the outro short.',
-        },
-        {
-          tab: 'simple',
-          target: '#pause-toggle',
-          text: 'Pause holds the piece exactly where it is and becomes Resume — the same bar and the same chord loop carry on, rather than a fresh build. Next, two along, jumps to a new setup: inside a genre it draws another piece from that genre\'s rules, and with no genre it re-rolls the material you already have. Back returns to the setup before it. ⌘Z (Ctrl-Z) undoes anything at all — a dial, a chord, a Next — as far back as you like, and ⇧⌘Z redoes it.',
+          text: 'Press Play — sound starts within a second, and the button becomes Finish (a musical ending) and then Stop. Pause holds the piece exactly where it is; Next jumps to a new setup drawn from the current genre\'s rules; Back returns to the one before. ⌘Z (Ctrl-Z) undoes anything at all — a dial, a chord, a Next — as far back as you like, and ⇧⌘Z redoes it.',
         },
         {
           tab: 'simple',
@@ -13740,7 +13736,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#panel-simple .sliders-module',
-          text: 'These dials are the whole instrument for most people. Drag one up and down for its value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type an exact one. Double-click puts a dial back to its default. While you are dragging, the dial\u2019s pointer thickens \u2014 so you can always tell whether it is still following you. Change at zero means hold: the generator keeps looping exactly what it is playing. Every dial in the app takes a range, including the ones inside an instrument \u2014 the only exceptions are the few that pick a named thing rather than an amount, like the filter Type.',
+          text: 'These dials are the whole instrument for most people. Drag up and down for the value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type one. Double-click restores the default, and the pointer thickens while a dial is still following your drag. Change at zero means hold: the generator loops exactly what it is playing. Nearly every dial in the app takes a range the same way.',
         },
         {
           tab: 'simple',
@@ -13754,7 +13750,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#play-along',
-          text: 'The orange piano icon (its tooltip says Create) is the app\'s second main door. Blank slate silences and empties EVERYTHING — including the FX — so what follows is entirely yours; the Zero buttons strip one layer at a time (voices, chords, notes, rhythms, FX) so any preset can be your starting material; a genre seed borrows instruments without playing a note and tells you what that genre\'s composers usually start with; and Tap a rhythm turns the Space bar into a drum that writes straight into the drum grid. Compose is for writing chords down (melody, words and MIDI files join it as they land). Musical typing hands your computer keyboard to one track: z x c v b n m play an octave and q w e r t y u the next, with the black keys above them, and a MIDI instrument plays the same track. Capture writes the rhythm, velocity and note length you play into that track\'s step grid — the pitches come from the piece\'s own harmony — and Undo puts the old grid back.',
+          text: 'The orange piano icon — Create — is the app\'s second main door. Blank slate empties everything, FX included, so what follows is entirely yours; the Zero buttons strip one layer at a time; Tap a rhythm turns the Space bar into a drum; and Musical typing hands your computer keyboard, or a MIDI one, to a track, with Capture recording what you play into its grid. The panel\'s two ⓘs hold the detail.',
         },
         {
           target: '#front-scope-module',
@@ -14244,9 +14240,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     .transport-main > .processor-row,
-    .genre-row > .processor-readout {
-      margin-left: auto;
-    }
+
 
     /* The dial carries a value caption under it, so its block is taller than a
        56px transport button — and centring the block lifts the dial itself
@@ -14255,11 +14249,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .transport-main > .processor-row {
       align-self: flex-start;
     }
-
-    .genre-row > .processor-readout {
-      text-align: right;
+    .processor-row {
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .processor-row .processor-readout {
+      text-align: center;
       white-space: nowrap;
     }
+
+
 
     /* The status line is an empty <p> most of the time, and nothing in the
        sheet resets paragraph margins — so the user agent's own ~16px top and

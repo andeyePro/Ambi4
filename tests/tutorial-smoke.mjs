@@ -310,7 +310,8 @@ async function main() {
       'pause',
       'next',
       'add track',
-      'play along',
+      // v0.0.96: renamed on the owner's ask — the keyboard is Musical typing.
+      'musical typing',
       'capture',
       'spread',
       'share',
