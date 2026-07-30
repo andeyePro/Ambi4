@@ -7750,9 +7750,32 @@ export function createEngine(initialParams, options = {}) {
    * elements, and the element enables lock-screen MediaSession control.
    * Exactly one of the two routes is ever connected.
    */
+  /**
+   * v0.0.91: the element sink is for the platform that NEEDS it. Only iOS's
+   * hardware mute switch silences a bare AudioContext, and only there does
+   * the media element buy anything — while on every platform the
+   * MediaStream → <audio> pipeline adds its own buffering on top of the audio
+   * context's, which is a real, audible slice of the musical-typing latency
+   * the owner (a percussionist) reported as intolerable. Everywhere else the
+   * mix now goes straight to the destination.
+   */
+  function needsElementSink() {
+    try {
+      const nav = typeof navigator !== 'undefined' ? navigator : null;
+      if (!nav) return false;
+      const ua = nav.userAgent || '';
+      if (/iPhone|iPad|iPod/.test(ua)) return true;
+      // iPadOS 13+ masquerades as macOS but is the touch device.
+      return /Macintosh/.test(ua) && (nav.maxTouchPoints || 0) > 1;
+    } catch {
+      return false;
+    }
+  }
+
   function wireOutput() {
     try {
-      if (typeof Audio === 'function' && typeof ctx.createMediaStreamDestination === 'function') {
+      if (needsElementSink() &&
+          typeof Audio === 'function' && typeof ctx.createMediaStreamDestination === 'function') {
         const streamDest = ctx.createMediaStreamDestination();
         const el = new Audio();
         el.srcObject = streamDest.stream;
@@ -8265,6 +8288,18 @@ export function createEngine(initialParams, options = {}) {
   }
 
   /** What actually leaves the engine — post-fader, post-limiter. See buildGraph. */
+  /** The output route and the context's own latency figures, for display
+   *  and for tests — the honest floor a browser instrument stands on. */
+  function getOutputInfo() {
+    if (!ctx) return null;
+    return {
+      mode: output ? output.mode : null,
+      baseLatency: Number.isFinite(ctx.baseLatency) ? ctx.baseLatency : null,
+      outputLatency: Number.isFinite(ctx.outputLatency) ? ctx.outputLatency : null,
+      sampleRate: ctx.sampleRate,
+    };
+  }
+
   function getOutputAnalyser() {
     return graph ? graph.outputAnalyser : null;
   }
@@ -8380,6 +8415,7 @@ export function createEngine(initialParams, options = {}) {
     getAnalysers,
     getMasterAnalyser,
     getOutputAnalyser,
+    getOutputInfo,
     getStats,
     setPowerBudget,
     setReverbSeconds,

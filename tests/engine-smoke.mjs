@@ -8323,8 +8323,16 @@ test('v26: getAnalysers() taps the post-compressor master on both output routes'
     (ctx, sink) => sink.connections.includes(ctx.destination));
 
   // The media-element route (iOS): the mix leaves through a MediaStream, and
-  // the tap must still hear it.
+  // the tap must still hear it. v0.0.91 gates that route to platforms that
+  // NEED it (only iOS's mute switch silences a bare context, and the element
+  // pipeline adds real latency everywhere) — so the iOS half of this test now
+  // has to LOOK like iOS.
   const Base = globalThis.AudioContext;
+  const priorNavigator = globalThis.navigator;
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { userAgent: 'iPhone (mock)', maxTouchPoints: 5 },
+    configurable: true,
+  });
   class ElementContext extends Base {
     createMediaStreamDestination() {
       const node = makeNode('streamdest');
@@ -8349,6 +8357,7 @@ test('v26: getAnalysers() taps the post-compressor master on both output routes'
   } finally {
     globalThis.AudioContext = Base;
     delete globalThis.Audio;
+    Object.defineProperty(globalThis, 'navigator', { value: priorNavigator, configurable: true });
   }
 });
 
