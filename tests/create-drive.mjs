@@ -91,6 +91,45 @@ export default async function drive(page) {
   }));
   check('Type-the-chords lands on the Advanced chord editor', composeLanding.advanced && composeLanding.progressionThere, (v) => v === true);
 
+  // Tap a rhythm: one press arms the kit and Capture; Space taps reach the
+  // ENGINE on the percussion track.
+  await page.evaluate(() => {
+    const e = window.__ambi4Engine;
+    window.__tap = [];
+    const on = e.noteOn.bind(e);
+    e.noteOn = (track, midi, velocity) => { window.__tap.push(track); return on(track, midi, velocity); };
+  });
+  const panelShut = await page.evaluate(() => document.getElementById('play-along').hidden);
+  if (panelShut) {
+    await page.click('#play-along-open');
+    await page.waitForTimeout(250);
+  }
+  await page.click('#create-tap');
+  await page.waitForTimeout(300);
+  const tapState = await page.evaluate(() => ({
+    pressed: document.getElementById('create-tap').getAttribute('aria-pressed'),
+    track: document.getElementById('play-along-track').value,
+    keysArmed: document.getElementById('play-along-toggle').getAttribute('aria-pressed'),
+    captureArmed: document.getElementById('play-along-capture').getAttribute('aria-pressed'),
+  }));
+  check('Tap arms the keys on the kit', tapState.pressed === 'true' && tapState.track === 'percussion' && tapState.keysArmed === 'true', (v) => v === true);
+  check('…and arms Capture', tapState.captureArmed, 'true');
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.down(' ');
+    await page.waitForTimeout(120);
+    await page.keyboard.up(' ');
+    await page.waitForTimeout(180);
+  }
+  const taps = await page.evaluate(() => window.__tap.filter((t) => t === 'percussion').length);
+  check('Space taps reach the ENGINE on percussion', taps >= 2, (v) => v === true);
+  await page.click('#create-tap');
+  await page.waitForTimeout(300);
+  const tapOff = await page.evaluate(() => ({
+    pressed: document.getElementById('create-tap').getAttribute('aria-pressed'),
+    captureArmed: document.getElementById('play-along-capture').getAttribute('aria-pressed'),
+  }));
+  check('a second press stops tapping and Capture', tapOff.pressed === 'false' && tapOff.captureArmed === 'false', (v) => v === true);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

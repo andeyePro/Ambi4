@@ -249,6 +249,7 @@ const VOICES: Record<string, [string, string][]> = {
           <span class="panel-label timer-section" id="create-section-title">Create</span>
           <div class="create-row">
             <button type="button" id="create-blank" class="secondary-button">Blank slate</button>
+            <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
             <label class="visually-hidden" for="create-seed">Seed the instrument voices from a genre</label>
             <select id="create-seed" class="genre-select create-seed">
               <option value="">Seed voices from…</option>
@@ -12181,6 +12182,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       let playAlongOn = false;
       let playAlongOctave = 4;
+      // v0.0.87 (his item 96): tap-a-rhythm — while on, Space is a tap on
+      // the selected track, and Capture writes the taps into its grid.
+      let tapMode = false;
       const playAlongDown = new Map();   // keyboard key → { track, midi }
 
       const playAlongTarget = () =>
@@ -12310,9 +12314,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (!playAlongOn || event.repeat) return;
         if (event.ctrlKey || event.metaKey || event.altKey) return;
         if (typingTarget(event.target)) return;
-        const key = typeof event.key === 'string' && event.key.length === 1
-          ? event.key.toLowerCase()
-          : event.key;
+        const key = tapMode && event.key === ' '
+          ? 'z'
+          : typeof event.key === 'string' && event.key.length === 1
+            ? event.key.toLowerCase()
+            : event.key;
         if (OCTAVE_DOWN.has(key) || OCTAVE_UP.has(key)) {
           playAlongOctave = clamp(
             playAlongOctave + (OCTAVE_UP.has(key) ? 1 : -1),
@@ -12338,9 +12344,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       function playAlongKeyUp(event) {
-        const key = typeof event.key === 'string' && event.key.length === 1
-          ? event.key.toLowerCase()
-          : event.key;
+        const key = tapMode && event.key === ' '
+          ? 'z'
+          : typeof event.key === 'string' && event.key.length === 1
+            ? event.key.toLowerCase()
+            : event.key;
         const held = playAlongDown.get(key);
         if (!held) return;
         playAlongDown.delete(key);
@@ -12664,6 +12672,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         composeChords?.addEventListener('click', () => {
           activateTab('advanced', { focus: false });
           document.getElementById('control-progression')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        });
+
+        // Tap a rhythm (his item 96, and 89's "space bar or button"): one
+        // press points the keys at the kit, arms them and arms Capture, so
+        // every Space tap sounds AND lands in the drum grid at its current
+        // resolution. Press again to stop; Capture reports what it wrote.
+        const createTap = document.getElementById('create-tap');
+        createTap?.addEventListener('click', () => {
+          tapMode = !tapMode;
+          createTap.setAttribute('aria-pressed', String(tapMode));
+          if (tapMode) {
+            if (TRACK_IDS.includes('percussion')) playAlongTrack.value = 'percussion';
+            if (!playAlongOn) setPlayAlong(true);
+            setPlayAlongUI();
+            if (canCapture(playAlongTarget()) && !captureState().armed) captureButton.click();
+            if (guidedTip) {
+              guidedTip.textContent =
+                'Tap Space — each tap sounds the kit and Capture writes it into the drum grid. Press the button again to stop.';
+            }
+          } else {
+            endCapture();
+          }
         });
       }
 
@@ -13536,7 +13566,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#play-along',
-          text: 'The orange Create button is the app\'s second main door. Create starts you from a blank slate — every instrument off — with a genre\'s voices as an optional seed, and tells you what that genre\'s composers usually start with. Compose is for writing chords down (melody, words and MIDI files join it as they land). Play along hands the keyboard to one track: z x c v b n m play an octave and q w e r t y u the next, with the black keys above them, and a MIDI instrument plays the same track. Capture writes the rhythm, velocity and note length you play into that track\'s step grid — the pitches come from the piece\'s own harmony — and Undo puts the old grid back.',
+          text: 'The orange Create button is the app\'s second main door. Create starts you from a blank slate — every instrument off — with a genre\'s voices as an optional seed, tells you what that genre\'s composers usually start with, and Tap a rhythm turns the Space bar into a drum: every tap sounds the kit and Capture writes it into the drum grid. Compose is for writing chords down (melody, words and MIDI files join it as they land). Play along hands the keyboard to one track: z x c v b n m play an octave and q w e r t y u the next, with the black keys above them, and a MIDI instrument plays the same track. Capture writes the rhythm, velocity and note length you play into that track\'s step grid — the pitches come from the piece\'s own harmony — and Undo puts the old grid back.',
         },
         {
           target: '#front-scope-module',
