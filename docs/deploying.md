@@ -72,6 +72,22 @@ The empty `--env ""` is deliberate: with several environments defined in
 `wrangler.jsonc`, omitting the flag makes wrangler guess, and it warns about
 exactly that.
 
+## Node version — and the silent way a deploy goes stale
+
+Astro 7 refuses to build on anything below Node 22.12, and **a failed
+Cloudflare build does not take the site down — it leaves the previous deploy
+serving**, so the only symptom is a stale version string in the footer.
+`.nvmrc` names the major (`22`) and deliberately not an exact patch: the
+builder resolves the newest 22.x it has, whereas an exact pin fails outright
+whenever the build image cannot supply that precise patch (this happened:
+`22.23.2` — the newest 22.x in existence at the time — was pinned by the
+Astro 7 migration, and mcdev sat on v0.0.85 through every push that
+followed). If mcdev ever goes stale
+again: check the Worker's build log in the Cloudflare dashboard, and if it is
+the node version, set `NODE_VERSION=22` in the Worker's build settings —
+both are dashboard-side and owner-only; the container has no Cloudflare
+credential and its firewall blocks the API.
+
 ## Version numbers
 
 `package.json` carries the version; the page prints it at the top of the screen

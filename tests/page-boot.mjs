@@ -343,7 +343,10 @@ const passthrough = [
   'CSS', 'DOMParser', 'Image', 'Blob', 'URL', 'AudioContext',
 ];
 for (const key of passthrough) {
-  if (window[key] !== undefined) globalThis[key] = window[key];
+  // Node 21+ ships getter-only globals (navigator); plain assignment throws.
+  if (window[key] !== undefined) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: window[key] });
+  }
 }
 globalThis.self = window;
 
