@@ -2486,6 +2486,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // sanitiser probes (below), not version guesses.
         percussionLanes: false,
         stepGate: false,
+        stepPitch: false,
         patchDetuneBipolar: false,
         randomness: {},
         dissonance: {},
@@ -2640,6 +2641,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ? (gateProbe.melody.sequencer.steps || [])[0]
             : null;
         engineCaps.stepGate = isPlainObject(probedStep) && probedStep.gate === 1.5;
+
+        // v0.0.111: the per-step pitch pin (v0.0.109 schema), probed the same way.
+        const pitchProbe = probeTracks({ melody: { sequencer: { steps: [{ on: true, midi: 72 }] } } });
+        const probedPitch =
+          pitchProbe && isPlainObject(pitchProbe.melody) && isPlainObject(pitchProbe.melody.sequencer)
+            ? (pitchProbe.melody.sequencer.steps || [])[0]
+            : null;
+        engineCaps.stepPitch = isPlainObject(probedPitch) && probedPitch.midi === 72;
 
         // Per-track swing/density. Both carry an Auto detent that writes null,
         // so a build that takes the number but not the null would give the
@@ -6394,6 +6403,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return marks;
       }
 
+      /** "C#4" / "eb3" / "A" (octave 4 assumed) → MIDI 0–127, or null. */
+      function parseNoteNameToMidi(token) {
+        const m = /^([A-Ga-g])([#b\u266F\u266D]?)(-?\d)?$/.exec(String(token || '').trim());
+        if (!m) return null;
+        const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
+        const acc = m[2] === '#' || m[2] === '\u266F' ? 1 : m[2] === 'b' || m[2] === '\u266D' ? -1 : 0;
+        const octave = m[3] === undefined ? 4 : parseInt(m[3], 10);
+        const midi = 12 * (octave + 1) + base + acc;
+        return midi >= 0 && midi <= 127 ? midi : null;
+      }
+
+      /** MIDI back to a display name, sharps spelling: 60 → C4. */
+      function midiToNoteName(midi) {
+        const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        return `${names[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
+      }
+
       function stepsPerBarFor(track) {
         return track === 'arp' ? arpStepsPerBar() : currentStepsPerBar();
       }
@@ -6543,6 +6569,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         'the width of its step at length 1; past that the note runs into the next ' +
         'step and an arrow marks the overhang.';
 
+      const SEQ_LEGEND_PITCH =
+        ' Pitch: P types the step\u2019s own note (C#4 or a MIDI number; empty clears it) \u2014 ' +
+        'a pinned step plays exactly that note, never re-pitched; Alt+drag a cell up or ' +
+        'down nudges the pin by semitones.';
+
       const SEQ_LEGEND_LANES =
         ' Lanes: “Add lane” copies the pattern of the lane it lands beside, its ' +
         'name is click-to-type, and Low/Mid/High says which of the kit’s sounds ' +
@@ -6575,8 +6606,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // The third axis is melodic-only: a kit hit has no length to shape.
         const gateAxis = engineCaps.stepGate && track !== 'percussion';
         const laneAxis = track === 'percussion' && engineCaps.percussionLanes;
+        // v0.0.111: the pitch pin is offered where the engine honours it —
+        // melody, bass and user melodic lines; the arp's pitches are
+        // sequence-derived and pinning one there would be a dial the engine
+        // ignores, the exact failure this repo tests against.
+        const pitchAxis = engineCaps.stepPitch && ['melody', 'bass'].includes(track)
+          || (engineCaps.stepPitch && !['percussion', 'arp', 'melody', 'bass'].includes(track)
+              && TUNED_TRACKS.includes(track));
         const SEQ_LEGEND =
-          SEQ_LEGEND_BASE + (gateAxis ? SEQ_LEGEND_GATE : '') + (laneAxis ? SEQ_LEGEND_LANES : '');
+          SEQ_LEGEND_BASE + (gateAxis ? SEQ_LEGEND_GATE : '')
+          + (pitchAxis ? SEQ_LEGEND_PITCH : '') + (laneAxis ? SEQ_LEGEND_LANES : '');
         let active = 0;
         const current = () => list()[Math.min(active, list().length - 1)];
         const laneSteps = (lane) => (lane.key ? current().steps[lane.key] : current().steps);
@@ -6747,6 +6786,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const groupPart = Number.isFinite(s.group) ? `, group ${s.group + 1}` : '';
           const gatePart =
             gateAxis && Number.isFinite(s.gate) ? `, length ${s.gate.toFixed(2)} of a step` : '';
+          const pinPart = Number.isFinite(s.midi)
+            ? `, pinned to ${midiToNoteName(s.midi)} \u2014 plays exactly that note`
+            : '';
           // v0.0.75: the app's own notes belong in the label too. A tick
           // drawn on the face is invisible to a screen reader, and "show what
           // the app is doing" is not a sighted-only promise.
@@ -6757,6 +6799,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             `velocity ${Math.round(s.vmin * 100)} to ${Math.round(s.vmax * 100)}%, ` +
             probPart +
             gatePart +
+            pinPart +
             tiePart +
             groupPart +
             notePart
@@ -6832,6 +6875,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                   ? `Step ${i + 1} is ungrouped. Press to paint it into the selected group.`
                   : `Step ${i + 1} is ungrouped. Press to start a new probability group.`
           );
+          drawPin(li, i);
         }
 
         function setFocus(li, i, focus = true) {
@@ -6958,6 +7002,74 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           commitSequencer(track);
         }
 
+        /** The pin, visible on the cell: a tiny note-name label. */
+        function drawPin(li, i) {
+          const ref = cellRefs[li][i];
+          if (!ref) return;
+          const s = laneSteps(lanes[li])[i];
+          let label = ref.cell.querySelector('.seq-pin');
+          if (Number.isFinite(s.midi)) {
+            if (!label) {
+              label = document.createElement('span');
+              label.className = 'seq-pin';
+              label.setAttribute('aria-hidden', 'true');
+              ref.cell.append(label);
+            }
+            label.textContent = midiToNoteName(s.midi);
+          } else if (label) {
+            label.remove();
+          }
+        }
+
+        /** P on a focused cell: type the step's own note in place. */
+        function openPitchEditor(li, i, cell) {
+          if (cell.querySelector('.seq-pitch-input')) return;
+          const s = laneSteps(lanes[li])[i];
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'seq-pitch-input';
+          input.value = Number.isFinite(s.midi) ? midiToNoteName(s.midi) : '';
+          input.placeholder = 'C#4';
+          input.setAttribute('aria-label', 'This step\u2019s own note \u2014 empty clears the pin');
+          cell.append(input);
+          input.focus();
+          input.select();
+          let closed = false;
+          const done = (commitIt) => {
+            if (closed) return;
+            closed = true;
+            input.remove();
+            cell.focus();
+            if (!commitIt) return;
+            const text = input.value.trim();
+            if (!text) {
+              s.midi = null; // null, not delete — the engine's merge law
+            } else {
+              const named = parseNoteNameToMidi(text);
+              const numbered = Number.isFinite(Number(text))
+                ? clamp(Math.round(Number(text)), 0, 127)
+                : null;
+              const midi = named ?? numbered;
+              if (midi === null) return; // not understood: change nothing
+              s.midi = midi;
+              s.on = true; // naming a pitch implies the step should sound
+            }
+            updateCell(li, i);
+            commitSequencer(track);
+          };
+          input.addEventListener('keydown', (event) => {
+            event.stopPropagation();
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              done(true);
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              done(false);
+            }
+          });
+          input.addEventListener('blur', () => done(true));
+        }
+
         function wireCell(li, i, cell, probEl, bandTop, dot) {
           const getStep = () => laneSteps(lanes[li])[i];
           const commit = () => {
@@ -7015,6 +7127,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // velocity band it has always been. The fat top handle (its own
             // element) is unaffected either way.
             const gateZone = gateAxis && v0 <= 0.5;
+            const pitchZone = pitchAxis && e.altKey;
+            let pitch0 = null;
             let gate0 = SEQ_GATE_DEFAULT;
 
             /** Sideways drag merges the crossed steps into one tied note. */
@@ -7043,8 +7157,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               const dy = ev.clientY - e.clientY;
               if (!gesture) {
                 if (Math.abs(dx) < 6 && Math.abs(dy) < 4) return;
-                gesture = Math.abs(dx) > Math.abs(dy) ? 'tie' : gateZone ? 'gate' : 'band';
+                gesture = pitchZone ? 'pitch'
+                  : Math.abs(dx) > Math.abs(dy) ? 'tie' : gateZone ? 'gate' : 'band';
                 if (gesture === 'gate') gate0 = stepGate(getStep());
+                if (gesture === 'pitch') {
+                  const s = getStep();
+                  pitch0 = Number.isFinite(s.midi) ? s.midi : 60;
+                }
+              }
+              if (gesture === 'pitch') {
+                const s = getStep();
+                s.on = true;
+                s.midi = clamp(pitch0 + Math.round(-dy / 8), 0, 127);
+                updateCell(li, i);
+                return;
               }
               if (gesture === 'tie') {
                 applyTie(i + Math.round(dx / Math.max(1, columnWidth)));
@@ -7132,6 +7258,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             } else if (e.key === 'g' || e.key === 'G') {
               e.preventDefault();
               toggleGroup(li, i);
+            } else if (pitchAxis && (e.key === 'p' || e.key === 'P')) {
+              e.preventDefault();
+              openPitchEditor(li, i, cellRefs[li][i].cell);
             } else if (e.key === 'Escape' && activeGroup) {
               // Drop the group selection so the next dot press starts fresh.
               e.preventDefault();
@@ -13375,16 +13504,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const melodyText = document.getElementById('compose-melody-text');
         const melodyWrite = document.getElementById('compose-melody-write');
 
-        function parseTypedNote(token) {
-          const m = /^([A-Ga-g])([#b\u266F\u266D]?)(-?\d)?$/.exec(token);
-          if (!m) return null;
-          const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
-          const acc = m[2] === '#' || m[2] === '\u266F' ? 1 : m[2] === 'b' || m[2] === '\u266D' ? -1 : 0;
-          const octave = m[3] === undefined ? 4 : parseInt(m[3], 10);
-          const midi = 12 * (octave + 1) + base + acc;
-          return midi >= 0 && midi <= 127 ? midi : null;
-        }
-
         function writeTypedMelody() {
           const raw = (melodyText?.value || '').trim();
           if (!raw) return;
@@ -13418,7 +13537,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               beat += 1;
               continue;
             }
-            const midi = parseTypedNote(token);
+            const midi = parseNoteNameToMidi(token);
             if (midi === null) { dropped.push(token); continue; }
             const slot = beat * 4;
             steps[slot] = { ...blank(), on: true, midi };
@@ -17313,6 +17432,34 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .seq-dot:focus-visible {
       outline: 2px solid var(--link);
       outline-offset: 2px;
+    }
+
+    /* v0.0.111: the pitch pin, on the cell where the claim is made. */
+    .seq-pin {
+      position: absolute;
+      top: 2px;
+      left: 3px;
+      font-size: 0.62rem;
+      line-height: 1;
+      color: var(--fg);
+      background: color-mix(in srgb, var(--bg) 70%, transparent);
+      border-radius: 3px;
+      padding: 1px 2px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .seq-pitch-input {
+      position: absolute;
+      inset: 4px;
+      width: calc(100% - 8px);
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--link);
+      border-radius: 4px;
+      font-size: 0.75rem;
+      padding: 2px 4px;
+      z-index: 3;
     }
 
     .seq-cell {
