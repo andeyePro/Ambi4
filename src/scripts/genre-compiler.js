@@ -353,6 +353,42 @@ function kitSoftness(kitComplexity) {
   };
 }
 
+/**
+ * Energy stage 2a — the TOP of the dial (his brief, verbatim: "possibly 8 or
+ * 16 to the floor if you started with 4 to the floor"). From 0.75 the LOW
+ * lane doubles — a hit midway between each neighbouring pair — and from 0.92
+ * it fills every slot the metre plays. Inserted hits sit a shade under the
+ * written ones so the authored accents stay the accents. Deterministic, no
+ * rng; the identity window [0.5, 0.75) stays exactly as authored.
+ */
+function kitFloorDouble(steps, kitComplexity, slots) {
+  const c = numberOr(kitComplexity, undefined);
+  if (c === undefined || c < 0.75) return;
+  const onSlots = [];
+  for (let i = 0; i < slots; i++) if (steps[i].on) onSlots.push(i);
+  if (!onSlots.length) return;
+  const insert = (slot, from) => {
+    if (slot < 0 || slot >= slots || steps[slot].on) return;
+    steps[slot] = {
+      ...steps[slot],
+      on: true,
+      vmin: round3(clamp(steps[from].vmin * 0.85, 0.05, 1)),
+      vmax: round3(clamp(steps[from].vmax * 0.85, 0.05, 1)),
+    };
+  };
+  // 8-to-the-floor: midway between each written pair (wrapping to the bar).
+  for (let k = 0; k < onSlots.length; k++) {
+    const here = onSlots[k];
+    const next = k + 1 < onSlots.length ? onSlots[k + 1] : onSlots[0] + slots;
+    const mid = here + Math.round((next - here) / 2);
+    if (mid > here && mid < next) insert(mid % slots, here);
+  }
+  if (c >= 0.92) {
+    // 16-to-the-floor: every slot the metre plays.
+    for (let i = 0; i < slots; i++) insert(i, onSlots[0]);
+  }
+}
+
 /** Keep hit k of a lane on an even stride at rate r — the first hit always survives. */
 const keepHit = (k, r) => k === 0 || Math.floor((k + 1) * r) > Math.floor(k * r);
 
@@ -366,6 +402,13 @@ function compileKit(grooves, timeSignature, kitComplexity) {
     weights: list.map(() => 1),
     steps: Object.fromEntries(PERCUSSION_LANES.map((lane) => {
       const steps = maskToLane(groove[lane], timeSignature, KIT_VELOCITIES[lane] ?? DEFAULT_KIT_VELOCITY);
+      if (lane === 'low') {
+        kitFloorDouble(
+          steps,
+          kitComplexity,
+          Math.min(sequencerStepsPerBar(timeSignature), SEQUENCER_STEP_COUNT),
+        );
+      }
       if (!softness) return [lane, steps];
       const rate = softness.keep[lane] ?? 1;
       let hit = 0;

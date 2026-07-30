@@ -1398,7 +1398,10 @@ test('percussion stays sparse when it plays', async () => {
   const barLength = 4 * (60 / 240);
   for (const barEvent of bars) {
     const inBar = notes.filter((n) => n.time >= barEvent.time - 1e-9 && n.time < barEvent.time + barLength - 1e-9);
-    assert.ok(inBar.length <= 5, `bar ${barEvent.bar} had ${inBar.length} hits — that is a groove`);
+    // v0.0.112 (his Energy ruling): at FULL Energy "drum fills all over the
+    // place" is the brief, so a fill bar may carry up to four extra strokes.
+    // The old ≤5 cap encoded the ambient-only doctrine his ruling replaced.
+    assert.ok(inBar.length <= 9, `bar ${barEvent.bar} had ${inBar.length} hits — beyond even a fill bar`);
   }
   const kinds = new Set(notes.map((n) => n.kind));
   assert.ok([...kinds].every((k) => ['low', 'mid', 'high'].includes(k)));
@@ -4126,15 +4129,35 @@ test('Energy 1c, auto kit: below the midpoint velocities scale, the kick yields 
   assert.ok(soft.rideRate > mid.rideRate,
     `a gentle bar opens on the ride (${soft.rideRate.toFixed(2)} vs ${mid.rideRate.toFixed(2)})`);
 
-  // From the midpoint up the ladder does not exist: identical stream, no
-  // extra draw, byte-for-byte the pattern the previous build dealt.
-  for (const c of [0.5, 0.7, 1]) {
+  // Inside the identity window [0.5, 0.75) neither ladder exists: identical
+  // stream, no extra draw, byte-for-byte the pattern the previous build dealt.
+  for (const c of [0.5, 0.7, 0.74]) {
     for (let seed = 1; seed <= 50; seed++) {
       const withC = generatePercussionPattern({ pulses: [1, 1, 1, 1], density: 0.5, rng: seededRng(seed), complexity: c });
       const without = generatePercussionPattern({ pulses: [1, 1, 1, 1], density: 0.5, rng: seededRng(seed) });
-      assert.deepEqual(withC, without, `complexity ${c} seed ${seed}: the upper stream moved`);
+      assert.deepEqual(withC, without, `complexity ${c} seed ${seed}: the identity-window stream moved`);
     }
   }
+
+  // Energy 2a, the top: fills run into the barline from 0.75 up — more often
+  // the higher the dial — and never below it.
+  const fillRate = (complexity, seeds = 300) => {
+    let bars = 0;
+    for (let seed = 1; seed <= seeds; seed++) {
+      const pattern = generatePercussionPattern({
+        pulses: [1, 1, 1, 1], density: 0.5, rng: seededRng(seed * 60013), complexity,
+      });
+      const lastPulse = pattern.filter((h) => h.pulse === 3 && h.offset > 0.05);
+      if (lastPulse.length >= 2) bars += 1;
+    }
+    return bars / seeds;
+  };
+  const none = fillRate(0.7);
+  const some = fillRate(0.8);
+  const lots = fillRate(1);
+  assert.ok(some > none, `fills must appear from 0.75 (${none.toFixed(2)} → ${some.toFixed(2)})`);
+  assert.ok(lots > some, `and grow with the dial (${some.toFixed(2)} → ${lots.toFixed(2)})`);
+  assert.ok(lots >= 0.5, `at full Energy fills are all over the place, measured ${lots.toFixed(2)}`);
 });
 
 test('developBassGroove: ghost/push/simplify/double transform a stated groove, and pulses stay root throughout', () => {

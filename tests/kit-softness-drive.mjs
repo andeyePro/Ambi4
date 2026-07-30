@@ -77,11 +77,13 @@ export default async function drive(page) {
   check('the high lane thinned', soft.high.on < before.high.on, (v) => v === true);
   check('the kicks softened (velocity down, visibly stored)', soft.low.vmax < before.low.vmax, (v) => v === true);
 
-  // And back up: the ladder is reversible while the kit is untouched.
+  // And back up — all the way: hats and velocities restore, and at the TOP
+  // the floor doubles ("possibly 8 or 16 to the floor if you started with 4").
   check('Energy dragged back up', await dragEnergy(-400), true);
   const loud = await kitView();
-  check('full Energy restores the genre kit', loud.high.on, before.high.on);
-  check('…and its velocities', loud.low.vmax, before.low.vmax);
+  check('full Energy restores the hats', loud.high.on, before.high.on);
+  check('…and the written velocities', loud.low.vmax, before.low.vmax);
+  check('…and the floor DOUBLES at the top', loud.low.on > before.low.on, (v) => v === true);
 
   // Hand edit: toggle one kit step, then move Energy — the follow must stand
   // down and leave the user's grid alone.

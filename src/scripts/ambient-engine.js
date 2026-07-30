@@ -3538,7 +3538,7 @@ export function buildArpSequence(chordMidis, pattern = 'up', octaves = 1) {
  * groove — the hit count is capped at five however dense things get.
  */
 export function generatePercussionPattern({
-  pulses = [1, 1, 1, 1], density = 0.5, rng = Math.random, complexity = 1,
+  pulses = [1, 1, 1, 1], density = 0.5, rng = Math.random, complexity = null,
 } = {}) {
   const d = clamp(Number(density) || 0, 0, 1);
   const count = Array.isArray(pulses) && pulses.length ? pulses.length : 4;
@@ -3549,8 +3549,12 @@ export function generatePercussionPattern({
   // ride tick becomes the low-Energy anchor instead. At 0.5 and above every
   // factor is 1 and NO extra rng draw is made, so upper streams — and the
   // frozen references there — are byte-identical to the previous build.
-  const c = clamp(Number.isFinite(Number(complexity)) ? Number(complexity) : 1, 0, 1);
-  const soft = c < 0.5;
+  // `null` complexity (a caller predating the ladder) means NO ladder at
+  // either end: the exact legacy pattern, draw for draw.
+  const c = complexity === null || !Number.isFinite(Number(complexity))
+    ? null
+    : clamp(Number(complexity), 0, 1);
+  const soft = c !== null && c < 0.5;
   const kickYield = soft ? 0.35 + 1.3 * c : 1;
   const velocityScale = soft ? 0.6 + 0.8 * c : 1;
   const hits = [];
@@ -3584,6 +3588,22 @@ export function generatePercussionPattern({
       kind: 'high',
       velocity: round3((0.2 + rng() * 0.15) * velocityScale),
     });
+  }
+  // v0.0.112, Energy stage 2a — "drum fills all over the place" at the top:
+  // from 0.75 a fill runs into the barline, more often the higher the dial,
+  // crescendoing mid/high strokes on the bar's last pulse. Drawn only at or
+  // above 0.75, so everything in [0.5, 0.75) keeps its exact old stream.
+  if (c !== null && c >= 0.75 && rng() < (c - 0.7) * 2.4) {
+    const strokes = 2 + Math.floor(rng() * 3); // 2–4 strokes
+    for (let s = 0; s < strokes; s++) {
+      const back = (strokes - s) / strokes;
+      hits.push({
+        pulse: count - 1,
+        offset: 1 - back * 0.9,
+        kind: rng() < 0.6 ? 'mid' : 'high',
+        velocity: round3(clamp(0.3 + (1 - back) * 0.45, 0.05, 1)),
+      });
+    }
   }
   hits.sort((a, b) => a.pulse - b.pulse || a.offset - b.offset);
   return hits;

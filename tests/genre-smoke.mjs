@@ -317,6 +317,21 @@ test('kit softness (Energy 1c): below the midpoint velocities scale and hats thi
     return JSON.stringify(copy);
   };
   assert.equal(stripKit(soft), stripKit(plain), 'kit softness must not move any other draw or param');
+
+  // Energy 2a, the top: "possibly 8 or 16 to the floor if you started with 4."
+  const inWindow = compile({ kitComplexity: 0.6 });
+  assert.equal(JSON.stringify(inWindow), JSON.stringify(plain),
+    'the identity window [0.5, 0.75) compiles exactly as authored');
+  const doubled = compile({ kitComplexity: 0.8 });
+  const flooded = compile({ kitComplexity: 0.95 });
+  assert.equal(on(doubled, 'low').length, on(plain, 'low').length * 2,
+    'from 0.75 the four on the floor become eight');
+  assert.equal(on(flooded, 'low').length, 16, 'from 0.92 every slot of the bar kicks');
+  const written = on(plain, 'low')[0].vmax;
+  const inserted = lanes(doubled).low.filter((s) => s.on && s.vmax < written);
+  assert.ok(inserted.length >= on(plain, 'low').length,
+    'inserted hits sit under the written accents');
+  assert.equal(stripKit(doubled), stripKit(plain), 'the doubling is kit-only too');
 });
 
 test('chord tokens parse to mode-relative degrees, and junk is dropped', () => {
