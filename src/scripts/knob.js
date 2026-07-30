@@ -76,7 +76,9 @@
  * like the initial-value case already did.
  *
  * Range mode: `value` accepts number | {min,max}. With `allowRange` (the
- * default — pass `allowRange: false` only for an enumeration, where a span
+ * default — pass `allowRange: false` for an enumeration, or for the one
+ * dial ruled to stay single (Tempo on Simple); pair it with `onRangeRefused`
+ * there so the refusal explains itself — a span
  * between two named positions would mean nothing), a horizontal drag opens,
  * widens, narrows and finally closes a span about the value it started from.
  * Range mode draws the engraved inner pointer for min, a short accent pointer
@@ -247,6 +249,12 @@ export function createKnob(container, options) {
   const keyStep = step || range / 200;
   const wheelStep = step || range / 100;
   const onInput = typeof opts.onInput === 'function' ? opts.onInput : null;
+  // Called (once per gesture) when a spread gesture lands on a dial with
+  // allowRange:false — so the page can SAY why nothing happened instead of
+  // silently refusing. v0.0.102: the owner's Tempo ruling ("the one dial that
+  // shouldn't be variable") makes Simple's Tempo the first non-enum refuser,
+  // and a silent refusal there would teach that sideways does nothing anywhere.
+  const onRangeRefused = typeof opts.onRangeRefused === 'function' ? opts.onRangeRefused : null;
   const format = typeof opts.format === 'function' ? opts.format : null;
   // v0.0.56: spreadable is the DEFAULT. The owner's ruling is that every dial
   // must answer to the same gestures — a dial that ignores a horizontal drag
@@ -978,6 +986,7 @@ export function createKnob(container, options) {
   let dragSpread = 0; // half-width the spread gesture started from
   let dragSpreadCentre = value; // midpoint the spread gesture opens about
   let spreadOriginX = 0; // clientX at the moment the spread axis locked
+  let refusalSaid = false; // onRangeRefused fired for THIS gesture already
 
   /**
    * Shared rect/centre lookup for pointer geometry — mock-safe: returns null
@@ -1087,6 +1096,7 @@ export function createKnob(container, options) {
     dragThumb = mode === 'range' ? (pressHub ? 'both' : nearerThumb(e)) : 'min';
     dragRaw = dragThumb === 'max' ? valueMax : value;
     dragSpread = (valueMax - value) / 2;
+    refusalSaid = false;
     try {
       if (e && e.pointerId != null && typeof root.setPointerCapture === 'function') {
         root.setPointerCapture(e.pointerId);
@@ -1173,7 +1183,18 @@ export function createKnob(container, options) {
     }
 
     if (dragAxis === 'spread') {
-      if (!allowRange) return; // an enumeration has no span to open
+      if (!allowRange) {
+        // No span to open — but never refuse in silence when the page gave
+        // the refusal a voice. Once per gesture: the message is a teaching,
+        // not a metronome.
+        if (onRangeRefused && !refusalSaid) {
+          refusalSaid = true;
+          try {
+            onRangeRefused();
+          } catch {}
+        }
+        return;
+      }
       const dx = e.clientX - spreadOriginX;
       applySpread(dragSpread + dx * (range / SPREAD_RANGE_PX));
       lastY = e.clientY;
@@ -1373,6 +1394,15 @@ export function createKnob(container, options) {
       dragSpreadCentre = isRange ? (value + valueMax) / 2 : value;
       const half = isRange ? (valueMax - value) / 2 : 0;
       applySpread(half + (key === 'ArrowRight' ? keyStep : -keyStep));
+      return;
+    }
+    // The keyboard spread on a dial that stays single: same voice as the
+    // pointer refusal, so the two routes never disagree.
+    if (!allowRange && onRangeRefused && shifted && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      try {
+        onRangeRefused();
+      } catch {}
       return;
     }
 

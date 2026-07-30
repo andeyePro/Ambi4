@@ -4290,6 +4290,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // the one bpm; this one lands its change on the next BEAT (v0.0.57's
       // rule: a beginner needs to hear that the thing they just dragged did
       // something), where the Advanced view lands on the barline.
+      //
+      // v0.0.102 — his Tempo ruling: "it's the one dial that shouldn't be
+      // variable." Simple's view refuses the spread gesture and SAYS why
+      // (his words asked for exactly this message), pointing at the Advanced
+      // view, which keeps the sideways drag for the rare piece that wants a
+      // drifting tempo. A span created in Advanced still DISPLAYS here —
+      // refusing to draw state that exists would be the readout lying.
       simpleSpeedDial = buildSimpleDial(
         'speed-dial',
         {
@@ -4301,10 +4308,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           value: speedTFromBpm(settings.bpm),
           format: (t) => `${Math.round(bpmFromSpeedT(t))} bpm`,
           defaultValue: speedTFromBpm(DEFAULTS.bpm),
+          allowRange: false,
+          onRangeRefused: () =>
+            sayUnderDials(
+              'Drag the Tempo dial up or down to set the speed. Tempo holds one steady value here — ' +
+                'a randomly varying tempo is rarely a good thing. If you do want it to vary, ' +
+                'drag the Tempo dial sideways in the Advanced tab.',
+              7000,
+              { hold: true }
+            ),
         },
         (t) => setTempo(mapRangeValue(t, bpmFromSpeedT), { skipSimpleThumb: true, landing: 'beat' })
       );
-      describeDial(simpleSpeedDial, dialHint('Fast', 'Slow', null, null, 'Vary the tempo'));
+      describeDial(
+        simpleSpeedDial,
+        dialHint('Fast', 'Slow', null, 'Steady by design — vary tempo from the Advanced tab if you must.', null)
+      );
 
       /**
        * Moving Complexity is an explicit "let the engine decide" gesture:

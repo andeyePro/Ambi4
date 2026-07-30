@@ -16,7 +16,9 @@
 const engineState = (page) =>
   page.evaluate(() => {
     const p = window.__ambi4Engine.getParams();
-    return { bpm: JSON.stringify(p.bpm), landing: p.tempoLanding };
+    // params.bpm is ALWAYS a plain number by design — a spread Tempo lives at
+    // params.spans.bpm (the global-dial walk), so that is where a span shows.
+    return { bpm: JSON.stringify(p.bpm), bpmSpan: JSON.stringify(p.spans?.bpm ?? null), landing: p.tempoLanding };
   });
 
 async function dragDial(page, slotId, dy) {
@@ -75,6 +77,53 @@ export default async function drive(page) {
   const afterAdv = await engineState(page);
   check('…lands on the BARLINE', afterAdv.landing, 'bar');
   results.push({ name: 'bpm before/after/adv', ok: true, got: [before.bpm, after.bpm, afterAdv.bpm], want: '(informational)' });
+
+  // v0.0.102 — his Tempo ruling: Simple's Tempo is the one dial that stays
+  // single. A sideways drag must NOT open a span, the engine's bpm must stay
+  // one number, and the refusal must SPEAK (his requested message, pointing
+  // at Advanced). Advanced keeps the spread; both asserted at the ENGINE.
+  async function dragDialSideways(page, slotId, dx = 90) {
+    const box = await page.evaluate((id) => {
+      const slot = document.getElementById(id);
+      if (!slot) return null;
+      const k = slot.querySelector('.knob') || slot;
+      k.scrollIntoView({ block: 'center' });
+      const r = k.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.width / 2) };
+    }, slotId);
+    if (!box) return null;
+    await page.mouse.move(box.x, box.y);
+    await page.mouse.down();
+    for (let t = 4; t <= dx; t += 8) await page.mouse.move(box.x + t, box.y);
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    return page.evaluate((id) => {
+      const k = document.getElementById(id)?.querySelector('.knob');
+      return {
+        valuetext: k?.getAttribute('aria-valuetext') || '',
+        confirm: document.getElementById('dial-confirm')?.textContent || '',
+      };
+    }, slotId);
+  }
+
+  await page.click('#tab-simple');
+  await page.waitForTimeout(400);
+  const refused = await dragDialSideways(page, 'speed-dial');
+  const bpmAfterRefusal = await engineState(page);
+  check('Simple Tempo refuses the spread gesture', /drifting/.test(refused?.valuetext || ''), (v) => v === false);
+  check('no bpm span reached the ENGINE from the refusal', bpmAfterRefusal.bpmSpan, 'null');
+  check(
+    'the refusal says why and points at Advanced',
+    /Advanced/.test(refused?.confirm || '') && /steady|vary/i.test(refused?.confirm || ''),
+    (v) => v === true
+  );
+
+  await page.click('#tab-advanced');
+  await page.waitForTimeout(400);
+  const advSpread = await dragDialSideways(page, 'speed-dial-adv');
+  const bpmAfterAdvSpread = await engineState(page);
+  check('Advanced Tempo still takes a spread', /drifting/.test(advSpread?.valuetext || ''), (v) => v === true);
+  check('…and the ENGINE holds the bpm span', bpmAfterAdvSpread.bpmSpan.startsWith('{'), (v) => v === true);
 
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
