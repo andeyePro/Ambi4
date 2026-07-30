@@ -3203,6 +3203,28 @@ export function buildBassGroove({
     }
   }
 
+  // v0.0.114, Energy stage 2c — "Bass would likely follow kick, with
+  // incidentals": above 0.75 the line takes the kick's OFF-pulse onsets too
+  // (a doubled floor puts kicks between the pulses, and at the top the two
+  // instruments read as one), each with a chance rising from 0 at 0.75 to
+  // 0.9 at full. Drawn only at or above 0.75, so every stream below keeps
+  // its exact old draws.
+  if (locked && cellComplexity >= 0.75) {
+    for (const onset of locked) {
+      if (starts.some((start) => Math.abs(start - onset) < 0.13)) continue;
+      if (onset >= beats - 1e-9) continue;
+      if (spine.some((step) => Math.abs(step.beat - onset) < 1e-9)) continue;
+      if (rng() < (cellComplexity - 0.75) * 3.6) {
+        spine.push({
+          beat: onset,
+          tone: rng() < 0.5 ? 'root' : 'octave',
+          gate: clamp(gates.pulse * 0.8, 0.12, 1),
+          accent: false,
+        });
+      }
+    }
+  }
+
   // The phrase ending. Whatever the line's last note of the bar is, it commits
   // to one of the two things a bassist does into a change: a held groove rings
   // across the barline and lets the mono glide carry the root over, anything

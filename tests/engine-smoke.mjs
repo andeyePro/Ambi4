@@ -4025,6 +4025,29 @@ test('Energy stages 1a+1b: below the midpoint the kick-lock loosens and the arti
       `seed ${seed}: complexity 0 lost the accented anchor itself`);
   }
 
+  // Energy 2c: above 0.75 the line follows the kick BETWEEN the pulses too.
+  // The kit below has kicks on every eighth (a doubled floor): the off-pulse
+  // onsets must start being taken from 0.75 and never before.
+  // Syncopation cells also land on half-beats, so the follow is measured as
+  // the DIFFERENCE a doubled floor makes against a plain four-kick lane.
+  const offPulseAt = (complexity, lane, seeds = 300) => {
+    let taken = 0;
+    for (let seed = 1; seed <= seeds; seed++) {
+      const g = buildBassGroove({
+        starts, beats: 4, intensity: 0.5, complexity, lowLane: lane, rng: seededRng(seed * 31337),
+      });
+      taken += g.steps.filter((s) => [0.5, 1.5, 2.5, 3.5].some((b) => Math.abs(b - s.beat) < 1e-9)).length;
+    }
+    return taken / seeds;
+  };
+  const doubledLane = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5];
+  const plainLane = [0, 1, 2, 3];
+  const deltaBelow = offPulseAt(0.7, doubledLane) - offPulseAt(0.7, plainLane);
+  assert.ok(Math.abs(deltaBelow) < 0.15,
+    `below 0.75 a doubled floor adds no off-pulse follow (delta ${deltaBelow.toFixed(2)})`);
+  const deltaTop = offPulseAt(1, doubledLane) - offPulseAt(1, plainLane);
+  assert.ok(deltaTop > 2, `at full Energy the bass rides the doubled floor (+${deltaTop.toFixed(2)} off-pulse notes/bar)`);
+
   // The byte-identity contract from the midpoint up, pinned as a golden
   // stream: neither stage spends an extra rng draw at c >= 0.5, so this exact
   // groove is what every build since v0.0.98 deals from this seed. If a
