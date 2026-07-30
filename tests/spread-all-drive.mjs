@@ -97,17 +97,46 @@ export default async function drive(page) {
   // through the UI (the page's own settings must agree with the engine, so
   // an engine-side setParams is NOT equivalent): Synthwave is always in the
   // public picker and its pad (polysaw) carries every control this drive
-  // drags. (Ambient would too, but it is a hidden genre — an option the
-  // picker does not offer pins nothing, which is how this fix flaked once.)
+  // drags.
+  //
+  // HISTORY, because this pin has now been wrong TWICE in the same way: the
+  // picker's option values are PREFIXED ('g:synthwave', 'mood:…',
+  // 'favourites'), and both earlier pins matched a value that no option
+  // carries ('ambient', then bare 'synthwave') — .find() returned undefined,
+  // nothing was selected, and the "intermittent shape-span loss" filed on
+  // 2026-07-30 was this drive running unpinned on whatever the draw dealt:
+  // a glass pad has no OSC dials, the named-dial loop silently skipped them,
+  // and the end-check then read a shape1 nothing had dragged. So the pin is
+  // now VERIFIED at the engine seam and a pin that did not take is its own
+  // loud failure, never a silent pass-through.
   await page.evaluate(() => {
     const sel = document.getElementById('genre-select');
-    const slug = [...sel.options].map((o) => o.value).find((v) => v === 'synthwave');
-    if (slug) {
-      sel.value = slug;
+    const opt = [...sel.options].find((o) => o.value === 'g:synthwave');
+    if (opt) {
+      sel.value = opt.value;
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
-  await page.waitForTimeout(800);
+  const pinned = await page
+    .waitForFunction(
+      () => window.__ambi4Engine?.getParams?.()?.tracks?.pad?.voice === 'polysaw',
+      { timeout: 5000 }
+    )
+    .then(() => true)
+    .catch(() => false);
+  if (!pinned) {
+    const state = await page.evaluate(() => ({
+      options: [...document.getElementById('genre-select').options].map((o) => o.value),
+      padVoice: window.__ambi4Engine?.getParams?.()?.tracks?.pad?.voice,
+    }));
+    throw new Error(
+      'spread-all-drive: the Synthwave pin did not apply — pad voice is ' +
+        JSON.stringify(state.padVoice) +
+        ', picker offers ' +
+        JSON.stringify(state.options)
+    );
+  }
+  await page.waitForTimeout(400);
   await page.click('#tab-advanced');
   await page.waitForTimeout(400);
 
@@ -120,8 +149,12 @@ export default async function drive(page) {
   check('the voice editor is open with its dials showing', labels.length >= 12, (v) => v === true);
 
   // The three that v0.0.74 changed, named individually so a regression on any
-  // one of them fails by name rather than as a count.
+  // one of them fails by name rather than as a count. On the pinned polysaw
+  // every one of these dials EXISTS, so a missing label is a failure, not a
+  // skip — the silent `continue` that used to be here is exactly how the
+  // unpinned-genre runs hid OSC 1 never being dragged at all.
   for (const label of ['Octave', 'OSC 1', 'OSC 2', 'Glide']) {
+    check(`${label} is on the pinned pad`, labels.includes(label), (v) => v === true);
     if (!labels.includes(label)) continue;
     const after = await dragSideways(label, '#panel-advanced');
     check(`${label} takes a spread`, spread(after), (v) => v === true);
