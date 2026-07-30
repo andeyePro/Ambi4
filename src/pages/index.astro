@@ -705,7 +705,18 @@ const VOICES: Record<string, [string, string][]> = {
           <label for="timeSignature">Time signature</label>
           <select id="timeSignature">
             {timeSignatures.map((t) => <option value={t}>{t}</option>)}
+            <option value="custom">Custom…</option>
           </select>
+          <span id="custom-metre" class="custom-metre" hidden>
+            <label class="visually-hidden" for="custom-metre-n">Beats per bar</label>
+            <input id="custom-metre-n" type="number" min="2" max="10" value="4" inputmode="numeric" />
+            <span aria-hidden="true">/</span>
+            <label class="visually-hidden" for="custom-metre-d">Beat unit</label>
+            <select id="custom-metre-d">
+              <option value="4">4</option>
+              <option value="8">8</option>
+            </select>
+          </span>
         </div>
 
         <div class="control" id="control-chord-length" hidden>
@@ -3513,12 +3524,52 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return uniform ? first : clamp(meanRandomness(), 0, 1);
       }
 
+      // v0.0.98: custom metre — the select's Custom… entry reveals an N/D
+      // pair; anything metrePulses() can grid is legal (N/4 up to 5, N/8 up
+      // to 10 — the sequencer's own twenty-step bound), and the engine is the
+      // judge: commit re-reads getParams and the readout shows what stuck.
+      {
+        const wrap = document.getElementById('custom-metre');
+        const nInput = document.getElementById('custom-metre-n');
+        const dSelect = document.getElementById('custom-metre-d');
+        const showCustom = (show) => { if (wrap) wrap.hidden = !show; };
+        const commitCustom = () => {
+          const n = clamp(Math.round(Number(nInput.value) || 4), 2, 10);
+          const d = dSelect.value === '8' ? '8' : '4';
+          const sig = `${n}/${d}`;
+          engine.setParams({ timeSignature: sig });
+          const accepted = engine.getParams().timeSignature;
+          settings.timeSignature = accepted;
+          nInput.value = String(Number(accepted.split('/')[0]) || n);
+          dSelect.value = accepted.split('/')[1] === '8' ? '8' : '4';
+          for (const ed of openEditors.values()) {
+            try { ed.seq?.refresh(); } catch {}
+          }
+          persistSettings();
+        };
+        timeSignatureSelect?.addEventListener('change', () => {
+          if (timeSignatureSelect.value === 'custom') {
+            showCustom(true);
+            commitCustom();
+            return;
+          }
+          showCustom(false);
+        });
+        nInput?.addEventListener('change', commitCustom);
+        dSelect?.addEventListener('change', commitCustom);
+        // NOT describe() here: this code runs before tipSeq's declaration,
+        // and a describe() call this early is the recorded blank-page TDZ
+        // bug (6105e0d). A plain title carries the bounds instead.
+        if (nInput) nInput.title = 'Beats per bar — up to 5 over 4, up to 10 over 8 (the step grid\u2019s own bound).';
+      }
+
       for (const [select, key] of [
         [rootSelect, 'root'],
         [modeSelect, 'mode'],
         [timeSignatureSelect, 'timeSignature'],
       ]) {
         select.addEventListener('change', () => {
+          if (key === 'timeSignature' && select.value === 'custom') return;
           settings[key] = select.value;
           engine.setParams({ [key]: select.value });
           if (key === 'timeSignature') {
@@ -13894,7 +13945,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         rootSelect.value = settings.root;
         modeSelect.value = settings.mode;
-        timeSignatureSelect.value = settings.timeSignature;
+        {
+          const named = [...timeSignatureSelect.options].some(
+            (o) => o.value === settings.timeSignature);
+          timeSignatureSelect.value = named ? settings.timeSignature : 'custom';
+          const wrap = document.getElementById('custom-metre');
+          if (wrap) wrap.hidden = named;
+          if (!named) {
+            const [n, d] = String(settings.timeSignature).split('/');
+            const nEl = document.getElementById('custom-metre-n');
+            const dEl = document.getElementById('custom-metre-d');
+            if (nEl) nEl.value = n;
+            if (dEl) dEl.value = d === '8' ? '8' : '4';
+          }
+        }
         // A preset, a genre or a share link can bring its own loop, key and
         // scale in together, so the chords are re-read here rather than only
         // when someone edits them.
@@ -16931,6 +16995,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* v0.0.57: each numeric control carries its name. Baseline-aligned rather
        than stacked, so a block row stays one line on a desktop and wraps as a
        unit on a phone. */
+    .custom-metre {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 6px;
+    }
+    .custom-metre input {
+      width: 44px;
+    }
     .block-title {
       width: 76px;
       font-size: 11px;

@@ -292,9 +292,39 @@ export function quantiseToScale(midi, scale, rootPc = 0) {
   return rootPc + octave * 12 + best;
 }
 
+/**
+ * v0.0.98: the pulse grid for a metre — named OR custom. The named list stays
+ * canonical; a custom 'N/4' (N 2–5) or 'N/8' (N 3–10) parses to the same
+ * shape. /8 groups in threes when the bar divides into them (6/8, 9/8),
+ * otherwise twos with the odd three at the end — how the shipped 7/8 has
+ * always grouped. The bounds follow the sequencer: no bar may need more than
+ * the grid's twenty sixteenth-steps. Returns null for anything else.
+ */
+export function metrePulses(timeSignature) {
+  const named = TIME_SIGNATURES[timeSignature];
+  if (named) return named;
+  const m = /^([0-9]{1,2})\/(4|8)$/.exec(String(timeSignature ?? ''));
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (m[2] === '4') {
+    if (n < 2 || n > 5) return null;
+    return Array.from({ length: n }, () => 1);
+  }
+  if (n < 3 || n > 10) return null;
+  if (n % 3 === 0) return Array.from({ length: n / 3 }, () => 1.5);
+  const pulses = [];
+  let left = n;
+  while (left > 3) {
+    pulses.push(1);
+    left -= 2;
+  }
+  pulses.push(left === 3 ? 1.5 : 1);
+  return pulses;
+}
+
 /** Total quarter-note beats in a bar of the given time signature. */
 export function beatsPerBar(timeSignature) {
-  const pulses = TIME_SIGNATURES[timeSignature] ?? TIME_SIGNATURES['4/4'];
+  const pulses = metrePulses(timeSignature) ?? TIME_SIGNATURES['4/4'];
   return pulses.reduce((a, b) => a + b, 0);
 }
 
@@ -2245,8 +2275,12 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   }
   out.root = normaliseRoot(at('root')) ?? normaliseRoot(from.root) ?? DEFAULT_PARAMS.root;
   out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
-  out.timeSignature = oneOf(at('timeSignature'), Object.keys(TIME_SIGNATURES),
-    oneOf(from.timeSignature, Object.keys(TIME_SIGNATURES), DEFAULT_PARAMS.timeSignature));
+  // v0.0.98: any metre metrePulses() can grid is legal — the named five plus
+  // custom N/4 and N/8 inside the sequencer's bounds.
+  const metreOf = (v) => (typeof v === 'string' && metrePulses(v) ? v : undefined);
+  out.timeSignature = metreOf(at('timeSignature'))
+    ?? metreOf(from.timeSignature)
+    ?? DEFAULT_PARAMS.timeSignature;
   // An explicit null clears the tag; anything unusable keeps the stored one, so
   // an unrelated edit can never silently strip a piece's genre.
   out.genre = at('genre') === null ? null
@@ -7221,7 +7255,7 @@ export function createEngine(initialParams, options = {}) {
       bassPocket = null;
       frozenPlans.clear();
     }
-    const pulses = TIME_SIGNATURES[params.timeSignature];
+    const pulses = metrePulses(params.timeSignature) ?? TIME_SIGNATURES['4/4'];
     const secPerBeat = 60 / clamp(params.bpm * params.speed, 10, 400);
     const starts = [];
     let acc = 0;

@@ -165,6 +165,7 @@ const engineModule = await import('../src/scripts/ambient-engine.js');
 
 const {
   sanitiseParams,
+  metrePulses,
   randomnessIsHold,
   REVERB_TAIL_RANGE,
   quantiseToScale,
@@ -832,6 +833,21 @@ test('v26 genre tag survives the engine and changes nothing about the piece',
   }));
 
 test('sanitiseParams validates structure and custom blocks', () => {
+  // v0.0.98: custom metres. Named stay canonical; N/4 to 5 and N/8 to 10 are
+  // legal (the step grid's own bound); /8 groups in threes when the bar
+  // divides into them, otherwise twos with the odd three LAST (7/8's own
+  // shipped grouping); everything else is refused and the sanitiser keeps
+  // the stored metre.
+  assert.deepEqual(metrePulses('5/8'), [1, 1.5]);
+  assert.deepEqual(metrePulses('9/8'), [1.5, 1.5, 1.5]);
+  assert.deepEqual(metrePulses('10/8'), [1, 1, 1, 1, 1]);
+  assert.deepEqual(metrePulses('2/4'), [1, 1]);
+  assert.equal(metrePulses('6/4'), null);
+  assert.equal(metrePulses('11/8'), null);
+  assert.equal(metrePulses('4/16'), null);
+  assert.equal(sanitiseParams({ timeSignature: '5/8' }).timeSignature, '5/8');
+  assert.equal(sanitiseParams({ timeSignature: '6/4' }).timeSignature, '4/4');
+
   assert.equal(sanitiseParams({ structure: 'journey' }).structure, 'journey');
   assert.equal(sanitiseParams({ structure: 'nope' }).structure, 'auto');
   assert.equal(sanitiseParams({ structure: 7 }).structure, 'auto');
