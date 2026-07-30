@@ -92,6 +92,18 @@ export default async function drive(page) {
   });
   check('untying restores two boxes', untied.secondVisible && untied.headWidth <= untied.plainWidth * 1.15, (v) => v === true);
 
+  // v0.0.93 (his 89/105): notes on top, groups + probability at the bottom.
+  const order = await page.evaluate(() => {
+    const editor = document.getElementById('voice-editor-bass');
+    const cell = editor.querySelector('.seq-cell');
+    const dot = editor.querySelector('.seq-dot-cell');
+    const prob = editor.querySelector('.seq-prob');
+    if (!cell || !dot || !prob) return null;
+    const top = (el) => el.getBoundingClientRect().top;
+    return { dotBelowCells: top(dot) > top(cell), probBelowCells: top(prob) > top(cell) };
+  });
+  check('group dots sit BELOW the cells, beside probability', !!order && order.dotBelowCells && order.probBelowCells, (v) => v === true);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

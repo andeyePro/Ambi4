@@ -6392,11 +6392,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
         'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability, Shift+[ / Shift+] ' +
         '(or Shift+, / Shift+.) narrows/widens a drifting probability range · T ties a ' +
-        'step to the next one · G joins or leaves the probability group above the step. ' +
+        'step to the next one · G joins or leaves the probability group under the step. ' +
         'Pointer: drag a cell vertically for the velocity band, grab the fat handle at ' +
         'the band top for its loudest edge, drag sideways across cells to tie them into ' +
         'one long note, and drag the thin bar under a step for its probability. The dots ' +
-        'above the grid colour-code probability groups: inside a group a step only gets ' +
+        'along the bottom colour-code probability groups: inside a group a step only gets ' +
         'its chance if the previous step in that group actually sounded.';
 
       // v21: the third per-step axis only exists where the engine takes it, so
@@ -7359,10 +7359,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             beatsEl.append(b);
           }
           lanes.forEach((lane, li) => {
-            // Probability-group dots sit ABOVE the lane's cells, one per
-            // step, as their own grid row — row > gridcell > button, the
-            // standard "gridcell owning a widget" shape, so the buttons stay
-            // legitimate children of role="grid".
+            // v0.0.93 (his 89/105): probability-group dots sit BELOW the
+            // lane's cells, beside the probability bars — notes and pitch at
+            // the top, chance and grouping together at the bottom, which is
+            // his reading order. Still their own grid row — row > gridcell >
+            // button, the standard "gridcell owning a widget" shape.
             const dotRow = document.createElement('div');
             dotRow.className = 'seq-lane seq-dot-row';
             dotRow.setAttribute('role', 'row');
@@ -7428,7 +7429,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               row.append(cell);
             }
             if (headRow) gridEl.append(headRow);
-            gridEl.append(dotRow, row, probRow);
+            gridEl.append(row, probRow, dotRow);
             applyTieSpans(li);
           });
           for (let li = 0; li < lanes.length; li++) {
