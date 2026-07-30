@@ -3160,7 +3160,18 @@ export function buildBassGroove({
   // Syncopation: one cell, hung off a pulse, plus a second when the section is
   // busy enough to carry it. Off-pulse notes are where the fifth and octave
   // live, so the root discipline survives every one of them.
-  const cells = 1 + (density > 0.6 && rng() < density ? 1 : 0);
+  //
+  // v0.0.105, Energy stage 1b (his ruling on the 0% residue): the first cell
+  // used to be UNCONDITIONAL, which made the line's off-pulse articulation —
+  // the acid figure on a Techno bass — immune to the Energy dial entirely.
+  // "0% would remove the acid articulation if 4 to the floor is genre-
+  // defining": below the midpoint the cell now fades with complexity and is
+  // GONE at the bottom, while the anchors keep the genre's identity. From
+  // 0.5 up nothing changes and no extra rng draw is made, so every stream
+  // at or above the midpoint stays byte-identical to the previous build.
+  const cellComplexity = clamp(complexity, 0, 1);
+  const baseCell = cellComplexity >= 0.5 ? 1 : rng() < cellComplexity * 1.9 ? 1 : 0;
+  const cells = baseCell + (density > 0.6 && rng() < density ? 1 : 0);
   for (let c = 0; c < cells; c++) {
     const cell = pick(BASS_CELLS, rng);
     const pulse = starts[1 + (Math.floor(rng() * Math.max(1, starts.length - 1)) % Math.max(1, starts.length - 1))]

@@ -3985,6 +3985,58 @@ test('buildBassGroove: every felt pulse voices the root, and the anchor kick-loc
   }
 });
 
+test('Energy stages 1a+1b: below the midpoint the kick-lock loosens and the articulation cell fades — gone at the bottom, untouched from the midpoint up', () => {
+  const starts = [0, 1, 2, 3];
+  const offPulseMean = (complexity, seeds = 300) => {
+    let offp = 0;
+    for (let seed = 1; seed <= seeds; seed++) {
+      const g = buildBassGroove({
+        starts, beats: 4, intensity: 0.3, complexity, lowLane: [0, 1, 2, 3], rng: seededRng(seed * 7919),
+      });
+      offp += g.steps.filter((s) => !starts.some((p) => Math.abs(p - s.beat) < 1e-9)).length;
+    }
+    return offp / seeds;
+  };
+
+  // Stage 1b (his ruling): at the bottom of the dial the off-pulse figure —
+  // the acid articulation on a four-to-the-floor bass — is GONE, while the
+  // anchors keep the genre's identity.
+  assert.equal(offPulseMean(0), 0, 'complexity 0 must carry no off-pulse articulation at all');
+  const low = offPulseMean(0.04);
+  assert.ok(low < 0.3, `complexity 0.04 should be nearly clean, measured ${low.toFixed(2)} off-pulse/bar`);
+
+  // The fade is a fade, not a cliff pinned to one number: monotonic up to the
+  // midpoint, and the midpoint carries the full figure.
+  const quarter = offPulseMean(0.25);
+  const mid = offPulseMean(0.6);
+  assert.ok(low < quarter && quarter < mid,
+    `off-pulse articulation must grow with complexity (${low.toFixed(2)} → ${quarter.toFixed(2)} → ${mid.toFixed(2)})`);
+  assert.ok(mid > 1.2, `at complexity 0.6 the full figure plays, measured ${mid.toFixed(2)}/bar`);
+
+  // At the bottom the bass still exists: the anchor spine survives 1a+1b.
+  for (let seed = 1; seed <= 40; seed++) {
+    const g = buildBassGroove({
+      starts, beats: 4, intensity: 0.3, complexity: 0, lowLane: [0, 1, 2, 3], rng: seededRng(seed),
+    });
+    assert.ok(g.steps.length >= 1 && g.steps.some((s) => s.accent === true),
+      `seed ${seed}: complexity 0 lost the accented anchor itself`);
+  }
+
+  // The byte-identity contract from the midpoint up, pinned as a golden
+  // stream: neither stage spends an extra rng draw at c >= 0.5, so this exact
+  // groove is what every build since v0.0.98 deals from this seed. If a
+  // future stage changes it, the audio reference moves with it — DELIBERATELY
+  // (--update, same commit), never silently.
+  const golden = buildBassGroove({
+    starts, beats: 4, intensity: 0.3, complexity: 0.62, lowLane: [0, 1, 2, 3], rng: seededRng(12345 * 7919),
+  });
+  assert.deepEqual(
+    golden.steps.map((s) => `${s.beat}:${s.tone}`),
+    ['0:root', '1:root', '2:root', '3:root', '3.25:fifth', '3.75:octave'],
+    'the above-midpoint stream moved — if deliberate, re-pin this and regenerate the audio reference in the same commit'
+  );
+});
+
 test('developBassGroove: ghost/push/simplify/double transform a stated groove, and pulses stay root throughout', () => {
   const starts = [0, 1, 2, 3];
 
