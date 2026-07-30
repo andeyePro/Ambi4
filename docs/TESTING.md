@@ -101,6 +101,40 @@ npm run build && node tests/tutorial-smoke.mjs   # 8 + 8 mutations — the guide
 npm run build && node tests/page-boot.mjs        # the built page in jsdom (above)
 ```
 
+### The browser drives
+
+Everything above runs in Node against mocks. The drives run against the BUILT
+site in a real headless Chromium on the Mac test account
+(`docs/rendering-host.md`), one file per behaviour, each asserting at the
+ENGINE seam (`window.__ambi4Engine`) rather than the DOM wherever a value has
+an engine-side truth:
+
+```
+.vibe/measure.sh local drive tests/<name>.mjs
+.vibe/measure.sh local overlaps          # the layout sweep, three viewports
+```
+
+| Drive | Holds the line on |
+|---|---|
+| dial-drive | pointer gestures on the dials |
+| spread-all-drive | every rangeable dial takes a spread, engine-verified |
+| simple-tempo-drive | Simple's Tempo view moves engine bpm; beat/bar landing |
+| create-drive | the Create door: blank slate silences (incl. FX), Zero buttons, seeding, tap-a-rhythm, silent-under-Play |
+| play-along-drive | musical typing reaches noteOn/noteOff; typing guards; stays armed on close |
+| popover-drive | popovers stay on screen at 1280 and 390 |
+| latency-drive | desktop output routes DIRECT (no media-element hop); reports the context's latency floor |
+| tie-merge-drive | ties render as one wide box; mass edit lands at the engine |
+| transport-drive, undo-drive | the transport keys and ⌘Z/⇧⌘Z |
+| sharelink-drive, provenance-drive, submit-drive | links, provenance, Submit |
+| chordchip-drive, chordlength-drive, progression-drive | the chord loop editors |
+| chosen-drive, pitch-drive, section-drive | the grid's engine readouts |
+| loudness-drive, scope-drive, fullscreenbar-drive, driftshape-drive | output level, scope, fullscreen chrome, spread shapes |
+
+Offline render harnesses (browser, `OfflineAudioContext`, measured not
+listened to): `onset-render` (onset steps, slur chains, cancels, sums),
+`wash-sweep-render` (the wash holds its band), `call-breath-render` (the call
+is a rising whistle, alone).
+
 `tutorial-smoke` reads `TUTORIAL_STEPS` out of `src/pages/index.astro` and checks
 it against the BUILT page: every target resolves to exactly one element (an
 ambiguous selector rings whichever came first, so two matches fail as loudly as

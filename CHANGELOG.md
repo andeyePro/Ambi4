@@ -2,6 +2,8 @@
 
 ## 2026-07-30
 
+- [x] **v0.0.95 — the preset-slug constraint is self-enforcing, and the drive suite is documented** — two hygiene closes. The advisory review's one live caveat (a preset slug is interpolated into an inline script, safe only while slugs are machine-made) is now a BUILD-time assert: any slug beyond lowercase/digits/hyphens fails `astro build` with a message naming why, so a future submission-sourced preset can never quietly carry markup to the page. And `docs/TESTING.md` gains the browser-drive inventory — twenty-one drives and three offline render harnesses, what each holds the line on — which existed only as filenames until now.
+
 - [x] **v0.0.94 — mass edit: Fill, Every 2nd, Clear** — the first slice of his 89's mass-edit ask ("fill a whole row, or every second note"). Three actions above every step grid, acting on the focused lane (which is the only lane everywhere but the kit, where it is the lane last touched). They act on the VISIBLE bar — the stored lane is longer than the metre shows, and the first cut walked off the rendered cells and died before committing, which the engine-seam drive caught (the settings changed, the engine never heard). Asserted at the engine's stored lane: all on, alternating, all off. Setting a probability across a selection is the remaining half and lands with the resolution control. All gates green.
 
 - [x] **v0.0.93 — notes on top, chance and grouping at the bottom** — his reading order, asked for twice: the probability-group dots move from above the cells to BELOW them, beside the probability bars, so a lane reads notes-and-pitch at the top and everything about chance together underneath. The grid legend and keyboard help follow in the same commit, and the drive asserts the ordering by geometry.

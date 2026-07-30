@@ -32,10 +32,23 @@ import '../styles/global.css';
 import { resolveFactoryPresets } from '../data/factory-presets-fallback.js';
 
 export function getStaticPaths() {
-  return resolveFactoryPresets().map((preset) => ({
-    params: { preset: preset.slug },
-    props: { name: preset.name, oneLiner: preset.oneLiner ?? '' },
-  }));
+  return resolveFactoryPresets().map((preset) => {
+    // Hardening from the 2026-07-29 advisory review (GHSA-j687, XSS in
+    // define:vars via incomplete </script> sanitisation): the slug below is
+    // interpolated into an inline script, which is safe precisely BECAUSE
+    // every slug is a machine-made three-word name. The build now enforces
+    // that, so a hand-edited or future submission-sourced preset can never
+    // quietly carry markup into the page. Fails the BUILD, not the visitor.
+    if (!/^[a-z0-9-]+$/.test(preset.slug)) {
+      throw new Error(
+        `factory preset slug ${JSON.stringify(preset.slug)} must be lowercase letters, digits and hyphens only — it is interpolated into an inline script`
+      );
+    }
+    return {
+      params: { preset: preset.slug },
+      props: { name: preset.name, oneLiner: preset.oneLiner ?? '' },
+    };
+  });
 }
 
 const { preset } = Astro.params;
