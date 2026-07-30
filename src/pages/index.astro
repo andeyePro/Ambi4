@@ -6679,6 +6679,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const n = stepsPerBarFor(track);
           li = clamp(li, 0, lanes.length - 1);
           i = clamp(i, 0, n - 1);
+          // v0.0.92: a step absorbed into a tied note has no box of its own —
+          // walk on in the direction of travel rather than focusing nothing.
+          const hidden = (idx) => cellRefs[li][idx]?.cell.style.display === 'none';
+          const dir = i >= focusPos.step ? 1 : -1;
+          while (i > 0 && i < n - 1 && hidden(i)) i += dir;
+          while (i > 0 && hidden(i)) i -= 1;
           const prev = (cellRefs[focusPos.lane] || [])[focusPos.step];
           if (prev) prev.cell.tabIndex = -1;
           focusPos = { lane: li, step: i };
@@ -6688,6 +6694,40 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
 
         /** Join the group above, or start a new one; a grouped step leaves. */
+        /**
+         * v0.0.92 (his 105): a tie MERGES the boxes — one double-width box
+         * for two tied steps, triple for three — instead of a marker nobody
+         * could see. The head cell spans the run in all three rows (cells,
+         * group dots, probability bars); absorbed steps lose their boxes,
+         * which is honest, because the engine drops them from the bar.
+         */
+        function applyTieSpans(li) {
+          const lane = laneSteps(lanes[li]);
+          const refs = cellRefs[li];
+          const rowsOf = (r) => [r.cell, r.probFill?.parentElement, r.dot?.parentElement];
+          let i = 0;
+          while (i < lane.length) {
+            let span = 1;
+            while (i + span < lane.length && lane[i + span - 1].tie === true) span += 1;
+            const head = refs[i];
+            if (head) {
+              for (const el of rowsOf(head)) {
+                if (!el) continue;
+                el.style.display = '';
+                el.style.gridColumn = span > 1 ? `span ${span}` : '';
+              }
+            }
+            for (let k = 1; k < span; k++) {
+              const r = refs[i + k];
+              if (!r) continue;
+              for (const el of rowsOf(r)) {
+                if (el) el.style.display = 'none';
+              }
+            }
+            i += span;
+          }
+        }
+
         function toggleGroup(li, i) {
           const lane = laneSteps(lanes[li]);
           const s = lane[i];
@@ -6707,6 +6747,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const getStep = () => laneSteps(lanes[li])[i];
           const commit = () => {
             updateCell(li, i);
+            applyTieSpans(li);
             commitSequencer(track);
           };
 
@@ -7388,6 +7429,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
             if (headRow) gridEl.append(headRow);
             gridEl.append(dotRow, row, probRow);
+            applyTieSpans(li);
           });
           for (let li = 0; li < lanes.length; li++) {
             for (let i = 0; i < n; i++) updateCell(li, i);
@@ -16595,21 +16637,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       opacity: 0.7;
     }
 
-    /* A tied step bridges visually into the next one: one long note. */
+    /* v0.0.92: a tied run IS one wide box (the head cell spans it; the
+       absorbed cells are gone), so the box needs no bridge marker — a thin
+       warm underline is all that says "tied" rather than "long gate". */
     .seq-cell-tie {
-      border-right-color: transparent;
-      border-top-right-radius: 0;
-      border-bottom-right-radius: 0;
-    }
-
-    .seq-cell-tie::after {
-      content: '';
-      position: absolute;
-      right: -4px;
-      top: 45%;
-      width: 5px;
-      height: 3px;
-      background: var(--accent-warm, var(--link));
+      box-shadow: inset 0 -3px 0 var(--accent-warm, var(--link));
     }
 
     /* v21 note length past the step it starts in: the band cannot show width
