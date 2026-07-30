@@ -90,6 +90,28 @@ export default async function drive(page) {
   check('bar 2 starts on the fifth note', multi.bar2, 67);
   check('the writer says so', /2 bars/.test(multi.tip) && /in order/.test(multi.tip), (v) => v === true);
 
+  // The grid tells the truth about the chain: the order toggle reads In
+  // order and the weight box — which a chained list ignores — is hidden.
+  await page.click('#tab-advanced');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    for (const row of document.querySelectorAll('.track-row')) {
+      if (/melody/i.test(row.textContent || '')) {
+        row.querySelector('.voice-edit-toggle')?.click();
+        return;
+      }
+    }
+  });
+  await page.waitForTimeout(600);
+  const gridState = await page.evaluate(() => {
+    const editor = document.getElementById('voice-editor-melody');
+    const chain = editor?.querySelector('input[name="seq-order-melody"][value="chain"]');
+    const weight = editor?.querySelector('.seq-weight');
+    return { chainChecked: chain?.checked ?? null, weightHidden: weight?.hidden ?? null };
+  });
+  check('the order toggle reads In order', gridState.chainChecked, true);
+  check('the ignored weight box is hidden', gridState.weightHidden, true);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

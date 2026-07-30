@@ -2650,6 +2650,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             : null;
         engineCaps.stepPitch = isPlainObject(probedPitch) && probedPitch.midi === 72;
 
+        // v0.0.116: chain advance for the sequencer list.
+        const chainProbe = probeTracks({ melody: { sequencerAdvance: 'chain' } });
+        engineCaps.chainMode =
+          chainProbe && isPlainObject(chainProbe.melody) && chainProbe.melody.sequencerAdvance === 'chain';
+
         // Per-track swing/density. Both carry an Auto detent that writes null,
         // so a build that takes the number but not the null would give the
         // detent nothing to mean — hence both halves are probed, and the
@@ -6709,7 +6714,40 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         weightInput.step = '0.5';
         weightInput.inputMode = 'decimal';
         weightWrap.append(weightLabel, weightInput);
-        tabsRow.append(tabs, addButton, weightWrap);
+        // v0.0.116: HOW the tabs advance. Shuffle is the Markov pick the
+        // weights drive; In order plays the tabs as a composed sequence —
+        // and then the weight box hides, because a control the engine
+        // ignores must not be on screen.
+        const orderWrap = document.createElement('div');
+        orderWrap.className = 'segmented seq-order';
+        const orderRadios = [];
+        for (const [value, text] of [['weights', 'Shuffle'], ['chain', 'In order']]) {
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `seq-order-${track}`;
+          input.id = `seq-order-${track}-${value}`;
+          input.value = value;
+          const lab = document.createElement('label');
+          lab.htmlFor = input.id;
+          lab.textContent = text;
+          input.addEventListener('change', () => {
+            if (!input.checked) return;
+            if (value === 'chain') settings.tracks[track].sequencerAdvance = 'chain';
+            else delete settings.tracks[track].sequencerAdvance;
+            engine.setParams({
+              tracks: { [track]: { sequencerAdvance: value === 'chain' ? 'chain' : null } },
+            });
+            persistSettings();
+            renderTabs();
+          });
+          orderWrap.append(input, lab);
+          orderRadios.push(input);
+        }
+        tabsRow.append(tabs, addButton, orderWrap, weightWrap);
+        describe(
+          orderWrap,
+          'Shuffle picks the next sequencer by the weights; In order plays the tabs as a composed sequence, 1 then 2 then 3, and wraps.'
+        );
         describe(
           weightInput,
           'How likely the other sequencers are to hand over to this one when a loop ends.'
@@ -7664,6 +7702,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             tabs.append(input, lab);
           });
           addButton.disabled = seqs.length >= SEQ_MAX;
+          const chained = settings.tracks[track].sequencerAdvance === 'chain';
+          orderWrap.hidden = seqs.length < 2 || !engineCaps.chainMode;
+          for (const radio of orderRadios) {
+            radio.checked = radio.value === (chained ? 'chain' : 'weights');
+          }
+          // A chained list ignores its weights: hiding the box is the honest
+          // rendering of that, not a convenience.
+          weightWrap.hidden = chained || seqs.length < 2;
           weightInput.value = String(seqs[0].weights[active] ?? 1);
           weightInput.setAttribute('aria-label', `Sequencer ${active + 1} weight`);
         }
