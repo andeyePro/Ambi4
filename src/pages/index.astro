@@ -6466,12 +6466,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
         'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability, Shift+[ / Shift+] ' +
         '(or Shift+, / Shift+.) narrows/widens a drifting probability range · T ties a ' +
-        'step to the next one · G joins or leaves the probability group under the step. ' +
+        'step to the next one · G paints the step into the selected probability group ' +
+        '(Esc drops the selection). ' +
         'Pointer: drag a cell vertically for the velocity band, grab the fat handle at ' +
         'the band top for its loudest edge, drag sideways across cells to tie them into ' +
         'one long note, and drag the thin bar under a step for its probability. The dots ' +
-        'along the bottom colour-code probability groups: inside a group a step only gets ' +
-        'its chance if the previous step in that group actually sounded.';
+        'along the bottom colour-code probability groups: press any dot to start a group ' +
+        'or select an existing one (its dots ring), press more dots to paint them in — ' +
+        'gaps are fine — and press a selected member again to remove it. Inside a group ' +
+        'each step in turn only gets its chance if the previous member actually sounded.';
 
       // v21: the third per-step axis only exists where the engine takes it, so
       // its keys are only documented there too.
@@ -6755,15 +6758,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ref.probFill.classList.remove('seq-prob-fill-range');
           }
           const grouped = Number.isFinite(s.group);
+          const selected = grouped && activeGroup && activeGroup.lane === li && activeGroup.id === s.group;
           ref.dot.classList.toggle('seq-dot-on', grouped);
+          ref.dot.classList.toggle('seq-dot-active', !!selected);
           ref.dot.style.background = grouped
             ? GROUP_COLOURS[s.group % GROUP_COLOURS.length]
             : '';
           ref.dot.setAttribute(
             'aria-label',
-            grouped
-              ? `Step ${i + 1} is in probability group ${s.group + 1}. Press to leave it.`
-              : `Step ${i + 1} is ungrouped. Press to join the group above it, or start one.`
+            selected
+              ? `Step ${i + 1} is in the selected probability group ${s.group + 1}. Press to remove it.`
+              : grouped
+                ? `Step ${i + 1} is in probability group ${s.group + 1}. Press to select that group for painting.`
+                : activeGroup && activeGroup.lane === li
+                  ? `Step ${i + 1} is ungrouped. Press to paint it into the selected group.`
+                  : `Step ${i + 1} is ungrouped. Press to start a new probability group.`
           );
         }
 
@@ -6845,18 +6854,49 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
         }
 
+        /**
+         * v0.0.103 (his ruling on the groups question): "the probability
+         * group is not always contiguous … I want to be able to select a
+         * bunch of items, and have them in one probability group", and "a
+         * gap is NOT a probability group boundary". So the join-my-left-
+         * neighbour rule is gone, replaced by painting into a SELECTED
+         * group: touch any group's dot to select it (its dots ring), touch
+         * ungrouped dots to paint them in — gaps and all — touch a selected
+         * member again to remove it, Esc drops the selection, and touching
+         * an ungrouped dot with nothing selected starts a fresh group.
+         * Groups stay within one lane: the engine rolls each lane's chain
+         * on its own, so a cross-lane paint starts a new group there.
+         */
+        let activeGroup = null; // { lane, id } — the group selected for painting
+
+        function repaintDots() {
+          const n = stepsPerBarFor(track);
+          for (let l = 0; l < lanes.length; l++) {
+            for (let k = 0; k < Math.min(n, cellRefs[l].length); k++) updateCell(l, k);
+          }
+        }
+
         function toggleGroup(li, i) {
           const lane = laneSteps(lanes[li]);
           const s = lane[i];
           if (Number.isFinite(s.group)) {
-            delete s.group;
+            if (activeGroup && activeGroup.lane === li && activeGroup.id === s.group) {
+              // null, not delete: the engine's step sanitiser merges against
+              // the stored step, so an ABSENT field keeps the old value —
+              // null is the explicit "clear it" the merge law understands.
+              s.group = null; // a selected member touched again leaves the group
+            } else {
+              activeGroup = { lane: li, id: s.group }; // select for painting, change nothing
+              repaintDots();
+              return;
+            }
           } else {
-            const prev = i > 0 ? lane[i - 1] : null;
-            s.group = prev && Number.isFinite(prev.group)
-              ? prev.group
-              : nextGroupId(lane, stepsPerBarFor(track));
+            if (!activeGroup || activeGroup.lane !== li) {
+              activeGroup = { lane: li, id: nextGroupId(lane, stepsPerBarFor(track)) };
+            }
+            s.group = activeGroup.id;
           }
-          updateCell(li, i);
+          repaintDots();
           commitSequencer(track);
         }
 
@@ -6925,14 +6965,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               const last = clamp(end, i, slots - 1);
               for (let k = i; k <= last; k++) {
                 lane[k].on = true;
+                // null, not delete: an absent field survives the engine's
+                // step merge — null is what actually unties there.
                 if (k < last) lane[k].tie = true;
-                else delete lane[k].tie;
+                else lane[k].tie = null;
                 updateCell(li, k);
               }
               // Dragging back shortens the run: the steps beyond it lose the
               // tie they picked up on the way out.
               for (let k = last + 1; k <= tieEnd && k < slots; k++) {
-                delete lane[k].tie;
+                lane[k].tie = null;
                 updateCell(li, k);
               }
               tieEnd = last;
@@ -7026,12 +7068,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             } else if (e.key === 't' || e.key === 'T') {
               // Keyboard equivalent of the sideways tie drag.
               e.preventDefault();
-              if (s.tie === true) delete s.tie;
+              if (s.tie === true) s.tie = null; // null unties at the ENGINE too — a deleted key would survive its step merge
               else if (i < stepsPerBarFor(track) - 1) s.tie = true;
               commit();
             } else if (e.key === 'g' || e.key === 'G') {
               e.preventDefault();
               toggleGroup(li, i);
+            } else if (e.key === 'Escape' && activeGroup) {
+              // Drop the group selection so the next dot press starts fresh.
+              e.preventDefault();
+              activeGroup = null;
+              repaintDots();
             } else if (gateAxis && (e.key === '-' || e.key === '_')) {
               // Keyboard pair for the note-length axis. '+' arrives as
               // Shift+'=' on most layouts, so both characters are accepted.
@@ -16721,6 +16768,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .seq-dot-on {
       border-color: transparent;
+    }
+
+    /* The group selected for painting: its members ring so "which group am I
+       adding to" is answered on the grid itself, not from memory. */
+    .seq-dot-active {
+      box-shadow: 0 0 0 2px var(--link);
     }
 
     .seq-dot:focus-visible {

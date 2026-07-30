@@ -92,6 +92,17 @@ export default async function drive(page) {
   });
   check('untying restores two boxes', untied.secondVisible && untied.headWidth <= untied.plainWidth * 1.15, (v) => v === true);
 
+  // The untie must reach the ENGINE, not just the boxes. The engine's step
+  // sanitiser MERGES against the stored step, so a client-side `delete tie`
+  // silently keeps the note tied there — the page has to send null. This
+  // check found that live: the boxes split while the engine played on tied.
+  const tieAtEngine = await page.evaluate(() => {
+    const seq = window.__ambi4Engine.getParams().tracks.bass.sequencer;
+    const steps = Array.isArray(seq.steps) ? seq.steps : Object.values(seq.steps)[0];
+    return steps[0].tie === true;
+  });
+  check('…and the ENGINE untied too', tieAtEngine, (v) => v === false);
+
   // v0.0.93 (his 89/105): notes on top, groups + probability at the bottom.
   const order = await page.evaluate(() => {
     const editor = document.getElementById('voice-editor-bass');
