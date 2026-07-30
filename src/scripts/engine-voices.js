@@ -3246,8 +3246,9 @@ function textureCloud(ctx, destination, note, patch) {
  * note's own length. The count is capped: the dial's top end is a phrase, not
  * a licence to schedule a hundred oscillators inside one note.
  *
- * Steady cost: two formants and their balance, the amp, one breath source, and
- * the patch's own filter — eight nodes; three more per chirp.
+ * Steady cost: two formants and their balance, the amp, and the patch's own
+ * filter — seven nodes; two more per chirp. (The breath noise layer was
+ * deleted in v0.0.88 on the owner's ruling — the whistle IS the bird.)
  */
 function callVoice(ctx, destination, note, patch, d, basePeak) {
   const rig = createRig(ctx, destination, note);
@@ -3278,18 +3279,11 @@ function callVoice(ctx, destination, note, patch, d, basePeak) {
     gain.connect(amp);
     return node;
   });
-  // The breath runs the length of the note and is gated per chirp, which costs
-  // one source rather than one per call.
-  const breath = rig.noise(t, { colour: 'pink', rate: 1 });
-  // Half of the item-85 saw fix (the other half is the texture defaults: a
-  // bird rises). The makeup compensates the noise's loss through a narrow
-  // formant, but it clamps at 6× — which could put the breath at ~2× the
-  // whistle it is meant to sit BESIDE. Capping it at 2 keeps the equalisation
-  // for wide formants and pins the breath under the tone; the balance is
-  // reported by tests/call-breath-render.mjs.
-  const breathMakeup = Math.min(2, noiseMakeup(
-    clamp(Math.max(s.formant1, s.formant2), 60, 12000), 4.5, rig.sampleRate,
-  ));
+  // v0.0.88: the breath layer is GONE, on the owner's ruling (his 101): the
+  // whistle is the bird; a band of pink noise pulsing every call "is not a
+  // natural part of a bird call, or a noise we hear in reality with that
+  // duration and spacing, other than someone sawing — please just delete the
+  // noise from the Call instrument and be done with it."
 
   // Cadence is a RATE, so it sets the gap between calls and the note's length
   // sets how many of them fit. Past the cap the phrase simply stops early
@@ -3314,15 +3308,15 @@ function callVoice(ctx, destination, note, patch, d, basePeak) {
     osc.frequency.exponentialRampToValueAtTime(to, at + length);
     const tone = rig.gain(SILENCE);
     osc.connect(tone);
-    const air = rig.gain(SILENCE);
-    breath.connect(air);
     for (const formant of formants) {
       tone.connect(formant);
-      air.connect(formant);
     }
     const shape = { attack: length * 0.2, hold: length * 0.3, release: length * 0.5 };
-    const done = env(tone.gain, at, { ...shape, peak });
-    env(air.gain, at, { ...shape, peak: peak * 0.35 * breathMakeup });
+    // ×3: the deleted breath layer carried most of the voice's energy (its
+    // makeup gain sat it at up to twice the tone), so the bare whistle needs
+    // making up to hold call's place in the mix — measured 0.0051 peak bare
+    // against 0.0271 with the breath, ~0.016 with the ×3.
+    const done = env(tone.gain, at, { ...shape, peak: peak * 3 });
     rig.stopAt(osc, done + 0.02);
     if (done > end) end = done;
   }

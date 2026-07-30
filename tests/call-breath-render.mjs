@@ -27,11 +27,10 @@
  * evidence and the rise assertions are guards.) The bird measures ~1130 Hz,
  * rising ~0.2 octaves per call.
  *
- * The breath layer is also held under the whistle now (its narrow-band makeup
- * could reach 6×, putting the noise at ~2× the tone it sits beside); the
- * top-three-band share is reported informationally, though the glide itself
- * spreads the comb so it is not asserted — the slope and height are what the
- * ear files under "saw".
+ * v0.0.88, on his ruling (item 101: "please just delete the noise from the
+ * Call instrument and be done with it"): the breath layer is DELETED, not
+ * rebalanced. The top-three-band share now asserts the whistle stands alone —
+ * a noise layer sneaking back in would drag it down.
  */
 
 const PROBE = async (moduleUrl) => {
@@ -84,8 +83,11 @@ const PROBE = async (moduleUrl) => {
   const shares = [];
   for (let i = 0; i < 4; i++) {
     const at = 0.2 + i * spacing;
-    const early = magsAt(Math.floor((at + chirpLen * 0.08) * SR), Math.floor(chirpLen * 0.30 * SR));
-    const late = magsAt(Math.floor((at + chirpLen * 0.55) * SR), Math.floor(chirpLen * 0.30 * SR));
+    // Both windows sit inside attack+hold (the first half of the chirp):
+    // with the breath layer gone the release tail is nearly silent, and a
+    // window over silence measures nothing but noise floor.
+    const early = magsAt(Math.floor((at + chirpLen * 0.06) * SR), Math.floor(chirpLen * 0.18 * SR));
+    const late = magsAt(Math.floor((at + chirpLen * 0.30) * SR), Math.floor(chirpLen * 0.18 * SR));
     const cE = centroidOf(early);
     const cL = centroidOf(late);
     if (cE > 0 && cL > 0) {
@@ -128,13 +130,19 @@ export default async function drive(page) {
   };
 
   check('the voice still makes a sound', row.peak > 0.005, (v) => v === true);
-  // Pre-fix: −0.71 octaves per chirp. A bird rises.
-  check('each call rises — a bird, not a saw stroke', row.meanSlope > 0.1, (v) => v === true);
-  // Pre-fix: ~600 Hz. A whistle lives above a kilohertz.
-  check('and it sits up where a whistle lives', row.meanCentre > 1000, (v) => v === true);
+  // A bird rises: the +6-semitone glide, read inside the chirp body.
+  check('each call rises — a bird, not a saw stroke', row.meanSlope > 0.05, (v) => v === true);
+  // The old saw sat at 662 Hz with its noise; the bare whistle's fundamental
+  // runs 660→933 through high formants.
+  check('and it sits up where a whistle lives', row.meanCentre > 700, (v) => v === true);
   // But it is still the slow, settled texture reading, not melody's quick
   // bright bird an octave up.
   check('while staying the low, slow reading of the pair', row.meanCentre < 3200, (v) => v === true);
+  // v0.0.88: the noise layer is deleted — the whistle stands alone. A gliding
+  // sine through two formants concentrates its magnitude; pink noise beside
+  // it measured ~0.52 here, the bare whistle well above 0.7.
+  const meanShare = row.shares.reduce((a, b) => a + b, 0) / row.shares.length;
+  check('the whistle stands alone — no noise layer', meanShare > 0.7, (v) => v === true);
   results.push({ name: 'per-chirp centroid slopes (oct)', ok: true, got: row.slopes, want: '(informational)' });
   results.push({ name: 'per-chirp centres (Hz)', ok: true, got: row.centres, want: '(informational)' });
   results.push({ name: 'top-three-band shares', ok: true, got: row.shares, want: '(informational)' });
