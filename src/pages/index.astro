@@ -76,6 +76,9 @@ const TRACKS: [string, string][] = getTracks().map(
 // is how a macro teaches itself.
 // [param id, label, low end-mark, mid end-mark, high end-mark]
 const SIMPLE_PANEL_DIALS: [string, string, string, string | null, string][] = [
+  // v0.0.83 (his item 90): Simple lost every tempo control when v0.0.71
+  // separated Energy from tempo — three dials remained and none moved bpm.
+  ['speed', 'Tempo', 'Slow', null, 'Fast'],
   ['energy', 'Energy', 'Calm', null, 'Lively'],
   ['randomness', 'Change', 'Never', 'Now and then', 'Often'],
   ['volume', 'Volume', 'Quiet', null, 'Loud'],
@@ -3149,6 +3152,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // `.set(v)` normalises knob-vs-slider-fallback for every call site
       // above that point (setTempo, updateComplexityDisplay, syncUIFromSettings).
       let speedDial = null;
+      let simpleSpeedDial = null;   // v0.0.83: the Simple tab's own Tempo view
       let energyDial = null;
       let complexityDial = null;
       let repetitionDial = null;
@@ -3305,7 +3309,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * positions) takes the midpoint, which is where the walk sits on
        * average and where the piece starts.
        */
-      function setTempo(bpm, { skipSpeedThumb = false, landing = null } = {}) {
+      function setTempo(bpm, { skipSpeedThumb = false, skipSimpleThumb = false, landing = null } = {}) {
         const clampBpm = (v) => Math.round(clamp(v, 20, 220));
         bpm = mapRangeValue(bpm, clampBpm);
         const mid = rangeMid(bpm);
@@ -3313,6 +3317,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (bpmInput) bpmInput.value = String(mid);
         bpmTypable?.refresh();
         if (!skipSpeedThumb) speedDial?.set(mapRangeValue(bpm, speedTFromBpm));
+        if (!skipSimpleThumb) simpleSpeedDial?.set(mapRangeValue(bpm, speedTFromBpm));
         // Energy's read-back is tempo-anchored (tempo is the dominant cue the
         // macro owns), so any tempo write moves the Energy dial too — except
         // the one Energy itself is making mid-gesture.
@@ -4034,7 +4039,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * the three without an `-adv` suffix that Simple actually renders. Only
        * those teach the spread gesture, per the note on noticeSimpleSpread.
        */
-      const SIMPLE_DIAL_SLOTS = new Set(['energy-dial', 'randomness-dial', 'volume-dial']);
+      const SIMPLE_DIAL_SLOTS = new Set(['speed-dial', 'energy-dial', 'randomness-dial', 'volume-dial']);
 
       function buildSimpleDial(dialId, opts, commit) {
         const box = document.getElementById(dialId);
@@ -4189,6 +4194,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       );
 
       describeDial(speedDial, dialHint('Fast', 'Slow', null, null, 'Vary the tempo'));
+
+      // v0.0.83 (his item 90): the Simple tab gets Tempo back. Two views of
+      // the one bpm; this one lands its change on the next BEAT (v0.0.57's
+      // rule: a beginner needs to hear that the thing they just dragged did
+      // something), where the Advanced view lands on the barline.
+      simpleSpeedDial = buildSimpleDial(
+        'speed-dial',
+        {
+          id: 'speed',
+          label: 'Tempo',
+          min: 0,
+          max: 1,
+          step: 0.001,
+          value: speedTFromBpm(settings.bpm),
+          format: (t) => `${Math.round(bpmFromSpeedT(t))} bpm`,
+          defaultValue: speedTFromBpm(DEFAULTS.bpm),
+        },
+        (t) => setTempo(mapRangeValue(t, bpmFromSpeedT), { skipSimpleThumb: true, landing: 'beat' })
+      );
+      describeDial(simpleSpeedDial, dialHint('Fast', 'Slow', null, null, 'Vary the tempo'));
 
       /**
        * Moving Complexity is an explicit "let the engine decide" gesture:
@@ -4513,7 +4538,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           infoButton(
             infoHost,
             'these dials',
-            "Tempo, Complexity and Volume are the same three values as the Simple tab — two views, one setting. Variation and Reprise are separate here: Simple fuses them into its one Randomness dial, Advanced does not."
+            "Tempo and Volume are the same values as the Simple tab — two views, one setting (Simple's Tempo lands on the next beat, this one on the barline). Energy on Simple drives Complexity here. Variation and Reprise are separate here: Simple fuses them into its one Change dial."
           );
         }
       }
@@ -10834,6 +10859,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const g = isPlainObject(globals) ? globals : {};
         const at = (key, map) => (typeof g[key] === 'number' ? map(g[key]) : null);
         speedDial?.setLive?.(at('bpm', speedTFromBpm));
+        simpleSpeedDial?.setLive?.(at('bpm', speedTFromBpm));
         energyDial?.setLive?.(at('complexity', energyFromComplexity));
         complexityDial?.setLive?.(at('complexity', (v) => v));
         repetitionDial?.setLive?.(at('repetition', (v) => v));
@@ -13519,6 +13545,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (bpmInput) bpmInput.value = String(rangeMid(settings.bpm));
         bpmTypable?.refresh();
         speedDial?.set(mapRangeValue(settings.bpm, speedTFromBpm));
+        simpleSpeedDial?.set(mapRangeValue(settings.bpm, speedTFromBpm));
         energyDial?.set(mapRangeValue(settings.complexity, energyFromComplexity));
         repetitionDial?.set(settings.repetition);
         volumeDial?.set(mapRangeValue(settings.volume, volumeDialFromParam));

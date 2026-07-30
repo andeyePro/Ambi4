@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-30
+
+- [x] **v0.0.83 — Simple gets Tempo back** — his item 90, and he was right in a way the code had hidden: when v0.0.71 separated Energy from tempo, the Simple tab was left with **no tempo control at all** — Energy stopped writing bpm and nothing replaced it. Simple now has four dials: Tempo, Energy, Change, Volume. The new dial is a second view of the same bpm as Advanced's — the two mirror — but it lands its change on the next **beat** (a beginner needs to hear the thing they just dragged do something) where Advanced lands on the barline, which is v0.0.57's A/B preserved. The Advanced ⓘ that claimed "Tempo, Complexity and Volume are the same three values as the Simple tab" was already false and is corrected. `tests/simple-tempo-drive.mjs` asserts the ENGINE's bpm moves from a drag on each view and that each lands where it should; layout sweep clean at all three viewports; engine 237/237; `audio-reference` 24/24 unchanged.
+
 ## 2026-07-29
 
 - [x] **The click-on-onset hunt: every voice-layer interaction now measures clean** — `tests/onset-render.mjs` gained the three cases no render had exercised, built exactly as the engine builds them: a real three-note `legatoFrom` slur chain (first coverage ever of the shipped `takeOver` path — fingered, sub and sawbass all take the slur, handover steps at 0.09–0.62 of the body's own; upright refuses by design), an engine-style `handle.cancel(at)` mid-note (no step — a plausible stale-value hypothesis measured and killed), and a bass+pad+kit same-instant sum (ratio 1.0). With isolated onsets, fast lines, slurs, cancels and summing all clean, the owner's click cannot live at the voice layer; the TODO item now names the live-context candidates (voice stealing, governor transitions, the master compressor) and the next harness (full-engine offline render), so nobody re-tunes a healthy voice on this complaint.
