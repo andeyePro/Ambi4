@@ -1,18 +1,21 @@
 {
   "name": "ambi4work",
   "type": "module",
-  "version": "0.0.85",
+  "version": "0.0.86",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview"
   },
   "dependencies": {
-    "astro": "^5.12.3"
+    "astro": "^7.1.6"
   },
   "license": "AGPL-3.0-only",
   "devDependencies": {
-    "jsdom": "^29.1.1",
-    "js-yaml": "^4.1.1"
+    "js-yaml": "^4.1.1",
+    "jsdom": "^29.1.1"
+  },
+  "overrides": {
+    "sharp": "^0.35.0"
   }
 }
