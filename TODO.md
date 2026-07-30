@@ -30,7 +30,13 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
-## FIRST — investigate the 10 Dependabot alerts (owner ask, 2026-07-29)
+## The 10 Dependabot alerts — CLOSED END TO END (was the owner's FIRST item)
+
+Investigated 2026-07-29 (`docs/dependabot-2026-07-29.md`), root-fixed 2026-07-30:
+**v0.0.86 took Astro 5→7 on his ruling (93: a), `npm audit` reads ZERO across
+all 373 packages**, and v0.0.95 made the one live caveat (preset slugs into an
+inline script) a build-time assert. The GitHub alert count clears when `main`
+carries the new lockfile — his go, as ever. Original brief below for the record.
 
 His instruction, after his own `git push` surfaced them: make this the first
 item. It is an INVESTIGATION, not a version bump — the point is to know what
@@ -45,6 +51,8 @@ each alert actually is before deciding anything.
 ---
 
 ## Owner-reported defects, 2026-07-30 (his items 88–97; verbatim in the archive)
+
+- [ ] **INTERMITTENT: an OSC 1 (shape) sideways drag draws its span while the engine never stores it** — found by the night's full regression sweeps, roughly one run in three of `tests/spread-all-drive.mjs`, and it predates the night's changes (first seen on the v0.0.86 sweep). The DOM shows the drifting span; `patches.pad.<voice>.source.shape1` stays single. This is the exact drew-a-value-the-engine-never-received class the owner has been bitten by twice, now caught intermittently at the seam. Two fixes were tried and rejected: pinning the genre (a REAL trap fix that stays — the random draw could deal a pad voice with no shape dial) and a retry-the-drag pass (reverted: re-dragging did not make the engine store it, which is what points at the commit path rather than the gesture). Hunt: the shape dial's span-commit path for PATCH dials, racing something. The drive stays a hard failure so the defect cannot hide.
 
 - [x] *(SHIPPED v0.0.83)* **Simple has no Tempo dial (his item 90)** — v0.0.71's Energy/tempo separation left Simple with no tempo control at all. Four dials now: Tempo, Energy, Change, Volume; the new view lands on the beat, Advanced's on the barline; both mirror one bpm. `tests/simple-tempo-drive.mjs`.
 - [x] *(SHIPPED v0.0.84)* **Popovers open off-screen (his item 95)** — they grew rightward from right-edge icons; they grow leftward now, and below 560px no anchored placement can fit at all, so the popover takes the viewport (fixed, inset 16px). Measured by box geometry at 1280 and 390 (`tests/popover-drive.mjs`).

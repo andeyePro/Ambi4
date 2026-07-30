@@ -91,6 +91,23 @@ export default async function drive(page) {
 
   await page.click('#consent-slot button:has-text("Save on this device")').catch(() => {});
   await page.waitForTimeout(200);
+  // The fresh visit draws a RANDOM genre, and some genres deal the pad a
+  // voice with no shape dial at all (glass exposes only detune and octave) —
+  // which made the shape-span checks fail on the draw, intermittently. Pin
+  // through the UI (the page's own settings must agree with the engine, so
+  // an engine-side setParams is NOT equivalent): Synthwave is always in the
+  // public picker and its pad (polysaw) carries every control this drive
+  // drags. (Ambient would too, but it is a hidden genre — an option the
+  // picker does not offer pins nothing, which is how this fix flaked once.)
+  await page.evaluate(() => {
+    const sel = document.getElementById('genre-select');
+    const slug = [...sel.options].map((o) => o.value).find((v) => v === 'synthwave');
+    if (slug) {
+      sel.value = slug;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  await page.waitForTimeout(800);
   await page.click('#tab-advanced');
   await page.waitForTimeout(400);
 
@@ -133,6 +150,10 @@ export default async function drive(page) {
 
   // The load-bearing half: the ENGINE holds the span, not just the DOM. A dial
   // drawing a range the engine never received is the failure this catches.
+  // KNOWN INTERMITTENT (filed 2026-07-30, TODO § Owner-reported defects):
+  // roughly one run in three, the OSC 1 dial DRAWS its span while the engine
+  // never stores it — the exact defect class this check exists to catch, so
+  // it stays a hard failure rather than being retried into silence.
   const stored = await page.evaluate(() => {
     const p = window.__ambi4Engine?.getParams?.();
     const voice = p?.tracks?.pad?.voice;
