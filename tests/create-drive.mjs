@@ -155,6 +155,35 @@ export default async function drive(page) {
   }));
   check('a second press stops tapping and Capture', tapOff.pressed === 'false' && tapOff.captureArmed === 'false', (v) => v === true);
 
+  // His 103 repro: "press [blank slate] then press play, I get a complex
+  // bassline I didn't programme". The real blank must stay SILENT under Play.
+  const panelShut2 = await page.evaluate(() => document.getElementById('play-along').hidden);
+  if (panelShut2) {
+    await page.click('#play-along-open');
+    await page.waitForTimeout(200);
+  }
+  await page.click('#create-blank');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  await page.evaluate(() => {
+    window.__blankNotes = 0;
+    window.__ambi4Engine.on('note', () => { window.__blankNotes += 1; });
+  });
+  await page.click('#toggle-play');
+  await page.waitForTimeout(3500);
+  const blankPlay = await page.evaluate(() => ({
+    notes: window.__blankNotes,
+    running: window.__ambi4Engine.running === true,
+  }));
+  check('Play after Blank slate schedules NOTHING', blankPlay.running && blankPlay.notes === 0, (v) => v === true);
+  await page.click('#toggle-play').catch(() => {});
+  await page.waitForTimeout(300);
+
+  // Guided start is a visible option now.
+  const guided = await page.evaluate(() => !!document.getElementById('guided-start'));
+  check('Help me start is a create option', guided, (v) => v === true);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

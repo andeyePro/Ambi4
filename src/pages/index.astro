@@ -291,6 +291,7 @@ const VOICES: Record<string, [string, string][]> = {
             <button type="button" id="zero-fx" class="secondary-button">Zero FX</button>
           </div>
           <div class="create-row">
+            <button type="button" id="guided-start" class="secondary-button">Help me start</button>
             <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
             <label class="visually-hidden" for="create-seed">Seed the instrument voices from a genre</label>
             <select id="create-seed" class="genre-select create-seed">
@@ -12744,6 +12745,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               ' Voices are seeded; nothing plays until you switch an instrument on.';
           }
         });
+        // Guided start, visibly (his 105). v1: point at the seed list and
+        // speak when a genre is chosen; the fuller genre-tree question flow
+        // builds on this same button.
+        document.getElementById('guided-start')?.addEventListener('click', () => {
+          if (guidedTip) {
+            guidedTip.textContent =
+              'Pick a genre under Seed voices and I will name the instrument that genre\u2019s composers usually start with \u2014 or skip straight in: Tap a rhythm for a groove, Type the chords for harmony, or the keys below for a tune.';
+          }
+          createSeed?.focus();
+        });
+
         composeChords?.addEventListener('click', () => {
           activateTab('advanced', { focus: false });
           document.getElementById('control-progression')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
