@@ -3524,19 +3524,32 @@ export function buildArpSequence(chordMidis, pattern = 'up', octaves = 1) {
  * one more low later in the bar, and a couple of mid/high accents. Never a
  * groove — the hit count is capped at five however dense things get.
  */
-export function generatePercussionPattern({ pulses = [1, 1, 1, 1], density = 0.5, rng = Math.random } = {}) {
+export function generatePercussionPattern({
+  pulses = [1, 1, 1, 1], density = 0.5, rng = Math.random, complexity = 1,
+} = {}) {
   const d = clamp(Number(density) || 0, 0, 1);
   const count = Array.isArray(pulses) && pulses.length ? pulses.length : 4;
+  // v0.0.108, Energy 1c for the AUTO kit — his ladder, verbatim: "A kit can
+  // arrive very gently — a ride first, then soft kicks, rim shots or brushes
+  // at low energy." Below the midpoint the kick-anchor yields (a gentle bar
+  // opens on the ride, not the kick), every velocity scales down, and a soft
+  // ride tick becomes the low-Energy anchor instead. At 0.5 and above every
+  // factor is 1 and NO extra rng draw is made, so upper streams — and the
+  // frozen references there — are byte-identical to the previous build.
+  const c = clamp(Number.isFinite(Number(complexity)) ? Number(complexity) : 1, 0, 1);
+  const soft = c < 0.5;
+  const kickYield = soft ? 0.35 + 1.3 * c : 1;
+  const velocityScale = soft ? 0.6 + 0.8 * c : 1;
   const hits = [];
-  if (rng() < 0.55 + d * 0.4) {
-    hits.push({ pulse: 0, offset: rng() * 0.05, kind: 'low', velocity: round3(0.55 + rng() * 0.25) });
+  if (rng() < (0.55 + d * 0.4) * kickYield) {
+    hits.push({ pulse: 0, offset: rng() * 0.05, kind: 'low', velocity: round3((0.55 + rng() * 0.25) * velocityScale) });
   }
-  if (count > 2 && rng() < d * 0.55) {
+  if (count > 2 && rng() < d * 0.55 * kickYield) {
     hits.push({
       pulse: 1 + Math.floor(rng() * (count - 1)),
       offset: rng() * 0.05,
       kind: 'low',
-      velocity: round3(0.35 + rng() * 0.2),
+      velocity: round3((0.35 + rng() * 0.2) * velocityScale),
     });
   }
   const accents = Math.round(d * 3);
@@ -3546,7 +3559,17 @@ export function generatePercussionPattern({ pulses = [1, 1, 1, 1], density = 0.5
       pulse: Math.floor(rng() * count) % count,
       offset: rng() * 0.5,
       kind: rng() < 0.45 ? 'mid' : 'high',
-      velocity: round3(0.25 + rng() * 0.35),
+      velocity: round3((0.25 + rng() * 0.35) * velocityScale),
+    });
+  }
+  // The ride that arrives before the kicks: only drawn below the midpoint,
+  // so streams at or above it never see these calls.
+  if (soft && rng() < 0.75 - c) {
+    hits.push({
+      pulse: 0,
+      offset: rng() * 0.1,
+      kind: 'high',
+      velocity: round3((0.2 + rng() * 0.15) * velocityScale),
     });
   }
   hits.sort((a, b) => a.pulse - b.pulse || a.offset - b.offset);
@@ -7114,7 +7137,9 @@ export function createEngine(initialParams, options = {}) {
     // it is a literal loop of the bar that is already playing.
     const reuse = rng() < params.repetition || isFrozenTrack('percussion');
     if (percussionBank.length && reuse) return pick(percussionBank, rng);
-    const pattern = generatePercussionPattern({ pulses: bar.pulses, density, rng });
+    const pattern = generatePercussionPattern({
+      pulses: bar.pulses, density, rng, complexity: params.complexity,
+    });
     percussionBank.push(pattern);
     if (percussionBank.length > 6) percussionBank.shift();
     return pattern;

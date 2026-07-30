@@ -4037,6 +4037,40 @@ test('Energy stages 1a+1b: below the midpoint the kick-lock loosens and the arti
   );
 });
 
+test('Energy 1c, auto kit: below the midpoint velocities scale, the kick yields and a ride arrives first; at 0.5+ streams are untouched', () => {
+  const stats = (complexity, seeds = 400) => {
+    let velocity = 0, hits = 0, kickBars = 0, rideOpens = 0;
+    for (let seed = 1; seed <= seeds; seed++) {
+      const pattern = generatePercussionPattern({
+        pulses: [1, 1, 1, 1], density: 0.35, rng: seededRng(seed * 104729), complexity,
+      });
+      for (const hit of pattern) { velocity += hit.velocity; hits += 1; }
+      if (pattern.some((h) => h.kind === 'low')) kickBars += 1;
+      if (pattern.some((h) => h.kind === 'high' && h.pulse === 0)) rideOpens += 1;
+    }
+    return { meanVelocity: velocity / Math.max(1, hits), kickRate: kickBars / seeds, rideRate: rideOpens / seeds };
+  };
+
+  const soft = stats(0);
+  const mid = stats(0.6);
+  assert.ok(soft.meanVelocity < mid.meanVelocity * 0.75,
+    `velocities must soften at the bottom (${soft.meanVelocity.toFixed(2)} vs ${mid.meanVelocity.toFixed(2)})`);
+  assert.ok(soft.kickRate < mid.kickRate * 0.6,
+    `the kick must yield at the bottom (${soft.kickRate.toFixed(2)} vs ${mid.kickRate.toFixed(2)})`);
+  assert.ok(soft.rideRate > mid.rideRate,
+    `a gentle bar opens on the ride (${soft.rideRate.toFixed(2)} vs ${mid.rideRate.toFixed(2)})`);
+
+  // From the midpoint up the ladder does not exist: identical stream, no
+  // extra draw, byte-for-byte the pattern the previous build dealt.
+  for (const c of [0.5, 0.7, 1]) {
+    for (let seed = 1; seed <= 50; seed++) {
+      const withC = generatePercussionPattern({ pulses: [1, 1, 1, 1], density: 0.5, rng: seededRng(seed), complexity: c });
+      const without = generatePercussionPattern({ pulses: [1, 1, 1, 1], density: 0.5, rng: seededRng(seed) });
+      assert.deepEqual(withC, without, `complexity ${c} seed ${seed}: the upper stream moved`);
+    }
+  }
+});
+
 test('developBassGroove: ghost/push/simplify/double transform a stated groove, and pulses stay root throughout', () => {
   const starts = [0, 1, 2, 3];
 
