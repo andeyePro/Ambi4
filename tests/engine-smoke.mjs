@@ -4183,6 +4183,50 @@ test('Energy 1c, auto kit: below the midpoint velocities scale, the kick yields 
   assert.ok(lots >= 0.5, `at full Energy fills are all over the place, measured ${lots.toFixed(2)}`);
 });
 
+test('Energy 2d: from 0.85 the tune doubles an octave up — quieter, mirrored, and never on a pinned note', async () => {
+  const seq = (midi) => [{
+    mode: 'manual',
+    weights: [1],
+    steps: Array.from({ length: 20 }, (unused, i) => (
+      i === 0
+        ? { on: true, prob: 1, vmin: 0.6, vmax: 0.6, ...(midi ? { midi } : {}) }
+        : { on: false, prob: 1, vmin: 0.5, vmax: 0.9 }
+    )),
+  }];
+  const run = async (complexity, midi) => {
+    const engine = createEngine({
+      root: 'C', mode: 'major', bpm: 120, timeSignature: '4/4', complexity,
+      tracks: {
+        melody: { state: 'on', mono: false, sequencers: seq(midi) },
+        pad: { state: 'off' }, arp: { state: 'off' }, bass: { state: 'off' },
+        texture: { state: 'off' }, percussion: { state: 'off' },
+      },
+    });
+    const notes = [];
+    engine.on('note', (n) => notes.push(n));
+    await engine.start();
+    await advance(9); // melody's staged entry is bar 2 — give it real bars
+    engine.stop();
+    return notes.filter((n) => n.track === 'melody');
+  };
+
+  const plain = await run(0.7, null);
+  const doubled = await run(0.9, null);
+  assert.ok(plain.length > 0 && doubled.length >= plain.length * 2 - 1,
+    `from 0.85 each tune note gains its octave (${plain.length} → ${doubled.length})`);
+  // Pair check: for the first sounding beat, the double is +12 and quieter.
+  const first = doubled.filter((n) => Math.abs(n.time - doubled[0].time) < 1e-6);
+  assert.equal(first.length, 2, 'a doubled note is two notes at one moment');
+  const [a, b] = first.sort((x, y) => x.midi - y.midi);
+  assert.equal(b.midi - a.midi, 12, 'the double is the octave');
+  assert.ok(b.velocity < a.velocity, 'and it sits under the stated note');
+
+  const pinned = await run(0.9, 72);
+  const firstPinned = pinned.filter((n) => Math.abs(n.time - pinned[0].time) < 1e-6);
+  assert.equal(firstPinned.length, 1, 'a pinned note stays solo — the user named THAT note');
+  assert.equal(firstPinned[0].midi, 72);
+});
+
 test('developBassGroove: ghost/push/simplify/double transform a stated groove, and pulses stay root throughout', () => {
   const starts = [0, 1, 2, 3];
 

@@ -7676,14 +7676,30 @@ export function createEngine(initialParams, options = {}) {
           while (midi > centre + MELODY_BAND) midi -= 12;
           while (midi < centre - MELODY_BAND) midi += 12;
         }
+        const melodyDuration = clamp(Math.min(note.duration, gap) * bar.secPerBeat * overlap, 0.1, 3);
         playNote(responder ?? 'melody', {
           midi,
           when: at,
-          duration: clamp(Math.min(note.duration, gap) * bar.secPerBeat * overlap, 0.1, 3),
+          duration: melodyDuration,
           velocity: note.velocity,
           pan: note.pan,
           motif: melodyPlan.motifDerived === true,
         });
+        // v0.0.115, Energy stage 2d — "doubling in many for a wall of sound":
+        // from 0.85 every generated tune note gains its octave, quieter and
+        // mirrored across the stereo field. Deterministic — no draw, so no
+        // stream moves — and a PINNED note stays solo: it is the user's exact
+        // statement, and doubling it would be adding a note they never named.
+        if (params.complexity >= 0.85 && note.pinned == null && !mono) {
+          playNote(responder ?? 'melody', {
+            midi: Math.min(midi + 12, 108),
+            when: at,
+            duration: melodyDuration,
+            velocity: note.velocity * 0.55,
+            pan: -(note.pan ?? 0),
+            motif: melodyPlan.motifDerived === true,
+          });
+        }
       }
     }
 
