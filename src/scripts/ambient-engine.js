@@ -3132,7 +3132,19 @@ export function buildBassGroove({
     // Away from the anchor grid it is a density draw, and a thinner one than
     // v14's: a pulse the line DOESN'T take is where a bass line breathes, and
     // the shipped bass took nearly all of them.
-    const chance = near(starts[i]) ? 1 : density * 0.55;
+    //
+    // v0.0.99, Energy redesign stage 1a (his Techno-at-0% report, measured):
+    // an unconditional kick-lock meant a four-on-the-floor kit forced the
+    // bass onto EVERY pulse at any Energy — the one line Energy could not
+    // thin. Below the dial's midpoint the lock loosens with complexity (the
+    // accented anchor itself never goes; this is the pulses after it), and
+    // from 0.5 up the chance is exactly the old 1, so everything at or above
+    // the midpoint — including the frozen references there — is untouched.
+    // The rng draw count is unchanged either way, so streams above the
+    // midpoint stay byte-identical.
+    const c = clamp(complexity, 0, 1);
+    const kickLock = c >= 0.5 ? 1 : 0.55 + 0.9 * c;
+    const chance = near(starts[i]) ? kickLock : density * 0.55;
     if (rng() < chance) {
       steps.push({ beat: starts[i], tone: 'root', gate: gates.pulse, accent: false });
     }
