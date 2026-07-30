@@ -1635,8 +1635,10 @@ try {
       if (transport && !transport.contains(row)) {
         failures.push('the play-along panel is not in the transport panel');
       }
-      if (!doc.querySelector('.transport-icons #play-along-open')) {
-        failures.push('the play-along keyboard is not in the transport icon row beside the timers');
+      // v0.0.85: the opener is the orange Create button BESIDE Play — the
+      // app's second main door (his item 96) — no longer an icon-row glyph.
+      if (!doc.querySelector('.transport-buttons #play-along-open')) {
+        failures.push('the Create button is not in the transport button row beside Play');
       }
       const toggle = doc.getElementById('play-along-toggle');
       const picker = doc.getElementById('play-along-track');

@@ -210,6 +210,116 @@ const VOICES: Record<string, [string, string][]> = {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
             </span>
           </button>
+          <div class="popover-anchor">
+            <!-- v0.0.85 (his item 96): the piano icon becomes the second
+                 main door of the app — Create, orange, at the Play button's
+                 own height. The id stays play-along-open (it is wired
+                 everywhere); the panel behind it now holds all three ways in:
+                 create, compose, play along. -->
+            <button
+              type="button"
+              id="play-along-open"
+              class="play-toggle create-button"
+              data-transport="playalong"
+              aria-label="Create — make your own music"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="play-along"
+            >
+              <span class="transport-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2.5" y="6" width="19" height="12" rx="1.5" />
+                  <path d="M7 6v7M11 6v7M15 6v7M19 6v7" />
+                </svg>
+              </span>
+              <span>Create</span>
+            </button>
+        <!-- v0.0.40: the panel is a POPOVER hanging off the keyboard icon up in
+             the transport icon row, beside the clock — it is the same kind of
+             thing as the timers (an occasional tool), not a permanent strip
+             below the genre picker. The comment above about no control ever
+             moving still holds INSIDE the panel: once open, nothing shifts under
+             the user's hand. -->
+        <div class="play-along popover module-panel" id="play-along" role="dialog" aria-labelledby="play-along-title" hidden>
+          <span class="panel-label popover-title" id="play-along-title">Create</span>
+          <!-- v0.0.85 (his item 96), his three doors in his words: create is
+               anything that makes an immediate sound as you do it; compose is
+               typing or uploading what you already hear in your head; play
+               along rides whatever is playing. -->
+          <span class="panel-label timer-section" id="create-section-title">Create</span>
+          <div class="create-row">
+            <button type="button" id="create-blank" class="secondary-button">Blank slate</button>
+            <label class="visually-hidden" for="create-seed">Seed the instrument voices from a genre</label>
+            <select id="create-seed" class="genre-select create-seed">
+              <option value="">Seed voices from…</option>
+            </select>
+          </div>
+          <p class="hint" id="guided-tip">
+            Blank slate switches every instrument off so you build from silence.
+            Seeding borrows a genre's instrument voices without playing anything —
+            and names what that genre's composers usually start with, if you are
+            not sure where to begin.
+          </p>
+          <span class="panel-label timer-section" id="compose-section-title">Compose</span>
+          <div class="create-row">
+            <button type="button" id="compose-chords" class="secondary-button">Type the chords</button>
+          </div>
+          <p class="hint">
+            Typed chords are live today — roman numerals, press any chord to hear
+            it. Typed melody, words and MIDI-file import join here as they land.
+          </p>
+          <span class="panel-label timer-section" id="play-along-section-title">Play along</span>
+          <div class="play-along-row" id="play-along-row">
+            <button
+              type="button"
+              id="play-along-toggle"
+              class="transport-button play-along-button"
+              aria-pressed="false"
+              aria-describedby="play-along-note"
+            >
+              <span class="transport-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <rect x="3" y="6" width="18" height="12" rx="1" />
+                  <path d="M8 6v7M12 6v7M16 6v7" />
+                </svg>
+              </span>
+              <span>Play along</span>
+            </button>
+            <label class="visually-hidden" for="play-along-track">Track the keys play</label>
+            <select id="play-along-track" class="genre-select play-along-select"></select>
+            <span id="play-along-readout" class="value-readout play-along-readout" role="status"></span>
+            <button
+              type="button"
+              id="play-along-capture"
+              class="transport-button play-along-capture"
+              aria-pressed="false"
+              aria-describedby="play-along-note"
+              disabled
+            >
+              <span class="transport-glyph record-dot" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
+              </span>
+              <span>Capture</span>
+            </button>
+            <button
+              type="button"
+              id="play-along-undo"
+              class="transport-button"
+              aria-describedby="play-along-note"
+              disabled
+            >
+              <span>Undo</span>
+            </button>
+          </div>
+          <p id="play-along-note" class="hint play-along-note">
+            Keys z x c v b n m play one octave and q w e r t y u the next, with the
+            black keys above them; <kbd>-</kbd> and <kbd>=</kbd> change octave, and a
+            MIDI instrument plays the same track. Capture records the rhythm, velocity
+            and note length you play into that track's step grid — the pitch comes from
+            the piece's own harmony — and Undo puts the old grid back.
+          </p>
+        </div>
+          </div>
           <button id="pause-toggle" type="button" class="transport-button pause-button" data-transport="pause" aria-pressed="false" disabled>
             <span class="transport-glyph pause-glyph" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="7" y="5" width="4" height="14" rx="1" /><rect x="13" y="5" width="4" height="14" rx="1" /></svg>
@@ -298,81 +408,7 @@ const VOICES: Record<string, [string, string][]> = {
               <p class="hint">Only works while this tab stays open and the device is awake.</p>
             </div>
           </div>
-          <div class="popover-anchor">
-            <button
-              type="button"
-              id="play-along-open"
-              class="icon-button"
-              data-transport="playalong"
-              aria-label="Play along"
-              aria-haspopup="dialog"
-              aria-expanded="false"
-              aria-controls="play-along"
-            >
-              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2.5" y="6" width="19" height="12" rx="1.5" />
-                <path d="M7 6v7M11 6v7M15 6v7M19 6v7" />
-              </svg>
-            </button>
-        <!-- v0.0.40: the panel is a POPOVER hanging off the keyboard icon up in
-             the transport icon row, beside the clock — it is the same kind of
-             thing as the timers (an occasional tool), not a permanent strip
-             below the genre picker. The comment above about no control ever
-             moving still holds INSIDE the panel: once open, nothing shifts under
-             the user's hand. -->
-        <div class="play-along popover module-panel" id="play-along" role="dialog" aria-labelledby="play-along-title" hidden>
-          <span class="panel-label popover-title" id="play-along-title">Play along</span>
-          <div class="play-along-row" id="play-along-row">
-            <button
-              type="button"
-              id="play-along-toggle"
-              class="transport-button play-along-button"
-              aria-pressed="false"
-              aria-describedby="play-along-note"
-            >
-              <span class="transport-glyph" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
-                  <rect x="3" y="6" width="18" height="12" rx="1" />
-                  <path d="M8 6v7M12 6v7M16 6v7" />
-                </svg>
-              </span>
-              <span>Play along</span>
-            </button>
-            <label class="visually-hidden" for="play-along-track">Track the keys play</label>
-            <select id="play-along-track" class="genre-select play-along-select"></select>
-            <span id="play-along-readout" class="value-readout play-along-readout" role="status"></span>
-            <button
-              type="button"
-              id="play-along-capture"
-              class="transport-button play-along-capture"
-              aria-pressed="false"
-              aria-describedby="play-along-note"
-              disabled
-            >
-              <span class="transport-glyph record-dot" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
-              </span>
-              <span>Capture</span>
-            </button>
-            <button
-              type="button"
-              id="play-along-undo"
-              class="transport-button"
-              aria-describedby="play-along-note"
-              disabled
-            >
-              <span>Undo</span>
-            </button>
-          </div>
-          <p id="play-along-note" class="hint play-along-note">
-            Keys z x c v b n m play one octave and q w e r t y u the next, with the
-            black keys above them; <kbd>-</kbd> and <kbd>=</kbd> change octave, and a
-            MIDI instrument plays the same track. Capture records the rhythm, velocity
-            and note length you play into that track's step grid — the pitch comes from
-            the piece's own harmony — and Undo puts the old grid back.
-          </p>
-        </div>
-          </div>
+
         </div>
         <div class="processor-row">
           <div class="dial-slot dial-label-external" id="processor-dial"></div>
@@ -12496,6 +12532,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         function open() {
           if (!popover.hidden) return;
           popover.hidden = false;
+        // v0.0.85: an anchored popover defaults to growing LEFT from its
+        // anchor (the icons sit at the right edge), but an anchor near the
+        // page's left would clip — so measure once on open and take the side
+        // with room. Inline styles are cleared first so the flip never sticks.
+        popover.style.left = '';
+        popover.style.right = '';
+        {
+          const r = popover.getBoundingClientRect();
+          if (r.left < 8 && window.innerWidth > 560) {
+            popover.style.left = '0';
+            popover.style.right = 'auto';
+          }
+        }
           toggle?.setAttribute('aria-expanded', 'true');
           const first = focusables()[0];
           try {
@@ -12554,6 +12603,70 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // v0.0.40: one clock, one popover holding both timers, plus the
       // play-along keyboard as a third peer icon.
+      // ---- v0.0.85: the Create doors (his item 96) -----------------------
+      {
+        const createBlank = document.getElementById('create-blank');
+        const createSeed = document.getElementById('create-seed');
+        const guidedTip = document.getElementById('guided-tip');
+        const composeChords = document.getElementById('compose-chords');
+        // His guided-start: name what a genre's composers usually start with.
+        const GENRE_START_WITH = {
+          synthwave: 'Synthwave writers usually start with the chords, then the bassline against them.',
+          'techno-tools': 'Techno starts with the drums — a kick pattern first, then the bassline locked to it.',
+          'deep-house': 'Deep house starts with the drums and the bassline, chords after.',
+          'lofi-beats': 'Lofi starts with the chords, drums brushed in after.',
+          downtempo: 'Downtempo usually starts with the drums and the bass together.',
+          minimalism: 'Minimalism starts with one small repeating cell — the arp is the natural first instrument.',
+          ambient: 'Ambient starts with the pad or the texture — the air before any note.',
+          'soul-groove': 'Soul starts with the chords, and the bass answers them.',
+          bossa: 'Bossa starts with the chords and their rhythm.',
+          'acid-jazz': 'Acid jazz starts with the bassline.',
+          cinematic: 'Cinematic writing starts with the pad — the bed everything else sits on.',
+          'new-age': 'New age starts with the pad.',
+        };
+        if (createSeed) {
+          for (const genre of PUBLIC_GENRES) {
+            const option = document.createElement('option');
+            option.value = genre.slug;
+            option.textContent = genre.name;
+            createSeed.appendChild(option);
+          }
+        }
+        createBlank?.addEventListener('click', () => {
+          for (const id of TRACK_IDS) setTrackState(id, 'off');
+          if (guidedTip) {
+            guidedTip.textContent =
+              'Silence. Switch instruments on under Advanced → Tracks as you add parts, or seed voices from a genre first.';
+          }
+        });
+        createSeed?.addEventListener('change', () => {
+          const genre = GENRE_BY_SLUG.get(createSeed.value);
+          if (!genre) return;
+          const compiled = compileGenreParams(genre, (Math.random() * 0x7fffffff) | 0);
+          const tracks = {};
+          for (const [id, cfg] of Object.entries((compiled && compiled.tracks) || {})) {
+            if (settings.tracks[id] && typeof cfg.voice === 'string') {
+              tracks[id] = { voice: cfg.voice };
+              settings.tracks[id].voice = cfg.voice;
+            }
+          }
+          if (Object.keys(tracks).length) {
+            engine.setParams({ tracks });
+            persistSettings();
+            syncUIFromSettings();
+          }
+          if (guidedTip) {
+            guidedTip.textContent = (GENRE_START_WITH[genre.slug] ||
+              'Start with whichever instrument pulls you.') +
+              ' Voices are seeded; nothing plays until you switch an instrument on.';
+          }
+        });
+        composeChords?.addEventListener('click', () => {
+          activateTab('advanced', { focus: false });
+          document.getElementById('control-progression')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        });
+      }
+
       setupPopover('timers-toggle', 'timers-popover');
       // v0.0.84 (his item 95): closing the popover no longer disarms the
       // keys — the popover toggles keyboard-playing and its close is just a
@@ -13423,7 +13536,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#play-along',
-          text: 'Play along hands the keyboard to one track: z x c v b n m play an octave and q w e r t y u the next, with the black keys above them, and a MIDI instrument plays the same track. Capture writes the rhythm, velocity and note length you play into that track\'s step grid — the pitches come from the piece\'s own harmony — and Undo puts the old grid back.',
+          text: 'The orange Create button is the app\'s second main door. Create starts you from a blank slate — every instrument off — with a genre\'s voices as an optional seed, and tells you what that genre\'s composers usually start with. Compose is for writing chords down (melody, words and MIDI files join it as they land). Play along hands the keyboard to one track: z x c v b n m play an octave and q w e r t y u the next, with the black keys above them, and a MIDI instrument plays the same track. Capture writes the rhythm, velocity and note length you play into that track\'s step grid — the pitches come from the piece\'s own harmony — and Undo puts the old grid back.',
         },
         {
           target: '#front-scope-module',
@@ -14173,11 +14286,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       height: 56px;
     }
 
-    /* v0.0.84: the keyboard icon stays lit while the keys are armed, so an
+    /* v0.0.85: Create is the second main door — orange, at Play's height. */
+    .create-button {
+      color: var(--accent-warm, var(--link));
+      border: 1px solid var(--accent-warm, var(--link));
+      flex: 0 1 auto;
+    }
+    .create-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin: 4px 0;
+    }
+    /* v0.0.84: the Create button stays lit while the keys are armed, so an
        armed instrument behind a closed popover is never invisible state. */
     .play-along-live {
-      color: var(--accent, #e8892c);
-      border-color: currentColor;
+      background: var(--accent-warm, var(--link));
+      color: #14100b;
     }
     .popover-anchor {
       position: relative;
