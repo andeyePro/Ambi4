@@ -841,7 +841,7 @@ test('sanitiseParams validates structure and custom blocks', () => {
     customStructure: [
       { label: 'a', bars: 99, intensity: 5 },
       { label: 'D', bars: 0, intensity: -1 },
-      { label: 'E', bars: 4, intensity: 0.5 },   // label out of A–D → dropped
+      { label: 'E', bars: 4, intensity: 0.5 },   // label outside the list → dropped
       'nope',                                    // not an object → dropped
       null,
       { bars: 4 },                               // no label → dropped
@@ -855,6 +855,22 @@ test('sanitiseParams validates structure and custom blocks', () => {
     { label: 'A', bars: 32, intensity: 1, tracks: {} },
     { label: 'D', bars: 1, intensity: 0, tracks: {} },
     { label: 'B', bars: 4, intensity: 0.42, tracks: {} },
+  ]);
+
+  // v0.0.97: V-family labels are legal, and an optional TITLE rides with the
+  // letter — trimmed, capped at 24 chars, absent when empty (so every block
+  // stored before titles existed round-trips byte-identically).
+  const titled = sanitiseParams({
+    customStructure: [
+      { label: 'V', bars: 4, intensity: 0.5, title: '  Verse one  ' },
+      { label: 'V2', bars: 4, intensity: 0.5, title: '' },
+      { label: 'B', bars: 4, intensity: 0.5, title: 'a bridge title that runs far past the cap' },
+    ],
+  }).customStructure;
+  assert.deepEqual(titled, [
+    { label: 'V', title: 'Verse one', bars: 4, intensity: 0.5, tracks: {} },
+    { label: 'V2', bars: 4, intensity: 0.5, tracks: {} },
+    { label: 'B', title: 'a bridge title that runs', bars: 4, intensity: 0.5, tracks: {} },
   ]);
 
   // at most 8 blocks survive

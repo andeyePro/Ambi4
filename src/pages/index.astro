@@ -11179,7 +11179,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const customBuilder = document.getElementById('custom-structure-builder');
       const structureBlocks = document.getElementById('structure-blocks');
       const addBlockButton = document.getElementById('add-structure-block');
-      const blockLabels = ['A', 'B', 'C', 'D'];
+      const blockLabels = ['A', 'B', 'C', 'D', 'V', 'V1', 'V2', 'V3', 'V4'];
 
       function renderStructureBlocks() {
         structureBlocks.innerHTML = '';
@@ -11198,6 +11198,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           labelSelect.addEventListener('change', () => {
             settings.customStructure[index].label = labelSelect.value;
+            commitCustomStructure();
+          });
+
+          // v0.0.97: the optional title — B can double as "bridge", C as
+          // "chorus". Shown on the roll's section strip in place of the
+          // letter when present.
+          const titleInput = document.createElement('input');
+          titleInput.type = 'text';
+          titleInput.maxLength = 24;
+          titleInput.placeholder = 'title';
+          titleInput.className = 'block-title';
+          titleInput.value = typeof block.title === 'string' ? block.title : '';
+          titleInput.setAttribute('aria-label', `Block ${index + 1} title`);
+          titleInput.addEventListener('change', () => {
+            const t = titleInput.value.trim().slice(0, 24);
+            if (t) settings.customStructure[index].title = t;
+            else delete settings.customStructure[index].title;
             commitCustomStructure();
           });
 
@@ -11342,7 +11359,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
           barsWrap.append(barsName, barsInput);
           intensityWrap.append(intensityName, intensityInput, intensityOut);
-          row.append(labelSelect, barsWrap, intensityWrap, sectionTracks, upButton, downButton, removeButton);
+          row.append(labelSelect, titleInput, barsWrap, intensityWrap, sectionTracks, upButton, downButton, removeButton);
           structureBlocks.append(row);
         });
 
@@ -16914,6 +16931,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* v0.0.57: each numeric control carries its name. Baseline-aligned rather
        than stacked, so a block row stays one line on a desktop and wraps as a
        unit on a phone. */
+    .block-title {
+      width: 76px;
+      font-size: 11px;
+      padding: 3px 5px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
     .block-field {
       display: inline-flex;
       align-items: center;

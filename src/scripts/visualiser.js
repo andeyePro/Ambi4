@@ -686,6 +686,8 @@ export function initVisualiser(canvas, engine) {
       sectionMarks.push({
         time: typeof evt.time === 'number' ? evt.time : 0,
         label: evt.label != null ? String(evt.label) : '',
+        // v0.0.97: a section's own title beats "Section B" when it has one.
+        title: evt.title != null ? String(evt.title) : '',
         bar: evt.bar,
       });
       if (sectionMarks.length > MAX_MARKERS) sectionMarks.shift();
@@ -1563,14 +1565,14 @@ export function initVisualiser(canvas, engine) {
       ctx2d.font = SECONDARY_FONT;
       ctx2d.textAlign = 'left';
       ctx2d.textBaseline = 'alphabetic';
-      ctx2d.fillText(`Section ${current.label}`, snapPixel(x0), snapPixel(24));
+      ctx2d.fillText(current.title || `Section ${current.label}`, snapPixel(x0), snapPixel(24));
       return;
     }
     ctx2d.fillStyle = rgba(theme.text, 0.85);
     ctx2d.font = LABEL_FONT;
     ctx2d.textAlign = 'left';
     ctx2d.textBaseline = 'alphabetic';
-    ctx2d.fillText(`Section ${current.label}`, snapPixel(x0), snapPixel(12));
+    ctx2d.fillText(current.title || `Section ${current.label}`, snapPixel(x0), snapPixel(12));
   }
 
   /** Time of the most recent recorded tick for a given bar number, or null if it's scrolled out of `barTicks`. */

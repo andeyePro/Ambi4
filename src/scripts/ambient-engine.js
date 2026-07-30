@@ -205,7 +205,9 @@ export const STRUCTURES = Object.freeze([
   'auto', 'drone', 'waves', 'build', 'abab', 'journey', 'custom',
 ]);
 
-export const STRUCTURE_LABELS = Object.freeze(['A', 'B', 'C', 'D']);
+// v0.0.97: V for verse-style blocks, with numbered variants — the owner's
+// v0.0.39 backlog item. Additive: every stored structure keeps its letters.
+export const STRUCTURE_LABELS = Object.freeze(['A', 'B', 'C', 'D', 'V', 'V1', 'V2', 'V3', 'V4']);
 
 export const ARP_PATTERNS = Object.freeze(['up', 'down', 'updown', 'random']);
 
@@ -1693,8 +1695,13 @@ function sanitiseCustomStructure(value, base) {
         if (state === 'on' || state === 'off') tracks[name] = state;
       }
     }
+    // v0.0.97: an optional TITLE rides with the letter, so B can double as
+    // "bridge" and C as "chorus" — display-only, additive, absent means the
+    // letter speaks for itself.
+    const title = typeof raw.title === 'string' ? raw.title.trim().slice(0, 24) : '';
     blocks.push({
       label,
+      ...(title ? { title } : {}),
       bars: Math.round(numberIn(raw.bars, [1, 32], 8)),
       intensity: numberIn(raw.intensity, [0, 1], 0.5),
       tracks,
@@ -3328,11 +3335,11 @@ export function sectionAtBar(preset, bar, customStructure = []) {
     if (pos < block.bars) {
       // v0.0.73: the per-track map travels with the section, so whoever is
       // deciding whether a track sounds can see what THIS block asked for.
-      return { label: block.label, intensity: block.intensity, tracks: block.tracks || {} };
+      return { label: block.label, title: block.title || '', intensity: block.intensity, tracks: block.tracks || {} };
     }
     pos -= block.bars;
   }
-  return { label: blocks[0].label, intensity: blocks[0].intensity, tracks: blocks[0].tracks || {} };
+  return { label: blocks[0].label, title: blocks[0].title || '', intensity: blocks[0].intensity, tracks: blocks[0].tracks || {} };
 }
 
 /**
@@ -7296,6 +7303,7 @@ export function createEngine(initialParams, options = {}) {
       currentSection = section;
       emit('section', {
         label: section.label,
+        title: section.title || '',
         intensity: section.intensity,
         bar: barIndex,
         time,
