@@ -9429,6 +9429,26 @@ test('v28 record-arm: a take is quantised into the armed track\'s active lane, a
   engine.stop();
 });
 
+test('audit: crafted metre names cannot ride in through the sanitiser', () => {
+  // A share link's payload is attacker-authored JSON, and metrePulses used a
+  // plain property read: 'constructor' returned a FUNCTION, which the
+  // sanitiser then stored as the piece's time signature.
+  for (const crafted of ['constructor', 'toString', '__proto__', 'valueOf', 'hasOwnProperty', 'length']) {
+    assert.equal(metrePulses(crafted), null, `metrePulses accepted ${crafted}`);
+    const cleaned = sanitiseParams({ timeSignature: crafted });
+    assert.equal(cleaned.timeSignature, DEFAULT_PARAMS.timeSignature,
+      `the sanitiser stored ${crafted} as a metre`);
+    // And the derived maths stays sane rather than throwing or going NaN.
+    assert.ok(Number.isFinite(beatsPerBar(crafted)) && beatsPerBar(crafted) > 0,
+      `beatsPerBar(${crafted}) is not a number of beats`);
+  }
+  // The real metres still work, named and custom.
+  for (const good of ['4/4', '3/4', '7/8', '5/4', '9/8']) {
+    assert.ok(Array.isArray(metrePulses(good)), `${good} stopped being a legal metre`);
+    assert.equal(sanitiseParams({ timeSignature: good }).timeSignature, good);
+  }
+});
+
 test('audit: an arp take lands on the ARP grid, and a stopped-engine take anchors at the arming moment', async () => {
   // Arp at 1/8 in 4/4: eight slots of 0.25 s at 120 bpm — a take on the
   // sixteenth grid would land these on slots the lane never plays.

@@ -1010,6 +1010,7 @@ export function createKnob(container, options) {
   let dragSpreadCentre = value; // midpoint the spread gesture opens about
   let spreadOriginX = 0; // clientX at the moment the spread axis locked
   let refusalSaid = false; // onRangeRefused fired for THIS gesture already
+  let lastRefusalAt = -Infinity; // keyboard refusals are throttled, not repeated
 
   /**
    * Shared rect/centre lookup for pointer geometry — mock-safe: returns null
@@ -1439,9 +1440,21 @@ export function createKnob(container, options) {
     // pointer refusal, so the two routes never disagree.
     if (!allowRange && onRangeRefused && shifted && (key === 'ArrowLeft' || key === 'ArrowRight')) {
       if (e && typeof e.preventDefault === 'function') e.preventDefault();
-      try {
-        onRangeRefused();
-      } catch {}
+      // AUDIT FIX: a HELD arrow auto-repeats, so the refusal fired at the
+      // repeat rate and re-armed its message dozens of times a second. Once
+      // per press: `repeat` where the browser reports it, plus a short floor
+      // for environments that do not (the pointer route is already
+      // once-per-gesture).
+      const repeated = e && e.repeat === true;
+      const now = typeof performance === 'object' && performance && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+      if (!repeated && now - lastRefusalAt > 700) {
+        lastRefusalAt = now;
+        try {
+          onRangeRefused();
+        } catch {}
+      }
       return;
     }
 

@@ -476,8 +476,14 @@ function compileKit(grooves, timeSignature, kitComplexity) {
   const fill = kitFillVariant(compiled[0], kitComplexity, slots);
   if (fill) {
     const c = clamp(numberOr(kitComplexity, 0.75), 0.75, 1);
-    // Visit rate rises with the dial: ~1 bar in 5 at 0.75, ~1 in 2 at full.
-    const fillWeight = round3(0.25 + (c - 0.75) * 3);
+    // AUDIT FIX: the weight is NORMALISED by the number of grooves. A Markov
+    // row holds one weight of 1 per main groove, so a flat 0.25 meant "one bar
+    // in five" only for a single-groove genre — the three-groove genres visited
+    // the fill at a third of the documented rate (7.7% at 0.75 instead of 20%).
+    // The rate below is the VISIT PROBABILITY, and the weight is solved for it.
+    const rate = 0.2 + (c - 0.75) * 1.2; // 20% at 0.75 → 50% at full
+    const mains = compiled.length;
+    const fillWeight = round3((rate * mains) / (1 - rate));
     for (const sequencer of compiled) sequencer.weights = [...compiled.map(() => 1), fillWeight];
     fill.weights = [...compiled.map(() => 1), 0]; // the fill always hands back
     compiled.push(fill);

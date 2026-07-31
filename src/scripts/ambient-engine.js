@@ -301,8 +301,14 @@ export function quantiseToScale(midi, scale, rootPc = 0) {
  * the grid's twenty sixteenth-steps. Returns null for anything else.
  */
 export function metrePulses(timeSignature) {
-  const named = TIME_SIGNATURES[timeSignature];
-  if (named) return named;
+  // AUDIT FIX (hardening): a plain property read let INHERITED keys through —
+  // metrePulses('constructor') returned a function, and the sanitiser stored
+  // it as the metre, reachable from a crafted share link (whose payload is
+  // attacker-authored JSON). Own keys only, and the answer must be an array.
+  const named = Object.prototype.hasOwnProperty.call(TIME_SIGNATURES, timeSignature)
+    ? TIME_SIGNATURES[timeSignature]
+    : null;
+  if (Array.isArray(named)) return named;
   const m = /^([0-9]{1,2})\/(4|8)$/.exec(String(timeSignature ?? ''));
   if (!m) return null;
   const n = Number(m[1]);
@@ -2298,7 +2304,10 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
   // v0.0.98: any metre metrePulses() can grid is legal — the named five plus
   // custom N/4 and N/8 inside the sequencer's bounds.
-  const metreOf = (v) => (typeof v === 'string' && metrePulses(v) ? v : undefined);
+  // Array-checked: metrePulses is hardened against inherited keys now, but a
+  // sanitiser must not depend on a helper's truthiness to decide what a metre
+  // IS — a crafted share payload is attacker-authored JSON.
+  const metreOf = (v) => (typeof v === 'string' && Array.isArray(metrePulses(v)) ? v : undefined);
   out.timeSignature = metreOf(at('timeSignature'))
     ?? metreOf(from.timeSignature)
     ?? DEFAULT_PARAMS.timeSignature;
@@ -5439,6 +5448,20 @@ export function createEngine(initialParams, options = {}) {
     monoNotes.clear();
     // v28: the hands' notes are on that same ledger, so the keys they were
     // holding are down against handles that have just been cancelled.
+    //
+    // AUDIT FIX: a key still DOWN when this runs is part of a live take, and
+    // clearing the ledger dropped its end time — so a note held across a stop
+    // (or an iOS context rebuild) was captured with `end: null` and quantised
+    // with no length at all. The recorder's row is closed off at `now` first;
+    // that is exactly what letting go of the key would have done.
+    if (capture) {
+      const at = ctx ? ctx.currentTime : 0;
+      for (const held of heldKeys.values()) {
+        if (held.row && held.row.end === null) {
+          held.row.end = Math.max(at, held.row.start + 0.02);
+        }
+      }
+    }
     heldKeys.clear();
   }
 

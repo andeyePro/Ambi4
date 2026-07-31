@@ -39,8 +39,13 @@ Rules, all learned the hard way:
 - `dev` → mcdev.ambi4.work. Push freely.
 - `main` → ambi4.work. **Pushing `main` IS the production deploy.** It needs his
   explicit go, every time. See `docs/deploying.md`.
-- You cannot see either site from this container. He is the only one who can
-  look at it.
+- You CAN see both sites from this container, through the Mac test bridge:
+  `.vibe/measure.sh https://mcdev.ambi4.work/ eval '<expr>'` (and the same for
+  ambi4.work) runs real JS in a headless Chromium against the deployed site,
+  which is how a stale deploy was caught on 2026-07-30. `docs/rendering-host.md`
+  is the how; `docs/deploying.md` says to look before asking him to. What you
+  cannot do is JUDGE it — he is the only one who can hear it, and a screenshot
+  cannot tell 1px apart from 1px overlapped.
 
 ### `git push` needs the credential-helper override
 
@@ -75,7 +80,8 @@ Browser tests run against a headless Chromium on a Mac test account over SSH:
 
 ```
 .vibe/measure.sh local drive tests/<name>-drive.mjs   # run one browser test
-.vibe/measure.sh local overlaps                       # layout sweep, three viewports
+.vibe/measure.sh local overlaps                       # layout sweep: three SWEEPS, one viewport per run
+.vibe/measure.sh local overlaps 390 844               # …so pass a viewport to check a phone
 ```
 
 `.vibe/measure.sh` is the one that decides layout questions. **A screenshot

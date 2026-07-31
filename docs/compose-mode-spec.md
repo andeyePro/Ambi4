@@ -2,8 +2,19 @@
 
 Drafted from the owner's two in-chat briefs of 2026-07-29 (verbatim in the
 brain2 Q&A archive) and his standing rulings. This is the spec the TODO's
-"spec before build" item asked for. Nothing here is built; the owner has not
-reviewed this draft yet.
+"spec before build" item asked for.
+
+**Status corrected 2026-07-31** (the audit found this file still saying nothing
+was built): the owner reviewed it in his item 96 and MOST of it has shipped.
+Built: the Create door itself, rebuilt to his 103 (v0.0.85/89/90) — Blank slate
+that empties everything including FX, the Zero buttons, guided start,
+tap-a-rhythm with raw-take retention and Re-fit (v0.0.87/107), typed chords
+(v0.0.68/76), typed melody up to eight bars played in order (v0.0.110/116), and
+editable per-step pitch (v0.0.109/111). NOT built: MIDI-file import (which now
+has every engine piece it needs — pitch pins plus chain mode), words/lyrics
+(awaiting his ruling on which of the two meanings he wants), and the fuller
+genre-tree guided start. Where this spec and the shipped Create door disagree,
+the door is what he reviewed.
 
 ## What it is
 

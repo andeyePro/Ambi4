@@ -4,7 +4,7 @@ Customisable endless music generated just for you, to help you work — the gene
 Plus a growing list of work-optimised music playlists at `/playlists/`, being rebuilt across YouTube Music, Spotify, Deezer and SoundCloud (Apple Music is legacy — it needs a paid subscription).
 
 ## Get involved
-1. Install Node.js 20+
+1. Install Node.js 22.12 or newer (Astro 7 refuses to build on anything older; `.nvmrc` and `.node-version` both pin the major)
 2. Fork this
 3. `npm install` then `npm run dev` to open your local development server
 4. See changes you make live in your local development server
@@ -16,6 +16,7 @@ Add a markdown file under `src/content/playlists/[genre]/` — the genre folder 
 ```yaml
 title: 'Eno'
 date: 2024-01-30T17:41:26Z
+artwork: null                     # REQUIRED key — null where there is none
 thumbnail: '/img/EnoSynths.jpg'   # optional
 services:
   youtube: null      # PL… playlist id (also serves YouTube Music)

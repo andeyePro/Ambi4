@@ -103,6 +103,41 @@ export default async function drive(page) {
   });
   check('…and the ENGINE untied too', tieAtEngine, (v) => v === false);
 
+  // AUDIT: a tie stored past the END of a shorter bar must not overrun the
+  // grid, and focus must never land on an absorbed (hidden) cell. Tie near
+  // the end of 4/4, then switch to 3/4 — the stored lane keeps the tie the
+  // shorter bar cannot show.
+  {
+    await page.evaluate(() => {
+      const editor = document.getElementById('voice-editor-bass');
+      const cells = [...editor.querySelectorAll('.seq-cell')];
+      const last = cells[cells.length - 2];
+      last.scrollIntoView({ block: 'center' });
+      last.tabIndex = 0;
+      last.focus();
+    });
+    await page.keyboard.press('t');
+    await page.waitForTimeout(300);
+    await page.selectOption('#time-signature', '3/4').catch(() => {});
+    await page.waitForTimeout(700);
+    const shortBar = await page.evaluate(() => {
+      const editor = document.getElementById('voice-editor-bass');
+      const grid = editor.querySelector('.seq-grid') || editor;
+      const cells = [...editor.querySelectorAll('.seq-cell')].filter((c) => c.style.display !== 'none');
+      const gridRight = Math.round(grid.getBoundingClientRect().right);
+      const worst = Math.max(...cells.map((c) => Math.round(c.getBoundingClientRect().right)));
+      // Focus a cell by keyboard and read back whether it is visible.
+      const first = cells[0];
+      first.tabIndex = 0;
+      first.focus();
+      return { overrun: worst - gridRight, focusHidden: document.activeElement?.style.display === 'none' };
+    });
+    check('a tie stored past a shorter bar does not overrun the grid', shortBar.overrun <= 2, (v) => v === true);
+    check('focus never lands on an absorbed cell', shortBar.focusHidden, false);
+    await page.selectOption('#time-signature', '4/4').catch(() => {});
+    await page.waitForTimeout(500);
+  }
+
   // v0.0.93 (his 89/105): notes on top, groups + probability at the bottom.
   const order = await page.evaluate(() => {
     const editor = document.getElementById('voice-editor-bass');

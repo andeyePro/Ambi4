@@ -7048,10 +7048,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           i = clamp(i, 0, n - 1);
           // v0.0.92: a step absorbed into a tied note has no box of its own —
           // walk on in the direction of travel rather than focusing nothing.
+          // AUDIT FIX: the old pair of walks could still land on a hidden
+          // cell — slot 0 absorbed into a tie (or a hidden run reaching the
+          // last slot) left `i` exactly where it started, so focus went to a
+          // box nobody can see and the keyboard edited an invisible step.
+          // The search now sweeps OUTWARD from the wanted slot and only
+          // gives up if the whole lane is absorbed, which cannot happen.
           const hidden = (idx) => cellRefs[li][idx]?.cell.style.display === 'none';
-          const dir = i >= focusPos.step ? 1 : -1;
-          while (i > 0 && i < n - 1 && hidden(i)) i += dir;
-          while (i > 0 && hidden(i)) i -= 1;
+          if (hidden(i)) {
+            const dir = i >= focusPos.step ? 1 : -1;
+            let found = -1;
+            for (let step = 0; step < n && found < 0; step++) {
+              const ahead = i + step * dir;
+              const behind = i - step * dir;
+              if (ahead >= 0 && ahead < n && !hidden(ahead)) found = ahead;
+              else if (behind >= 0 && behind < n && !hidden(behind)) found = behind;
+            }
+            if (found >= 0) i = found;
+          }
           const prev = (cellRefs[focusPos.lane] || [])[focusPos.step];
           if (prev) prev.cell.tabIndex = -1;
           focusPos = { lane: li, step: i };
@@ -7097,10 +7111,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const lane = laneSteps(lanes[li]);
           const refs = cellRefs[li];
           const rowsOf = (r) => [r.cell, r.probFill?.parentElement, r.dot?.parentElement];
+          // AUDIT FIX: bounded by the VISIBLE bar, not the stored lane. The
+          // stored lane is a fixed twenty slots while the metre decides how
+          // many are in play, so a tie stored past the bar's end (switch 5/4
+          // → 3/4 with ties near the old end) made a head span more columns
+          // than the grid has — the box overran its own row.
+          const visible = Math.min(stepsPerBarFor(track), lane.length, refs.length);
           let i = 0;
-          while (i < lane.length) {
+          while (i < visible) {
             let span = 1;
-            while (i + span < lane.length && lane[i + span - 1].tie === true) span += 1;
+            while (i + span < visible && lane[i + span - 1].tie === true) span += 1;
             const head = refs[i];
             if (head) {
               for (const el of rowsOf(head)) {
@@ -13621,7 +13641,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         document.addEventListener('pointerdown', (event) => {
           if (popover.hidden) return;
-          if (anchor.contains(event.target)) return;
+          // AUDIT FIX: `anchor.contains` was too generous where two popovers
+          // SHARE an anchor (the genre row holds both the favourites editor
+          // and the rules panel): opening one left the other open, because a
+          // press inside the shared anchor counted as "inside me". A press
+          // inside the OTHER popover — or on the toggle that opens it — now
+          // closes this one, which is what "one at a time" means.
+          if (popover.contains(event.target)) return;
+          if (toggle && toggle.contains(event.target)) return;
+          const inSomePopover = event.target instanceof Element
+            && event.target.closest('.popover');
+          if (!inSomePopover && anchor.contains(event.target)) return;
           close({ refocus: false });
         });
 

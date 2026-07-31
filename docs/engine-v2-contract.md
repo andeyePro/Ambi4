@@ -1,6 +1,15 @@
 # Ambient engine v2 — integration contract
 
 Fixed interfaces between four workstreams. Do not deviate without updating this file.
+
+> **Reading note, 2026-07-31.** This file is the ORIGINAL v2 contract plus
+> corrections where the shipped code has moved past it; the audit found its
+> param bounds and enums stale enough to mislead. Where this file and
+> `sanitiseParams` disagree, **the sanitiser is the contract** — it is the one
+> thing every caller actually meets, and `tests/engine-smoke.mjs` pins it.
+> Fields added after v2 (per-step gate/tie/group/midi, `spans`, `padBreath`,
+> `sequencerAdvance`, the patch schema's sculpting and call fields) are
+> documented at their definitions in the engine rather than here.
 File ownership (no agent touches another's file):
 
 - **Engine core**: `src/scripts/ambient-engine.js` (+ `tests/engine-smoke.mjs`)
@@ -20,9 +29,14 @@ Six tracks, fixed order and ids: `pad`, `bass`, `melody`, `texture`, `arp`, `per
   complexity: 0.5,         // 0–1 — drives density, chord colour, AND auto choices (structure, arp, auto-track activity)
   repetition: 0.5,         // 0–1
   root: 'C',               // 'C'..'B' (sharps; flats accepted, normalised)
-  mode: 'majorPentatonic', // majorPentatonic|minorPentatonic|dorian|lydian|aeolian|wholeTone
-  timeSignature: '4/4',    // 3/4|4/4|5/4|6/8|7/8
-  bpm: 60,                 // 40–120
+  // CORRECTED 2026-07-31 (audit: this block had drifted from the shipped
+  // sanitiser — a maintainer reading it would have written illegal params).
+  mode: 'majorPentatonic', // majorPentatonic|minorPentatonic|ionian|dorian|phrygian|
+                           // lydian|mixolydian|aeolian|wholeTone|blues|harmonicMinor|
+                           // melodicMinor|locrian|diminished|chromatic
+  timeSignature: '4/4',    // named: 3/4|4/4|5/4|6/8|7/8 — PLUS custom N/4 (2–5)
+                           // and N/8 (3–10) since v0.0.98, anything metrePulses() grids
+  bpm: 60,                 // 20–220 (widened at v0.0.71 when tempo left Energy)
   volume: 0.8,             // 0–1
   structure: 'auto',       // 'auto'|'drone'|'waves'|'build'|'abab'|'journey'|'custom'
                            // 'auto' = engine picks a preset from complexity

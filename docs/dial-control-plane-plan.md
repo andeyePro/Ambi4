@@ -1,7 +1,17 @@
 # Dial + modulation control plane — plan
 
-Status: **owner-decided 2026-07-27, not yet built.** The UX brief this serves is
-in brain2, `Ambi4-UX-philosophy`.
+Status: **owner-decided 2026-07-27; the DIAL half shipped, the modulation graph
+has not** (corrected 2026-07-31 — the audit found this file still claiming
+nothing was built, while its decisions had been live for dozens of versions).
+Shipped: spreads on every rangeable dial (v0.0.56/74), the hub/annulus gesture
+model with vertical primary and angular assist on a fine pointer only
+(v0.0.65/66), grip-look rules, zero-on-hub-tap and double-click-to-default,
+click-to-type, spread SHAPES (Drift/Rise/Fall/Swell, v0.0.72), and the
+refusal-with-a-reason for the one dial ruled to stay single (v0.0.102). NOT
+built: sources (envelopes, LFOs, macros) driving arbitrary destinations, one
+slot per destination, patch sockets on the dials — the "rest of the patching
+system" TODO item, which also owns Energy's filter-openness axis. The UX brief
+this serves is in brain2, `Ambi4-UX-philosophy`.
 
 Goal, in the owner's words: simple and unintimidating to start, every last
 nuance reachable later, and *all dials working exactly the same way*.

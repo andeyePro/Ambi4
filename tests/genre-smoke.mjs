@@ -364,6 +364,25 @@ test('kit softness (Energy 1c): below the midpoint velocities scale and hats thi
     fullSeqs[0].weights[fullSeqs.length - 1] > seqs[0].weights[seqs.length - 1],
     'the fill comes oftener the higher the dial'
   );
+  // AUDIT FIX: the documented visit RATE holds whatever the groove count is —
+  // the weight is normalised by it now, so a three-groove genre no longer
+  // visits the fill at a third of the stated rate.
+  const visitRate = (params) => {
+    const list = params.tracks.percussion.sequencers;
+    const row = list[0].weights;
+    const total = row.reduce((sum, w) => sum + Math.max(0, w), 0);
+    return row[list.length - 1] / total;
+  };
+  for (const slug of ['techno-tools', 'lofi-beats', 'acid-jazz']) {
+    const g = bySlug(slug);
+    const low = compileGenre(g, { rng: seededRng(99), kitComplexity: 0.75 });
+    const high = compileGenre(g, { rng: seededRng(99), kitComplexity: 1 });
+    if (!low.tracks?.percussion?.sequencers || low.tracks.percussion.sequencers.length < 2) continue;
+    assert.ok(Math.abs(visitRate(low) - 0.2) < 0.02,
+      `${slug}: fill visit rate at 0.75 is ${(visitRate(low) * 100).toFixed(1)}%, not the documented 20%`);
+    assert.ok(Math.abs(visitRate(high) - 0.5) < 0.02,
+      `${slug}: fill visit rate at full is ${(visitRate(high) * 100).toFixed(1)}%, not the documented 50%`);
+  }
   const midRun = fill.steps.mid.slice(12, 16).filter((s) => s.on);
   assert.ok(midRun.length >= 3, 'the fill runs on the mid lane into the barline');
   assert.ok(midRun[midRun.length - 1].vmax > midRun[0].vmax, 'and it crescendos');
