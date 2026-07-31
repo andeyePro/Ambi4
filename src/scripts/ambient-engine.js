@@ -4331,6 +4331,9 @@ export function createEngine(initialParams, options = {}) {
   const frozenPlans = new Map();    // plan key → the plan a held track replays
   const pendingRandomise = new Set(); // tracks to re-roll at the next barline
   const activeSequencer = new Map();  // track → index into tracks[t].sequencers
+  // Tracks that have played at least one bar since the transport started. The
+  // FIRST bar of a sequence is slot 0, so the advance below skips it once.
+  const sequencerPlayed = new Set();
   // vary.voice wander: EPHEMERAL, so it never reaches params/getParams.
   const wanderedVoice = new Map();  // track → the voice id actually sounding
   // Per-kind patch merges (v14 kit), by `${track}:${voice}:${kind}`.
@@ -4704,6 +4707,21 @@ export function createEngine(initialParams, options = {}) {
       const list = params.tracks[track].sequencers;
       if (!list || list.length < 2) continue;
       if (held.has(track)) continue;
+      // AUDIT FIX — "advance only while sounding", which is what the filed
+      // finding asked for. Two things were wrong. This runs at the TOP of a
+      // bar, before anything reads a lane, so a track's first bar was already
+      // one advance past slot 0; and a track staged to enter later (melody
+      // waits two bars at the defaults) had its sequence walked while it was
+      // SILENT, so a typed melody opened several bars into its own
+      // composition. A silent track therefore does not move, and the first
+      // bar a track sounds is slot 0. No draw is spent on a skipped bar,
+      // which is why the frozen reference moves for the multi-sequencer
+      // genres — deliberately, and stated in the commit.
+      if (!isActive(track)) continue;
+      if (!sequencerPlayed.has(track)) {
+        sequencerPlayed.add(track);
+        continue;
+      }
       const from = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
       // v0.0.116 chain mode: the list plays IN ORDER and wraps — a composed
       // sequence, not a shuffle. No draw, so a chained track never moves the
@@ -5371,6 +5389,7 @@ export function createEngine(initialParams, options = {}) {
     promoted.delete(name);
     pendingRandomise.delete(name);
     activeSequencer.delete(name);
+    sequencerPlayed.delete(name);
     wanderedVoice.delete(name);
     monoNotes.delete(name);
     noteTimes.delete(name);
@@ -8527,6 +8546,7 @@ export function createEngine(initialParams, options = {}) {
       silentRun = 0;
       lastNoteEnd = 0;
       activeSequencer.clear();
+      sequencerPlayed.clear();
       // A performance opens on the hook's tonic. Establishing here rather than
       // at the first barline is also what resets a loop the last run left
       // mid-pass, and re-reads a mode or repetition changed while stopped.

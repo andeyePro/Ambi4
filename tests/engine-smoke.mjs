@@ -4228,6 +4228,10 @@ test('v0.0.116 chain mode: the sequencer list plays IN ORDER and wraps — a com
   engine.stop();
   const midis = notes.filter((n) => n.track === 'melody').map((n) => n.midi);
   assert.ok(midis.length >= 5, `need bars to prove the cycle, got ${midis.length}`);
+  // AUDIT FIX: the FIRST audible bar is slot 0. The advance ran at the top of
+  // every bar including the first, so a typed melody opened on its SECOND bar
+  // and the sequence the user composed was heard rotated by one.
+  assert.equal(midis[0], 60, 'a chained sequence must open on its own first bar');
   for (let i = 1; i < midis.length; i++) {
     const expected = { 60: 62, 62: 64, 64: 60 }[midis[i - 1]];
     assert.equal(midis[i], expected,
@@ -4290,41 +4294,6 @@ test('Energy 2d: from 0.85 the ARP doubles an octave up — quieter, mirrored, n
   const monoArp = await run(0.95, null, { mono: true });
   const firstMono = monoArp.filter((n) => Math.abs(n.time - monoArp[0].time) < 1e-6);
   assert.equal(firstMono.length, 1, 'a MONO arp must not stack a doubled octave');
-});
-
-test('v0.0.116 chain mode: the sequencer list plays IN ORDER and wraps — a composed sequence, not a shuffle', async () => {
-  const oneNote = (midi) => ({
-    mode: 'manual',
-    weights: [1, 1, 1],
-    steps: Array.from({ length: 20 }, (unused, i) => (
-      i === 0
-        ? { on: true, prob: 1, vmin: 0.6, vmax: 0.6, midi }
-        : { on: false, prob: 1, vmin: 0.5, vmax: 0.9 }
-    )),
-  });
-  const engine = createEngine({
-    root: 'C', mode: 'major', bpm: 120, timeSignature: '4/4', complexity: 0.6,
-    tracks: {
-      melody: { state: 'on', mono: false, sequencerAdvance: 'chain',
-        sequencers: [oneNote(60), oneNote(62), oneNote(64)] },
-      pad: { state: 'off' }, arp: { state: 'off' }, bass: { state: 'off' },
-      texture: { state: 'off' }, percussion: { state: 'off' },
-    },
-  });
-  assert.equal(engine.getParams().tracks.melody.sequencerAdvance, 'chain',
-    'the advance mode survives the sanitiser');
-  const notes = [];
-  engine.on('note', (n) => notes.push(n));
-  await engine.start();
-  await advance(16);
-  engine.stop();
-  const midis = notes.filter((n) => n.track === 'melody').map((n) => n.midi);
-  assert.ok(midis.length >= 5, `need bars to prove the cycle, got ${midis.length}`);
-  for (let i = 1; i < midis.length; i++) {
-    const expected = { 60: 62, 62: 64, 64: 60 }[midis[i - 1]];
-    assert.equal(midis[i], expected,
-      `bar ${i}: after ${midis[i - 1]} the chain plays ${expected}, got ${midis[i]}`);
-  }
 });
 
 test('developBassGroove: ghost/push/simplify/double transform a stated groove, and pulses stay root throughout', () => {
