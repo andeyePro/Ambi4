@@ -319,6 +319,10 @@ const VOICES: Record<string, [string, string][]> = {
             />
             <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
           </div>
+          <div id="guided-tree" class="create-row create-guided-tree" hidden>
+            <p class="hint guided-question" id="guided-question"></p>
+            <div class="create-row guided-choices" id="guided-choices"></div>
+          </div>
           <p class="hint" id="guided-tip" aria-live="polite"></p>
           <div class="control-label-row">
             <span class="panel-label timer-section" id="play-along-section-title">Musical typing</span>
@@ -13966,15 +13970,113 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               ' Voices are seeded; nothing plays until you switch an instrument on.';
           }
         });
-        // Guided start, visibly (his 105). v1: point at the seed list and
-        // speak when a genre is chosen; the fuller genre-tree question flow
-        // builds on this same button.
-        document.getElementById('guided-start')?.addEventListener('click', () => {
-          if (guidedTip) {
-            guidedTip.textContent =
-              'Pick a genre under Seed voices and I will name the instrument that genre\u2019s composers usually start with \u2014 or skip straight in: Tap a rhythm for a groove, Type the chords for harmony, or the keys below for a tune.';
+        // Guided start, the fuller flow (his item 96): "ask if people want to
+        // produce a certain genre (possibly giving them a genre tree, with
+        // other as final answer with most) then let them know which
+        // instruments composers in that genre most commonly start with. That
+        // would help the many people who simply don't know where to start."
+        //
+        // Two questions, never more: the MOOD (the grouping the genre list
+        // already uses, so nothing new has to be learned) and then the genre
+        // inside it, with "Something else" at the end of each level exactly as
+        // he asked. Answering seeds that genre's voices and names the
+        // instrument its writers start with — the same seed path the picker
+        // uses, so the guided route is not a second implementation.
+        const guidedTree = document.getElementById('guided-tree');
+        const guidedQuestion = document.getElementById('guided-question');
+        const guidedChoices = document.getElementById('guided-choices');
+
+        function closeGuidedTree() {
+          if (!guidedTree) return;
+          guidedTree.hidden = true;
+          if (guidedChoices) guidedChoices.innerHTML = '';
+        }
+
+        function askGuided(question, choices) {
+          if (!guidedTree || !guidedChoices || !guidedQuestion) return;
+          guidedTree.hidden = false;
+          guidedQuestion.textContent = question;
+          guidedChoices.innerHTML = '';
+          for (const choice of choices) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'secondary-button guided-choice';
+            button.textContent = choice.label;
+            button.addEventListener('click', choice.onPick);
+            guidedChoices.append(button);
           }
-          createSeed?.focus();
+          const first = guidedChoices.querySelector('button');
+          try {
+            first?.focus();
+          } catch {}
+        }
+
+        /** Seed a genre's voices and say what its writers start with. */
+        function guidedSeed(genre) {
+          closeGuidedTree();
+          if (!createSeed) return;
+          createSeed.value = genre.slug;
+          createSeed.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        function askGuidedGenre(mood) {
+          const inMood = PUBLIC_GENRES.filter((genre) => moodOf(genre).id === mood.id);
+          const choices = inMood.map((genre) => ({
+            label: genre.name,
+            onPick: () => guidedSeed(genre),
+          }));
+          choices.push({
+            label: 'Something else',
+            onPick: () => askGuidedMood(),
+          });
+          askGuided(
+            inMood.length
+              ? `${mood.label}: which of these is nearest?`
+              : 'Nothing is listed under that yet — pick another feel:',
+            inMood.length ? choices : [{ label: 'Back', onPick: () => askGuidedMood() }]
+          );
+        }
+
+        function askGuidedMood() {
+          const moods = MOODS.filter((mood) =>
+            PUBLIC_GENRES.some((genre) => moodOf(genre).id === mood.id));
+          const choices = moods.map((mood) => ({
+            label: mood.label,
+            onPick: () => askGuidedGenre(mood),
+          }));
+          // His "other as final answer with most": the last choice does not
+          // dead-end — it offers every listed genre at once, then the ways in
+          // that need no genre at all.
+          choices.push({
+            label: 'Something else',
+            onPick: () => askGuided('Any of these, or start from nothing:', [
+              ...PUBLIC_GENRES.map((genre) => ({
+                label: genre.name,
+                onPick: () => guidedSeed(genre),
+              })),
+              {
+                label: 'No genre — I will just play',
+                onPick: () => {
+                  closeGuidedTree();
+                  if (guidedTip) {
+                    guidedTip.textContent =
+                      'Nothing seeded. Three ways in with no genre at all: Tap a rhythm for a groove, '
+                      + 'Type the chords for harmony, or the keys below for a tune.';
+                  }
+                },
+              },
+            ]),
+          });
+          askGuided('What do you want to make? Pick the nearest feel:', choices);
+        }
+
+        document.getElementById('guided-start')?.addEventListener('click', () => {
+          if (guidedTree && !guidedTree.hidden) {
+            closeGuidedTree();
+            return;
+          }
+          if (guidedTip) guidedTip.textContent = '';
+          askGuidedMood();
         });
 
         // v0.0.110 — typed melody (his compose list: "type in notes/chords/
@@ -16030,6 +16132,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       align-items: center;
       flex-wrap: wrap;
       margin: 4px 0;
+    }
+
+    .create-guided-tree {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+    }
+
+    .guided-question {
+      margin: 0;
+      font-weight: 600;
     }
 
     .create-midi-row {
