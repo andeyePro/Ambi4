@@ -4260,10 +4260,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           1
         );
       }
-      /** Apply a scalar map to a plain number or to both ends of a RangeValue. */
-      function mapRangeValue(v, f) {
-        return v && typeof v === 'object' ? { min: f(v.min), max: f(v.max) } : f(v);
-      }
+      // AUDIT FIX (cleanup): `mapRangeValue` WAS a second copy of `mapRV`
+      // above, with a looser object test (an array would have been treated as
+      // a range). One helper now, aliased so the twenty existing call sites
+      // keep reading naturally at their own altitude.
+      const mapRangeValue = mapRV;
       const changeFormat = (t) =>
         t <= CHANGE_DETENT ? 'Never' : pctFormat((t - CHANGE_DETENT) / (1 - CHANGE_DETENT));
 
@@ -6545,11 +6546,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return midi >= 0 && midi <= 127 ? midi : null;
       }
 
-      /** MIDI back to a display name, sharps spelling: 60 → C4. */
-      function midiToNoteName(midi) {
-        const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-        return `${names[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
-      }
+      // AUDIT FIX (cleanup): ONE spelling of a note name on screen. This had
+      // its own ASCII table, so a pinned step read "C#5" while the piano roll
+      // and the pitch readout — which use PITCH_LETTERS — said "C♯5" for the
+      // same note. The typographic sharp wins (it is what the rest of the app
+      // shows); parseNoteNameToMidi accepts either when TYPING. The scale
+      // ROOT list stays ASCII: those strings are engine param values, not
+      // display text.
+      const midiToNoteName = (midi) => pitchName(midi);
 
       function stepsPerBarFor(track) {
         return track === 'arp' ? arpStepsPerBar() : currentStepsPerBar();
@@ -11753,7 +11757,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const customBuilder = document.getElementById('custom-structure-builder');
       const structureBlocks = document.getElementById('structure-blocks');
       const addBlockButton = document.getElementById('add-structure-block');
-      const blockLabels = ['A', 'B', 'C', 'D', 'V', 'V1', 'V2', 'V3', 'V4'];
+      // AUDIT FIX (cleanup): the ENGINE's own list, not a second copy of it —
+      // the engine sanitises a block label against STRUCTURE_LABELS, so a
+      // page-side copy that drifted would offer a label the engine drops (the
+      // v21 track-registry lesson, applied to structure labels). The literal
+      // is kept as the fallback an older engine bundle boots on.
+      const blockLabels = Array.isArray(engineModule?.STRUCTURE_LABELS)
+        ? [...engineModule.STRUCTURE_LABELS]
+        : ['A', 'B', 'C', 'D', 'V', 'V1', 'V2', 'V3', 'V4'];
 
       function renderStructureBlocks() {
         structureBlocks.innerHTML = '';

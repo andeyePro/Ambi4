@@ -70,6 +70,7 @@ export default async function drive(page) {
     () => !!document.querySelector('#voice-editor-bass .seq-pitch-input')
   );
   check('P opens the in-place note input', inputThere, true);
+  // Typed with an ASCII '#': the parser takes either spelling.
   await page.fill('#voice-editor-bass .seq-pitch-input', 'C#5');
   await page.keyboard.press('Enter');
   await page.waitForTimeout(400);
@@ -82,8 +83,10 @@ export default async function drive(page) {
       aria: cell.getAttribute('aria-label') || '',
     };
   });
-  check('the pin is visible on the cell', shown.label, 'C#5');
-  check('…and spoken', /pinned to C#5/.test(shown.aria), (v) => v === true);
+  // ONE spelling on screen: the typographic sharp the piano roll and the
+  // pitch readout already use (typing accepts either — see below).
+  check('the pin is visible on the cell', shown.label, 'C\u266F5');
+  check('…and spoken', /pinned to C\u266F5/.test(shown.aria), (v) => v === true);
 
   // Alt+drag nudges by semitones from the default anchor (C4 = 60).
   const box = await page.evaluate(() => {

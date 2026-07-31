@@ -87,19 +87,33 @@ v0.0.33 — a suite that suddenly reports fewer checks has lost tests, which is 
 failure in itself.
 
 ```
-node tests/engine-smoke.mjs        # 222 — engine core against a mock AudioContext
-node tests/voices-smoke.mjs        # 283 — the voice library
-node tests/genre-smoke.mjs         #  29 — genre compiler + every genre played
-node tests/knobscope-smoke.mjs     # 106 — knob.js + scope.js
-node tests/visualiser-smoke.mjs    #  45 — piano roll
+npm run build && node tests/all.mjs   # EVERY suite below, non-zero if any is red
+```
+
+`tests/all.mjs` discovers the suites, so a new one is run the day it lands. It
+replaced a list in this file that was run by memory — which is how `voices-smoke`
+sat red for ~30 versions and `power-smoke` since the Node 22 move, both unnoticed
+(audit, 2026-07-31). Individual suites still run by name:
+
+```
+node tests/engine-smoke.mjs        # engine core against a mock AudioContext
+node tests/voices-smoke.mjs        # the voice library
+node tests/genre-smoke.mjs         # genre compiler + every genre played
+node tests/knobscope-smoke.mjs     # knob.js + scope.js
+node tests/visualiser-smoke.mjs    # piano roll
 # blocks-smoke.mjs went with the block editor when the paid-tier code left
 # this repository (2026-07-29). It lives with that code, not here.
-node tests/power-smoke.mjs         #  12 — the governor
-node tests/prefs-smoke.mjs         #  22 — consent + persistence
-node tests/share-name-smoke.mjs    #  13 — three-word link names
-npm run build && node tests/tutorial-smoke.mjs   # 8 + 8 mutations — the guided tour
+node tests/power-smoke.mjs         # the governor
+node tests/prefs-smoke.mjs         # consent + persistence
+node tests/share-name-smoke.mjs    # three-word link names
+node tests/energy-measure.mjs      # the Energy dial's own measurements
+node tests/content-check.mjs       # playlist frontmatter against the schema
+npm run build && node tests/tutorial-smoke.mjs   # the guided tour
 npm run build && node tests/page-boot.mjs        # the built page in jsdom (above)
 ```
+
+Counts are deliberately NOT listed here any more: they moved every session and a
+stale number reads as a lost test. `tests/all.mjs` prints each suite's own count.
 
 ### The browser drives
 
@@ -110,9 +124,18 @@ ENGINE seam (`window.__ambi4Engine`) rather than the DOM wherever a value has
 an engine-side truth:
 
 ```
+tests/sweep-drives.sh                    # every drive, RED vs FLAKY split
 .vibe/measure.sh local drive tests/<name>.mjs
-.vibe/measure.sh local overlaps          # the layout sweep, three viewports
+.vibe/measure.sh local overlaps          # three sweeps, ONE viewport per run
+.vibe/measure.sh local overlaps 390 844  # …pass a viewport for the phone check
 ```
+
+**Why the sweep script and not a shell loop:** run back to back, seven of the
+twenty-eight drives failed and every one passed when re-run alone (2026-07-31).
+The drives are honest individually; the waits are tuned for an idle Mac. The
+script re-runs each failure solo and reports RED (failed alone too — a real
+regression, non-zero exit) separately from FLAKY (green alone — load), because
+a sweep that cries wolf is a sweep that stops being run.
 
 | Drive | Holds the line on |
 |---|---|

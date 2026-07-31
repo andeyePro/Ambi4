@@ -79,10 +79,18 @@ tests/audio-reference.mjs`, and so on.
 Browser tests run against a headless Chromium on a Mac test account over SSH:
 
 ```
+tests/sweep-drives.sh                                 # EVERY drive, one command
 .vibe/measure.sh local drive tests/<name>-drive.mjs   # run one browser test
 .vibe/measure.sh local overlaps                       # layout sweep: three SWEEPS, one viewport per run
 .vibe/measure.sh local overlaps 390 844               # …so pass a viewport to check a phone
 ```
+
+`tests/sweep-drives.sh` exists because a hand-run sweep lied: seven of
+twenty-eight drives failed in a row and all seven passed alone — their waits
+are tuned for an idle Mac. It re-runs a failure SOLO and splits the outcome:
+**RED** (failed alone too) fails the gate; **FLAKY** (green alone) is listed
+loudly and does not. `SWEEP_RETRY=0` makes every in-suite failure red when you
+want the strictest reading.
 
 `.vibe/measure.sh` is the one that decides layout questions. **A screenshot
 cannot tell 1px apart from 1px overlapped** — three faults reached him that way.
