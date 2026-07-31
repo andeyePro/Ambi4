@@ -206,6 +206,10 @@ const {
   DEFAULT_PARAMS,
   SEQUENCED_TRACKS,
   SEQUENCER_STEP_COUNT,
+  SEQUENCER_STEP_BEATS,
+  STEP_RESOLUTIONS,
+  laneSlotsFor,
+  stepsPerBarAt,
   PERCUSSION_LANES,
   MAX_PERCUSSION_LANES,
   VARY_ASPECTS,
@@ -9475,6 +9479,49 @@ test('v28 record-arm: a take is quantised into the armed track\'s active lane, a
   assert.equal(engine.undoCapture(), false, 'undo is one click, once');
   assert.equal(engine.getCapture().undoable, false);
   engine.stop();
+});
+
+test('v0.0.131 resolution: a track\'s grid is its own ×2/÷2 rung — lanes size to it and the default is byte-identical', () => {
+  // His item 89: "add to the todo the ability to choose the editing
+  // resolution… a x2 /2 controller could easily control all eventualities
+  // other than triplets."
+  assert.deepEqual(STEP_RESOLUTIONS, [1, 0.5, 0.25, 0.125, 0.0625]);
+  assert.equal(SEQUENCER_STEP_BEATS, 0.25, 'the sixteenth is still the default rung');
+
+  // Storage sizes to the RESOLUTION (widest metre is 5/4 = 5 beats), and a bar
+  // plays a prefix of it — the law shorter metres have always followed.
+  assert.equal(laneSlotsFor(0.25), 20, 'the default lane is the twenty slots every version had');
+  assert.equal(laneSlotsFor(1), 5);
+  assert.equal(laneSlotsFor(0.125), 40);
+  assert.equal(laneSlotsFor(0.0625), 80);
+  assert.equal(stepsPerBarAt('4/4', 0.25), 16, 'unchanged at the default');
+  assert.equal(stepsPerBarAt('4/4', 0.125), 32);
+  assert.equal(stepsPerBarAt('3/4', 0.125), 24);
+  assert.equal(stepsPerBarAt('4/4', 1), 4);
+
+  // A params object that never mentions the resolution is byte-identical to
+  // one from before the feature — no lane grew, no key appeared.
+  const plain = sanitiseParams({ tracks: { melody: { state: 'on' } } });
+  assert.equal(plain.tracks.melody.stepBeats, undefined,
+    'the default resolution must not be written into the tree');
+  assert.equal(plain.tracks.melody.sequencer.steps.length, 20);
+
+  // Asking for a finer rung grows that ONE track's lanes, and only its own.
+  const fine = sanitiseParams({ tracks: { melody: { stepBeats: 0.125 } } });
+  assert.equal(fine.tracks.melody.stepBeats, 0.125);
+  assert.equal(fine.tracks.melody.sequencer.steps.length, 40);
+  assert.equal(fine.tracks.bass.sequencer.steps.length, 20, 'a sibling track is untouched');
+  // A kit's every lane follows its own track's rung.
+  const kit = sanitiseParams({ tracks: { percussion: { stepBeats: 0.5 } } });
+  for (const lane of Object.values(kit.tracks.percussion.sequencer.steps)) {
+    assert.equal(lane.length, 10, 'a kit lane must size to its track resolution');
+  }
+  // Off-ladder values (a triplet ask, junk, a string) keep the stored rung.
+  for (const bad of [1 / 3, 0.3, 'quaver', null, 0]) {
+    const kept = sanitiseParams({ tracks: { melody: { stepBeats: bad } } }, fine);
+    assert.equal(kept.tracks.melody.stepBeats, 0.125,
+      `an off-ladder resolution (${bad}) must keep the stored one`);
+  }
 });
 
 test('audit: crafted metre names cannot ride in through the sanitiser', () => {

@@ -750,6 +750,41 @@ export function sequencerStepsPerBar(timeSignature) {
 export const SEQUENCER_STEP_BEATS = 0.25;
 
 /**
+ * v0.0.131 — the editing RESOLUTION his item 89 asked for: "the ability to
+ * choose the editing resolution, so you can input whole notes, semi-brieves,
+ * quavers, semi-quavers, demi-semi-quavers, triplets… a x2 /2 controller could
+ * easily control all eventualities other than triplets."
+ *
+ * A slot's length in beats, per track. The default is the sixteenth every
+ * version so far has baked, so a params object that never mentions it behaves
+ * exactly as before — and `SEQUENCER_STEP_BEATS` remains that default's name.
+ * The ladder is the ×2/÷2 one: each step doubles or halves. Triplets are NOT
+ * on it, by his own reading, and get their own control when they come.
+ */
+export const STEP_RESOLUTIONS = Object.freeze([1, 0.5, 0.25, 0.125, 0.0625]);
+
+/**
+ * The longest bar the grid stores for, in beats: 5/4 is the widest metre the
+ * sequencer accepts, so a lane holds one bar of the FINEST resolution the
+ * track is set to and metres shorter than that use a prefix — the same law
+ * `sanitiseStepLane` has always followed, now expressed in beats rather than
+ * baked as the number 20.
+ */
+const MAX_LANE_BEATS = 5;
+
+/** How many slots a lane STORES at a given resolution (the storage cap). */
+export function laneSlotsFor(stepBeats) {
+  const beats = STEP_RESOLUTIONS.includes(stepBeats) ? stepBeats : SEQUENCER_STEP_BEATS;
+  return Math.round(MAX_LANE_BEATS / beats);
+}
+
+/** How many slots a metre PLAYS at a given resolution (a prefix of the lane). */
+export function stepsPerBarAt(timeSignature, stepBeats) {
+  const beats = STEP_RESOLUTIONS.includes(stepBeats) ? stepBeats : SEQUENCER_STEP_BEATS;
+  return Math.min(laneSlotsFor(beats), Math.round(beatsPerBar(timeSignature) / beats));
+}
+
+/**
  * How long a gated sequencer note sounds, in beats: the span it covers on the
  * grid — a tie merges slots, and the tie wins — scaled by its gate. A gate
  * above 1 therefore runs past the slots it was given, which is the legato case.
@@ -1404,12 +1439,19 @@ function groupId(value) {
   return Number.isFinite(num) && num >= 0 ? Math.round(num) : null;
 }
 
-/** Exactly SEQUENCER_STEP_COUNT steps; short input keeps the base beyond it. */
-function sanitiseStepLane(value, base) {
+/**
+ * Exactly as many steps as the track's RESOLUTION stores; short input keeps the
+ * base beyond it. At the default sixteenth this is the twenty slots every
+ * previous version had, byte for byte — a lane only grows when a user asks for
+ * a finer resolution, so no share link or preset pays for a feature it does
+ * not use.
+ */
+function sanitiseStepLane(value, base, stepBeats = SEQUENCER_STEP_BEATS) {
   const source = Array.isArray(value) ? value : null;
   const from = Array.isArray(base) ? base : null;
-  const lane = new Array(SEQUENCER_STEP_COUNT);
-  for (let i = 0; i < SEQUENCER_STEP_COUNT; i++) {
+  const slots = laneSlotsFor(stepBeats);
+  const lane = new Array(slots);
+  for (let i = 0; i < slots; i++) {
     lane[i] = sanitiseStep(
       source && i < source.length ? source[i] : undefined,
       from && i < from.length ? from[i] : DEFAULT_STEP,
@@ -1418,13 +1460,22 @@ function sanitiseStepLane(value, base) {
   return lane;
 }
 
+/** A track's slot length: one of the ×2/÷2 ladder, defaulting to the sixteenth. */
+function stepBeatsOf(value, base) {
+  const asked = typeof value === 'number' ? value : Number(value);
+  if (STEP_RESOLUTIONS.includes(asked)) return asked;
+  const stored = typeof base === 'number' ? base : Number(base);
+  if (STEP_RESOLUTIONS.includes(stored)) return stored;
+  return SEQUENCER_STEP_BEATS;
+}
+
 /**
  * One sequencer. `percussive` — not the track's NAME — decides between a kit's
  * lane-map grid and a single lane, so a user percussive track gets the kit
  * shape its own lanes need rather than the melodic one the id 'percussion'
  * used to be the only key to.
  */
-function sanitiseSequencer(percussive, value, base, laneIds = PERCUSSION_LANES) {
+function sanitiseSequencer(percussive, value, base, laneIds = PERCUSSION_LANES, stepBeats = SEQUENCER_STEP_BEATS) {
   const from = base && typeof base === 'object' ? base : null;
   const v = value && typeof value === 'object' ? value : null;
   const at = (key) => (v && key in v ? v[key] : undefined);
@@ -1432,7 +1483,7 @@ function sanitiseSequencer(percussive, value, base, laneIds = PERCUSSION_LANES) 
     oneOf(from && from.mode, SEQUENCER_MODES, 'auto'));
   const weights = sanitiseWeights(at('weights'), from ? from.weights : undefined);
   if (!percussive) {
-    return { mode, weights, steps: sanitiseStepLane(at('steps'), from ? from.steps : undefined) };
+    return { mode, weights, steps: sanitiseStepLane(at('steps'), from ? from.steps : undefined, stepBeats) };
   }
   const rawLanes = at('steps');
   const baseLanes = from && from.steps && typeof from.steps === 'object' ? from.steps : null;
@@ -1445,6 +1496,7 @@ function sanitiseSequencer(percussive, value, base, laneIds = PERCUSSION_LANES) 
     steps[lane] = sanitiseStepLane(
       rawLanes && typeof rawLanes === 'object' ? rawLanes[lane] : undefined,
       baseLanes ? baseLanes[lane] : undefined,
+      stepBeats,
     );
   }
   return { mode, weights, steps };
@@ -1533,24 +1585,24 @@ function sanitiseWeights(value, base) {
  * Every sequencer's weight vector is padded/truncated to the list length, which
  * is what keeps the Markov pick total over the sequencers that exist.
  */
-function sanitiseSequencerList(percussive, partial, base, laneIds = PERCUSSION_LANES) {
+function sanitiseSequencerList(percussive, partial, base, laneIds = PERCUSSION_LANES, stepBeats = SEQUENCER_STEP_BEATS) {
   const baseList = Array.isArray(base) ? base : [];
   const sent = partial && Array.isArray(partial.sequencers) ? partial.sequencers : null;
   const list = [];
   if (sent) {
     for (let i = 0; i < sent.length && i < MAX_SEQUENCERS; i++) {
-      list.push(sanitiseSequencer(percussive, sent[i], baseList[i], laneIds));
+      list.push(sanitiseSequencer(percussive, sent[i], baseList[i], laneIds, stepBeats));
     }
   } else {
     for (const stored of baseList.slice(0, MAX_SEQUENCERS)) {
-      list.push(sanitiseSequencer(percussive, undefined, stored, laneIds));
+      list.push(sanitiseSequencer(percussive, undefined, stored, laneIds, stepBeats));
     }
   }
-  if (!list.length) list.push(sanitiseSequencer(percussive, undefined, baseList[0], laneIds));
+  if (!list.length) list.push(sanitiseSequencer(percussive, undefined, baseList[0], laneIds, stepBeats));
   // The singular field writes into slot 0 unless the caller sent the whole list.
   const single = partial && 'sequencer' in partial ? partial.sequencer : undefined;
   if (!sent && single !== undefined) {
-    list[0] = sanitiseSequencer(percussive, single, baseList[0], laneIds);
+    list[0] = sanitiseSequencer(percussive, single, baseList[0], laneIds, stepBeats);
   }
   for (const sequencer of list) {
     // A sequencer the caller added without weights is reachable: an unmentioned
@@ -1654,10 +1706,18 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
       track.lanes = sanitisePercussionLanes(partial && partial.lanes, baseTrack.lanes);
     }
     if (shape.sequenced) {
+      // v0.0.131: the track's editing RESOLUTION decides how many slots a lane
+      // stores and how many of them a bar plays. Absent means the sixteenth
+      // every version so far baked, so nothing about a stored setup changes.
+      const stepBeats = stepBeatsOf(
+        partial && 'stepBeats' in partial ? partial.stepBeats : undefined,
+        baseTrack.stepBeats
+      );
+      if (stepBeats !== SEQUENCER_STEP_BEATS) track.stepBeats = stepBeats;
       const storedList = Array.isArray(baseTrack.sequencers) ? baseTrack.sequencers
         : baseTrack.sequencer ? [baseTrack.sequencer] : undefined;
       track.sequencers = sanitiseSequencerList(shape.percussive, partial, storedList,
-        track.lanes ? track.lanes.map((lane) => lane.id) : undefined);
+        track.lanes ? track.lanes.map((lane) => lane.id) : undefined, stepBeats);
       track.sequencer = track.sequencers[0];
       // v0.0.116: how the list advances at loop end. 'weights' is the Markov
       // shuffle every build has had; 'chain' plays the list IN ORDER and
@@ -4530,6 +4590,22 @@ export function createEngine(initialParams, options = {}) {
    * manual grid never does, because a sequenced bar is the user's own
    * statement of when the track sounds.
    */
+  /**
+   * v0.0.131: the track's editing resolution, in beats per slot — the default
+   * sixteenth unless the track asked for another rung of the ×2/÷2 ladder.
+   * Every scheduler reads the grid through this and `trackSlots` below, so a
+   * slot means the same thing to the plan, the note length and the playhead.
+   */
+  function trackStepBeats(track) {
+    const asked = params.tracks[track] && params.tracks[track].stepBeats;
+    return STEP_RESOLUTIONS.includes(asked) ? asked : SEQUENCER_STEP_BEATS;
+  }
+
+  /** How many slots this track's bar plays at its own resolution. */
+  function trackSlots(track) {
+    return stepsPerBarAt(params.timeSignature, trackStepBeats(track));
+  }
+
   function trackDensity(track) {
     const value = params.tracks[track].density;
     if (value === null || value === undefined) return 1;
@@ -5965,10 +6041,13 @@ export function createEngine(initialParams, options = {}) {
         stepCount: arpLaneLength(params.timeSignature, rate),
       };
     }
+    // A take is quantised onto the TRACK's own grid — its resolution as well
+    // as the metre (v0.0.131), the same way the arp branch above uses its rate.
+    const beats = params.tracks[track] ? trackStepBeats(track) : SEQUENCER_STEP_BEATS;
     return {
       origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
-      stepSeconds: secPerBeat * SEQUENCER_STEP_BEATS,
-      stepCount: sequencerStepsPerBar(params.timeSignature),
+      stepSeconds: secPerBeat * beats,
+      stepCount: stepsPerBarAt(params.timeSignature, beats),
     };
   }
 
@@ -6612,7 +6691,8 @@ export function createEngine(initialParams, options = {}) {
    */
   function planBassManual() {
     const lane = sequencerFor('bass').steps;
-    const slots = sequencerStepsPerBar(params.timeSignature);
+    const slots = trackSlots('bass');
+    const stepBeats = trackStepBeats('bass');
     const sounded = new Map();
     let steps = [];
     for (let i = 0; i < slots; i++) {
@@ -6622,7 +6702,7 @@ export function createEngine(initialParams, options = {}) {
       const fires = rng() < prob;
       if (step.group !== undefined) sounded.set(step.group, fires);
       if (!fires) continue;
-      const beat = i / 4;
+      const beat = i * stepBeats;
       steps.push({
         index: i,
         beat,
@@ -6787,7 +6867,7 @@ export function createEngine(initialParams, options = {}) {
         const next = i + 1 < plan.steps.length ? plan.steps[i + 1].beat : bar.beats;
         const at = swung(step.beat, 'bass');
         const gated = step.gate !== undefined
-          ? gatedSpan(step, step.gate, SEQUENCER_STEP_BEATS) * bar.secPerBeat
+          ? gatedSpan(step, step.gate, trackStepBeats('bass')) * bar.secPerBeat
           : (swung(next, 'bass') - at) * bar.secPerBeat * 0.9;
         playNote('bass', {
           midi: step.pinned ?? (step.fifth ? fifth : root),
@@ -6876,7 +6956,8 @@ export function createEngine(initialParams, options = {}) {
   /** Manual melody: the grid gates when, the motif still supplies the pitches. */
   function planMelodyManual() {
     const lane = sequencerFor('melody').steps;
-    const slots = sequencerStepsPerBar(params.timeSignature);
+    const slots = trackSlots('melody');
+    const stepBeats = trackStepBeats('melody');
     const degrees = manualDegrees();
     const sounded = new Map();
     let notes = [];
@@ -6892,7 +6973,7 @@ export function createEngine(initialParams, options = {}) {
       const degree = degrees[taken++ % degrees.length];
       notes.push({
         index: i,
-        beat: i / 4,
+        beat: i * stepBeats,
         degree: stray && !stray.chromatic ? degree + stray.dir : degree,
         bend: stray && stray.chromatic ? stray.dir : 0,
         // v0.0.109: a pinned step is the user's stated note, verbatim.
@@ -6911,9 +6992,9 @@ export function createEngine(initialParams, options = {}) {
       // the slots, and the gate scales the span they add up to. Without one, a
       // tied note is one note over both slots and lasts as long as it spans.
       if (note.gate !== undefined) {
-        note.duration = gatedSpan(note, note.gate, SEQUENCER_STEP_BEATS);
+        note.duration = gatedSpan(note, note.gate, stepBeats);
       } else if (note.slots > 1) {
-        note.duration = Math.max(note.duration, note.slots * SEQUENCER_STEP_BEATS);
+        note.duration = Math.max(note.duration, note.slots * stepBeats);
       }
     }
     // The cadence rule applies whoever owns the rhythm: the last note of a
@@ -7299,7 +7380,8 @@ export function createEngine(initialParams, options = {}) {
    */
   function planPercussionManual() {
     const lanes = sequencerFor('percussion').steps;
-    const slots = sequencerStepsPerBar(params.timeSignature);
+    const slots = trackSlots('percussion');
+    const stepBeats = trackStepBeats('percussion');
     const hits = [];
     for (const lane of percussionLanes()) {
       const steps = lanes[lane.id];
@@ -7314,7 +7396,7 @@ export function createEngine(initialParams, options = {}) {
         const fires = rng() < prob;
         if (step.group !== undefined) sounded.set(step.group, fires);
         if (!fires) continue;
-        const beat = i / 4;
+        const beat = i * stepBeats;
         const pulse = pulseAtBeat(beat);
         laneHits.push({
           index: i,
@@ -7367,7 +7449,8 @@ export function createEngine(initialParams, options = {}) {
 
   function planUserLine(name) {
     const lane = sequencerFor(name).steps;
-    const slots = sequencerStepsPerBar(params.timeSignature);
+    const slots = trackSlots(name);
+    const stepBeats = trackStepBeats(name);
     const sounded = new Map();
     let notes = [];
     let taken = 0;
@@ -7382,7 +7465,7 @@ export function createEngine(initialParams, options = {}) {
       const degree = USER_TRACK_DEGREES[taken++ % USER_TRACK_DEGREES.length];
       notes.push({
         index: i,
-        beat: i / 4,
+        beat: i * stepBeats,
         pinned: Number.isFinite(step.midi) ? step.midi : null,
         degree: stray && !stray.chromatic ? degree + stray.dir : degree,
         bend: stray && stray.chromatic ? stray.dir : 0,
@@ -7397,9 +7480,9 @@ export function createEngine(initialParams, options = {}) {
     notes = mergeTies(notes, lane, slots);
     for (const note of notes) {
       if (note.gate !== undefined) {
-        note.duration = gatedSpan(note, note.gate, SEQUENCER_STEP_BEATS);
+        note.duration = gatedSpan(note, note.gate, stepBeats);
       } else if (note.slots > 1) {
-        note.duration = Math.max(note.duration, note.slots * SEQUENCER_STEP_BEATS);
+        note.duration = Math.max(note.duration, note.slots * stepBeats);
       }
     }
     return notes;
@@ -7407,7 +7490,8 @@ export function createEngine(initialParams, options = {}) {
 
   function planUserKit(name) {
     const lanes = sequencerFor(name).steps;
-    const slots = sequencerStepsPerBar(params.timeSignature);
+    const slots = trackSlots(name);
+    const stepBeats = trackStepBeats(name);
     const hits = [];
     for (const lane of params.tracks[name].lanes) {
       const steps = lanes[lane.id];
@@ -7422,7 +7506,7 @@ export function createEngine(initialParams, options = {}) {
         const fires = rng() < prob;
         if (step.group !== undefined) sounded.set(step.group, fires);
         if (!fires) continue;
-        const beat = i / 4;
+        const beat = i * stepBeats;
         const pulse = pulseAtBeat(beat);
         laneHits.push({
           index: i,
