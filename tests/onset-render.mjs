@@ -412,8 +412,15 @@ export default async function drive(page) {
   // THE GATE STAYS LIVE: a NEW click anywhere fails, a known one more than a
   // fifth worse fails, and one that gets FIXED must be removed from this list.
   //
-  //   bass/breath slur handover 2  92% against 1.4% — on a SINE voice, so
-  //                                nothing about it can be waveform
+  // As of v0.0.140 this list is EMPTY, and the emptiness is the point: every
+  // click the corrected harness found has been fixed, so nothing here is
+  // waiting on anything. The mechanism, both times, was a change made
+  // instantaneously to something that was still sounding.
+  //
+  // bass/breath's slur handover was here until the legato takeover stopped
+  // SETTING the level at the handover instant (a slow-attack voice is nowhere
+  // near that level 120 ms in, so the gain jumped 92% of the note's loudness in
+  // one sample) and started arriving at it the way the pitch does.
   //
   // arp/marimba's and melody/stab's onsets were here until v0.0.140 FIXED them:
   // both were the noise burst's source being stopped twenty milliseconds after
@@ -428,9 +435,7 @@ export default async function drive(page) {
   // wrap heard through an attack that has the filter open — and not a defect.
   // fingered is the voice the owner named, so its onset in isolation is clean
   // and whatever he heard in Soul Groove is in the playing, not in one note.
-  const KNOWN = new Map([
-    ['bass/breath slur handover 2', 0.92],
-  ]);
+  const KNOWN = new Map([]);
   const KNOWN_SLACK = 1.2; // a fifth worse than measured is a regression
   const known = [];
   const problems = [];

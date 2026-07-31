@@ -601,8 +601,30 @@ function createRig(ctx, destination, note) {
     held.freq = freq;
 
     const sustainEnd = at + Math.max(Number.isFinite(duration) ? duration : 0.3, 0.02);
-    held.amp.cancelScheduledValues(at);
-    held.amp.setValueAtTime(held.level, at);
+    // v0.0.140 — MEASURED CLICK FIX (the last of the three the corrected
+    // onset harness found). This used to cancel the envelope and SET the level
+    // at the takeover instant. If the note being taken over was not already at
+    // that level — and on a slow-attack voice it is nowhere near it; `breath`
+    // takes 180 ms to open and the takeover lands at 120 ms — the gain jumped
+    // there in one sample. `tests/onset-render.mjs` measured 0.147 of full
+    // scale, 92% of the note's own loudness, on a SINE voice whose waveform
+    // cannot account for any of it.
+    //
+    // `cancelAndHoldAtTime` is the primitive for this: it keeps the value the
+    // envelope actually HAS at that instant instead of dropping back to the
+    // last completed event, and the level is then reached by a short ramp over
+    // the same glide the pitch is taking. A slur is one continuous sound; its
+    // amplitude should arrive the way its pitch does. Where the method is
+    // missing the old behaviour stands, because a bare cancel with no anchor is
+    // worse than a step.
+    const settle = Math.min(constant * 3, 0.03);
+    if (typeof held.amp.cancelAndHoldAtTime === 'function') {
+      held.amp.cancelAndHoldAtTime(at);
+      held.amp.linearRampToValueAtTime(held.level, at + settle);
+    } else {
+      held.amp.cancelScheduledValues(at);
+      held.amp.setValueAtTime(held.level, at);
+    }
     held.amp.setValueAtTime(held.level, sustainEnd);
     // An RC release rather than a ramp to a floor: the envelope is being
     // re-held here, not re-struck, and a target decay cannot collide with
@@ -613,8 +635,13 @@ function createRig(ctx, destination, note) {
     // slurred phrase keeps its breath, air or shimmer instead of playing the
     // bare tone from the second note on.
     for (const layer of alsoHeld) {
-      layer.param.cancelScheduledValues(at);
-      layer.param.setValueAtTime(layer.level, at);
+      if (typeof layer.param.cancelAndHoldAtTime === 'function') {
+        layer.param.cancelAndHoldAtTime(at);
+        layer.param.linearRampToValueAtTime(layer.level, at + settle);
+      } else {
+        layer.param.cancelScheduledValues(at);
+        layer.param.setValueAtTime(layer.level, at);
+      }
       layer.param.setValueAtTime(layer.level, sustainEnd);
       layer.param.setTargetAtTime(SILENCE, sustainEnd, layer.release / 5);
     }
