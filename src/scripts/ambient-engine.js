@@ -4618,16 +4618,19 @@ export function createEngine(initialParams, options = {}) {
     for (const track of sequencedTracks()) {
       const list = params.tracks[track].sequencers;
       if (!list || list.length < 2) continue;
-      if (held.has(track) || isFrozenTrack(track)) continue;
+      if (held.has(track)) continue;
       const from = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
       // v0.0.116 chain mode: the list plays IN ORDER and wraps — a composed
       // sequence, not a shuffle. No draw, so a chained track never moves the
-      // stream of anything else.
+      // stream of anything else. A chain ignores the Variation hold too: the
+      // list IS the composition, not a variation set, so randomness 0 (Hold)
+      // must not pin a typed melody to its first bar.
       if (params.tracks[track].sequencerAdvance === 'chain') {
         activeSequencer.set(track, (from + 1) % list.length);
         clearFrozen(track);
         continue;
       }
+      if (isFrozenTrack(track)) continue;
       const weights = list[from].weights;
       const total = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
       if (total <= 0) continue;
@@ -5903,6 +5906,9 @@ export function createEngine(initialParams, options = {}) {
     tie: step.tie === true,
     gate: step.gate === undefined ? null : step.gate,
     group: step.group === undefined ? null : step.group,
+    // v0.0.109 pitch pins are sticky the same way: without this line a capture
+    // REPLACING the lane would inherit the previous take's pinned pitches.
+    midi: step.midi === undefined ? null : step.midi,
   });
 
   /** One sequencer, every step of it explicit — see explicitStep. */
@@ -7546,8 +7552,11 @@ export function createEngine(initialParams, options = {}) {
     advanceWalks();
     resolveGlobalSpans();
     // A lane's loop is the bar, so the Markov pick between a track's several
-    // sequencers happens here, before anything reads one.
-    advanceSequencers();
+    // sequencers happens here, before anything reads one. Not during a repeat
+    // bracket's replay: the audio is frozen, so the pick must freeze with it —
+    // otherwise the chain/Markov position walks on silently and the piece
+    // resumes out of step when the bracket lifts.
+    if (!replaying) advanceSequencers();
     consumeRandomise();
     wanderVoices(time);
     // Track gains are re-applied EVERY bar, not only when the section changes:
@@ -7989,20 +7998,17 @@ export function createEngine(initialParams, options = {}) {
   }
 
   /**
-   * Route the mix to the speakers. Where a media-element sink is available the
-   * whole mix goes through a MediaStreamDestination into an <audio> element —
-   * iOS's hardware mute switch silences a bare AudioContext but not media
-   * elements, and the element enables lock-screen MediaSession control.
-   * Exactly one of the two routes is ever connected.
-   */
-  /**
-   * v0.0.91: the element sink is for the platform that NEEDS it. Only iOS's
-   * hardware mute switch silences a bare AudioContext, and only there does
-   * the media element buy anything — while on every platform the
-   * MediaStream → <audio> pipeline adds its own buffering on top of the audio
-   * context's, which is a real, audible slice of the musical-typing latency
-   * the owner (a percussionist) reported as intolerable. Everywhere else the
-   * mix now goes straight to the destination.
+   * Route the mix to the speakers. v0.0.91: the element sink is for the one
+   * platform that NEEDS it. Only iOS's hardware mute switch silences a bare
+   * AudioContext, and only there does the media element buy anything (there it
+   * also carries lock-screen MediaSession control) — while on every platform
+   * the MediaStream → <audio> pipeline adds its own buffering on top of the
+   * audio context's, which is a real, audible slice of the musical-typing
+   * latency the owner (a percussionist) reported as intolerable. Everywhere
+   * else the mix goes straight to the destination, with the same
+   * MediaStreamDestination kept connected as a silent parallel TAP — it feeds
+   * getOutputStream() for the record button and adds nothing to the audible
+   * path.
    */
   function needsElementSink() {
     try {
@@ -8031,16 +8037,27 @@ export function createEngine(initialParams, options = {}) {
       // Any failure along the element route means the plain destination route.
     }
     graph.limiter.connect(ctx.destination);
-    return { mode: 'direct' };
+    // The recording tap: not part of the audible path, so it cannot add
+    // latency — but without it getOutputStream() answers null and the record
+    // feature is dead on every platform that (rightly) skips the element sink.
+    let streamDest = null;
+    try {
+      if (typeof ctx.createMediaStreamDestination === 'function') {
+        streamDest = ctx.createMediaStreamDestination();
+        graph.limiter.connect(streamDest);
+      }
+    } catch { streamDest = null; }
+    return streamDest ? { mode: 'direct', streamDest } : { mode: 'direct' };
   }
 
   /** A sink element that will not play() is a silent engine: rewire direct. */
   function fallbackToDirect() {
     if (!output || output.mode !== 'element' || !ctx || !graph) return;
-    try { graph.limiter.disconnect(output.streamDest); } catch { /* already detached */ }
     try { output.el.pause(); } catch { /* never played */ }
     try { graph.limiter.connect(ctx.destination); } catch { /* context is gone */ }
-    output = { mode: 'direct' };
+    // The element goes; its MediaStreamDestination stays connected as the
+    // recording tap, same as the plain direct route builds for itself.
+    output = { mode: 'direct', streamDest: output.streamDest };
   }
 
   function playOutputElement() {
@@ -8674,11 +8691,12 @@ export function createEngine(initialParams, options = {}) {
     requantiseCapture,
     getCapture,
     // Post-master mix as a MediaStream (what the listener hears), for
-    // page-side MediaRecorder. Null on the direct-output route or pre-start.
+    // page-side MediaRecorder. Both routes carry a MediaStreamDestination —
+    // the element sink feeds its <audio> from it, the direct route keeps it
+    // as a silent parallel tap. Null only pre-start or where the platform
+    // has no createMediaStreamDestination.
     getOutputStream() {
-      return output && output.mode === 'element' && output.streamDest
-        ? output.streamDest.stream
-        : null;
+      return output && output.streamDest ? output.streamDest.stream : null;
     },
     on,
     now,

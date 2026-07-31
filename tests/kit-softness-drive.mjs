@@ -68,21 +68,26 @@ export default async function drive(page) {
   await page.click('#tab-simple');
   await page.waitForTimeout(300);
   const before = await kitView();
-  check('the genre kit is playing full', before.low.on >= 4 && before.high.on >= before.low.on, (v) => v === true);
+  // Since the code-review fix, a genre PICK already compiles the kit shaped
+  // to the genre's own Energy (Techno's sits below the midpoint) — the kit
+  // and the dial agree from the first bar, which was the owner's original
+  // Techno-at-0% complaint class.
+  check('the pick arrives with the identity lane intact', before.low.on >= 3, (v) => v === true);
+  check('…already softened to the genre’s own Energy', before.low.vmax < 0.9, (v) => v === true);
 
   // Energy to the floor: a big downward drag.
   check('Energy dragged to the bottom', await dragEnergy(400), true);
   const soft = await kitView();
   check('the LOW lane keeps every hit — the genre identity', soft.low.on, before.low.on);
-  check('the high lane thinned', soft.high.on < before.high.on, (v) => v === true);
-  check('the kicks softened (velocity down, visibly stored)', soft.low.vmax < before.low.vmax, (v) => v === true);
+  check('the high lane thinned further', soft.high.on <= before.high.on, (v) => v === true);
+  check('the kicks softened further (velocity down, visibly stored)', soft.low.vmax < before.low.vmax, (v) => v === true);
 
   // And back up — all the way: hats and velocities restore, and at the TOP
   // the floor doubles ("possibly 8 or 16 to the floor if you started with 4").
   check('Energy dragged back up', await dragEnergy(-400), true);
   const loud = await kitView();
-  check('full Energy restores the hats', loud.high.on, before.high.on);
-  check('…and the written velocities', loud.low.vmax, before.low.vmax);
+  check('full Energy restores the hats to at least the authored count', loud.high.on >= before.high.on, (v) => v === true);
+  check('…and the written velocities come back full', loud.low.vmax > before.low.vmax, (v) => v === true);
   check('…and the floor DOUBLES at the top', loud.low.on > before.low.on, (v) => v === true);
 
   // Hand edit: toggle one kit step, then move Energy — the follow must stand

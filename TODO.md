@@ -50,6 +50,12 @@ each alert actually is before deciding anything.
 
 ---
 
+## Code-review findings, 2026-07-31 (max review of the session's 17 versions; 12 of 15 fixed in v0.0.118)
+
+- [ ] **Energy 2d's octave doubling never fires on a default piece** — the `!mono` guard reads MELODY's mono (default true), and it reads melody's mono even when playing through the responder track. Needs a ruling (which track's mono governs, or a non-stealing voice path) and may move the frozen baseline. v0.0.115's headline is currently dead in practice; the fromClaude claim was corrected.
+- [ ] **Chain first-bar offset** — the first audible bar of a chained list is (entryBar+1) % length; the honest fix is advance-only-while-sounding, a scheduler design change.
+- [ ] **Review remainder, confirmed unfixed (cut by the 15-cap):** tie-drag not merging boxes until re-render; tie spans overrunning a shrunk metre + focus landing on hidden tie cells; favourites/rules popovers both staying open (shared anchor); keyboard spread-refusal firing at key-repeat rate; capture note-end lost when stop() clears held keys; prototype-key metre names accepted from crafted share links; the 3/8 fill landing on the downbeat; genreKitClean riding every share link (~10 KB) with a stale lane order that stands the Energy follow down after reload; genre-rules validator accepting 32-char masks when 20 play; five vacuous-test findings (onset-render asserts nothing; kit-softness's final drag was unchecked — fixed with v0.0.118's drive update; engine-smoke's fill floor and 9-hit tautology; check() passing undefined===undefined); stale docs/engine-v2-contract.md; cleanup set (duplicated helpers, #/♯ note-name split, STRUCTURE_LABELS copy, double clamps/clones).
+
 ## Owner-reported defects, 2026-07-30 (his items 88–97; verbatim in the archive)
 
 - [ ] **The drive sweep flakes under load — individual drives are honest, the 28-in-a-row sweep is not.** Closing sweep 2026-07-30: 7 drives failed in-suite (chordchip, dial, loudness, pitch, sharelink, submit, transport) and ALL SEVEN passed solo immediately after — the same in-suite-only pattern the shape-span hunt exposed (that one was a dead genre pin; these look like timing under a loaded Mac: waits tuned for an idle machine). Options for the next session: longer settle waits gated on real signals instead of fixed timeouts; a cooldown between drives in sweep runs; genre pins in the drives that still run on the draw. A sweep that cries wolf is a sweep that stops being run — the same law as the layout sweep's.

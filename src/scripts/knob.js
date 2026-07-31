@@ -1164,6 +1164,22 @@ export function createKnob(container, options) {
         return;
       }
       dragAxis = Math.abs(totalX) > Math.abs(totalY) ? 'spread' : 'value';
+      if (dragAxis === 'value' && !allowRange && mode === 'range') {
+        // A single-only dial can DISPLAY a span made elsewhere (set() draws
+        // it; refusing to draw state that exists would be the readout lying),
+        // but dragging it is the "set one steady value" act its contract
+        // promises — so the span collapses to its midpoint and the gesture
+        // proceeds single. Without this the drag moved one END of the span
+        // and committed {min,max} from the very dial built to refuse spans.
+        mode = 'single';
+        value = quantise((value + valueMax) / 2);
+        valueMax = value;
+        activeThumb = 'min';
+        dragThumb = 'min';
+        dragRaw = value;
+        updateView();
+        emit();
+      }
       if (dragAxis === 'spread') {
         // Opening a span happens about where the value is NOW, so the value
         // the user has already set is the centre of the span they get.
@@ -1406,8 +1422,24 @@ export function createKnob(container, options) {
       return;
     }
 
+    // The keyboard mirror of the pointer collapse above: a single-only dial
+    // showing a display-only span collapses it on the first keyboard EDIT
+    // (never on a passing Tab or letter) and proceeds single, so the two
+    // routes never disagree.
+    const isEditKey = key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft'
+      || key === 'ArrowRight' || key === 'PageUp' || key === 'PageDown'
+      || key === 'Home' || key === 'End';
+    if (!allowRange && isRange && isEditKey) {
+      mode = 'single';
+      value = quantise((value + valueMax) / 2);
+      valueMax = value;
+      activeThumb = 'min';
+      updateView();
+      emit();
+    }
+
     let target = 'min';
-    if (isRange) {
+    if (mode === 'range') {
       const isArrow =
         key === 'ArrowUp' || key === 'ArrowRight' || key === 'ArrowDown' || key === 'ArrowLeft';
       // Arrows: plain=min, Shift=max. PgUp/PgDn/Home/End: the active thumb
@@ -1441,7 +1473,7 @@ export function createKnob(container, options) {
         return;
     }
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
-    if (isRange) activeThumb = target;
+    if (mode === 'range') activeThumb = target;
     if (target === 'max') commitMax(next, true);
     else commit(next, true);
   }
@@ -1515,6 +1547,10 @@ export function createKnob(container, options) {
       if (v != null && typeof v === 'object') {
         const a = quantise(toFinite(v.min, value));
         const b = quantise(toFinite(v.max, value));
+        // With allowRange:false this is DISPLAY only — a span made elsewhere
+        // (Advanced's Tempo) still draws here, because refusing to draw state
+        // that exists would be the readout lying. The gesture handlers are
+        // what keep such a dial single: see collapseIfSingleOnly().
         mode = 'range';
         value = Math.min(a, b);
         valueMax = Math.max(a, b);
