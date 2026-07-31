@@ -304,6 +304,7 @@ Sequencer 2.0 (Edit panel of melody / bass / arp / percussion)
 - [ ] There is a fat handle at the top of each velocity band — grab it and only the loud edge moves.
 - [ ] Click-drag SIDEWAYS across cells: they merge into one long tied note (a bridge shows between them). Drag back to shorten. Keyboard: T on a focused cell.
 - [ ] A row of dots sits below each lane, beside the probability bars. Click one to start a probability group (coloured, ringed while selected); click ANY other dots — gaps allowed — to paint them into it; click a selected member again to remove it; Esc drops the selection so the next click starts a fresh group. Keyboard: G on a focused cell, Esc to drop.
+- [ ] Under a melodic grid, press ÷2: the cells double in number, the readout names the note value (semiquavers → demi-semiquavers), and a step you draw on the fine grid sounds where you drew it. ×2 walks back up; the pair stops at crotchets and at hemi-demi-semiquavers.
 - [ ] Untie a tied note (T on its head), then confirm the two steps really play separately — the untie must reach the engine, not just split the boxes.
 - [ ] On a melody or bass step: P, type C#5, Enter — the cell shows a small C#5 tag and that step plays exactly C#5 every bar (never re-pitched by the chords). Alt+drag the cell up/down nudges the pin by semitones; P then Enter on an empty box clears it.
 - [ ] "+" adds a second sequencer (a copy). Tabs 1 / 2 appear, plus a Weight box — how likely the others are to hand over to this one at loop end.

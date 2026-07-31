@@ -2664,6 +2664,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             : null;
         engineCaps.stepPitch = isPlainObject(probedPitch) && probedPitch.midi === 72;
 
+        // v0.0.131: the per-track editing resolution (his ×2/÷2 ladder). The
+        // control ships only where the sanitiser really keeps the value AND
+        // sizes the lane to it — a resolution the engine drops would be a
+        // control that redraws the grid over steps that never sound.
+        engineCaps.stepResolution = false;
+        {
+          const probed = probeTracks({ melody: { stepBeats: 0.125 } });
+          const lane = probed && isPlainObject(probed.melody) && probed.melody.sequencer
+            ? probed.melody.sequencer.steps
+            : null;
+          engineCaps.stepResolution = !!probed
+            && isPlainObject(probed.melody)
+            && probed.melody.stepBeats === 0.125
+            && Array.isArray(lane)
+            && lane.length === 40;
+        }
+
         // v0.0.116: chain advance for the sequencer list.
         const chainProbe = probeTracks({ melody: { sequencerAdvance: 'chain' } });
         engineCaps.chainMode =
@@ -6555,12 +6572,45 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // display text.
       const midiToNoteName = (midi) => pitchName(midi);
 
+      /** A track's slot length in beats — its rung of the ×2/÷2 ladder. */
+      function trackStepBeats(track) {
+        const ladder = engineModule && Array.isArray(engineModule.STEP_RESOLUTIONS)
+          ? engineModule.STEP_RESOLUTIONS
+          : [1, 0.5, 0.25, 0.125, 0.0625];
+        const asked = settings.tracks[track] && settings.tracks[track].stepBeats;
+        return ladder.includes(asked) ? asked : 0.25;
+      }
+
       function stepsPerBarFor(track) {
-        return track === 'arp' ? arpStepsPerBar() : currentStepsPerBar();
+        if (track === 'arp') return arpStepsPerBar();
+        // v0.0.131: the TRACK's own resolution, through the engine's own
+        // arithmetic — the grid must draw exactly the slots the engine plays.
+        const beats = trackStepBeats(track);
+        if (beats !== 0.25 && engineModule && typeof engineModule.stepsPerBarAt === 'function') {
+          const n = engineModule.stepsPerBarAt(settings.timeSignature, beats);
+          if (Number.isFinite(n) && n > 0) return n;
+        }
+        return currentStepsPerBar();
       }
 
       function pulseStartsFor(track, n) {
-        return track === 'arp' ? arpPulseStarts(n) : currentPulseStarts();
+        if (track === 'arp') return arpPulseStarts(n);
+        const beats = trackStepBeats(track);
+        if (beats === 0.25) return currentPulseStarts();
+        // v0.0.131: a beat is 1/beats slots at this track's resolution, so the
+        // pulse marks move with the rung — otherwise a 32nd-note grid would
+        // mark its beats every four slots, i.e. every half beat.
+        const pulses = engineModule && typeof engineModule.metrePulses === 'function'
+          ? engineModule.metrePulses(settings.timeSignature)
+          : null;
+        const perBeat = 1 / beats;
+        if (Array.isArray(pulses) && pulses.length) {
+          const starts = [];
+          let beat = 0;
+          for (const p of pulses) { starts.push(Math.round(beat * perBeat)); beat += p; }
+          return starts.filter((slot) => slot < n);
+        }
+        return Array.from({ length: Math.ceil(n / perBeat) }, (unused, i) => Math.round(i * perBeat));
       }
 
       /**
@@ -6709,6 +6759,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         'a pinned step plays exactly that note, never re-pitched; Alt+drag a cell up or ' +
         'down nudges the pin by semitones.';
 
+      const SEQ_LEGEND_RESOLUTION =
+        ' Resolution: the \u00d72 / \u00f72 pair under the grid chooses the note value a '
+        + 'step covers \u2014 crotchets down to hemi-demi-semiquavers. A finer grid draws '
+        + 'more cells for the same bar and the engine plays exactly those; triplets are the '
+        + 'one division this ladder cannot reach and will get their own control.';
+
       const SEQ_LEGEND_LANES =
         ' Lanes: “Add lane” copies the pattern of the lane it lands beside, its ' +
         'name is click-to-type, and Low/Mid/High says which of the kit’s sounds ' +
@@ -6750,7 +6806,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               && TUNED_TRACKS.includes(track));
         const SEQ_LEGEND =
           SEQ_LEGEND_BASE + (gateAxis ? SEQ_LEGEND_GATE : '')
-          + (pitchAxis ? SEQ_LEGEND_PITCH : '') + (laneAxis ? SEQ_LEGEND_LANES : '');
+          + (pitchAxis ? SEQ_LEGEND_PITCH : '')
+          + (engineCaps.stepResolution && track !== 'arp' ? SEQ_LEGEND_RESOLUTION : '')
+          + (laneAxis ? SEQ_LEGEND_LANES : '');
         let active = 0;
         const current = () => list()[Math.min(active, list().length - 1)];
         const laneSteps = (lane) => (lane.key ? current().steps[lane.key] : current().steps);
@@ -6916,6 +6974,76 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(massActions[1], 'Every second step on, the rest off — the quickest pulse.');
         describe(massActions[2], 'Turn every step in this lane off.');
 
+        // v0.0.131 (his item 89): the editing resolution, as the ×2 / ÷2
+        // controller he asked for — "whole notes, semi-brieves, quavers,
+        // semi-quavers, demi-semi-quavers". ÷2 halves the slot (finer grid),
+        // ×2 doubles it. The readout names the note value, because that is
+        // what a musician is choosing; triplets are NOT on this ladder, by
+        // his own reading, and say so in the tooltip rather than pretending.
+        const NOTE_VALUE_NAMES = new Map([
+          [1, 'crotchets'],
+          [0.5, 'quavers'],
+          [0.25, 'semiquavers'],
+          [0.125, 'demi-semiquavers'],
+          [0.0625, 'hemi-demi-semiquavers'],
+        ]);
+        const resBar = document.createElement('div');
+        resBar.className = 'seq-lane-bar seq-res-bar';
+        resBar.hidden = !engineCaps.stepResolution || track === 'arp';
+        const resCoarser = document.createElement('button');
+        resCoarser.type = 'button';
+        resCoarser.className = 'secondary-button seq-res-step';
+        resCoarser.textContent = '×2';
+        const resLabel = document.createElement('span');
+        resLabel.className = 'value-readout seq-res-readout';
+        const resFiner = document.createElement('button');
+        resFiner.type = 'button';
+        resFiner.className = 'secondary-button seq-res-step';
+        resFiner.textContent = '÷2';
+        resBar.append(resCoarser, resLabel, resFiner);
+        describe(resCoarser, 'Coarser grid: each step covers twice the time (fewer, longer steps).');
+        describe(resFiner, 'Finer grid: each step covers half the time. Triplets are the one division this cannot reach — they need their own control.');
+
+        const RES_LADDER = engineModule && Array.isArray(engineModule.STEP_RESOLUTIONS)
+          ? [...engineModule.STEP_RESOLUTIONS].sort((a, b) => b - a)
+          : [1, 0.5, 0.25, 0.125, 0.0625];
+
+        function syncResolutionUI() {
+          if (resBar.hidden) return;
+          const beats = trackStepBeats(track);
+          const at = RES_LADDER.indexOf(beats);
+          resLabel.textContent = NOTE_VALUE_NAMES.get(beats) || `${beats} beats`;
+          resCoarser.disabled = at <= 0;
+          resFiner.disabled = at < 0 || at >= RES_LADDER.length - 1;
+          resLabel.setAttribute('aria-label', `Editing resolution: ${resLabel.textContent}`);
+        }
+
+        function stepResolution(direction) {
+          const beats = trackStepBeats(track);
+          const at = RES_LADDER.indexOf(beats);
+          const next = RES_LADDER[clamp(at + direction, 0, RES_LADDER.length - 1)];
+          if (!Number.isFinite(next) || next === beats) return;
+          // The ENGINE resizes the lanes: it owns how many slots a resolution
+          // stores, so the page asks and then adopts the answer rather than
+          // guessing at a length (the readout-lying failure class).
+          settings.tracks[track].stepBeats = next;
+          engine.setParams({ tracks: { [track]: { stepBeats: next } } });
+          try {
+            const live = engine.getParams()?.tracks?.[track];
+            if (live && Array.isArray(live.sequencers)) {
+              settings.tracks[track].sequencers = structuredClone(live.sequencers);
+              settings.tracks[track].sequencer = settings.tracks[track].sequencers[0];
+              if (live.stepBeats !== undefined) settings.tracks[track].stepBeats = live.stepBeats;
+              else delete settings.tracks[track].stepBeats;
+            }
+          } catch {}
+          persistSettings();
+          render();
+        }
+
+        resCoarser.addEventListener('click', () => stepResolution(-1));
+        resFiner.addEventListener('click', () => stepResolution(1));
+
         const scroll = document.createElement('div');
         scroll.className = 'seq-scroll';
         const beatsEl = document.createElement('div');
@@ -6939,7 +7067,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         pitchLegend.className = 'seq-pitch-legend';
         pitchLegend.hidden = true;
 
-        root.append(head, tabsRow, laneBar, massBar, scroll, pitchLegend, blocksHost);
+        root.append(head, tabsRow, laneBar, massBar, resBar, scroll, pitchLegend, blocksHost);
 
         let cellRefs = []; // [lane][step] -> { cell, band, bandTop, probFill, dot }
         let focusPos = { lane: 0, step: 0 };
@@ -7922,6 +8050,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           addLaneButton.disabled = lanes.length >= PERC_MAX_LANES;
           for (const radio of modeRadios) radio.checked = radio.value === current().mode;
           renderTabs();
+          syncResolutionUI();
           for (let i = 0; i < n; i++) {
             const b = document.createElement('span');
             const pulseIndex = pulseStarts.indexOf(i);
@@ -17872,6 +18001,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     /* The group selected for painting: its members ring so "which group am I
        adding to" is answered on the grid itself, not from memory. */
+    /* v0.0.131: the ×2 / ÷2 editing-resolution control, beside mass edit. */
+    .seq-res-bar {
+      align-items: center;
+      gap: 6px;
+    }
+
+    .seq-res-readout {
+      min-width: 12ch;
+      text-align: center;
+    }
+
     .seq-dot-active {
       box-shadow: 0 0 0 2px var(--link);
     }
