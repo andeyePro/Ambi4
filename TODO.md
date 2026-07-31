@@ -50,6 +50,11 @@ each alert actually is before deciding anything.
 
 ---
 
+## Whole-codebase audit, 2026-07-31 — the fix queue lives in .vss/audit-2026-07-31.md
+
+- [ ] **78 confirmed findings (4 critical, 47 major, 27 minor), every one adversarially verified — work the report top-down.** Ordering already applied in the report: criticals (Zero-button settings corruption, pre-consent legacy-key deletion, voices-smoke red-and-unrun, genre percussion density deleted on load), then data-loss/audible majors, then the eight vacuous-or-unrun test gates, then docs.
+- [ ] **HOTFIX FIRST — v0.0.118's shaped-pick regression (report findings 70/71):** both PUBLIC genres' kits are audibly wrong on every fresh pick on mcdev now (synthwave hat holes + kick at 82%, techno missing hat + 74% velocity; lofi/bossa/acid-jazz floors mangled at high seeds). Fix shape: the ladder shapes deviation from the genre's OWN complexity (relative, identity at pick), and kitFloorDouble tests the authored lane for an even pulse first. Also revert/adjust the kit-softness-drive baseline that codified the wrong contract.
+
 ## Code-review findings, 2026-07-31 (max review of the session's 17 versions; 12 of 15 fixed in v0.0.118)
 
 - [ ] **Energy 2d's octave doubling never fires on a default piece** — the `!mono` guard reads MELODY's mono (default true), and it reads melody's mono even when playing through the responder track. Needs a ruling (which track's mono governs, or a non-stealing voice path) and may move the frozen baseline. v0.0.115's headline is currently dead in practice; the fromClaude claim was corrected.
