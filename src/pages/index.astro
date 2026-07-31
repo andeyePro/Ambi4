@@ -12150,7 +12150,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * level, and having the volume jump on every pick is the kind of thing
        * that makes someone stop pressing the button.
        */
-      function settingsFromGenre(compiled, slug) {
+      function settingsFromGenre(compiled, slug, { keepUser = true } = {}) {
         const next = structuredClone(compiled);
         next.genre = typeof slug === 'string' ? slug : null;
         if (typeof next.bpm === 'number') next.bpm = Math.round(clamp(next.bpm, 20, 220));
@@ -12164,7 +12164,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (isPlainObject(next.tracks) && isPlainObject(next.tracks.percussion)) {
           delete next.tracks.percussion.lanes;
         }
-        return keepUserTracks(next);
+        // keepUser: false is the SHARE-BASE path — a base must be a pure
+        // function of (genre, seed), never of this session's own tracks.
+        return keepUser ? keepUserTracks(next) : next;
       }
 
       /**
@@ -12426,11 +12428,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const compiled = Math.abs(kc - 0.5) < 1e-9
           ? cleanCompile
           : compileGenreParams(edited, seed, { kitComplexity: kc });
-        const kit = compiled?.tracks?.percussion?.sequencers;
+        // Through the SAME pipeline a share base takes (settingsFromGenre →
+        // DEFAULTS merge → normaliseV6Tracks): a kit written raw from the
+        // compiler differs from the rebuilt one in every field the normaliser
+        // touches, which put the whole kit into every diff even with the
+        // shaping recorded in the origin.
+        const shapedTree = deepMerge(DEFAULTS, settingsFromGenre(compiled, genre.slug, { keepUser: false }));
+        normaliseV6Tracks(shapedTree);
+        const kit = shapedTree?.tracks?.percussion?.sequencers;
         if (!Array.isArray(kit)) return;
         settings.tracks.percussion.sequencers = structuredClone(kit);
         settings.tracks.percussion.sequencer = settings.tracks.percussion.sequencers[0];
         engine.setParams({ tracks: { percussion: { sequencers: structuredClone(kit) } } });
+        // The kit is a FUNCTION of (genre, seed, this shaping) — so the origin
+        // records the shaping and a share base can rebuild it. Without this
+        // the whole kit landed in every diff the moment Energy moved, which
+        // pushed a submission past the URL ceiling into the clipboard
+        // fallback (caught by submit-drive once its skipped assertions were
+        // made real).
+        if (isPlainObject(settings.origin) && settings.origin.kind === 'genre') {
+          if (Math.abs(kc - 0.5) < 1e-9) delete settings.origin.kitAt;
+          else settings.origin.kitAt = Math.round(kc * 1000) / 1000;
+        }
         recordCleanGenreKit();
         const editor = document.getElementById('voice-editor-percussion');
         if (editor && !editor.hidden) renderVoiceEditor('percussion');
@@ -14251,6 +14270,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function paramsSnapshot() {
         const s = structuredClone(settings);
         delete s.ui;
+        // Session-local bookkeeping, like ui: the Energy follow's provenance
+        // string is ~10 KB of kit JSON that was riding every share link,
+        // undo entry and preset. It is recomputed where it matters
+        // (recordCleanGenreKit after a genre apply) and a loaded snapshot
+        // rightly stands the follow down.
+        delete s.genreKitClean;
         return s;
       }
 
@@ -14515,6 +14540,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // other way would put the whole kit into every diff. Links minted
           // before the stamp rebuild exactly as they always did.
           const compiled = !genre ? null
+            : Number.isFinite(o.kitAt) ? compileGenreParams(genre, o.seed, { kitComplexity: o.kitAt })
             : o.kit === 1 ? compileGenreShapedLegacy(genre, o.seed)
             : compileGenreParams(genre, o.seed);
           if (!compiled) return null;
@@ -14524,11 +14550,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // every field the normaliser rebuilds (per-track sequencer mirrors,
           // kit lanes, arp steps), which turns a three-dial edit into a diff
           // of the whole tree.
-          const base = deepMerge(DEFAULTS, settingsFromGenre(compiled, o.id));
+          // AUDIT FIX: the base injected THIS session's user tracks through
+          // keepUserTracks — so a sender's custom tracks vanished from the
+          // diff (the link silently dropped them) and a receiver's own
+          // tracks were smuggled into the sender's piece. A share base is a
+          // pure function of the origin, and now it is.
+          const base = deepMerge(DEFAULTS, settingsFromGenre(compiled, o.id, { keepUser: false }));
           normaliseV6Tracks(base);
-          base.origin = o.kit === 1
-            ? { kind: 'genre', id: o.id, seed: o.seed, kit: 1 }
-            : { kind: 'genre', id: o.id, seed: o.seed };
+          base.origin = { kind: 'genre', id: o.id, seed: o.seed };
+          if (o.kit === 1) base.origin.kit = 1;
+          if (Number.isFinite(o.kitAt)) base.origin.kitAt = o.kitAt;
           delete base.ui;
           return base;
         }
@@ -15008,6 +15039,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       syncUIFromSettings();
       refreshPresetSelect();
       engine.setParams(engineParamsFrom(settings));
+      // AUDIT FIX: seed the undo baseline with the BOOT state — it used to
+      // be seeded lazily by the first edit's own snapshot, so the first ⌘Z
+      // of every session had nothing to return to and did nothing.
+      try {
+        undoBaseline = paramsSnapshot();
+      } catch {}
       activateTab(settings.ui.activeTab, { persist: false });
       applyDensityScale();
       setTransportUI();

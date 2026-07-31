@@ -29,6 +29,8 @@ const messageOf = (url) => {
   return m ? decodeURIComponent(m[1]) : null;
 };
 
+const isObjectLike = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
 export default async function drive(page) {
   const results = [];
   const check = (name, got, want) => {
@@ -50,16 +52,14 @@ export default async function drive(page) {
   const cleanBody = messageOf(clean);
   check('it is not the fallback — a clean preset fits', !/too long/.test(cleanBody || ''), (v) => v === true);
   let parsed = null;
-  try { parsed = JSON.parse(cleanBody); } catch { /* reported below */ }
+  try { parsed = JSON.parse(cleanBody); } catch { /* asserted below */ }
   check('the message is parseable JSON', !!parsed, (v) => v === true);
-  if (parsed) {
-    check('it names what the preset grew from', parsed.origin?.kind, 'genre');
-    check('and the exact compile, not just the genre', Number.isFinite(parsed.origin?.seed), (v) => v === true);
-    // The load-bearing one. An untouched setup diffing to nothing proves the
-    // base is being rebuilt byte-for-byte from (slug, seed) — if the rebuild
-    // were even slightly off, every field it got wrong would show up here.
-    check('an untouched setup carries an EMPTY diff', Object.keys(parsed.diff || {}), []);
-  }
+  check('it names what the preset grew from', parsed?.origin?.kind, 'genre');
+  check('and the exact compile, not just the genre', Number.isFinite(parsed?.origin?.seed), (v) => v === true);
+  // The load-bearing one. An untouched setup diffing to nothing proves the
+  // base is being rebuilt byte-for-byte from (slug, seed) — if the rebuild
+  // were even slightly off, every field it got wrong would show up here.
+  check('an untouched setup carries an EMPTY diff', Object.keys(parsed?.diff || {}), []);
   results.push({ name: 'clean URL length', ok: true, got: clean.length, want: '(informational)' });
 
   // 2. After real edits, the diff names only what moved.
@@ -73,15 +73,25 @@ export default async function drive(page) {
   check('still inside the limit after editing', edited.length < 2000, (v) => v === true);
   const editedBody = messageOf(edited);
   let parsed2 = null;
-  try { parsed2 = JSON.parse(editedBody); } catch { /* reported below */ }
-  if (parsed2 && parsed2.diff) {
-    const keys = Object.keys(parsed2.diff);
-    check('the diff is non-empty once something moved', keys.length > 0, (v) => v === true);
-    // A diff carrying the whole tree would mean the base is not being
-    // reproduced — the exact failure this design replaces.
-    check('and does not carry the whole tree', keys.length < 10, (v) => v === true);
-    results.push({ name: 'edited diff keys', ok: true, got: keys, want: '(informational)' });
-  }
+  try { parsed2 = JSON.parse(editedBody); } catch { /* asserted below */ }
+  // AUDIT FIX (vacuous test): every diff assertion used to sit inside an
+  // `if (parsed2 && parsed2.diff)`, so an unparseable message — or a missing
+  // diff, which is the very failure this file exists to catch — skipped the
+  // whole second half SILENTLY and the drive still reported green.
+  check('the edited message is parseable JSON', !!parsed2, (v) => v === true);
+  check('…and carries a diff', isObjectLike(parsed2 && parsed2.diff), (v) => v === true);
+  const keys = Object.keys((parsed2 && parsed2.diff) || {});
+  check('the diff is non-empty once something moved', keys.length > 0, (v) => v === true);
+  // A diff carrying the whole tree would mean the base is not being
+  // reproduced — the exact failure this design replaces.
+  check('and does not carry the whole tree', keys.length < 10, (v) => v === true);
+  // AUDIT: an Energy move re-shapes the genre's kit, which is a FUNCTION of
+  // (genre, seed, shaping) — the origin records the shaping, so the diff must
+  // stay small instead of carrying every kit lane (that pushed a submission
+  // past the URL ceiling into the clipboard fallback, silently).
+  check('a re-shaped kit rides the ORIGIN, not the diff', editedBody.length < 2000, (v) => v === true);
+  results.push({ name: 'edited body length', ok: true, got: editedBody.length, want: '(informational)' });
+  results.push({ name: 'edited diff keys', ok: true, got: keys, want: '(informational)' });
   results.push({ name: 'edited URL length', ok: true, got: edited.length, want: '(informational)' });
 
   const failed = results.filter((r) => !r.ok);

@@ -6648,9 +6648,16 @@ export function createEngine(initialParams, options = {}) {
    * when the section's energy has actually moved, and holds it in between.
    */
   function ensureBassGroove() {
+    // AUDIT FIX: complexity and density are BANDED to the groove's own
+    // quarter resolution here, exactly like the intensity above. round3 of
+    // a value that WALKS (a spread Energy writes params.complexity per bar;
+    // a ranged Density resolves per bar) changed the key every bar — and a
+    // groove that re-rolls every bar is a random walk, the very failure
+    // this key exists to prevent.
+    const band = (v) => Math.round(clamp(v, 0, 2) * 4) / 4;
     const key = [
       currentSection.label, bassIntensityBand(), params.timeSignature,
-      round3(params.complexity), round3(trackDensity('bass')),
+      band(params.complexity), band(trackDensity('bass')),
     ].join(':');
     if (bassGroove && bassGrooveKey === key) return bassGroove;
     // The four- and eight-bar counts the groove is developed against belong to
@@ -7226,7 +7233,18 @@ export function createEngine(initialParams, options = {}) {
     }
   }
 
+  let percussionBankBand = null; // complexity band the bank's patterns were drawn at
+
   function choosePercussion(intensity) {
+    // AUDIT FIX: the bank is invalidated when Energy leaves the band its
+    // patterns were drawn in — at high Repetition `reuse` fired almost every
+    // bar, so the kit kept replaying old-density patterns and the Energy
+    // dial was ignored for as long as the piece ran.
+    const bandNow = Math.round(clamp(params.complexity, 0, 1) * 4) / 4;
+    if (percussionBankBand !== bandNow) {
+      percussionBank = [];
+      percussionBankBand = bandNow;
+    }
     const density = clamp(
       (0.15 + intensity * params.complexity * 1.2) * trackDensity('percussion'), 0, 1,
     );
