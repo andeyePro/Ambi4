@@ -13819,7 +13819,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (TRACK_IDS.includes('percussion')) playAlongTrack.value = 'percussion';
             if (!playAlongOn) setPlayAlong(true);
             setPlayAlongUI();
-            if (canCapture(playAlongTarget()) && !captureState().armed) captureButton.click();
+            // AUDIT FIX: tapping re-points the KEYS at percussion, so an
+            // already-armed capture on another track must re-point too — it
+            // records nothing the keys are now playing, and every Space tap
+            // was silently discarded.
+            if (canCapture(playAlongTarget())) {
+              const armed = captureState();
+              if (!armed.armed) captureButton.click();
+              else if (armed.track !== playAlongTarget()) {
+                try {
+                  engine.armCapture(playAlongTarget());
+                } catch {}
+                setPlayAlongUI();
+              }
+            }
             if (guidedTip) {
               guidedTip.textContent =
                 'Tap Space — each tap sounds the kit and Capture writes it into the drum grid. Press the button again to stop.';
@@ -14010,6 +14023,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (alarmTarget !== null && now >= alarmTarget) {
           alarmTarget = null;
           releaseWakeLock();
+          // AUDIT FIX: an exact-pause engine is still "running" while held,
+          // so a due alarm nulled its target and started NOTHING — it
+          // self-destructed silently. An alarm start is a new piece: release
+          // the hold and fall through to the fresh start below.
+          if (engine.running && paused) {
+            try {
+              engine.stop();
+            } catch {}
+            clearPaused();
+          }
           if (!engine.running) {
             clearPaused(); // an alarm start is a new piece, never a resume
             engine

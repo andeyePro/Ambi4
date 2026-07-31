@@ -5928,8 +5928,20 @@ export function createEngine(initialParams, options = {}) {
    * sounding — but bars are a cycle and the quantiser wraps, so a downbeat one
    * or two bars in the future is the same origin as the one under the hands.
    */
-  function captureGrid() {
+  function captureGrid(track) {
     const secPerBeat = 60 / clamp(params.bpm * params.speed, 10, 400);
+    // AUDIT FIX: the ARP lane is indexed by arp step at the CURRENT rate
+    // (ruling 9a), not by sixteenth — quantising an arp take to sixteenths
+    // wrote slots the lane never plays and dropped every hit past its
+    // (shorter) length. The capture grid is the TRACK's own grid.
+    if (track === 'arp') {
+      const rate = params.arp && ARP_RATES[params.arp.rate] !== undefined ? params.arp.rate : '1/8';
+      return {
+        origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
+        stepSeconds: secPerBeat * (ARP_RATES[rate] ?? 0.5),
+        stepCount: arpLaneLength(params.timeSignature, rate),
+      };
+    }
     return {
       origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
       stepSeconds: secPerBeat * SEQUENCER_STEP_BEATS,
@@ -5964,6 +5976,10 @@ export function createEngine(initialParams, options = {}) {
     for (const held of [...heldKeys.values()]) {
       if (held.row && held.row.end === null) held.row.end = Math.max(at, held.row.start + 0.02);
     }
+    // AUDIT FIX: the grid is read BEFORE `capture` drops — captureGrid's
+    // stopped-transport branch anchors on capture.armedAt, which nulling
+    // first turned into dead code (every stopped-engine take anchored at 0).
+    const grid = captureGrid(track);
     capture = null;
     const config = params.tracks[track];
     // The track can have been removed while the take was running: there is
@@ -5973,12 +5989,13 @@ export function createEngine(initialParams, options = {}) {
     }
     const list = Array.isArray(config.sequencers) ? config.sequencers : [config.sequencer];
     const index = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
-    const grid = captureGrid();
     const kit = liveKit(track);
     // The RAW take survives the quantiser: beats, not seconds, so a later
     // re-fit lands the same performance on whatever grid is current then.
     if (notes.length) {
-      const secPerBeat = grid.stepSeconds / SEQUENCER_STEP_BEATS;
+      // Real beats, not slot-derived: the arp's slot is its own rate, so
+      // dividing its stepSeconds back by the sixteenth would mis-scale.
+      const secPerBeat = 60 / clamp(params.bpm * params.speed, 10, 400);
       lastTake = {
         track,
         beats: notes.map((note) => ({
@@ -6016,8 +6033,8 @@ export function createEngine(initialParams, options = {}) {
     if (!config || !config.sequencers) return null;
     const list = Array.isArray(config.sequencers) ? config.sequencers : [config.sequencer];
     const index = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
-    const grid = captureGrid();
-    const secPerBeat = grid.stepSeconds / SEQUENCER_STEP_BEATS;
+    const grid = captureGrid(track);
+    const secPerBeat = 60 / clamp(params.bpm * params.speed, 10, 400);
     const notes = beats.map((row) => ({
       start: grid.origin + row.start * secPerBeat,
       end: row.end === null ? undefined : grid.origin + row.end * secPerBeat,

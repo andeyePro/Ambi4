@@ -9416,6 +9416,52 @@ test('v28 record-arm: a take is quantised into the armed track\'s active lane, a
   engine.stop();
 });
 
+test('audit: an arp take lands on the ARP grid, and a stopped-engine take anchors at the arming moment', async () => {
+  // Arp at 1/8 in 4/4: eight slots of 0.25 s at 120 bpm — a take on the
+  // sixteenth grid would land these on slots the lane never plays.
+  const engine = createEngine({ bpm: 120, speed: 1, timeSignature: '4/4', arp: { mode: 'manual', rate: '1/8' } });
+  engine.arm();
+  const ctx = liveContexts.at(-1);
+  assert.equal(engine.armCapture('arp'), true);
+  const EIGHTH = 0.25;
+  for (const slot of [0, 3, 6]) {
+    ctx.currentTime = slot * EIGHTH;
+    engine.noteOn('arp', 60, 0.6);
+    ctx.currentTime += 0.05;
+    engine.noteOff('arp', 60);
+  }
+  ctx.currentTime = 8 * EIGHTH;
+  const take = engine.stopCapture();
+  assert.equal(take.written, 3, 'all three eighth-grid hits must land');
+  const lane = engine.getParams().tracks.arp.sequencers[take.sequencer].steps;
+  assert.equal(lane.slice(0, 8).map((s) => (s.on ? 'x' : '-')).join(''), 'x--x--x-',
+    'the take is indexed by ARP step at the current rate, not by sixteenth');
+
+  // armedAt anchor: arm at a NON-zero clock with the engine never started —
+  // the grid keys to the arming moment, not to zero.
+  const idle = createEngine({ bpm: 120, speed: 1, timeSignature: '4/4' });
+  idle.arm();
+  const ictx = liveContexts.at(-1);
+  ictx.currentTime = 10.125; // an eighth past an imaginary zero downbeat
+  assert.equal(idle.armCapture('melody'), true);
+  ictx.currentTime = 10.125; // first tap AT the arming moment = slot 0
+  idle.noteOn('melody', 64, 0.6);
+  ictx.currentTime += 0.05;
+  idle.noteOff('melody', 64);
+  ictx.currentTime = 10.125 + 0.5; // one beat later = slot 4
+  idle.noteOn('melody', 67, 0.6);
+  ictx.currentTime += 0.05;
+  idle.noteOff('melody', 67);
+  ictx.currentTime = 12.125;
+  const idleTake = idle.stopCapture();
+  assert.equal(idleTake.written, 2);
+  const idleLane = idle.getParams().tracks.melody.sequencers[idleTake.sequencer].steps;
+  assert.equal(idleLane.slice(0, 8).map((s) => (s.on ? 'x' : '-')).join(''), 'x---x---',
+    'a stopped-engine take must anchor at armedAt — anchoring at zero smears the slots');
+  idle.stop();
+  engine.stop();
+});
+
 test('v0.0.107 re-fit: the raw take survives quantisation and lands on the CURRENT grid when asked again', async () => {
   // 120 bpm: a sixteenth is 0.125 s. One note is played past the 4/4 barline
   // (slot 17), so the first quantise WRAPS it onto slot 1 — and that wrap is
