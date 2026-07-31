@@ -63,6 +63,30 @@ const PROBE = async (moduleUrl, targets) => {
       at: +(where / sr).toFixed(4),
     };
   };
+  /**
+   * Does this step RECUR one waveform period later? A bright attack lets a
+   * saw's or pulse's wrap through while the filter is open, and that wrap is the
+   * waveform: it happens again on the next cycle, and the cycle after. A
+   * discontinuity happens once. Without this the two are indistinguishable —
+   * a filter that closes within 50 ms leaves exactly one visible wrap inside
+   * the onset window, which looks like a lone step and is not one.
+   */
+  const recursAtPeriod = (data, sr, sample, freq) => {
+    if (!Number.isFinite(freq) || freq <= 0) return null;
+    const period = sr / freq;
+    const step = Math.abs(data[sample] - data[sample - 1]);
+    if (!(step > 0)) return null;
+    for (const multiple of [1, 2, 3]) {
+      const centre = Math.round(sample + period * multiple);
+      let best = 0;
+      for (let i = centre - 4; i <= centre + 4; i++) {
+        if (i < 1 || i >= data.length) continue;
+        best = Math.max(best, Math.abs(data[i] - data[i - 1]));
+      }
+      if (best >= step * 0.55) return +(best / step).toFixed(3);
+    }
+    return null;
+  };
   const peakOf = (data) => {
     let peak = 0;
     for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
@@ -124,6 +148,7 @@ const PROBE = async (moduleUrl, targets) => {
       // Anything sounding before the scheduled onset means the harness is not
       // measuring the note it thinks it is.
       const silenceBefore = +peakOf(data.subarray(0, at(0.245))).toFixed(6);
+      const onsetRecurs = recursAtPeriod(data, SR, Math.round(onset.at * SR), 110);
       // The body: well past any attack, before any release.
       const body = jump(at(0.45), at(0.95));
       const peak = peakOf(data);
@@ -143,6 +168,7 @@ const PROBE = async (moduleUrl, targets) => {
         const event = steepIn(d2, SR, 0.365, 0.40);
         const reference = steepIn(d2, SR, 0.30, 0.35);
         fast = {
+          recurs: recursAtPeriod(d2, SR, Math.round(event.at * SR), 146.83),
           secondOnsetJump: event.worst,
           spikes: event.spikes,
           at: event.at,
@@ -175,6 +201,7 @@ const PROBE = async (moduleUrl, targets) => {
         const event = steepIn(d3, SR, 0.595, 0.65);
         const reference = steepIn(d3, SR, 0.45, 0.59);
         cut = cancellable ? {
+          recurs: recursAtPeriod(d3, SR, Math.round(event.at * SR), 110),
           cancelJump: event.worst,
           spikes: event.spikes,
           at: event.at,
@@ -213,6 +240,8 @@ const PROBE = async (moduleUrl, targets) => {
         const bodyWin = steepIn(d4, SR, 0.28, 0.36);
         slur = {
           took: [took2, took3],
+          recurs2: recursAtPeriod(d4, SR, Math.round(hand2W.at * SR), 146.83),
+          recurs3: recursAtPeriod(d4, SR, Math.round(hand3W.at * SR), 110),
           handoverJump2: hand2W.worst,
           handoverJump3: hand3W.worst,
           spikes2: hand2W.spikes,
@@ -236,6 +265,7 @@ const PROBE = async (moduleUrl, targets) => {
         onsetJump: onset.worst,
         onsetSteepness: onset.steepness,
         onsetSpikes: onset.spikes,
+        onsetRecurs,
         nextCyclesJump: +nextCycles.worst.toFixed(5),
         nextCyclesSteepness: nextCycles.peak > 0 ? +(nextCycles.worst / nextCycles.peak).toFixed(4) : null,
         onsetAt: onset.at,
@@ -374,32 +404,39 @@ export default async function drive(page) {
   const CLICK_FLOOR = 0.02;      // absolute sample-to-sample step
   const STEEP_MULT = 1.6;        // times the note's own steepness a few cycles on
   const MAX_SPIKES = 8;          // more than this is a noise transient, not a click
-  // -- the six the corrected harness found, as a baseline ---------------------
+  // -- what survives all four filters, as a live baseline ---------------------
   //
-  // Fixing them is voice-envelope surgery on six voices, each of which moves the
-  // frozen audio reference, so they are recorded here with their measured
-  // numbers rather than left to fail the gate — the same shape as the reference
-  // baseline itself. THE GATE STAYS LIVE: a NEW click anywhere fails, and a
-  // known one getting more than a fifth worse fails. Every one of them is a
-  // SINGLE steep step in an otherwise smooth window, which is the signature of
-  // a gain being re-asserted mid-ramp rather than of an attack transient.
+  // Fixing these is voice-envelope surgery that moves the frozen audio
+  // reference, so they are recorded with their measured numbers rather than
+  // left to fail the gate — the same shape as the reference baseline itself.
+  // THE GATE STAYS LIVE: a NEW click anywhere fails, a known one more than a
+  // fifth worse fails, and one that gets FIXED must be removed from this list.
   //
-  // `bass/fingered onset` is the one the owner reported by name ("Soul Groove —
-  // Fingered bass is also cracking on note start"). It is a real defect and it
-  // is now measured, not argued about: 0.053 of full scale in one sample, 49%
-  // of the note's own loudness right there, against 6.5% a few cycles later.
+  //   arp/marimba onset            one step of 0.103, 82% of its own loudness
+  //                                against 2.3% a few cycles on, 30 ms after
+  //                                the strike — which is where noiseBurst's
+  //                                `rig.stopAt(source, end + 0.02)` falls for
+  //                                its 1 ms attack and 8 ms decay. That is the
+  //                                lead to follow first.
+  //   melody/stab onset            38% against 5.7%, same shape
+  //   bass/breath slur handover 2  92% against 1.4% — on a SINE voice, so
+  //                                nothing about it can be waveform
+  //
+  // What is NOT here matters as much: `bass/fingered`, `melody/nylon`,
+  // `texture/chimes` and marimba's fast-line all showed big steps that RECUR
+  // one waveform period later, which makes them the instrument — a saw or pulse
+  // wrap heard through an attack that has the filter open — and not a defect.
+  // fingered is the voice the owner named, so its onset in isolation is clean
+  // and whatever he heard in Soul Groove is in the playing, not in one note.
   const KNOWN = new Map([
-    ['bass/breath slur handover 2', 0.93],
-    ['bass/fingered onset', 0.50],
-    ['melody/nylon onset', 0.61],
-    ['melody/stab onset', 0.39],
-    ['texture/chimes onset', 0.32],
+    ['bass/breath slur handover 2', 0.92],
     ['arp/marimba onset', 0.82],
+    ['melody/stab onset', 0.39],
   ]);
   const KNOWN_SLACK = 1.2; // a fifth worse than measured is a regression
   const known = [];
   const problems = [];
-  const claim = (label, jump, steepness, reference, spikes) => {
+  const claim = (label, jump, steepness, reference, spikes, recurs) => {
     if (!Number.isFinite(jump) || jump <= CLICK_FLOOR) return;
     if (!Number.isFinite(steepness)) return; // no loudness reading, no verdict
     const own = Number.isFinite(reference) ? reference : 0;
@@ -407,6 +444,9 @@ export default async function drive(page) {
     // A dense cluster of steep steps is a noise transient the voice was written
     // to have — a mallet, a fingertip, a hand on a skin. A click is one step.
     if (Number.isFinite(spikes) && spikes > MAX_SPIKES) return;
+    // The same step one waveform period on: this is the instrument's own
+    // wrap seen through an attack that opens the filter, not a discontinuity.
+    if (Number.isFinite(recurs)) return;
     const baseline = KNOWN.get(label);
     if (baseline !== undefined) {
       if (steepness <= baseline * KNOWN_SLACK) {
@@ -429,15 +469,19 @@ export default async function drive(page) {
     if (row.error) continue;
     const label = `${row.track}/${row.id}`;
     claim(`${label} onset`, row.onsetJump, row.onsetSteepness,
-      row.nextCyclesSteepness ?? row.bodySteepness, row.onsetSpikes);
+      row.nextCyclesSteepness ?? row.bodySteepness, row.onsetSpikes, row.onsetRecurs);
     claim(`${label} fast-line second onset`, row.fastLine?.secondOnsetJump,
-      row.fastLine?.eventSteepness, row.fastLine?.referenceSteepness, row.fastLine?.spikes);
+      row.fastLine?.eventSteepness, row.fastLine?.referenceSteepness, row.fastLine?.spikes,
+      row.fastLine?.recurs);
     claim(`${label} cancel cut`, row.cancelCut?.cancelJump,
-      row.cancelCut?.eventSteepness, row.cancelCut?.referenceSteepness, row.cancelCut?.spikes);
+      row.cancelCut?.eventSteepness, row.cancelCut?.referenceSteepness, row.cancelCut?.spikes,
+      row.cancelCut?.recurs);
     claim(`${label} slur handover 2`, row.slurChain?.handoverJump2,
-      row.slurChain?.handoverSteepness2, row.slurChain?.bodySteepness, row.slurChain?.spikes2);
+      row.slurChain?.handoverSteepness2, row.slurChain?.bodySteepness, row.slurChain?.spikes2,
+      row.slurChain?.recurs2);
     claim(`${label} slur handover 3`, row.slurChain?.handoverJump3,
-      row.slurChain?.handoverSteepness3, row.slurChain?.bodySteepness, row.slurChain?.spikes3);
+      row.slurChain?.handoverSteepness3, row.slurChain?.bodySteepness, row.slurChain?.spikes3,
+      row.slurChain?.recurs3);
   }
   if (problems.length) {
     throw new Error('onset-render: ' + problems.length + ' click(s)\n  ' + problems.join('\n  '));
