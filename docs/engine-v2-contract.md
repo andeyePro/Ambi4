@@ -1921,3 +1921,39 @@ other than triplets."
   rung a 3/4 beat starts one and a half slots in; a beat number rounded onto
   the next cell would point at the wrong step. Every straight rung divides a
   beat exactly, so this only ever removes marks that were never true.
+
+## Nothing changes instantaneously while it is sounding (v0.0.140/141)
+
+Module ownership: **every voice** (`src/scripts/engine-voices.js`), gated by
+`tests/onset-render.mjs`.
+
+Both clicks the owner reported had the same shape of cause, found by rendering
+and measuring rather than by listening, and the rule is worth stating once for
+every voice written from here on:
+
+- **A source's `stop()` is instantaneous, and it is quantised to the render
+  block.** Stopping a buffer source that is still contributing signal removes
+  that signal in one sample. It is also why two voices with different burst
+  lengths clicked at exactly the same sample: both stops rounded up to the same
+  128-sample boundary while their envelopes did not. Let a source stop with the
+  note's own teardown unless there is a measured reason not to.
+- **`cancelScheduledValues` does not hold the value.** It drops the param back
+  to the last COMPLETED event, so cancelling mid-ramp and then setting a level
+  steps twice. `cancelAndHoldAtTime` keeps the value the envelope actually has;
+  where it is missing, do not cancel at all.
+- **A level reached instantly is a click even when the number is right.** The
+  legato takeover set the amp to the held level at the handover instant; on a
+  slow-attack voice the envelope is nowhere near that level yet. A slur's
+  loudness should arrive the way its pitch does — over the same glide.
+- **An envelope's floor is absolute; a voice's peak is not.** `SILENCE` is
+  1e-4 of full scale, and a bandpass makeup gain multiplies what comes after
+  it. "The envelope has finished" is not the same as "this is inaudible".
+
+The gate that holds this: `tests/onset-render.mjs` renders every voice in the
+library and calls a step a click when it clears 0.02 of full scale, is more
+than 1.6× as steep for its own loudness as the note is a few cycles later, is a
+LONE step rather than a dense cluster (a mallet, a fingertip and a hand on a
+skin are deliberate noise transients), and does NOT recur one waveform period
+later (a saw's wrap heard through an open attack filter is the instrument). Its
+recorded-click list is empty and must stay that way; a fixed one has to be
+removed from it, which the harness enforces.

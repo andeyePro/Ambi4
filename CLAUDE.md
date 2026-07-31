@@ -113,6 +113,11 @@ was not meant to move it and does, that is a regression.
 - Bump `package.json` version with each shipped change; the version shows at the
   top of the screen and in the footer.
 - **Prove a test fails on the old code before claiming it proves the fix.**
+- **Nothing may change instantaneously while it is sounding** — a source stopped
+  mid-signal, a `cancelScheduledValues` that drops back to the last completed
+  event, a level set rather than reached. Both clicks he reported were this, and
+  `tests/onset-render.mjs` now holds the line for every voice. See
+  `docs/engine-v2-contract.md`.
 - **Measure, don't listen and don't eyeball.** A click is a step in a sample
   stream and a step has a size; a filter sweep is a spectral centroid moving and
   it can be counted in octaves. Nobody in this container can hear anything.
