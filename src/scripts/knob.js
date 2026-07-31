@@ -256,6 +256,21 @@ export function createKnob(container, options) {
   // and a silent refusal there would teach that sideways does nothing anywhere.
   const onRangeRefused = typeof opts.onRangeRefused === 'function' ? opts.onRangeRefused : null;
   const format = typeof opts.format === 'function' ? opts.format : null;
+  // AUDIT FIX: click-to-type read and wrote the knob's INTERNAL domain, so
+  // typing "80" into a log-mapped bpm readout clamped to 1 and gave 220 bpm.
+  // `parse` is format's inverse (display number → internal); a dial without
+  // one keeps the old identity behaviour, which is right for linear dials.
+  const parse = typeof opts.parse === 'function' ? opts.parse : null;
+  const parsed = (n) => {
+    if (!Number.isFinite(n)) return NaN;
+    if (!parse) return n;
+    try {
+      const mapped = Number(parse(n));
+      return Number.isFinite(mapped) ? mapped : NaN;
+    } catch {
+      return NaN;
+    }
+  };
   // v0.0.56: spreadable is the DEFAULT. The owner's ruling is that every dial
   // must answer to the same gestures — a dial that ignores a horizontal drag
   // teaches the user that horizontal drags do nothing, on every other dial
@@ -842,8 +857,8 @@ export function createKnob(container, options) {
       const dashMatch = !toMatch && /^(-?[\d.]+)\s*-\s*(-?[\d.]+)$/.exec(text);
       const m = toMatch || dashMatch;
       if (m) {
-        const a = quantise(Number(m[1]));
-        const b = quantise(Number(m[2]));
+        const a = quantise(parsed(Number(m[1])));
+        const b = quantise(parsed(Number(m[2])));
         if (!Number.isFinite(a) || !Number.isFinite(b)) return;
         const lo = Math.min(a, b);
         const hi = Math.max(a, b);
@@ -859,13 +874,13 @@ export function createKnob(container, options) {
       // A lone number in range mode sets the ACTIVE thumb only — the same
       // target PgUp/PgDn/Home/End would hit — via the existing per-thumb
       // commit/commitMax clamp path.
-      const single = Number(text);
+      const single = parsed(Number(text));
       if (!Number.isFinite(single)) return;
       if (activeThumb === 'max') commitMax(single, true);
       else commit(single, true);
       return;
     }
-    const single = Number(text);
+    const single = parsed(Number(text));
     if (!Number.isFinite(single)) return; // unparsable: silently discarded
     commit(single, true);
   }
@@ -907,7 +922,15 @@ export function createKnob(container, options) {
     input.style.background = 'none';
     input.style.padding = '0 2px';
     input.style.outline = 'none';
-    input.value = mode === 'range' ? `${value}-${valueMax}` : `${value}`;
+    const display = (v) => {
+      if (!parse || !format) return String(v);
+      // Show the number the user would type back: strip the unit suffix
+      // from the formatted readout ("94 bpm" → "94", "62%" → "62").
+      const text = String(fmt(v));
+      const numeric = /-?[\d.]+/.exec(text);
+      return numeric ? numeric[0] : String(v);
+    };
+    input.value = mode === 'range' ? `${display(value)}-${display(valueMax)}` : display(value);
 
     function commitEdit() {
       const raw = input.value;

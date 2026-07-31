@@ -3442,7 +3442,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       };
       const ARP_RATE_WEIGHT = { '1/4': 0.4, '1/8': 0.6, '1/8T': 0.7, '1/16': 0.9 };
 
+      /** Is this dial's pointer down right now? Writing a face mid-gesture
+       * fights the pointer — the same law setTempo's skip flags encode. */
+      const dialDragging = (dial) => dial?.el?.getAttribute?.('data-dragging') === 'true';
+
       function updateComplexityDisplay() {
+        // AUDIT FIX: the debounced complexity commit fires DURING a paused
+        // drag, and this write-back teleported the held thumb mid-gesture.
+        if (dialDragging(complexityDial)) return;
         const parts = [];
         if (settings.structure !== 'auto') {
           if (settings.structure === 'custom' && settings.customStructure.length) {
@@ -4015,6 +4022,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // ---- v6: per-track Random / Hold / Randomness + vary targets ------
 
       const pctFormat = (v) => `${Math.round(v * 100)}%`;
+      // Typed entry on a percent dial arrives as the number the readout
+      // shows ("62" for 62%); a bare fraction still works for the pedants.
+      const pctParse = (n) => (n > 1 ? n / 100 : n);
 
       // ---- v13 tooltips + ⓘ info boxes -----------------------------------
       // Native `title` is unreachable by touch and unreliable by keyboard, so
@@ -4408,6 +4418,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           step: 0.001,
           value: speedTFromBpm(settings.bpm),
           format: (t) => `${Math.round(bpmFromSpeedT(t))} bpm`,
+          parse: (n) => speedTFromBpm(clamp(n, 20, 220)),
           defaultValue: speedTFromBpm(DEFAULTS.bpm),
         },
         (t) => setTempo(mapRangeValue(t, bpmFromSpeedT), { skipSpeedThumb: true, landing: 'bar' })
@@ -4436,6 +4447,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           step: 0.001,
           value: speedTFromBpm(settings.bpm),
           format: (t) => `${Math.round(bpmFromSpeedT(t))} bpm`,
+          parse: (n) => speedTFromBpm(clamp(n, 20, 220)),
           defaultValue: speedTFromBpm(DEFAULTS.bpm),
           allowRange: false,
           onRangeRefused: () =>
@@ -4590,6 +4602,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           tracks: trackStates,
         });
         if (syncDial) complexityDial?.set(value);
+        // AUDIT FIX: the Energy dial is the OTHER view of this value — an
+        // Advanced Complexity edit left it stale, so the next Energy touch
+        // jumped the sound to wherever the dial had been left. Mid-gesture
+        // writes are skipped (that would fight the pointer that is causing
+        // this very commit).
+        if (!dialDragging(energyDial)) {
+          energyDial?.set(mapRangeValue(value, energyFromComplexity));
+        }
         // Energy stage 1c: while the kit is still the genre's own, the dial
         // re-shapes it VISIBLY (recompiled, written to the grid) — soft kicks
         // and thinned hats below the midpoint, the genre's identity lane kept.
@@ -4609,6 +4629,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           step: 0.01,
           value: settings.complexity,
           format: pctFormat,
+            parse: pctParse,
           defaultValue: DEFAULTS.complexity,
         },
         // Debounced (C8): the commit redraws the plan and resets the banks,
@@ -4629,6 +4650,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           step: 0.001,
           value: mapRangeValue(settings.complexity, energyFromComplexity),
           format: pctFormat,
+            parse: pctParse,
           defaultValue: ENERGY_DEFAULT,
         },
         (e) => {
@@ -4668,6 +4690,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           step: 0.01,
           value: settings.repetition,
           format: pctFormat,
+            parse: pctParse,
           defaultValue: DEFAULTS.repetition,
         },
         (value) => {
@@ -4881,7 +4904,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         let volumeAdv = null;
         volumeSimple = buildSimpleDial(
           'volume-dial',
-          { ...volumeOpts, id: 'volume', label: 'Volume', format: pctFormat },
+          { ...volumeOpts, id: 'volume', label: 'Volume', format: pctFormat, parse: pctParse },
           (t) => {
             commitVolume(t);
             volumeAdv?.set(t);
@@ -4899,6 +4922,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // attenuates and never boosts, and the minus sign is what says so
             // — at unity the reading is "no attenuation", which is a different
             // statement from "zero decibels of gain".
+            // Typed entry mirrors the readout's unit: decibels of
+            // attenuation ("-6" or "6" both mean 6 dB down), mapped back
+            // through the taper.
+            parse: (n) => volumeDialFromParam(Math.pow(10, -Math.abs(n) / 20)),
             format: (t) => {
               const v = volumeParamFromDial(t);
               if (v <= 0.001) return '-\u221e dB';
@@ -6306,6 +6333,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               max: 1,
               value,
               format: pctFormat,
+            parse: pctParse,
               allowRange: true,
               defaultValue: 0,
               onInput: commitDissonance,
@@ -6377,6 +6405,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               max: 1,
               value: stored,
               format: pctFormat,
+            parse: pctParse,
               defaultValue: shipped,
               onInput: commitPadBreath,
             });
@@ -8681,6 +8710,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             fallback: 0.15,
             format: pctFormat,
+            parse: pctParse,
             hint: 'How far that sweep travels. At zero the band holds still whatever the sweep rate says.',
           },
           {
@@ -8690,6 +8720,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             fallback: 0.2,
             format: pctFormat,
+            parse: pctParse,
             hint: 'A slow random walk on level and brightness — the wind picking up and dying back.',
           },
           {
@@ -8709,6 +8740,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             fallback: 0,
             format: pctFormat,
+            parse: pctParse,
             hint: 'Stretches the attack into a crescendo — small is a gentle rise, full is storm-scale.',
           },
         ]],
@@ -8720,6 +8752,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             fallback: 0.2,
             format: pctFormat,
+            parse: pctParse,
             hint: 'How many grains land per second: droplets at the bottom, a downpour at the top.',
           },
           {
@@ -8729,6 +8762,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             fallback: 0.5,
             format: pctFormat,
+            parse: pctParse,
             hint: 'The character of each grain — soft damp drops at the left, dry bright crackle at the right.',
           },
         ]],
@@ -8754,6 +8788,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             fallback: 0.5,
             format: pctFormat,
+            parse: pctParse,
             hint: 'The shape of that slide: even at the left, snapping to the target end at the right.',
           },
         ]],
@@ -8797,6 +8832,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             fallback: 0.25,
             format: pctFormat,
+            parse: pctParse,
             hint: 'How unevenly those calls are spaced. Zero is metronomic; higher sounds like a living thing.',
           },
         ]],
@@ -8982,6 +9018,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             step: 0.01,
             value: rangeMid(sanitiseRangeValueIn(patch.source.noise, 0, 1, defaults?.source?.noise ?? 1)),
             format: pctFormat,
+            parse: pctParse,
             onChange: (v) => {
               patch.source.noise = clamp(v, 0, 1);
               commit();
@@ -8999,6 +9036,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             step: 0.01,
             value: rangeMid(sanitiseRangeValueIn(patch.source.fold, 0, 1, defaults?.source?.fold ?? 0)),
             format: pctFormat,
+            parse: pctParse,
             onChange: (v) => {
               patch.source.fold = clamp(v, 0, 1);
               commit();
@@ -9286,6 +9324,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             value: mapRV(value, toLog),
             format: (t) => format(fromLog(t)),
+            // Typed entry arrives in the dial's DISPLAY unit (Hz, ms, %…) —
+            // the same unit format prints — and maps back through the log.
+            parse: (n) => toLog(n),
             onInput: (t) => onValue(mapRV(t, fromLog)),
             // The ghost readout is handed the COMMON patch value in this
             // param's own units, so it needs the same linear→log mapping the
@@ -9495,18 +9536,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             step: 1,
             // An older stored patch carries the octave switch instead; ×12
             // reads it in the new dial's units so nothing jumps on upgrade.
-            value: clamp(
-              typeof patch.source.pitch === 'number'
-                ? patch.source.pitch
-                : (patch.source.octave || 0) * 12,
+            // AUDIT FIX: pitch is rangeable like every numeric dial — the old
+            // clamp() on a {min,max} span produced NaN, so a sideways drag
+            // wrote NaN into the patch and the pitch silently reverted.
+            value: sanitiseRangeValueIn(
+              patch.source.pitch ?? (patch.source.octave || 0) * 12,
               -24,
-              24
+              24,
+              0
             ),
             marks: [-24, -12, 0, 12, 24],
             format: semitones,
             defaultValue: defaults.source.pitch ?? (defaults.source.octave || 0) * 12,
             onInput: (v) => {
-              patch.source.pitch = Math.round(clamp(v, -24, 24));
+              patch.source.pitch = mapRV(v, (n) => Math.round(clamp(n, -24, 24)));
               commit();
             },
           });
@@ -9520,6 +9563,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             value: sanitiseRangeValueIn(patch.source.noise, 0, 1, defaults.source.noise ?? 0.5),
             format: pctFormat,
+            parse: pctParse,
             allowRange: engineCaps.patchNoiseRange,
             ...(defaults.source.noise != null ? { defaultValue: defaults.source.noise } : {}),
             onInput: (v) => {
@@ -9545,6 +9589,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             max: 1,
             value: sanitiseRangeValueIn(patch.source.fold, 0, 1, defaults.source.fold ?? 0),
             format: pctFormat,
+            parse: pctParse,
             allowRange: true,
             defaultValue: defaults.source.fold ?? 0,
             onInput: (v) => {
@@ -10294,6 +10339,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               max: 1,
               value: settings.tracks[track].level,
               format: pctFormat,
+            parse: pctParse,
               allowRange: true,
               defaultValue: DEFAULTS.tracks[track].level,
               onInput: commitLevel,
@@ -11339,7 +11385,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         lastBarIndex += 1;
         currentBeatsPerBar = beatsPerBar || 4;
         clearPlayheadTimers();
-        const barSeconds = (beatsPerBar || 4) * (60 / clamp(settings.bpm, 40, 120));
+        // AUDIT FIX: the playhead timed its sweep from a 40–120 clamp that
+        // predates the 20–220 tempo range (desyncing above 120), and read
+        // settings.bpm raw — a spread tempo is a {min,max} object, clamp()
+        // of which is NaN, so every step timer fired at once. The ENGINE's
+        // own number (always plain; spans live under params.spans) is the
+        // truth the bars are actually scheduled with.
+        const live = (() => {
+          try {
+            return engine.getParams();
+          } catch {
+            return null;
+          }
+        })();
+        const liveBpm = clamp((live?.bpm ?? rangeMid(settings.bpm)) * (live?.speed ?? 1), 10, 400);
+        const barSeconds = (beatsPerBar || 4) * (60 / liveBpm);
         for (const [track, ed] of openEditors) {
           if (!ed.seq) continue;
           const n = stepsPerBarFor(track);
