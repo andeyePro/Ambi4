@@ -102,7 +102,7 @@ echo
 echo "${#green[@]} green, ${#flaky[@]} flaky, ${#red[@]} red, of ${#DRIVES[@]} drives"
 [ "${#flaky[@]}" -gt 0 ] && echo "FLAKY (passed alone — load, not regression): ${flaky[*]}"
 if [ "${#red[@]}" -gt 0 ]; then
-  echo "RED (failed alone too — fix before shipping): ${red[*]}"
+  echo "RED (failed alone twice, rested — fix before shipping): ${red[*]}"
   exit 1
 fi
 exit 0
