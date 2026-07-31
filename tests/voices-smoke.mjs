@@ -947,6 +947,64 @@ test('a patch moves the attack, and a partial patch moves only the attack', () =
   }
 });
 
+test('audit: a kit\'s own defaults as a patch keep its character — the hat stays a hat', () => {
+  // The audit's flagship voices finding: a percussion voice publishes ONE
+  // filter and ONE adsr but plays three kinds, and applying the kit's own
+  // defaults as a patch (which ANY dial nudge or Reset to default does) used
+  // to swap each kind's authored character for the kit-wide one — the soft
+  // kit's 6.75 kHz highpass hat went behind the mid's 1.39 kHz lowpass and
+  // vanished (~32 dB down). A patch now RE-TUNES rather than replaces.
+  for (const id of ['soft', 'dust', 'hand', 'tick']) {
+    const voice = VOICES.percussion[id];
+    for (const kind of ['low', 'mid', 'high']) {
+      const note = { midi: 36, freq: 80, kind, lane: kind, duration: 0.3, when: 0.5, velocity: 0.9, pan: 0 };
+      const bare = withSeed(41, () => playAndCheck(`percussion.${id}/${kind} bare`, voice, note));
+      const patched = withSeed(41, () => playAndCheck(`percussion.${id}/${kind} own defaults`,
+        voice, note, { patch: voice.defaults }));
+      // The FILTERS a kind builds are its character: same types, and each
+      // cutoff within a hair of where the voice authored it (the dial has not
+      // moved, so the re-tune ratio is 1).
+      // A SUPERSET, not an identity: percHand-style kits legitimately add the
+      // kit-wide patch filter across the output (its own comment says so).
+      // What must never happen is one of the KIND's own filters disappearing
+      // or moving — that is the vanishing hat.
+      const shape = (run) => biquads(run).map((n) => `${n.type}@${Math.round(n.frequency.max)}`).sort();
+      const bareShape = shape(bare);
+      const patchedShape = shape(patched);
+      for (const filter of bareShape) {
+        assert.ok(patchedShape.includes(filter),
+          `percussion.${id}/${kind}: its own defaults as a patch lost or moved ${filter} `
+          + `(built ${patchedShape.join(', ')})`);
+      }
+      // And it still reaches the bus at a comparable level — a kind filtered
+      // into near-silence is the failure this test exists for.
+      assert.ok(patched.sum > bare.sum * 0.5 && patched.sum < bare.sum * 2.5,
+        `percussion.${id}/${kind}: level moved from ${bare.sum.toFixed(4)} to ${patched.sum.toFixed(4)} `
+        + 'under its own defaults');
+    }
+  }
+});
+
+test('audit: a layer that declares its own waveform keeps it while the shape dial is untouched', () => {
+  // The hand drum's ring is a triangle and sawbass's sub-octave is a sine,
+  // inside groups whose other layers are not — one blanket assignment from
+  // the shape dial used to overwrite both under ANY patch, so the voices'
+  // own published defaults could not reproduce them.
+  const hand = { midi: 36, freq: 80, kind: 'low', lane: 'low', duration: 0.3, when: 0.5, velocity: 0.9, pan: 0 };
+  const handBare = withSeed(42, () => playAndCheck('percussion.hand bare', VOICES.percussion.hand, hand));
+  const handPatched = withSeed(42, () => playAndCheck('percussion.hand own defaults',
+    VOICES.percussion.hand, hand, { patch: VOICES.percussion.hand.defaults }));
+  assert.deepEqual(oscShapes(handPatched).sort(), oscShapes(handBare).sort(),
+    'the hand drum\'s triangle ring became a sine under its own defaults');
+
+  const bassNote = { midi: 33, freq: 55, kind: null, duration: 1, when: 0.5, velocity: 0.8, pan: 0 };
+  const sawBare = withSeed(42, () => playAndCheck('bass.sawbass bare', VOICES.bass.sawbass, bassNote));
+  const sawPatched = withSeed(42, () => playAndCheck('bass.sawbass own defaults',
+    VOICES.bass.sawbass, bassNote, { patch: VOICES.bass.sawbass.defaults }));
+  assert.deepEqual(oscShapes(sawPatched).sort(), oscShapes(sawBare).sort(),
+    'sawbass\'s sine sub-octave became a sawtooth under its own defaults');
+});
+
 test('release caps the tail, and sustain 0 ends the note at the decay', () => {
   for (const [track, patches] of Object.entries(EXPECTED)) {
     for (const id of Object.keys(patches)) {

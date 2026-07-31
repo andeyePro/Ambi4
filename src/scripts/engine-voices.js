@@ -710,7 +710,13 @@ function membrane(rig, dest, {
   // A drum's skin is the one oscillator a percussion patch can pick the shape
   // of, and the pitch control moves the whole kit rather than one note.
   const shift = transpose(p);
-  const osc = rig.osc(p ? p.source.shape1 : type, from * shift, t);
+  // AUDIT FIX: a layer that DECLARES its waveform (the hand drum's triangle
+  // ring) keeps it while the shape dial sits where the voice published it —
+  // otherwise the kit's own defaults could not reproduce the kit.
+  const dialMoved = p && p.anchor && Number.isFinite(p.anchor.shape1)
+    ? Math.abs(p.source.shape1 - p.anchor.shape1) > 1e-9
+    : true;
+  const osc = rig.osc(p && dialMoved ? p.source.shape1 : type, from * shift, t);
   const amp = rig.gain(SILENCE);
   osc.connect(amp);
   amp.connect(dest);
@@ -1093,6 +1099,19 @@ function patchFor(defaults, patch) {
       reverb: inRange(sends.reverb, 0, 1, d.sends.reverb),
       delay: inRange(sends.delay, 0, 1, d.sends.delay),
     },
+    // AUDIT FIX (voices cluster): the voice's OWN published values, so a
+    // patch can be applied RELATIVE to what the voice authored rather than
+    // replacing it. A kit publishes ONE adsr and ONE filter but plays three
+    // kinds, each with its own authored ring and damp — the old absolute
+    // substitution meant any patch (a dial nudge, Reset to default) gave the
+    // hat the kick's decay (up to 11.6× measured) and the mid's lowpass in
+    // front of a 9 kHz burst (~32 dB down: the hat vanished).
+    anchor: {
+      decay: d.adsr.decay,
+      cutoff: d.filter.cutoff,
+      type: d.filter.type,
+      shape1: d.source.shape1,
+    },
   };
 }
 
@@ -1135,12 +1154,28 @@ function layersFor(p, layers) {
   const mix = p.source.shape2 === null || b <= 0 ? 0 : p.source.mix;
   const scaleA = a > 0 ? (total * (1 - mix)) / a : 0;
   const scaleB = b > 0 ? (total * mix) / b : 0;
-  return layers.map((l) => ({
-    type: l.group === 'b' && p.source.shape2 !== null ? p.source.shape2 : p.source.shape1,
-    ratio: l.ratio,
-    gain: Math.max(l.weight * (l.group === 'b' ? scaleB : scaleA), SILENCE),
-    cents: l.spread * p.source.detune,
-  }));
+  // AUDIT FIX: a group can hold layers of DIFFERENT declared waveforms —
+  // sawbass is a sawtooth pair with a SINE sub-octave inside group 'a' — and
+  // the old blanket assignment turned that sub into a sawtooth under any
+  // patch, including the voice's own defaults: a fifth and a stack of
+  // partials the pure sub never had, which is exactly the mud the voice's own
+  // comment promises to avoid. A layer keeps its declared type while the
+  // shape dial sits where the voice published it.
+  const dialA = Math.abs(p.source.shape1 - (p.anchor?.shape1 ?? p.source.shape1)) > 1e-9;
+  return layers.map((l) => {
+    const isB = l.group === 'b' && p.source.shape2 !== null;
+    // A group-'b' layer whose osc2 has been switched OFF collapses onto
+    // shape1 — that is the single-oscillator law, and it outranks a declared
+    // waveform (voices-smoke pins it). Only a genuine group-'a' layer keeps
+    // what it declared, and only while the dial has not moved.
+    const keepDeclared = !isB && l.group !== 'b' && !dialA;
+    return {
+      type: keepDeclared ? l.type : (isB ? p.source.shape2 : p.source.shape1),
+      ratio: l.ratio,
+      gain: Math.max(l.weight * (isB ? scaleB : scaleA), SILENCE),
+      cents: l.spread * p.source.detune,
+    };
+  });
 }
 
 /**
@@ -1194,7 +1229,20 @@ function mainFilter(rig, p, { type, freq, q = 1 }) {
     const node = rig.filter(type, freq, q);
     return { node, out: node };
   }
-  const node = rig.filter(p.filter.type, p.filter.cutoff, p.filter.q);
+  // AUDIT FIX: the patch used to replace type AND cutoff outright, which is
+  // wrong wherever the AUTHORED filter is that layer's character — the soft
+  // kit's hat is a 6.75 kHz highpass in front of a 9 kHz burst, and swapping
+  // in the kit-wide 1.39 kHz lowpass silenced it. A patch now RE-TUNES:
+  // the layer keeps its own type and the cutoff moves by the same ratio the
+  // dial moved from the voice's published cutoff. A patch that leaves the
+  // dial alone therefore sounds exactly like no patch at all.
+  const anchor = p.anchor && Number.isFinite(p.anchor.cutoff) ? p.anchor.cutoff : null;
+  const sameType = !p.anchor || p.filter.type === p.anchor.type;
+  const useType = sameType ? type : p.filter.type;
+  const useFreq = anchor && anchor > 0 && sameType
+    ? clamp(freq * (p.filter.cutoff / anchor), 20, 20000)
+    : p.filter.cutoff;
+  const node = rig.filter(useType, useFreq, p.filter.q);
   const trim = rig.gain(Math.min(1, qTrim(p.filter.q) / qTrim(q)));
   node.connect(trim);
   return { node, out: trim };
@@ -1259,9 +1307,29 @@ function sustainEnv(param, t0, base, p) {
   return p ? adsrEnv(param, t0, base, p.adsr) : env(param, t0, base);
 }
 
-/** hit() under a patch — the same, with `span` scaling a partial's ring. */
+/**
+ * hit() under a patch — with `span` scaling a partial's ring.
+ *
+ * AUDIT FIX: a layer that declares no span used to inherit the kit's single
+ * published decay wholesale. It now defaults to the layer's OWN authored
+ * decay expressed against the voice's published one, so the patch's Decay
+ * dial SCALES every layer proportionally (which is what a kit-wide dial
+ * means) instead of flattening them all onto one number.
+ */
 function struckEnv(param, t0, base, p) {
-  return p ? adsrEnv(param, t0, base, p.adsr, base.span === undefined ? 1 : base.span) : hit(param, t0, base);
+  if (!p) return hit(param, t0, base);
+  let span = base.span;
+  if (span === undefined) {
+    const anchor = p.anchor && Number.isFinite(p.anchor.decay) ? p.anchor.decay : null;
+    span = anchor && anchor > 0 && Number.isFinite(base.decay) ? base.decay / anchor : 1;
+  }
+  // NOT also forcing sustain to 0 here, though a struck layer arguably has no
+  // plateau: that removes the release response adsrEnv only applies to a
+  // sustaining envelope, and `bass.upright`'s own release law caught it. What
+  // remains — a kit's single published ADSR still lengthening its shortest
+  // layers under a patch — needs per-kind ADSR (the schema already has
+  // `perKind`) and an owner ruling, filed in TODO with measured numbers.
+  return adsrEnv(param, t0, base, p.adsr, span);
 }
 
 /**
