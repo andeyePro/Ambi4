@@ -31,16 +31,21 @@ export default async function drive(page) {
   const level = await page.evaluate(() => new Promise((resolve) => {
     const a = window.__ambi4Engine.getOutputAnalyser();
     const buf = new Uint8Array(a.fftSize);
-    let peak = 0, sumSq = 0, n = 0, frames = 0;
+    let peak = 0, sumSq = 0, n = 0, frames = 0, rail = 0;
     const tick = () => {
       a.getByteTimeDomainData(buf);
       for (let i = 0; i < buf.length; i++) {
-        const v = (buf[i] - 128) / 128;
+        const b = buf[i];
+        // AUDIT FIX: byte time-domain data maps to [-1, +0.992], so a
+        // `peak < 0.999` test could NEVER see positive-side clipping. Clipping
+        // is detected symmetrically, at the rails of the byte domain itself.
+        if (b <= 1 || b >= 254) rail += 1;
+        const v = (b - 128) / 128;
         peak = Math.max(peak, Math.abs(v));
         sumSq += v * v; n++;
       }
       if (++frames < 240) requestAnimationFrame(tick);
-      else resolve({ peak, rms: Math.sqrt(sumSq / n) });
+      else resolve({ peak, rms: Math.sqrt(sumSq / n), rail, samples: n });
     };
     requestAnimationFrame(tick);
   }));
@@ -54,9 +59,10 @@ export default async function drive(page) {
   check('peaks reach a normal listening level', peakDb > -20, true);
   // And not clipping. The limiter makes this hard to break, which is the point
   // of having one — but a limiter that is never verified is an assumption.
-  check('and nothing clips', level.peak < 0.999, true);
+  check('and nothing clips — no sample at either rail', level.rail, 0);
   results.push({ name: 'peak dBFS', ok: true, got: +peakDb.toFixed(1), want: '(informational)' });
   results.push({ name: 'RMS dBFS', ok: true, got: +rmsDb.toFixed(1), want: '(informational)' });
+  results.push({ name: 'railed samples / total', ok: true, got: `${level.rail}/${level.samples}`, want: '(informational)' });
 
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {

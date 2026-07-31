@@ -223,8 +223,14 @@ export function createGovernor({ engine, onTierChange } = {}) {
     }
   }
 
+  // AUDIT FIX: a frame delta straddling a tab-hide (or a debugger pause, or a
+  // laptop sleep) can be seconds long — feeding that raw into the EMA poisoned
+  // it and walked the quality tier down to eco on a machine that was never
+  // struggling. Anything past this bound is not a rendering measurement.
+  const MAX_PLAUSIBLE_FRAME_MS = 250;
+
   function updateFrameEma(dt) {
-    if (!(dt > 0)) return;
+    if (!(dt > 0) || dt > MAX_PLAUSIBLE_FRAME_MS) return;
     frameEma = frameEma == null ? dt : frameEma + (dt - frameEma) * FRAME_EMA_ALPHA;
   }
 

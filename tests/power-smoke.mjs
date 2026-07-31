@@ -118,11 +118,20 @@ function tick(clock, raf, targetNow, frameDeltaMs) {
 }
 
 function installFakeNavigator({ hardwareConcurrency, deviceMemory, getBattery } = {}) {
+  // Node 21+ ships `navigator` as a GETTER-ONLY global, so plain assignment
+  // throws — which made every navigator-dependent test in this suite red the
+  // moment the project moved to Node 22, unnoticed because nothing ran it
+  // (audit, 2026-07-31). defineProperty replaces it; the descriptor is put
+  // back exactly as it was.
   const had = 'navigator' in globalThis;
-  const real = globalThis.navigator;
-  globalThis.navigator = { hardwareConcurrency, deviceMemory, getBattery };
+  const descriptor = had ? Object.getOwnPropertyDescriptor(globalThis, 'navigator') : null;
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    writable: true,
+    value: { hardwareConcurrency, deviceMemory, getBattery },
+  });
   return () => {
-    if (had) globalThis.navigator = real;
+    if (had && descriptor) Object.defineProperty(globalThis, 'navigator', descriptor);
     else delete globalThis.navigator;
   };
 }
@@ -209,7 +218,12 @@ let power;
 
 test('imports cleanly in bare Node (no document/navigator/PressureObserver/rAF) and cleans up its own timer', async () => {
   assert.equal(typeof globalThis.document, 'undefined');
-  assert.equal(typeof globalThis.navigator, 'undefined');
+  // NOT navigator: Node 21+ ships a real `navigator` global, so asserting its
+  // absence made this suite red from the moment the project moved to Node 22
+  // — and nothing ran it, so nobody knew (audit, 2026-07-31). What this test
+  // is actually for is that power.js needs no BROWSER: no document, no
+  // PressureObserver, no rAF. A bare navigator with no userAgentData is
+  // exactly the environment it must tolerate.
   assert.equal(typeof globalThis.PressureObserver, 'undefined');
   assert.equal(typeof globalThis.requestAnimationFrame, 'undefined');
 

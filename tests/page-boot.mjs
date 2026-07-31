@@ -1030,8 +1030,19 @@ try {
 
   // Pad breath depth knob — pad's own editor only, never another track's.
   {
-    const padProbe = probeTracks({ pad: { padBreath: 0.4 } });
-    const engineTakesPadBreath = Boolean(padProbe && padProbe.pad && padProbe.pad.padBreath === 0.4);
+    // AUDIT FIX: this probed `tracks.pad.padBreath`, but the engine ships
+    // padBreath as a GLOBAL param — so the gate was permanently false, the
+    // dial never rendered, and BOTH branches of this assertion were dead
+    // code for ~100 versions. Probed where the param actually lives.
+    const globalProbe = (() => {
+      try {
+        const probed = sanitise({ padBreath: 0.4 });
+        return probed && probed.padBreath === 0.4;
+      } catch {
+        return false;
+      }
+    })();
+    const engineTakesPadBreath = Boolean(globalProbe);
     const padEditor = await openEditor('pad');
     const padKnob = () => padEditor.querySelector('.pad-breath-knob, #pad-breath');
     if (engineTakesPadBreath) {

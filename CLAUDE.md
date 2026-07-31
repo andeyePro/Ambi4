@@ -61,12 +61,15 @@ Nothing ships without these. There is no `npm test`; run them by name.
 
 ```
 npm run build                       # must be run first — the tests use the BUILT bundle
-node tests/page-boot.mjs            # the page actually boots (it has shipped blank twice)
-node tests/engine-smoke.mjs         # engine assertions
-node tests/audio-reference.mjs      # 24 frozen configs, note-for-note
-node tests/voices-smoke.mjs         # the voice library — sat RED and unrun for ~30 versions once
-node tests/genre-smoke.mjs          # genre compiler + every genre file
+node tests/all.mjs                  # EVERY node suite; non-zero exit if any is red
 ```
+
+`tests/all.mjs` discovers the suites rather than listing them, so a new one is
+run the day it lands. It exists because a list in a doc cannot fail: two suites
+(`voices-smoke`, red for ~30 versions; `power-smoke`, red since the Node 22
+move) sat failing because nothing ran them. Individual suites still run by
+name when you want one — `node tests/engine-smoke.mjs`, `node
+tests/audio-reference.mjs`, and so on.
 
 Browser tests run against a headless Chromium on a Mac test account over SSH:
 

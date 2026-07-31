@@ -2617,6 +2617,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return null;
         }
       }
+
+      /** The same question at the TOP level, for a global param. */
+      function probeParams(partial) {
+        if (typeof sanitiseParams !== 'function') return null;
+        try {
+          const probed = sanitiseParams(partial);
+          return isPlainObject(probed) ? probed : null;
+        } catch {
+          return null;
+        }
+      }
       {
         // Dynamic percussion lanes: the question is not "is there a lanes key"
         // but "does a lane I invented come back", since a lane the engine
@@ -2724,19 +2735,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // same shape as driftRate/mono/glide. The page never invents a
       // starting depth — like reverbTail, it reads the engine's own once the
       // probe confirms the field survives.
+      // AUDIT FIX (major): padBreath is a GLOBAL param in the engine, not a
+      // per-track one — the page had probed `tracks.pad.padBreath` since
+      // v0.0.23, so the probe was permanently false and the Breath dial never
+      // rendered at all (and page-boot's assertion about it was dead code
+      // behind the same false gate).
       engineCaps.padBreath = false;
       let enginePadBreath = null;
       {
-        const probedTracks = probeTracks({ pad: { padBreath: 0.4 } });
-        const padOut = probedTracks && isPlainObject(probedTracks.pad) ? probedTracks.pad : null;
-        engineCaps.padBreath = isPlainObject(padOut) && padOut.padBreath === 0.4;
+        const probed = probeParams({ padBreath: 0.4 });
+        engineCaps.padBreath = isPlainObject(probed) && probed.padBreath === 0.4;
       }
       if (engineCaps.padBreath) {
         try {
           const p = engine.getParams() || {};
-          const pad = isPlainObject(p.tracks) ? p.tracks.pad : null;
-          if (isPlainObject(pad) && typeof pad.padBreath === 'number') {
-            enginePadBreath = clamp(pad.padBreath, 0, 1);
+          if (typeof p.padBreath === 'number') {
+            enginePadBreath = clamp(p.padBreath, 0, 1);
           }
         } catch {}
       }
@@ -6388,10 +6402,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ? clamp(settings.tracks.pad.padBreath, 0, 1)
             : shipped;
         settings.tracks.pad.padBreath = stored;
+        engine.setParams({ padBreath: stored });
         const commitPadBreath = (v) => {
           v = clamp(rangeMid(v), 0, 1);
           settings.tracks.pad.padBreath = v;
-          engine.setParams({ tracks: { pad: { padBreath: v } } });
+          engine.setParams({ padBreath: v });
           persistSettings();
         };
         if (knobApi) {
@@ -7177,6 +7192,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const input = document.createElement('input');
           input.type = 'text';
           input.className = 'seq-pitch-input';
+          // AUDIT FIX: the input sits INSIDE the cell, so clicking into it
+          // (to place the caret) reached the cell's own pointerdown — which
+          // closed the editor on blur and toggled the step off.
+          for (const type of ['pointerdown', 'pointerup', 'click', 'dblclick']) {
+            input.addEventListener(type, (event) => event.stopPropagation());
+          }
           input.value = Number.isFinite(s.midi) ? midiToNoteName(s.midi) : '';
           input.placeholder = 'C#4';
           input.setAttribute('aria-label', 'This step\u2019s own note \u2014 empty clears the pin');
@@ -7268,7 +7289,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const vAt = (clientY) => clamp(1 - (clientY - rect.top) / rect.height, 0, 1);
             const v0 = vAt(e.clientY);
             const slots = stepsPerBarFor(track);
-            const columnWidth = rect.width + 3; // grid gap
+            // AUDIT FIX: measured from a PLAIN cell, not from `rect` — the
+            // head of a merged tie is span× wider, so re-dragging a tie moved
+            // by span columns per column of travel.
+            const columnWidth = (() => {
+              const plain = [...gridEl.querySelectorAll('.seq-cell')]
+                .find((el) => el.style.display !== 'none' && el.style.gridColumn === '');
+              const w = plain ? plain.getBoundingClientRect().width : rect.width;
+              return (w > 0 ? w : rect.width) + 3; // grid gap
+            })();
             let gesture = null; // 'band' | 'tie' | 'gate'
             let tieEnd = i;
             // v21: which axis a vertical drag means is decided by where it
@@ -7407,6 +7436,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             } else if (e.key === 'g' || e.key === 'G') {
               e.preventDefault();
               toggleGroup(li, i);
+            } else if (e.ctrlKey || e.metaKey) {
+              // AUDIT FIX: a browser/OS chord is not a grid edit — ⌘T, ⌘G,
+              // ⌘[ and friends were silently tying, grouping and re-probing
+              // steps on their way past.
+              return;
             } else if (pitchAxis && (e.key === 'p' || e.key === 'P')) {
               e.preventDefault();
               openPitchEditor(li, i, cellRefs[li][i].cell);

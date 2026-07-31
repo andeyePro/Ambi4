@@ -261,5 +261,47 @@ export default async function drive(page) {
   if (failed.length === rows.length) {
     throw new Error('onset-render: every voice failed\n' + failed.map((r) => `  ${r.track}/${r.id}: ${r.error}`).join('\n'));
   }
-  return { moduleUrl, rows };
+
+  // AUDIT FIX (vacuous test): this file MEASURED five discontinuity metrics
+  // and asserted NONE of them — the owner's two click reports could come
+  // back and the drive would still report green. A click is a step in the
+  // sample stream, so the law is on the step's size:
+  //
+  //   * absolutely, against a click floor — 0.02 of full scale is a step
+  //     you hear at any level (measured worst today: 0.0025, an 8× margin);
+  //   * relatively, as a share of the note's OWN peak, so a quiet voice
+  //     cannot hide a proportionally huge step (worst today: 2.2%).
+  //
+  // The onset/body RATIO is deliberately not asserted: on a voice whose
+  // steady state is near-silent (upright's 0.00006) the ratio explodes on
+  // absolutely inaudible numbers, which is exactly the cry-wolf failure that
+  // gets a gate switched off.
+  const CLICK_FLOOR = 0.02;      // absolute sample-to-sample step
+  const PEAK_SHARE = 0.15;       // share of the note's own peak
+  const problems = [];
+  const claim = (label, jump, peak) => {
+    if (!Number.isFinite(jump)) return;
+    if (jump > CLICK_FLOOR) {
+      problems.push(`${label}: step ${jump.toFixed(5)} exceeds the ${CLICK_FLOOR} click floor`);
+    }
+    if (Number.isFinite(peak) && peak > 0.005 && jump > peak * PEAK_SHARE) {
+      problems.push(
+        `${label}: step ${jump.toFixed(5)} is ${Math.round((jump / peak) * 100)}% of the note's own peak `
+        + `${peak.toFixed(4)} (ceiling ${Math.round(PEAK_SHARE * 100)}%)`
+      );
+    }
+  };
+  for (const row of rows) {
+    if (row.error) continue;
+    const label = `${row.track}/${row.id}`;
+    claim(`${label} onset`, row.onsetJump, row.peak);
+    claim(`${label} fast-line second onset`, row.fastLine?.secondOnsetJump, row.peak);
+    claim(`${label} cancel cut`, row.cancelCut?.cancelJump, row.peak);
+    claim(`${label} slur handover 2`, row.slurChain?.handoverJump2, row.peak);
+    claim(`${label} slur handover 3`, row.slurChain?.handoverJump3, row.peak);
+  }
+  if (problems.length) {
+    throw new Error('onset-render: ' + problems.length + ' click(s)\n  ' + problems.join('\n  '));
+  }
+  return { moduleUrl, rows, asserted: rows.filter((r) => !r.error).length * 5 };
 }

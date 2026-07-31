@@ -416,15 +416,19 @@ export function initVisualiser(canvas, engine) {
   // with more/fewer/different tracks than the historical six (a future user
   // track) just means a different-length TRACKS array here — nothing below
   // this point hardcodes "six".
-  const registryTracks = trackRegistryFromEngine(engine);
-  const TRACKS = registryTracks ? registryTracks.map((t) => t.id) : FALLBACK_TRACKS;
-  const TRACK_LABELS = registryTracks
+  // AUDIT FIX: re-readable, not baked at init. The page has always called
+  // `refreshTracks()` when a track is added or removed — the module never
+  // exported one, so the piano roll's lane set was frozen at boot and a new
+  // track was traced nowhere until a reload.
+  let registryTracks = trackRegistryFromEngine(engine);
+  let TRACKS = registryTracks ? registryTracks.map((t) => t.id) : FALLBACK_TRACKS;
+  let TRACK_LABELS = registryTracks
     ? Object.fromEntries(registryTracks.map((t) => [t.id, t.label]))
     : FALLBACK_TRACK_LABELS;
-  const TRACK_COLOUR_TOKENS = registryTracks
+  let TRACK_COLOUR_TOKENS = registryTracks
     ? Object.fromEntries(registryTracks.map((t) => [t.id, t.colourToken]))
     : Object.fromEntries(FALLBACK_TRACKS.map((id) => [id, `--track-${id}`]));
-  const TRACK_FAMILY = registryTracks
+  let TRACK_FAMILY = registryTracks
     ? Object.fromEntries(registryTracks.map((t) => [t.id, t.family]))
     : FALLBACK_TRACK_FAMILY;
 
@@ -1788,7 +1792,33 @@ export function initVisualiser(canvas, engine) {
     }
   }
 
-  return { destroy, setFps, getFps };
+  /**
+   * Re-read the engine's track registry: lanes appear and disappear with it.
+   * Existing lanes KEEP their captured notes (a re-read must not wipe the
+   * roll); a departed track's notes go with it.
+   */
+  function refreshTracks() {
+    if (destroyed) return;
+    const next = trackRegistryFromEngine(engine);
+    const nextIds = next ? next.map((entry) => entry.id) : FALLBACK_TRACKS;
+    if (nextIds.length === TRACKS.length && nextIds.every((id, i) => id === TRACKS[i])) return;
+    registryTracks = next;
+    TRACKS = nextIds;
+    TRACK_LABELS = next
+      ? Object.fromEntries(next.map((entry) => [entry.id, entry.label]))
+      : FALLBACK_TRACK_LABELS;
+    TRACK_COLOUR_TOKENS = next
+      ? Object.fromEntries(next.map((entry) => [entry.id, entry.colourToken]))
+      : Object.fromEntries(FALLBACK_TRACKS.map((id) => [id, `--track-${id}`]));
+    TRACK_FAMILY = next
+      ? Object.fromEntries(next.map((entry) => [entry.id, entry.family]))
+      : FALLBACK_TRACK_FAMILY;
+    for (const id of TRACKS) if (!notesByTrack.has(id)) notesByTrack.set(id, []);
+    for (const id of [...notesByTrack.keys()]) if (!TRACKS.includes(id)) notesByTrack.delete(id);
+    theme = readTheme(canvas, TRACKS, TRACK_COLOUR_TOKENS);
+  }
+
+  return { destroy, setFps, getFps, refreshTracks };
 }
 
 export default initVisualiser;

@@ -1392,17 +1392,26 @@ test('percussion stays sparse when it plays', async () => {
   await advance(10, { step: 0.12, sleep: 16 });
   engine.stop();
 
+  const barHitCounts = [];
   assert.ok(bars.length >= 8, `only ${bars.length} bars`);
   assert.ok(notes.length > 0, 'percussion never played at full density');
   assert.ok(notes.every((n) => n.track === 'percussion' && n.midi === null));
   const barLength = 4 * (60 / 240);
   for (const barEvent of bars) {
     const inBar = notes.filter((n) => n.time >= barEvent.time - 1e-9 && n.time < barEvent.time + barLength - 1e-9);
-    // v0.0.112 (his Energy ruling): at FULL Energy "drum fills all over the
-    // place" is the brief, so a fill bar may carry up to four extra strokes.
-    // The old ≤5 cap encoded the ambient-only doctrine his ruling replaced.
+    // AUDIT FIX (vacuous test): ≤9 was the STRUCTURAL maximum this generator
+    // can emit (2 low + 3 accents + 4 fill strokes), so the assertion could
+    // not fail — it read as a sparsity law and enforced nothing. The real
+    // law, at full Energy with his fills ruling in force, is that a bar is a
+    // GROOVE and not a wall: most bars stay at or under six hits, and no bar
+    // exceeds the fill ceiling.
     assert.ok(inBar.length <= 9, `bar ${barEvent.bar} had ${inBar.length} hits — beyond even a fill bar`);
+    barHitCounts.push(inBar.length);
   }
+  // Most bars are the groove; the fill is the exception, not the rule.
+  const groovy = barHitCounts.filter((count) => count <= 6).length;
+  assert.ok(groovy >= Math.ceil(barHitCounts.length * 0.6),
+    `only ${groovy} of ${barHitCounts.length} bars stayed at groove density (${barHitCounts.join(',')})`);
   const kinds = new Set(notes.map((n) => n.kind));
   assert.ok([...kinds].every((k) => ['low', 'mid', 'high'].includes(k)));
   const lows = notes.filter((n) => n.kind === 'low');
@@ -4180,7 +4189,11 @@ test('Energy 1c, auto kit: below the midpoint velocities scale, the kick yields 
   const lots = fillRate(1);
   assert.ok(some > none, `fills must appear from 0.75 (${none.toFixed(2)} → ${some.toFixed(2)})`);
   assert.ok(lots > some, `and grow with the dial (${some.toFixed(2)} → ${lots.toFixed(2)})`);
-  assert.ok(lots >= 0.5, `at full Energy fills are all over the place, measured ${lots.toFixed(2)}`);
+  // AUDIT FIX (vacuous test): `>= 0.5` sat below what the code produces at
+  // ANY dial position past 0.71, so it asserted nothing at full. The design
+  // rate at full Energy is (1 − 0.7) × 2.4 = 0.72, measured ~0.70 — the law
+  // is set at 0.6, which a regression halving the rate cannot pass.
+  assert.ok(lots >= 0.6, `at full Energy fills are all over the place, measured ${lots.toFixed(2)}`);
 });
 
 test('v0.0.116 chain mode: the sequencer list plays IN ORDER and wraps — a composed sequence, not a shuffle', async () => {

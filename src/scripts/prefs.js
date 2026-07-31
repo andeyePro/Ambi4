@@ -219,7 +219,6 @@ export function consentPrompt(container, message) {
 
   const card = document.createElement('div');
   card.setAttribute('role', 'group');
-  card.setAttribute('aria-label', message);
   card.setAttribute('tabindex', '-1');
   styleCard(card);
 
@@ -228,6 +227,10 @@ export function consentPrompt(container, message) {
   // because consent has to be INFORMED: the one-line question told the user the
   // purpose but never what is stored, nor that answering at all sets a cookie.
   const spec = typeof message === 'string' ? { message } : message || {};
+  // AUDIT FIX: the label was set from the raw argument BEFORE the object form
+  // was unpacked, so the object form announced "[object Object]" to a screen
+  // reader — the consent card, of all things.
+  card.setAttribute('aria-label', typeof spec.message === 'string' ? spec.message : 'Cookie choice');
 
   const text = document.createElement('p');
   text.textContent = spec.message || '';
