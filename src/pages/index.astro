@@ -2566,6 +2566,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try {
             const probed = sanitiseParams({ tracks: { [id]: { driftShape: 'rise' } } });
             return probed?.tracks?.[id]?.driftShape === 'rise';
+            // (the per-shape check below decides which OPTIONS are offered)
           } catch {
             return false;
           }
@@ -5949,9 +5950,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         ['rise', 'Rise'],
         ['fall', 'Fall'],
         ['swell', 'Swell'],
+        // v0.0.136: the modulation graph's first two sources, on every
+        // spreadable dial at once.
+        ['cycle', 'Cycle (LFO)'],
+        ['step', 'Step (hold)'],
       ];
       const DRIFT_SHAPE_HINT =
-        'What this track’s min–max dials do between their two ends. Drift wanders between them at random, which is what they have always done. Rise climbs from the bottom to the top and starts again — a crescendo. Fall is the same going down. Swell goes up and comes back.';
+        'What this track’s min–max dials do between their two ends. Drift wanders between them at random, which is what they have always done. Rise climbs from the bottom to the top and starts again — a crescendo. Fall is the same going down. Swell goes up and comes back. Cycle is an LFO: a smooth sine between the two ends, over and over, at the rate and length the two dials beside this one set — vibrato, tremolo, a filter breathing. Step holds one random value per pass and jumps to the next, which is a sample-and-hold.';
 
       function buildDriftShapeControl(container, track) {
         if (!engineCaps.driftShape || !engineCaps.driftShape[track]) return;
@@ -5962,7 +5967,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         name.textContent = 'between';
         const select = document.createElement('select');
         select.setAttribute('aria-label', `${TRACK_LABELS[track]} spread shape`);
+        // Each shape is offered only if the ENGINE keeps it: this list grew in
+        // v0.0.136 and an engine bundle that predates a value would silently
+        // drop it, leaving an option that does nothing — the dead-control
+        // failure this project keeps catching.
+        const engineShapes = engineModule && Array.isArray(engineModule.DRIFT_SHAPES)
+          ? engineModule.DRIFT_SHAPES
+          : null;
         for (const [value, label] of DRIFT_SHAPES) {
+          if (engineShapes && !engineShapes.includes(value)) continue;
+          if (!engineShapes && (value === 'cycle' || value === 'step')) continue;
           const option = document.createElement('option');
           option.value = value;
           option.textContent = label;

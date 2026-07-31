@@ -674,7 +674,22 @@ const DEFAULT_TRACK_DRIFT_RATE = 1;
  * with the graph rather than blocking it — a shaped span is just a source with
  * a fixed waveform.
  */
-const DRIFT_SHAPES = Object.freeze(['drift', 'rise', 'fall', 'swell']);
+/**
+ * v0.0.136 — the modulation graph's first two real sources.
+ *
+ * `cycle` is an LFO: the span's value follows a sine, endlessly, at the rate
+ * and bar-length the two dials already name. `step` is a sample-and-hold: one
+ * fresh random value per pass, held flat until the next. Between them they are
+ * what "a source driving a destination" means on almost every dial a musician
+ * would reach for — and they arrive on the machinery that already exists, so
+ * EVERY spreadable dial gets them at once rather than waiting for a socket UI.
+ *
+ * This is still not the whole graph: a source here drives the dial its span is
+ * on, not an arbitrary destination, and there is one source per destination.
+ * That remains the larger build, and this composes with it — these two are
+ * simply the waveforms a fixed-shape source can have.
+ */
+export const DRIFT_SHAPES = Object.freeze(['drift', 'rise', 'fall', 'swell', 'cycle', 'step']);
 const DEFAULT_DRIFT_SHAPE = 'drift';
 /** How many bars a shaped drift takes to complete one pass. */
 const DRIFT_BARS_RANGE = Object.freeze([1, 64]);
@@ -4418,6 +4433,8 @@ export function createEngine(initialParams, options = {}) {
   // rather than inside it because the phase is a COUNT and the walk position
   // is a value — folding them would make a resumed piece jump.
   const driftPhases = new Map();
+  // The value a `step` (sample-and-hold) source is holding, per walk key.
+  const stepHolds = new Map();
 
   /**
    * The next walk position for a shaped drift. `driftRate` still scales it, so
@@ -4434,6 +4451,24 @@ export function createEngine(initialParams, options = {}) {
     driftPhases.set(key, phase);
     if (shape === 'rise') return phase;
     if (shape === 'fall') return 1 - phase;
+    if (shape === 'cycle') {
+      // An LFO: a sine over the pass, so it arrives back where it started and
+      // keeps going — the difference between a swell (one gesture) and a
+      // vibrato/tremolo (a shape the piece lives inside).
+      return clamp(0.5 - Math.cos(phase * Math.PI * 2) * 0.5, 0, 1);
+    }
+    if (shape === 'step') {
+      // Sample and hold: one value per pass, held flat. The draw happens when
+      // the phase WRAPS, so the rate dial means the same thing here as
+      // everywhere else, and a held or frozen track never reaches this code.
+      const previous = stepHolds.get(key);
+      if (previous === undefined || phase < step) {
+        const drawn = rng();
+        stepHolds.set(key, drawn);
+        return drawn;
+      }
+      return previous;
+    }
     // swell: up over the first half, back down over the second.
     return phase < 0.5 ? phase * 2 : (1 - phase) * 2;
   }

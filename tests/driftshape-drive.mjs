@@ -38,7 +38,20 @@ export default async function drive(page) {
   });
   check('the spread-shape control is offered', !!control, true);
   if (!control) throw new Error('driftshape-drive: no control to test');
-  check('all four shapes are offered', control.options, ['Drift', 'Rise', 'Fall', 'Swell']);
+  check('every shape the ENGINE keeps is offered', control.options,
+    ['Drift', 'Rise', 'Fall', 'Swell', 'Cycle (LFO)', 'Step (hold)']);
+  // v0.0.136: the two modulation SOURCES must reach the engine like the rest —
+  // an option the sanitiser drops would be a dead control.
+  for (const shape of ['cycle', 'step']) {
+    const stored = await page.evaluate(async (value) => {
+      const select = document.querySelector('.drift-shape select');
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 300));
+      return window.__ambi4Engine.getParams().tracks.pad.driftShape;
+    }, shape);
+    check(`${shape} reaches the ENGINE`, stored, shape);
+  }
   check('and it starts on the shape everything has always had', control.value, 'drift');
 
   await page.selectOption('.drift-shape select', 'rise');

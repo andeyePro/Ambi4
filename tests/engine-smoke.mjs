@@ -205,6 +205,7 @@ const {
   ARP_PATTERNS,
   DEFAULT_PARAMS,
   SEQUENCED_TRACKS,
+  DRIFT_SHAPES,
   SEQUENCER_STEP_COUNT,
   SEQUENCER_STEP_BEATS,
   STEP_RESOLUTIONS,
@@ -9448,6 +9449,62 @@ test('v28 record-arm: a take is quantised into the armed track\'s active lane, a
   assert.equal(engine.undoCapture(), false, 'undo is one click, once');
   assert.equal(engine.getCapture().undoable, false);
   engine.stop();
+});
+
+test('v0.0.136 sources: Cycle is an LFO and Step is a sample-and-hold, both on the existing span machinery', async () => {
+  assert.deepEqual(DRIFT_SHAPES, ['drift', 'rise', 'fall', 'swell', 'cycle', 'step']);
+
+  // Read the walk through a spread global dial's resolved value — the engine
+  // publishes the walked number, so the SHAPE is observable without reaching
+  // into internals. A 4-bar pass at full rate gives four samples per cycle.
+  const walk = async (shape, bars = 4) => {
+    const engine = createEngine({
+      bpm: 240, speed: 1, timeSignature: '4/4', repetition: 0,
+      tracks: {
+        melody: { state: 'on', driftShape: shape, driftBars: bars, driftRate: 1,
+          level: { min: 0, max: 1 } },
+        pad: { state: 'off' }, arp: { state: 'off' }, bass: { state: 'off' },
+        texture: { state: 'off' }, percussion: { state: 'off' },
+      },
+    });
+    const seen = [];
+    engine.on('bar', () => {
+      const resolved = engine.getResolved?.();
+      const level = resolved && resolved.tracks && resolved.tracks.melody
+        ? resolved.tracks.melody.level
+        : null;
+      if (Number.isFinite(level)) seen.push(+level.toFixed(4));
+    });
+    await engine.start();
+    await advance(12);
+    engine.stop();
+    return seen;
+  };
+
+  const cycle = await walk('cycle');
+  assert.ok(cycle.length >= 6, `need bars to see a cycle, got ${cycle.length}`);
+  // A sine comes BACK: it rises and falls within the samples, and its extremes
+  // are not the ends of a one-way ramp.
+  const rose = cycle.some((v, i) => i > 0 && v > cycle[i - 1]);
+  const fell = cycle.some((v, i) => i > 0 && v < cycle[i - 1]);
+  assert.ok(rose && fell, `a cycle must rise AND fall, saw ${cycle.join(', ')}`);
+
+  const stepped = await walk('step');
+  assert.ok(stepped.length >= 6, 'need bars to see a hold');
+  // Sample-and-hold: consecutive bars repeat inside a pass, and the value does
+  // change across passes — a hold that never moves is not a source.
+  const repeats = stepped.filter((v, i) => i > 0 && v === stepped[i - 1]).length;
+  assert.ok(repeats >= 1, `a hold must hold, saw ${stepped.join(', ')}`);
+  assert.ok(new Set(stepped).size > 1, `a hold must eventually move, saw ${stepped.join(', ')}`);
+
+  // Rise remains a one-way ramp — the new shapes did not disturb the old ones.
+  // It WRAPS by design ("climbs from the bottom to the top and starts again"),
+  // so the law is monotonic WITHIN a pass, with one wrap per pass allowed.
+  const rise = await walk('rise', 4);
+  const drops = rise.filter((v, i) => i > 0 && v < rise[i - 1]).length;
+  const passes = Math.ceil(rise.length / 4);
+  assert.ok(drops <= passes,
+    `rise must climb within each pass (saw ${drops} drops over ~${passes} passes): ${rise.join(', ')}`);
 });
 
 test('v0.0.131 resolution: a track\'s grid is its own ×2/÷2 rung — lanes size to it and the default is byte-identical', () => {
