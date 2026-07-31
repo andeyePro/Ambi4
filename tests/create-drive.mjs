@@ -179,6 +179,30 @@ export default async function drive(page) {
   check('…and the page ADOPTED it (persisted settings carry the take)', adopted.storedHits, adopted.engineHits);
   check('the re-fit button appears once a take exists', adopted.refitVisible, (v) => v === true);
 
+  // AUDIT (critical 1 + majors 5/16): the Zero buttons must never bake the
+  // ENGINE's power-scaled/capped/walked values into the user's settings, and
+  // Zero chords must write a seed the sanitiser can take (an array).
+  {
+    const askBefore = await page.evaluate(() => {
+      const all = JSON.parse(localStorage.getItem('ambi4:generator') || '{}');
+      return { level: all?.tracks?.texture?.level ?? null, tail: all?.reverbTail ?? null };
+    });
+    await page.click('#zero-chords');
+    await page.waitForTimeout(600);
+    const afterZero = await page.evaluate(() => {
+      const all = JSON.parse(localStorage.getItem('ambi4:generator') || '{}');
+      const seed = window.__ambi4Engine.getParams().harmony?.seed;
+      return {
+        level: all?.tracks?.texture?.level ?? null,
+        tail: all?.reverbTail ?? null,
+        seedLength: Array.isArray(seed) ? seed.length : null,
+      };
+    });
+    check('Zero keeps the user’s stored texture level byte-exact', afterZero.level, askBefore.level);
+    check('…and the stored reverb-tail ask', afterZero.tail, askBefore.tail);
+    check('Zero chords writes a seed the ENGINE accepts (one chord)', afterZero.seedLength, 1);
+  }
+
   // His 103 repro: "press [blank slate] then press play, I get a complex
   // bassline I didn't programme". The real blank must stay SILENT under Play.
   const panelShut2 = await page.evaluate(() => document.getElementById('play-along').hidden);

@@ -1695,10 +1695,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       return sanitiseRangeValueIn(v, 0, 1, fallback);
     }
 
-    /** A v21 feel param: a number in [lo,hi], or null for the Auto detent
-     * ("follow the global swing" / "let complexity decide the density"). */
+    /** A v21 feel param: a number OR a drifting {min,max} in [lo,hi], or
+     * null for the Auto detent ("follow the global swing" / "let complexity
+     * decide the density"). AUDIT FIX: these have been rangeable since
+     * v0.0.74 — the old number-only repair silently collapsed a saved
+     * swing/density span back to the Auto detent on every load. */
     function nullableNumberIn(v, lo, hi) {
-      return typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : null;
+      return sanitiseRangeValueIn(v, lo, hi, null);
     }
 
     /** A representative plain number for a RangeValue field — used by
@@ -1964,16 +1967,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (!isPlainObject(t)) continue;
         t.level = normaliseRangeValue(t.level, 0.8);
         t.hold = t.hold === true;
-        // Mono is a plain boolean and glide a plain 0–1 number engine-side —
-        // neither is rangeable, so a stored range is repaired to its midpoint.
         t.mono = t.mono === true;
-        t.glide = clamp(
-          typeof t.glide === 'number' && Number.isFinite(t.glide)
-            ? t.glide
-            : monoDefaultsFor(id).glide,
-          0,
-          1
-        );
+        // AUDIT FIX (finding 38): glide has been RANGEABLE since v0.0.74 —
+        // the old plain-number repair reset a saved glide span to the track
+        // default on every single load.
+        t.glide = normaliseRangeValue(t.glide, monoDefaultsFor(id).glide);
         // Rangeable (v7 addendum) — preserve a valid {min,max}; only a
         // genuinely invalid value falls back to the 0.5 default.
         t.randomness = normaliseRangeValue(t.randomness, 0.5);
@@ -1983,7 +1981,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // absent/invalid entry becomes null rather than a number.
         if (isSequenced(id)) t.swing = nullableNumberIn(t.swing, 0, 1);
         else delete t.swing;
-        if (isTuned(id)) t.density = nullableNumberIn(t.density, 0, TRACK_DENSITY_MAX);
+        // AUDIT FIX (critical 4): density follows the ENGINE's rule — every
+        // track with an event rate takes one, and only the pad has none. The
+        // old tuned-only predicate deleted the genre compiler's PERCUSSION
+        // density here on every load, so a genre's kit density never reached
+        // the engine at all.
+        if (id !== 'pad') t.density = nullableNumberIn(t.density, 0, TRACK_DENSITY_MAX);
         else delete t.density;
         // v21 pad breath: no Auto detent (a plain 0-1 depth), and no baked
         // default here — an absent/invalid value is deleted so the control
@@ -2931,9 +2934,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             saved = null;
           }
         }
-        if (migratedFromLegacy) {
-          // The data is in memory now — drop the stale key unconditionally
-          // so later loads can never re-migrate over newer settings.
+        // AUDIT FIX (critical 2): the legacy key is only dropped once its
+        // data has somewhere durable to live. Deleting it unconditionally
+        // destroyed a returning user's whole setup on any PRE-CONSENT visit:
+        // migrated to memory, key gone, nothing persisted, tab closed —
+        // years of settings deleted by a page they never said yes to.
+        // Re-migration cannot clobber newer settings either way, because the
+        // legacy path only runs when no v3 save exists.
+        if (saved && !migratedFromLegacy) {
+          // A real v3 save exists: the legacy key is dead weight — clean it.
           try {
             localStorage.removeItem(LEGACY_STORAGE_KEY);
           } catch {}
@@ -2943,6 +2952,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         normaliseV6Tracks(settings);
         if (migratedFromLegacy && prefs.consent() === 'granted') {
           prefs.set('generator', settings);
+          // Persisted for real — NOW the legacy key can go.
+          try {
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
+          } catch {}
         }
         // A `#p=` share link (or a /[slug] factory-preset route, v16) wins over
         // the stored settings for THIS visit, and takes the same migrate →
@@ -13539,17 +13552,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
 
         // Zero one layer at a time, so ANY preset can be the source.
+        // AUDIT FIX (critical 1): the snapshot base is the PAGE's settings —
+        // the user's own ask-values — never engine.getParams(). The engine's
+        // tree holds what we SENT it: power-scaled texture/arp levels, the
+        // tier-capped reverb tail, walked positions for every spread global.
+        // Round-tripping that baked the Eco tier's half-level into stored
+        // settings (halving again on every press) and collapsed spans to
+        // wherever the walk happened to sit. settings also already carries
+        // origin/genreRules/genreKitClean, so no provenance rescue is needed.
         const zeroWith = (mutate, said) => () => {
-          const p = structuredClone(engine.getParams());
-          // The engine's tree carries no page-only state, so a round-trip
-          // through it must not amnesia the piece's provenance: without
-          // these three lines every Zero press silently reset origin to
-          // blank (degrading share links to whole trees and killing the
-          // Energy kit-follow), dropped the "edited rules" honesty tag, and
-          // forgot which kit was the genre's own.
-          if (isPlainObject(settings.origin)) p.origin = structuredClone(settings.origin);
-          if (isPlainObject(settings.genreRules)) p.genreRules = structuredClone(settings.genreRules);
-          if (typeof settings.genreKitClean === 'string') p.genreKitClean = settings.genreKitClean;
+          const p = structuredClone(settings);
           mutate(p);
           loadParamsSnapshot(p);
           if (guidedTip) guidedTip.textContent = said;
@@ -13574,7 +13586,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
         }, 'Voices back to stock, patches cleared. Everything else kept.'));
         document.getElementById('zero-chords')?.addEventListener('click', zeroWith((p) => {
-          p.harmony = { ...(p.harmony || {}), seed: 'I' };
+          // An array, not a string: the engine's seed sanitiser rejects a
+          // bare string whole (audit major #5), which made this button a no-op.
+          p.harmony = { ...(p.harmony || {}), seed: ['I'] };
         }, 'One chord: the loop is just I now. Everything else kept.'));
         document.getElementById('zero-notes')?.addEventListener('click', zeroWith((p) => {
           if (p.arp && Array.isArray(p.arp.steps)) p.arp.steps = p.arp.steps.map(() => false);
