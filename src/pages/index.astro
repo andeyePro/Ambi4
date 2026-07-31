@@ -2694,6 +2694,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             && lane.length === 40;
         }
 
+        // v0.0.137: the triplet ladder (the one division his ×2/÷2 pair cannot
+        // reach). Probed separately from the straight ladder, so a build whose
+        // engine knows only halving still ships the ×2/÷2 pair and simply hides
+        // the Triplets button rather than offering a feel it cannot store.
+        engineCaps.stepTriplets = false;
+        {
+          const probed = probeTracks({ melody: { stepBeats: 1 / 3 } });
+          const lane = probed && isPlainObject(probed.melody) && probed.melody.sequencer
+            ? probed.melody.sequencer.steps
+            : null;
+          engineCaps.stepTriplets = !!probed
+            && isPlainObject(probed.melody)
+            && Math.abs(probed.melody.stepBeats - 1 / 3) < 1e-9
+            && Array.isArray(lane)
+            && lane.length === 15;
+        }
+
         // v0.0.116: chain advance for the sequencer list.
         const chainProbe = probeTracks({ melody: { sequencerAdvance: 'chain' } });
         engineCaps.chainMode =
@@ -6600,11 +6617,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       /** A track's slot length in beats — its rung of the ×2/÷2 ladder. */
       function trackStepBeats(track) {
-        const ladder = engineModule && Array.isArray(engineModule.STEP_RESOLUTIONS)
-          ? engineModule.STEP_RESOLUTIONS
-          : [1, 0.5, 0.25, 0.125, 0.0625];
+        // v0.0.137: BOTH ladders, and matched with a tolerance rather than
+        // `includes` — a triplet rung that has been through JSON can differ
+        // from 1/3 in its last bit, and reading it as "not on the ladder" would
+        // draw a semiquaver grid over a track the engine plays in triplets.
+        const ladder = engineModule && Array.isArray(engineModule.ALL_STEP_RESOLUTIONS)
+          ? engineModule.ALL_STEP_RESOLUTIONS
+          : [1, 0.5, 0.25, 0.125, 0.0625, 2 / 3, 1 / 3, 1 / 6, 1 / 12];
         const asked = settings.tracks[track] && settings.tracks[track].stepBeats;
-        return ladder.includes(asked) ? asked : 0.25;
+        if (!Number.isFinite(asked)) return 0.25;
+        const found = ladder.find((rung) => Math.abs(rung - asked) < 1e-9);
+        return found === undefined ? 0.25 : found;
       }
 
       function stepsPerBarFor(track) {
@@ -6630,13 +6653,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           ? engineModule.metrePulses(settings.timeSignature)
           : null;
         const perBeat = 1 / beats;
+        // v0.0.137: a beat that lands BETWEEN two slots gets no mark. At a
+        // crotchet-triplet rung a 3/4 beat starts one and a half slots in, and
+        // a mark rounded onto slot 2 would be pointing at the wrong step —
+        // exactly the "readout that lies about the grid" failure this project
+        // keeps hitting. Every straight rung divides a beat exactly, so this
+        // only ever removes marks that were never true.
+        const onSlot = (at) => Math.abs(at - Math.round(at)) < 1e-9;
         if (Array.isArray(pulses) && pulses.length) {
           const starts = [];
           let beat = 0;
-          for (const p of pulses) { starts.push(Math.round(beat * perBeat)); beat += p; }
+          for (const p of pulses) {
+            const at = beat * perBeat;
+            if (onSlot(at)) starts.push(Math.round(at));
+            beat += p;
+          }
           return starts.filter((slot) => slot < n);
         }
-        return Array.from({ length: Math.ceil(n / perBeat) }, (unused, i) => Math.round(i * perBeat));
+        return Array.from({ length: Math.ceil(n / perBeat) }, (unused, i) => i * perBeat)
+          .filter(onSlot)
+          .map((at) => Math.round(at));
       }
 
       /**
@@ -6788,8 +6824,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const SEQ_LEGEND_RESOLUTION =
         ' Resolution: the \u00d72 / \u00f72 pair under the grid chooses the note value a '
         + 'step covers \u2014 crotchets down to hemi-demi-semiquavers. A finer grid draws '
-        + 'more cells for the same bar and the engine plays exactly those; triplets are the '
-        + 'one division this ladder cannot reach and will get their own control.';
+        + 'more cells for the same bar and the engine plays exactly those. Triplets puts '
+        + 'three steps in the time of two at whatever note value you are on, and \u00d72 / '
+        + '\u00f72 then walk the triplet note values; press it again for straight time.';
 
       const SEQ_LEGEND_LANES =
         ' Lanes: “Add lane” copies the pattern of the lane it lands beside, its ' +
@@ -7006,13 +7043,29 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // ×2 doubles it. The readout names the note value, because that is
         // what a musician is choosing; triplets are NOT on this ladder, by
         // his own reading, and say so in the tooltip rather than pretending.
+        // v0.0.137 finishes item 89: triplets, which he named as the one thing
+        // ×2/÷2 cannot reach, get their own ladder and their own button.
         const NOTE_VALUE_NAMES = new Map([
           [1, 'crotchets'],
           [0.5, 'quavers'],
           [0.25, 'semiquavers'],
           [0.125, 'demi-semiquavers'],
           [0.0625, 'hemi-demi-semiquavers'],
+          [2 / 3, 'crotchet triplets'],
+          [1 / 3, 'quaver triplets'],
+          [1 / 6, 'semiquaver triplets'],
+          [1 / 12, 'demi-semiquaver triplets'],
         ]);
+        // Looked up with a tolerance, never by ===: a rung that has been through
+        // JSON (a share link, a saved setup) can differ from 1/3 in its last
+        // bit, and a readout that fell back to "0.3333333333333333 beats"
+        // would be this project's readout-lying failure in a new costume.
+        const noteValueName = (beats) => {
+          for (const [rung, name] of NOTE_VALUE_NAMES) {
+            if (Math.abs(rung - beats) < 1e-9) return name;
+          }
+          return `${beats} beats`;
+        };
         const resBar = document.createElement('div');
         resBar.className = 'seq-lane-bar seq-res-bar';
         resBar.hidden = !engineCaps.stepResolution || track === 'arp';
@@ -7026,32 +7079,47 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         resFiner.type = 'button';
         resFiner.className = 'secondary-button seq-res-step';
         resFiner.textContent = '÷2';
-        resBar.append(resCoarser, resLabel, resFiner);
+        const resTriplet = document.createElement('button');
+        resTriplet.type = 'button';
+        resTriplet.className = 'secondary-button seq-res-step seq-res-triplet';
+        resTriplet.textContent = 'Triplets';
+        resTriplet.hidden = !engineCaps.stepTriplets;
+        resBar.append(resCoarser, resLabel, resFiner, resTriplet);
         describe(resCoarser, 'Coarser grid: each step covers twice the time (fewer, longer steps).');
-        describe(resFiner, 'Finer grid: each step covers half the time. Triplets are the one division this cannot reach — they need their own control.');
+        describe(resFiner, 'Finer grid: each step covers half the time.');
+        describe(resTriplet, 'Triplets: three steps in the time of two, at the note value you are on. Press again for straight time.');
 
-        const RES_LADDER = engineModule && Array.isArray(engineModule.STEP_RESOLUTIONS)
+        const RES_STRAIGHT = engineModule && Array.isArray(engineModule.STEP_RESOLUTIONS)
           ? [...engineModule.STEP_RESOLUTIONS].sort((a, b) => b - a)
           : [1, 0.5, 0.25, 0.125, 0.0625];
+        const RES_TRIPLET = engineModule && Array.isArray(engineModule.STEP_RESOLUTIONS_TRIPLET)
+          ? [...engineModule.STEP_RESOLUTIONS_TRIPLET].sort((a, b) => b - a)
+          : [2 / 3, 1 / 3, 1 / 6, 1 / 12];
+        const sameRung = (a, b) => Math.abs(a - b) < 1e-9;
+        const onTripletLadder = (beats) => RES_TRIPLET.some((rung) => sameRung(rung, beats));
+        // ×2/÷2 walks WITHIN the feel you are in: halving a quaver triplet
+        // gives a semiquaver triplet, and never silently straightens the grid.
+        const ladderFor = (beats) => (onTripletLadder(beats) ? RES_TRIPLET : RES_STRAIGHT);
+        const rungIndex = (ladder, beats) => ladder.findIndex((rung) => sameRung(rung, beats));
 
         function syncResolutionUI() {
           if (resBar.hidden) return;
           const beats = trackStepBeats(track);
-          const at = RES_LADDER.indexOf(beats);
-          resLabel.textContent = NOTE_VALUE_NAMES.get(beats) || `${beats} beats`;
+          const ladder = ladderFor(beats);
+          const at = rungIndex(ladder, beats);
+          resLabel.textContent = noteValueName(beats);
           resCoarser.disabled = at <= 0;
-          resFiner.disabled = at < 0 || at >= RES_LADDER.length - 1;
+          resFiner.disabled = at < 0 || at >= ladder.length - 1;
           resLabel.setAttribute('aria-label', `Editing resolution: ${resLabel.textContent}`);
+          const triplet = onTripletLadder(beats);
+          resTriplet.setAttribute('aria-pressed', triplet ? 'true' : 'false');
         }
 
-        function stepResolution(direction) {
-          const beats = trackStepBeats(track);
-          const at = RES_LADDER.indexOf(beats);
-          const next = RES_LADDER[clamp(at + direction, 0, RES_LADDER.length - 1)];
-          if (!Number.isFinite(next) || next === beats) return;
-          // The ENGINE resizes the lanes: it owns how many slots a resolution
-          // stores, so the page asks and then adopts the answer rather than
-          // guessing at a length (the readout-lying failure class).
+        // The ENGINE resizes the lanes: it owns how many slots a resolution
+        // stores, so the page asks and then adopts the answer rather than
+        // guessing at a length (the readout-lying failure class).
+        function applyResolution(next, beats) {
+          if (!Number.isFinite(next) || sameRung(next, beats)) return;
           settings.tracks[track].stepBeats = next;
           engine.setParams({ tracks: { [track]: { stepBeats: next } } });
           try {
@@ -7067,8 +7135,34 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           render();
         }
 
+        function stepResolution(direction) {
+          const beats = trackStepBeats(track);
+          const ladder = ladderFor(beats);
+          const at = rungIndex(ladder, beats);
+          applyResolution(ladder[clamp(at + direction, 0, ladder.length - 1)], beats);
+        }
+
+        // Switching feel keeps the NOTE VALUE — quavers become quaver triplets,
+        // not whichever number happens to be nearest. The engine owns that
+        // mapping so the page and a share link agree on it.
+        function toggleTriplet() {
+          const beats = trackStepBeats(track);
+          const triplet = !onTripletLadder(beats);
+          let next = null;
+          if (engineModule && typeof engineModule.nearestResolution === 'function') {
+            next = engineModule.nearestResolution(beats, { triplet });
+          } else {
+            const from = triplet ? RES_STRAIGHT : RES_TRIPLET;
+            const to = triplet ? RES_TRIPLET : RES_STRAIGHT;
+            const at = rungIndex(from, beats);
+            next = to[clamp(at < 0 ? 2 : at, 0, to.length - 1)];
+          }
+          applyResolution(next, beats);
+        }
+
         resCoarser.addEventListener('click', () => stepResolution(-1));
         resFiner.addEventListener('click', () => stepResolution(1));
+        resTriplet.addEventListener('click', toggleTriplet);
 
         const scroll = document.createElement('div');
         scroll.className = 'seq-scroll';
@@ -15350,7 +15444,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#voice-edit-toggle-percussion',
-          text: 'Edit opens a track\'s panel: its step sequencer at the top, then the dials that build its sound. Drag sideways across sequencer cells to tie them into one long note. An outlined cell is a step the app chose rather than one you typed, and on a tuned track a small line inside it shows how high the note is \u2014 so a bass line\'s shape reads straight off the grid. Hover a cell to read the note names.',
+          text: 'Edit opens a track\'s panel: its step sequencer at the top, then the dials that build its sound. \u00d72 / \u00f72 under the grid set what one cell is worth, and Triplets puts three in the time of two. Drag sideways across cells to tie them into one long note. An outlined cell is a step the app chose, not one you typed; on a tuned track a line inside it shows how high the note is, so a bass line\'s shape reads off the grid. Hover a cell for note names.',
         },
         {
           tab: 'advanced',
@@ -18286,8 +18380,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     .seq-res-readout {
-      min-width: 12ch;
+      min-width: 16ch;
       text-align: center;
+    }
+
+    .seq-res-triplet[aria-pressed='true'] {
+      border-color: var(--link);
+      color: var(--link);
     }
 
     .seq-dot-active {

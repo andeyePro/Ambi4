@@ -1874,3 +1874,50 @@ Module ownership: **Share names**: `src/scripts/share-name.js`
   offered as the preset name only while that box is EMPTY, never overwriting
   what the user typed; an arriving `#p=` link announces its name in the same
   note and line. A `/[slug]` factory route keeps its own name and gets none.
+
+## Editing resolution — `stepBeats` (v0.0.131, triplets v0.0.137)
+
+Module ownership: **the engine** (`src/scripts/ambient-engine.js`), exported as
+`STEP_RESOLUTIONS`, `STEP_RESOLUTIONS_TRIPLET`, `ALL_STEP_RESOLUTIONS`,
+`laneSlotsFor`, `stepsPerBarAt`, `isTripletResolution`, `nearestResolution`.
+
+His item 89: "the ability to choose the editing resolution, so you can input
+whole notes, semi-brieves, quavers, semi-quavers, demi-semi-quavers, triplets,
+etc. I was thinking a x2 /2 controller could easily control all eventualities
+other than triplets."
+
+- **Two ladders, not one sorted set.** Straight rungs are
+  `[1, 0.5, 0.25, 0.125, 0.0625]` beats; triplet rungs are
+  `[2/3, 1/3, 1/6, 1/12]` — three in the space of two, at each note value. The
+  ×2/÷2 pair walks WITHIN a ladder, because halving a quaver triplet gives a
+  semiquaver triplet and a musician switching feel is making a different
+  decision from choosing a note value. `nearestResolution(beats, {triplet})`
+  crosses between them BY POSITION, so quavers become quaver triplets rather
+  than whichever number is numerically closest (⅔ is nearer 0.5 than ⅓ is).
+- **`params.tracks[t].stepBeats` is per-track**, and the sanitiser only writes
+  it when it is NOT the default sixteenth. So a params object that never
+  mentions a resolution is byte-identical to one from before the feature — no
+  stored setup, share link or frozen audio reference moved.
+- **Lanes size to the rung**, `laneSlotsFor(stepBeats)`: storage is a
+  five-beat window (the widest metre is 5/4), so 5 / 10 / 20 / 40 / 80 slots
+  straight and 8 / 15 / 30 / 60 triplet. A triplet rung need not divide five
+  beats exactly, so the lane count rounds; what a bar PLAYS is
+  `stepsPerBarAt(timeSignature, stepBeats)`, which FLOORS — a rounded-up count
+  would draw a step that sounds past the barline, and a spare stored slot is
+  the same harmless tail a shorter metre has always left.
+- **Off-ladder asks keep the stored rung.** A value on neither ladder (junk, a
+  string, 0.3) is not a resolution, and silently rounding it would resize
+  lanes the caller did not ask to resize. Ladder membership is matched with a
+  tolerance, never `===`: a rung that has been through JSON can differ from
+  1/3 in its last bit.
+- **The page never guesses a lane length.** It asks the engine to resize and
+  adopts the answer (`applyResolution` in `index.astro`), because the engine
+  owns how many slots a resolution stores. Both controls are capability-probed
+  (`engineCaps.stepResolution`, `engineCaps.stepTriplets`) so a build whose
+  engine knows only halving ships the ×2/÷2 pair and hides Triplets rather
+  than offering a feel it cannot store. The arp is excluded from both: its
+  lane is already indexed by its rate.
+- **A beat that lands between two slots gets no mark.** At a crotchet-triplet
+  rung a 3/4 beat starts one and a half slots in; a beat number rounded onto
+  the next cell would point at the wrong step. Every straight rung divides a
+  beat exactly, so this only ever removes marks that were never true.

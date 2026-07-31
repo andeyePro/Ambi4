@@ -209,6 +209,9 @@ const {
   SEQUENCER_STEP_COUNT,
   SEQUENCER_STEP_BEATS,
   STEP_RESOLUTIONS,
+  STEP_RESOLUTIONS_TRIPLET,
+  isTripletResolution,
+  nearestResolution,
   laneSlotsFor,
   stepsPerBarAt,
   PERCUSSION_LANES,
@@ -9542,11 +9545,63 @@ test('v0.0.131 resolution: a track\'s grid is its own ×2/÷2 rung — lanes siz
   for (const lane of Object.values(kit.tracks.percussion.sequencer.steps)) {
     assert.equal(lane.length, 10, 'a kit lane must size to its track resolution');
   }
-  // Off-ladder values (a triplet ask, junk, a string) keep the stored rung.
-  for (const bad of [1 / 3, 0.3, 'quaver', null, 0]) {
+  // Off-ladder values (junk, a string, a rung on no ladder) keep the stored one.
+  // 1/3 is NOT in this list any more: v0.0.137 gave triplets their own ladder.
+  for (const bad of [0.3, 'quaver', null, 0, 0.2]) {
     const kept = sanitiseParams({ tracks: { melody: { stepBeats: bad } } }, fine);
     assert.equal(kept.tracks.melody.stepBeats, 0.125,
       `an off-ladder resolution (${bad}) must keep the stored one`);
+  }
+
+  // -- v0.0.137: the one case his ×2/÷2 ladder cannot reach -----------------
+  // "a x2 /2 controller could easily control all eventualities OTHER THAN
+  // TRIPLETS." So triplets are a second ladder, three in the space of two.
+  assert.deepEqual(STEP_RESOLUTIONS_TRIPLET, [2 / 3, 1 / 3, 1 / 6, 1 / 12]);
+  assert.ok(STEP_RESOLUTIONS.every((rung) => !isTripletResolution(rung)),
+    'no straight rung may claim to be a triplet');
+  assert.ok(STEP_RESOLUTIONS_TRIPLET.every((rung) => isTripletResolution(rung)));
+
+  // A triplet rung is stored, and its lane sizes to it. 5 ÷ ⅔ is 7.5, so the
+  // lane rounds — the bar count below is what decides what PLAYS.
+  const trip = sanitiseParams({ tracks: { melody: { stepBeats: 1 / 3 } } });
+  assert.equal(trip.tracks.melody.stepBeats, 1 / 3, 'a triplet rung is legal and stored');
+  assert.equal(trip.tracks.melody.sequencer.steps.length, 15,
+    'fifteen quaver-triplets fit the five-beat storage window');
+  assert.equal(laneSlotsFor(2 / 3), 8);
+  assert.equal(laneSlotsFor(1 / 12), 60);
+
+  // What a bar PLAYS at a triplet rung: three where two straight ones fit.
+  assert.equal(stepsPerBarAt('4/4', 1 / 3), 12, 'twelve quaver-triplets to a 4/4 bar');
+  assert.equal(stepsPerBarAt('4/4', 1 / 6), 24);
+  assert.equal(stepsPerBarAt('3/4', 1 / 3), 9, 'nine to a 3/4 bar');
+  assert.equal(stepsPerBarAt('6/8', 1 / 3), 9, 'and to a 6/8 bar, which is three beats');
+  // The odd case, and the reason the count FLOORS: 3 ÷ ⅔ is 4½, and a rounded
+  // count would draw a fifth step that sounds PAST the barline.
+  assert.equal(stepsPerBarAt('3/4', 2 / 3), 4, 'never a step past the bar');
+  assert.ok(stepsPerBarAt('3/4', 2 / 3) * (2 / 3) <= 3 + 1e-9,
+    'the steps a bar plays must fit inside the bar, at EVERY rung');
+  for (const signature of ['4/4', '3/4', '6/8', '5/4', '7/8', '12/8']) {
+    for (const rung of [...STEP_RESOLUTIONS, ...STEP_RESOLUTIONS_TRIPLET]) {
+      const plays = stepsPerBarAt(signature, rung);
+      assert.ok(plays >= 1, `${signature} at ${rung} must play at least one step`);
+      assert.ok(plays <= laneSlotsFor(rung),
+        `${signature} at ${rung} must not play more steps than its lane stores`);
+    }
+  }
+
+  // Switching feel keeps the NOTE VALUE: quavers ↔ quaver triplets. Mapping by
+  // nearest number would send quavers to crotchet-triplets (⅔ is nearer 0.5
+  // than ⅓ is), which is not the swap a musician asked for.
+  assert.equal(nearestResolution(0.5, { triplet: true }), 1 / 3);
+  assert.equal(nearestResolution(1 / 3, { triplet: false }), 0.5);
+  assert.equal(nearestResolution(0.25, { triplet: true }), 1 / 6);
+  assert.equal(nearestResolution(1, { triplet: true }), 2 / 3);
+  // The straight ladder is one rung longer, so its bottom maps to the bottom.
+  assert.equal(nearestResolution(0.0625, { triplet: true }), 1 / 12);
+  // Round-tripping never drifts more than the one rung the ladders differ by.
+  for (const rung of STEP_RESOLUTIONS_TRIPLET) {
+    const back = nearestResolution(nearestResolution(rung, { triplet: false }), { triplet: true });
+    assert.equal(back, rung, `${rung} must survive a there-and-back swap`);
   }
 });
 

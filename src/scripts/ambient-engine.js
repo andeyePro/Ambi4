@@ -779,6 +779,49 @@ export const SEQUENCER_STEP_BEATS = 0.25;
 export const STEP_RESOLUTIONS = Object.freeze([1, 0.5, 0.25, 0.125, 0.0625]);
 
 /**
+ * v0.0.137 — the case his own ladder cannot reach, in his words: "a x2 /2
+ * controller could easily control all eventualities OTHER THAN TRIPLETS." So
+ * triplets get their own rungs and their own control rather than being bent
+ * onto the halving ladder: three in the space of two, at each note value.
+ *
+ *   2/3   crotchet triplets — three in the space of two beats
+ *   1/3   quaver triplets
+ *   1/6   semiquaver triplets
+ *   1/12  demi-semiquaver triplets
+ *
+ * The two ladders are separate lists, not one sorted set, because ×2/÷2 must
+ * walk WITHIN a feel: halving a quaver triplet gives a semiquaver triplet, and
+ * a musician switching between straight and swung thirds is making a different
+ * decision from choosing a note value.
+ */
+export const STEP_RESOLUTIONS_TRIPLET = Object.freeze([2 / 3, 1 / 3, 1 / 6, 1 / 12]);
+
+/** Every legal slot length: the straight ladder plus the triplet one. */
+export const ALL_STEP_RESOLUTIONS = Object.freeze([
+  ...STEP_RESOLUTIONS,
+  ...STEP_RESOLUTIONS_TRIPLET,
+]);
+
+/** Is this rung one of the triplet ones? (The page's straight/triplet toggle.) */
+export function isTripletResolution(stepBeats) {
+  return STEP_RESOLUTIONS_TRIPLET.some((rung) => Math.abs(rung - stepBeats) < 1e-9);
+}
+
+/**
+ * The same NOTE VALUE on the other ladder: quavers ↔ quaver triplets, not
+ * whatever number happens to be closest. The two ladders are written in the
+ * same order for exactly this reason, so the mapping is by position — a
+ * musician switching feel expects to keep the note value they were on.
+ */
+export function nearestResolution(stepBeats, { triplet }) {
+  const from = triplet ? STEP_RESOLUTIONS : STEP_RESOLUTIONS_TRIPLET;
+  const to = triplet ? STEP_RESOLUTIONS_TRIPLET : STEP_RESOLUTIONS;
+  const at = from.findIndex((rung) => Math.abs(rung - stepBeats) < 1e-9);
+  const index = at < 0 ? to.indexOf(SEQUENCER_STEP_BEATS) : at;
+  return to[Math.max(0, Math.min(index, to.length - 1))];
+}
+
+/**
  * The longest bar the grid stores for, in beats: 5/4 is the widest metre the
  * sequencer accepts, so a lane holds one bar of the FINEST resolution the
  * track is set to and metres shorter than that use a prefix — the same law
@@ -788,15 +831,27 @@ export const STEP_RESOLUTIONS = Object.freeze([1, 0.5, 0.25, 0.125, 0.0625]);
 const MAX_LANE_BEATS = 5;
 
 /** How many slots a lane STORES at a given resolution (the storage cap). */
+const legalResolution = (stepBeats) =>
+  ALL_STEP_RESOLUTIONS.some((rung) => Math.abs(rung - stepBeats) < 1e-9);
+
 export function laneSlotsFor(stepBeats) {
-  const beats = STEP_RESOLUTIONS.includes(stepBeats) ? stepBeats : SEQUENCER_STEP_BEATS;
+  const beats = legalResolution(stepBeats) ? stepBeats : SEQUENCER_STEP_BEATS;
+  // Rounded: a triplet rung does not divide the five-beat storage window
+  // exactly (5 ÷ ⅔ is 7.5), and a lane is a whole number of slots. The bar's
+  // own count below is what decides what PLAYS, so a spare stored slot is the
+  // same harmless tail a shorter metre already leaves.
   return Math.round(MAX_LANE_BEATS / beats);
 }
 
 /** How many slots a metre PLAYS at a given resolution (a prefix of the lane). */
 export function stepsPerBarAt(timeSignature, stepBeats) {
-  const beats = STEP_RESOLUTIONS.includes(stepBeats) ? stepBeats : SEQUENCER_STEP_BEATS;
-  return Math.min(laneSlotsFor(beats), Math.round(beatsPerBar(timeSignature) / beats));
+  const beats = legalResolution(stepBeats) ? stepBeats : SEQUENCER_STEP_BEATS;
+  // FLOOR, not round: a triplet rung need not divide an odd metre exactly (a
+  // crotchet-triplet grid is 4½ slots to a 3/4 bar), and a rounded-up count
+  // would draw a step that sounds PAST the barline. A short tail is the same
+  // prefix a shorter metre already leaves; a step past the bar is a lie.
+  // Straight rungs divide exactly, so this is identical for all of them.
+  return Math.min(laneSlotsFor(beats), Math.max(1, Math.floor(beatsPerBar(timeSignature) / beats + 1e-9)));
 }
 
 /**
@@ -1478,9 +1533,9 @@ function sanitiseStepLane(value, base, stepBeats = SEQUENCER_STEP_BEATS) {
 /** A track's slot length: one of the ×2/÷2 ladder, defaulting to the sixteenth. */
 function stepBeatsOf(value, base) {
   const asked = typeof value === 'number' ? value : Number(value);
-  if (STEP_RESOLUTIONS.includes(asked)) return asked;
+  if (legalResolution(asked)) return asked;
   const stored = typeof base === 'number' ? base : Number(base);
-  if (STEP_RESOLUTIONS.includes(stored)) return stored;
+  if (legalResolution(stored)) return stored;
   return SEQUENCER_STEP_BEATS;
 }
 
@@ -4636,7 +4691,7 @@ export function createEngine(initialParams, options = {}) {
    */
   function trackStepBeats(track) {
     const asked = params.tracks[track] && params.tracks[track].stepBeats;
-    return STEP_RESOLUTIONS.includes(asked) ? asked : SEQUENCER_STEP_BEATS;
+    return legalResolution(asked) ? asked : SEQUENCER_STEP_BEATS;
   }
 
   /** How many slots this track's bar plays at its own resolution. */

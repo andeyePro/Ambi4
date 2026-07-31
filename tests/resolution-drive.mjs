@@ -136,6 +136,92 @@ export default async function drive(page) {
   check('toggling a cell FLIPS that step at the ENGINE', after.on, !before5);
   check('…and two ÷2 from the top rung is semiquavers again', after.stepBeats, 0.25);
 
+  // -- v0.0.137: triplets, the one division the ×2/÷2 ladder cannot reach ----
+  // His item 89 named them as the exception. The button must switch FEEL while
+  // keeping the note value, and the grid must draw exactly what the engine
+  // then plays — three cells where two used to sit.
+  const pressTriplet = async () => {
+    await page.evaluate(() => {
+      document.querySelector('#voice-editor-bass .seq-res-triplet')?.click();
+    });
+    await page.waitForTimeout(500);
+  };
+
+  const tripletState = () =>
+    page.evaluate(() => {
+      const editor = document.getElementById('voice-editor-bass');
+      const button = editor.querySelector('.seq-res-triplet');
+      const live = window.__ambi4Engine.getParams().tracks.bass;
+      const steps = Array.isArray(live.sequencer.steps)
+        ? live.sequencer.steps
+        : Object.values(live.sequencer.steps)[0];
+      return {
+        offered: button && !button.hidden,
+        pressed: button?.getAttribute('aria-pressed'),
+        readout: editor.querySelector('.seq-res-readout')?.textContent || null,
+        cells: editor.querySelectorAll('.seq-cell').length,
+        engineStepBeats: live.stepBeats ?? 0.25,
+        engineLane: steps.length,
+        beatMarks: [...editor.querySelectorAll('.seq-beats .seq-beat-mark')].map((el) => el.textContent),
+      };
+    });
+
+  const straight = await tripletState();
+  check('the Triplets button is offered', straight.offered, true);
+  check('…and reads as off on a straight grid', straight.pressed, 'false');
+  check('…on semiquavers, where the ladder walk left us', straight.readout, 'semiquavers');
+
+  await pressTriplet();
+  const swung = await tripletState();
+  check('Triplets keeps the NOTE VALUE it was on', swung.readout, 'semiquaver triplets');
+  check('…and reads as on', swung.pressed, 'true');
+  check('…the ENGINE stores the triplet rung', Math.abs(swung.engineStepBeats - 1 / 6) < 1e-9, (v) => v === true);
+  check('…its lane grew to thirty slots', swung.engineLane, 30);
+  check('…and the grid draws the 24 a 4/4 bar plays', swung.cells, 24);
+  check('…with a beat mark on each of the four beats', swung.beatMarks, ['1', '2', '3', '4']);
+
+  // ×2 must walk WITHIN the triplet feel, not straighten the grid under them.
+  await press('×2');
+  const coarserTriplet = await tripletState();
+  check('×2 walks the triplet ladder', coarserTriplet.readout, 'quaver triplets');
+  check('…still in triplet feel', coarserTriplet.pressed, 'true');
+  check('…12 cells in 4/4', coarserTriplet.cells, 12);
+
+  // A step edited on a triplet grid must reach the engine like any other.
+  const flipped = await page.evaluate(async () => {
+    const editor = document.getElementById('voice-editor-bass');
+    const cell = editor.querySelectorAll('.seq-cell')[7];
+    cell.scrollIntoView({ block: 'center' });
+    cell.tabIndex = 0;
+    cell.focus();
+    const read = () => {
+      const live = window.__ambi4Engine.getParams().tracks.bass;
+      const steps = Array.isArray(live.sequencer.steps)
+        ? live.sequencer.steps
+        : Object.values(live.sequencer.steps)[0];
+      return steps[7]?.on === true;
+    };
+    return { before: read() };
+  });
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  const afterTriplet = await page.evaluate(() => {
+    const live = window.__ambi4Engine.getParams().tracks.bass;
+    const steps = Array.isArray(live.sequencer.steps)
+      ? live.sequencer.steps
+      : Object.values(live.sequencer.steps)[0];
+    return steps[7]?.on === true;
+  });
+  check('a triplet-grid cell flips its step at the ENGINE', afterTriplet, !flipped.before);
+
+  // Pressing it again returns to straight time at the same note value.
+  await pressTriplet();
+  const backStraight = await tripletState();
+  check('pressing Triplets again returns to straight time', backStraight.readout, 'quavers');
+  check('…the engine has the straight rung', backStraight.engineStepBeats, 0.5);
+  check('…and the grid is 8 cells again', backStraight.cells, 8);
+  check('…with the button reading off', backStraight.pressed, 'false');
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(
