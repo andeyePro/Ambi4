@@ -412,15 +412,15 @@ export default async function drive(page) {
   // THE GATE STAYS LIVE: a NEW click anywhere fails, a known one more than a
   // fifth worse fails, and one that gets FIXED must be removed from this list.
   //
-  //   arp/marimba onset            one step of 0.103, 82% of its own loudness
-  //                                against 2.3% a few cycles on, 30 ms after
-  //                                the strike — which is where noiseBurst's
-  //                                `rig.stopAt(source, end + 0.02)` falls for
-  //                                its 1 ms attack and 8 ms decay. That is the
-  //                                lead to follow first.
-  //   melody/stab onset            38% against 5.7%, same shape
   //   bass/breath slur handover 2  92% against 1.4% — on a SINE voice, so
   //                                nothing about it can be waveform
+  //
+  // arp/marimba's and melody/stab's onsets were here until v0.0.140 FIXED them:
+  // both were the noise burst's source being stopped twenty milliseconds after
+  // its envelope, instantaneously and on a render-block boundary, which is why
+  // two voices with different burst lengths lost their signal at exactly the
+  // same sample. Identified by moving the stop half a second later (0.103 →
+  // 0.005) and fixed by letting the source stop with the rest of the note.
   //
   // What is NOT here matters as much: `bass/fingered`, `melody/nylon`,
   // `texture/chimes` and marimba's fast-line all showed big steps that RECUR
@@ -430,8 +430,6 @@ export default async function drive(page) {
   // and whatever he heard in Soul Groove is in the playing, not in one note.
   const KNOWN = new Map([
     ['bass/breath slur handover 2', 0.92],
-    ['arp/marimba onset', 0.82],
-    ['melody/stab onset', 0.39],
   ]);
   const KNOWN_SLACK = 1.2; // a fifth worse than measured is a regression
   const known = [];

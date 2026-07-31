@@ -775,7 +775,19 @@ function noiseBurst(rig, dest, {
   amp.connect(dest);
   const makeup = type === 'bandpass' ? noiseMakeup(freq, q, rig.sampleRate) : 1;
   const end = struckEnv(amp.gain, t, { attack, decay, peak: peak * scale * makeup, hold, span }, p);
-  rig.stopAt(source, end + 0.02);
+  // v0.0.140 — MEASURED CLICK FIX. This used to stop the noise source twenty
+  // milliseconds after the burst's envelope ended. Stopping a buffer source is
+  // instantaneous AND is quantised to the render block, while envelopes are not,
+  // and whatever the source was still contributing went to zero in one sample.
+  // `tests/onset-render.mjs` measured the result on the two voices whose bursts
+  // are shortest: arp/marimba lost 0.103 of full scale in one sample — 82% of
+  // the note's own loudness right there — and melody/stab 0.031, both at exactly
+  // the same sample, because both bursts' stops rounded up to the same block.
+  // Moving the stop half a second later removed the step completely (0.103 →
+  // 0.005), which is what identified it. So the source now stops with the rest
+  // of the note, through rig.finish(): a looping buffer whose gain is at the
+  // envelope floor costs one node's worth of CPU for the length of one note, and
+  // a click costs the listener the note.
   return end;
 }
 
