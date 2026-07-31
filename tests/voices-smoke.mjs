@@ -22,12 +22,19 @@ let created = [];
 let startedSources = [];
 const automation = [];
 
+let paramSeq = 0;
+
 function makeParam(name, initial) {
   let current = initial;
   let written = false;
+  // Params share names ('gain.gain' for every gain node), so the log carries a
+  // stable per-param id — that is what lets a test tell "two envelopes were
+  // re-held" from "the same one twice" (audit: legato parallel layers).
+  const id = `${name}#${++paramSeq}`;
   const param = {
     isParam: true,
     name,
+    paramId: id,
     // min/max cover every value the patch asks for; the constructor default
     // only counts while the patch has left the param alone.
     min: initial,
@@ -47,20 +54,20 @@ function makeParam(name, initial) {
     set value(v) { this.note(v); },
     setValueAtTime(v, t) {
       checkTime(name, 'setValueAtTime', t);
-      automation.push({ name, kind: 'set', value: v, time: t });
+      automation.push({ name, paramId: id, kind: 'set', value: v, time: t });
       this.note(v);
       return this;
     },
     linearRampToValueAtTime(v, t) {
       checkTime(name, 'linearRamp', t);
-      automation.push({ name, kind: 'linear', value: v, time: t });
+      automation.push({ name, paramId: id, kind: 'linear', value: v, time: t });
       this.note(v);
       return this;
     },
     exponentialRampToValueAtTime(v, t) {
       checkTime(name, 'exponentialRamp', t);
       assert.ok(v >= 9e-5, `${name}: exponential ramp to ${v} — must target >= ~1e-4`);
-      automation.push({ name, kind: 'exponential', value: v, time: t });
+      automation.push({ name, paramId: id, kind: 'exponential', value: v, time: t });
       this.note(v);
       return this;
     },
@@ -68,7 +75,7 @@ function makeParam(name, initial) {
       checkTime(name, 'setTargetAtTime', t);
       assert.ok(Number.isFinite(constant) && constant > 0,
         `${name}: setTargetAtTime constant ${constant}`);
-      automation.push({ name, kind: 'target', value: v, time: t });
+      automation.push({ name, paramId: id, kind: 'target', value: v, time: t });
       this.note(v);
       return this;
     },
@@ -944,6 +951,41 @@ test('a patch moves the attack, and a partial patch moves only the attack', () =
           `${track}.${id}: the patch attack did not replace the voice's own`);
       }
     }
+  }
+});
+
+test('audit: a legato takeover carries a voice\'s parallel layers, not just its main amp', () => {
+  // Melody and bass both ship mono+glide, so this is every slurred note of
+  // two shipped voices: the flute's breath band and bass `breath`'s air band
+  // each have their own envelope, and only the main amp used to be re-held —
+  // so note 2 onward played the bare tone (the air envelope was measured dead
+  // at 1.41 s of a 2 s slurred run).
+  for (const [track, id] of [['melody', 'flute'], ['bass', 'breath']]) {
+    const voice = VOICES[track][id];
+    const ctx = new MockAudioContext();
+    const destination = makeNode('gain');
+    created = []; startedSources = []; automation.length = 0;
+    const note1 = {
+      midi: track === 'bass' ? 33 : 69, freq: null, kind: null,
+      when: 0.5, duration: 0.5, velocity: 0.8, pan: 0,
+    };
+    const handle1 = voice.play(ctx, destination, note1);
+    ctx.currentTime = 0.9;
+    const note2 = { ...note1, midi: note1.midi + 2, when: 0.9, glide: 0.3 };
+    const autoBefore = automation.length;
+    const handle2 = tryLegatoShapes(voice, ctx, destination, handle1, note2);
+    assert.ok(handle2 && handle2.legato === true, `${track}.${id}: the slur was refused`);
+    // How many DISTINCT gain params the takeover re-scheduled. One is the main
+    // amp alone (the defect); the parallel layer makes it two.
+    const touched = new Set(
+      automation.slice(autoBefore)
+        .filter((a) => a.name.includes('gain'))
+        .map((a) => a.paramId)
+    );
+    assert.ok(touched.size >= 2,
+      `${track}.${id}: a slur re-held ${touched.size} gain envelope(s) — the parallel `
+      + `layer was abandoned (touched: ${[...touched].join(', ')})`);
+    for (const source of startedSources) source.onended?.();
   }
 });
 

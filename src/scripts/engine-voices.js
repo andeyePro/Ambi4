@@ -416,6 +416,8 @@ function createRig(ctx, destination, note) {
   // v12 legato: what a mono track needs to retune this note instead of
   // striking a new one. Null until the voice declares itself glide-able.
   let held = null;
+  // Parallel layer envelopes registered through holdAlso() — see there.
+  const alsoHeld = [];
 
   const out = ctx.createGain();
   out.gain.value = 1;
@@ -528,6 +530,20 @@ function createRig(ctx, destination, note) {
       held = { freq, amp, level: holdLevel, release: Math.max(release, 0.01), until };
     },
 
+    /**
+     * AUDIT FIX: a PARALLEL layer with its own envelope, declared so a legato
+     * takeover re-holds it too. Only the main amp used to be re-held, so a
+     * slurred mono line lost every such layer from note 2 on — the flute's
+     * breath band went silent mid-phrase, and bass `breath` lost the very
+     * layer it is named for (measured: air envelope dead at 1.41 s of a 2 s
+     * slurred run). Melody and bass both ship mono+glide by default, so this
+     * was every legato note of two shipped voices.
+     */
+    holdAlso(param, { level, release }) {
+      if (!param || !(level > SILENCE * 2)) return;
+      alsoHeld.push({ param, level, release: Math.max(release, 0.01) });
+    },
+
     /** Retire one source early — used by grains and one-shot transients. */
     stopAt(node, time) {
       const entry = entryFor(node);
@@ -593,6 +609,15 @@ function createRig(ctx, destination, note) {
     // whatever the next takeover schedules on top of it. A fifth of the
     // release as the time constant puts it ~43 dB down by the source stop.
     held.amp.setTargetAtTime(SILENCE, sustainEnd, held.release / 5);
+    // Every declared parallel layer is re-held on the same schedule, so a
+    // slurred phrase keeps its breath, air or shimmer instead of playing the
+    // bare tone from the second note on.
+    for (const layer of alsoHeld) {
+      layer.param.cancelScheduledValues(at);
+      layer.param.setValueAtTime(layer.level, at);
+      layer.param.setValueAtTime(layer.level, sustainEnd);
+      layer.param.setTargetAtTime(SILENCE, sustainEnd, layer.release / 5);
+    }
     held.until = sustainEnd;
 
     // Web Audio lets a later stop() supersede an earlier one that has not yet
@@ -2398,14 +2423,17 @@ function bassBreath(ctx, destination, note, patch) {
   band.connect(clear);
   clear.connect(airGain);
   airGain.connect(amp);
+  const airPeak = 0.08 + 0.06 * v;
   env(airGain.gain, t, {
     attack: attack * 2.5,
     hold: Math.max(0.05, hold - attack * 1.5),
     release,
     // Well under the tone: at the bottom of the mix a band of noise riding a
     // sustained note is heard as wind behind it, not as breath in it.
-    peak: 0.08 + 0.06 * v,
+    peak: airPeak,
   });
+  // The voice is NAMED for this layer: a slur must carry it too.
+  rig.holdAlso(airGain.gain, { level: airPeak, release });
   lfo(rig, band.frequency, { t, rate: 0.23, depth: f * 0.5 });
 
   const peak = level(PEAK.bass * 0.95, v);
@@ -2747,6 +2775,9 @@ function melodyFlute(ctx, destination, note, patch) {
   airGain.gain.exponentialRampToValueAtTime(breathSustain, t + attack + Math.min(0.25, hold * 0.5));
   airGain.gain.setValueAtTime(breathSustain, t + attack + hold);
   airGain.gain.exponentialRampToValueAtTime(SILENCE, t + attack + hold + release);
+  // The breath is half of what makes this a flute: a slur must carry it, or
+  // notes 2+ of a legato phrase are a bare sine (melody ships mono+glide).
+  rig.holdAlso(airGain.gain, { level: breathSustain, release });
 
   // Loudness match, not peak match: the flute HOLDS its level where pluck,
   // bell and keys decay away from theirs, so an equal peak reads several dB

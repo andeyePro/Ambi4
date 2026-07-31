@@ -9059,10 +9059,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             },
           });
         }
+        // AUDIT FIX: gated on the VOICE publishing a `fold`, not on it having a
+        // shape1. engine-voices only builds a folder where `defaults.source.fold`
+        // exists (folding()), and patchFor drops the field otherwise — so on
+        // wash, both call voices and all four kits the dial moved, wrote into
+        // the patch, persisted into presets and share links, and did NOTHING.
         if (
           source &&
           engineCaps.patchFold &&
-          (controlsFieldAllowed(sourceSpec, 'fold') || controlsFieldAllowed(sourceSpec, 'shape1'))
+          controlsFieldAllowed(sourceSpec, 'fold') &&
+          typeof defaults?.source?.fold === 'number'
         ) {
           veRange(source, 'Fold', {
             min: 0,
@@ -9611,10 +9617,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // oscillator to fold — a voice that lets you re-type shape1 has one.
         // Bypassed at 0 (no extra nodes), which is every voice's default until
         // the library starts shipping folded ones.
+        // AUDIT FIX (see the fallback builder above): the voice must publish a
+        // fold for the dial to do anything.
         if (
           source &&
           engineCaps.patchFold &&
-          (allowed(sourceSpec, 'fold') || allowed(sourceSpec, 'shape1'))
+          allowed(sourceSpec, 'fold') &&
+          typeof defaults?.source?.fold === 'number'
         ) {
           addKnob(source, {
             label: 'Fold',

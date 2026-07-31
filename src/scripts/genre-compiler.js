@@ -246,9 +246,20 @@ function seedPool(grammar, fallback) {
  * loop: re-running the rules over their own output would let `V7 → V13` chase
  * `V13 → …` round a cycle, and no genre file means that.
  */
+/**
+ * AUDIT FIX: `from` is matched case-INSENSITIVELY, because this file's own
+ * vocabulary rule says case is the director's colour hint and not an
+ * instruction — so `vii` and `VII` are the same chord. Nine rules across five
+ * genres could never fire, four of them because the grammar spells the same
+ * numeral in the other case, and two of THOSE are prob-1 rules (ambient's and
+ * new age's "this chord must never survive"). One consequence is deliberate
+ * and left alone: bossa's `V7 → V13` now fires on its `v7`, which is the rule
+ * its director wrote.
+ */
 function substituteToken(token, rules, rng) {
   for (const rule of rules) {
-    if (!isObject(rule) || rule.from !== token || typeof rule.to !== 'string') continue;
+    if (!isObject(rule) || typeof rule.from !== 'string' || typeof rule.to !== 'string') continue;
+    if (rule.from.toLowerCase() !== String(token).toLowerCase()) continue;
     if (rng() < numberOr(rule.prob, 0)) return rule.to;
   }
   return token;
@@ -645,7 +656,14 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
 
   const reverbTail = numberOr(instrumentation.reverbTail, undefined);
   if (reverbTail !== undefined) partial.reverbTail = reverbTail;
-  if (isObject(instrumentation.patches)) partial.patches = instrumentation.patches;
+  // AUDIT FIX: a DEEP COPY. This aliased the imported genre module's own
+  // object, and applyDefiance's setPath then wrote through it — one defiance
+  // compile permanently rewrote the genre's authored patches for the rest of
+  // the page's life, breaking this module's documented purity. Nothing wires
+  // the dials yet; that made it a loaded gun rather than a live one.
+  if (isObject(instrumentation.patches)) {
+    partial.patches = JSON.parse(JSON.stringify(instrumentation.patches));
+  }
 
   // Dissonance ships as the genre's RANGE, so the tuned tracks drift inside the
   // band the director set rather than sitting on one value of it forever.
