@@ -366,7 +366,14 @@ function kitFloorDouble(steps, kitComplexity, slots) {
   if (c === undefined || c < 0.75) return;
   const onSlots = [];
   for (let i = 0; i < slots; i++) if (steps[i].on) onSlots.push(i);
-  if (!onSlots.length) return;
+  // AUDIT FIX (finding 70): the owner's precondition is real — "possibly 8
+  // or 16 to the floor IF YOU STARTED WITH 4 TO THE FLOOR". Only an even
+  // pulse doubles; a boom-bap or surdo figure keeps its authored shape at
+  // any Energy (lofi-beats' kick was being rewritten into a machine floor).
+  if (onSlots.length < 2) return;
+  const gaps = onSlots.map((slot, k) =>
+    k + 1 < onSlots.length ? onSlots[k + 1] - slot : onSlots[0] + slots - slot);
+  if (!gaps.every((gap) => gap === gaps[0])) return;
   const insert = (slot, from) => {
     if (slot < 0 || slot >= slots || steps[slot].on) return;
     steps[slot] = {

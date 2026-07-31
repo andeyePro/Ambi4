@@ -333,6 +333,22 @@ test('kit softness (Energy 1c): below the midpoint velocities scale and hats thi
     'inserted hits sit under the written accents');
   assert.equal(stripKit(doubled), stripKit(plain), 'the doubling is kit-only too');
 
+  // AUDIT FIX (finding 70): doubling requires the authored lane to BE an
+  // even pulse — "8 or 16 to the floor IF you started with 4 to the floor".
+  // lofi-beats' boom-bap kick is not one, and must survive the top intact.
+  {
+    const lofi = bySlug('lofi-beats');
+    const shaped = compileGenre(lofi, { rng: seededRng(4242), kitComplexity: 0.85 });
+    const plainLofi = compileGenre(lofi, { rng: seededRng(4242) });
+    const low = (params, index) => params.tracks.percussion.sequencers[index].steps.low
+      .map((s) => (s.on ? 'x' : '-')).join('');
+    for (let g = 0; g < plainLofi.tracks.percussion.sequencers.length; g++) {
+      if (!shaped.tracks.percussion.sequencers[g]) continue;
+      assert.equal(low(shaped, g), low(plainLofi, g),
+        `lofi groove ${g}: a non-even-pulse kick must never be doubled`);
+    }
+  }
+
   // Energy 2b: the FILL variant — one more sequencer from 0.75, visited by
   // weight, always handing straight back, crescendo on the last beat.
   const mains = plain.tracks.percussion.sequencers.length;

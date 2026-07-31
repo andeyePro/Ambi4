@@ -2818,22 +2818,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /**
-       * Compile a genre with its kit shaped by the genre's OWN Energy — two
-       * passes on the same seed. Kit shaping consumes no rng (the compiler
-       * documents this), so the second pass differs from the first only in
-       * the kit lanes. Without this a freshly picked genre played a
-       * midpoint-shaped kit under an Energy dial reading the genre's real
-       * value — the Techno-at-0% contradiction the Energy redesign exists to
-       * close, resurfacing on every pick until the dial was nudged. Origins
-       * written from a shaped compile carry `kit: 1`, so baseFromOrigin can
-       * rebuild them the same way while links minted before this keep their
-       * original unshaped base.
+       * AUDIT FIX (findings 70/71): a fresh pick plays the kit AS AUTHORED.
+       * The one-day shaped-pick experiment fed the genre's absolute
+       * chord-colour complexity into the kit ladder, which mangled both
+       * public genres on every pick (synthwave compiles 0.275 forever — its
+       * grammar is triads — so its straight-eighth hats grew holes). The
+       * authored kit IS the genre's sound at its own Energy; the ladder now
+       * shapes only the DIAL'S DEVIATION from that anchor (kitComplexityFor
+       * below, used by followGenreKit). This two-pass ABSOLUTE compile is
+       * kept solely so share links minted during the experiment (origin
+       * `kit: 1`) still rebuild byte-faithfully.
        */
-      function compileGenreShaped(genre, seed) {
+      function compileGenreShapedLegacy(genre, seed) {
         const first = compileGenreParams(genre, seed);
         if (!first) return null;
         const kc = clamp(rangeMid(first.complexity ?? 0.5), 0, 1);
         return compileGenreParams(genre, seed, { kitComplexity: kc }) || first;
+      }
+
+      /**
+       * The kit ladder's input, anchored to the genre's OWN Energy: at the
+       * anchor the kit is exactly as authored (0.5, the ladder's identity
+       * window), the dial's travel below the anchor spends the whole
+       * softness ladder, and the travel above it spends the whole
+       * doubling/fill ladder.
+       */
+      function kitComplexityFor(userComplexity, anchor) {
+        const a = clamp(Number.isFinite(anchor) ? anchor : 0.5, 0.05, 0.95);
+        const c = clamp(rangeMid(userComplexity), 0, 1);
+        return c <= a ? 0.5 * (c / a) : 0.5 + 0.5 * ((c - a) / (1 - a));
       }
 
       /**
@@ -2969,12 +2982,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // setup MOST people submit from — so leaving its provenance blank
           // made the diff a full settings tree for exactly the common case.
           const openingSeed = randomSeed();
-          const compiled = compileGenreShaped(genre, openingSeed);
+          const compiled = compileGenreParams(genre, openingSeed);
           if (compiled) {
             const ui = settings.ui;
             settings = deepMerge(DEFAULTS, settingsFromGenre(compiled, genre.slug));
             normaliseV6Tracks(settings);
-            settings.origin = { kind: 'genre', id: genre.slug, seed: openingSeed, kit: 1 };
+            settings.origin = { kind: 'genre', id: genre.slug, seed: openingSeed };
             settings.ui = ui;
             // The opening draw is the one setup built without applyGenre, so
             // it has to bless its own kit as genre-clean or the Energy dial
@@ -12117,14 +12130,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * rather than cutting the current one off.
        */
       function applyGenre(genre, seed = randomSeed()) {
-        const compiled = compileGenreShaped(genre, seed);
+        const compiled = compileGenreParams(genre, seed);
         if (!compiled) return false;
         const next = settingsFromGenre(compiled, genre.slug);
         // The SEED is the half of the provenance that was being thrown away.
         // `settings.genre` said which genre; nothing said which compile, and
-        // one genre has as many bases as there are seeds. `kit: 1` records
-        // that the kit was compiled shaped — see compileGenreShaped.
-        next.origin = { kind: 'genre', id: genre.slug, seed, kit: 1 };
+        // one genre has as many bases as there are seeds.
+        next.origin = { kind: 'genre', id: genre.slug, seed };
         loadParamsSnapshot(next);
         recordCleanGenreKit();
         return true;
@@ -12331,9 +12343,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const currentKit = JSON.stringify(settings.tracks?.percussion?.sequencers ?? null);
         if (currentKit !== clean) return; // hand-edited: theirs, not the dial's
         const overrides = isPlainObject(settings.genreRules) ? settings.genreRules : {};
-        const compiled = compileGenreParams(genreWithOverrides(genre, overrides), seed, {
-          kitComplexity: clamp(rangeMid(complexityValue), 0, 1),
-        });
+        const edited = genreWithOverrides(genre, overrides);
+        // Anchor the ladder to the genre's OWN compiled Energy: at the anchor
+        // the kit is exactly as authored; deviation spends the ladders.
+        const cleanCompile = compileGenreParams(edited, seed);
+        if (!cleanCompile) return;
+        const anchor = clamp(rangeMid(cleanCompile.complexity ?? 0.5), 0, 1);
+        const kc = kitComplexityFor(complexityValue, anchor);
+        const compiled = Math.abs(kc - 0.5) < 1e-9
+          ? cleanCompile
+          : compileGenreParams(edited, seed, { kitComplexity: kc });
         const kit = compiled?.tracks?.percussion?.sequencers;
         if (!Array.isArray(kit)) return;
         settings.tracks.percussion.sequencers = structuredClone(kit);
@@ -12378,13 +12397,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         const edited = genreWithOverrides(genre, overrides);
         const seed = Number.isFinite(settings.origin?.seed) ? settings.origin.seed : randomSeed();
-        const compiled = compileGenreShaped(edited, seed);
+        const compiled = compileGenreParams(edited, seed);
         if (!compiled) {
           say('These rules did not compile — nothing was changed.');
           return;
         }
         const next = settingsFromGenre(compiled, genre.slug);
-        next.origin = { kind: 'genre', id: genre.slug, seed, kit: 1 };
+        next.origin = { kind: 'genre', id: genre.slug, seed };
         if (Object.keys(overrides).length) next.genreRules = overrides;
         loadParamsSnapshot(next);
         recordCleanGenreKit();
@@ -14399,7 +14418,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // other way would put the whole kit into every diff. Links minted
           // before the stamp rebuild exactly as they always did.
           const compiled = !genre ? null
-            : o.kit === 1 ? compileGenreShaped(genre, o.seed)
+            : o.kit === 1 ? compileGenreShapedLegacy(genre, o.seed)
             : compileGenreParams(genre, o.seed);
           if (!compiled) return null;
           // Rebuilt through the SAME pipeline a genre takes when it is
