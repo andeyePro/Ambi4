@@ -19,7 +19,8 @@
 #
 # A cooldown between drives keeps the Mac from queueing renders behind each
 # other, which is what most of the load came from. Override with
-# SWEEP_COOLDOWN=<seconds> (default 3); SWEEP_RETRY=0 turns the solo re-run off
+# SWEEP_COOLDOWN=<seconds> (default 3); SWEEP_SOLO_COOLDOWN=<seconds> (default
+# 20, the rest before a solo re-run); SWEEP_RETRY=0 turns the solo re-run off
 # entirely, which makes every in-suite failure RED — use that when you want the
 # strictest possible reading.
 
@@ -27,6 +28,9 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 COOLDOWN="${SWEEP_COOLDOWN:-3}"
+# The rest before a solo re-run: long enough that the re-run is not measuring
+# the same load that failed the drive in the first place.
+SOLO_COOLDOWN="${SWEEP_SOLO_COOLDOWN:-20}"
 RETRY="${SWEEP_RETRY:-1}"
 
 if [ ! -d dist ]; then
@@ -66,14 +70,28 @@ for drive in "${DRIVES[@]}"; do
       red+=("$name")
       printf '%s\n' "$out" | sed 's/^/    /'
     else
-      sleep "$COOLDOWN"
+      # v0.0.142: the solo re-run waits LONGER than the between-drive cooldown.
+      # A three-second gap is not enough for a Mac that has just run thirty
+      # browser drives back to back, so the re-run inherits the same load that
+      # caused the failure and the split calls a load flake RED — which is the
+      # cry-wolf failure this runner exists to prevent, and it did it twice on
+      # submit-drive, which passes solo on a quiet machine every time.
+      sleep "$SOLO_COOLDOWN"
       if solo="$(run_one "$drive")"; then
         echo "                           FLAKY (green alone)"
         flaky+=("$name")
       else
-        echo "                           RED (failed alone too)"
-        red+=("$name")
-        printf '%s\n' "$solo" | sed 's/^/    /'
+        # Twice, with the longer wait between: a drive that fails a rested
+        # re-run as well is a regression, not a machine having a bad minute.
+        sleep "$SOLO_COOLDOWN"
+        if solo="$(run_one "$drive")"; then
+          echo "                           FLAKY (green on a second rested run)"
+          flaky+=("$name")
+        else
+          echo "                           RED (failed alone twice, rested)"
+          red+=("$name")
+          printf '%s\n' "$solo" | sed 's/^/    /'
+        fi
       fi
     fi
   fi

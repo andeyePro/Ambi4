@@ -133,6 +133,9 @@ tests/sweep-drives.sh                    # every drive, RED vs FLAKY split
 **Why the sweep script and not a shell loop:** run back to back, seven of the
 twenty-eight drives failed and every one passed when re-run alone (2026-07-31).
 The drives are honest individually; the waits are tuned for an idle Mac. The
+solo re-run therefore RESTS (`SWEEP_SOLO_COOLDOWN`, default 20 s) and a drive
+that still fails gets a second rested run before it is called red — a re-run
+three seconds after thirty browsers is measuring the load that failed it. The
 script re-runs each failure solo and reports RED (failed alone too — a real
 regression, non-zero exit) separately from FLAKY (green alone — load), because
 a sweep that cries wolf is a sweep that stops being run.

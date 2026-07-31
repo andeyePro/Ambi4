@@ -88,9 +88,13 @@ tests/sweep-drives.sh                                 # EVERY drive, one command
 `tests/sweep-drives.sh` exists because a hand-run sweep lied: seven of
 twenty-eight drives failed in a row and all seven passed alone — their waits
 are tuned for an idle Mac. It re-runs a failure SOLO and splits the outcome:
-**RED** (failed alone too) fails the gate; **FLAKY** (green alone) is listed
-loudly and does not. `SWEEP_RETRY=0` makes every in-suite failure red when you
-want the strictest reading.
+**RED** (failed alone twice, rested) fails the gate; **FLAKY** (green alone) is
+listed loudly and does not. The solo re-run RESTS twenty seconds first and a
+still-failing drive gets a second rested run — a re-run that starts three
+seconds after thirty browser drives is measuring the same load that failed it,
+which called `submit-drive` red twice on 2026-07-31 when it passes solo every
+time. `SWEEP_SOLO_COOLDOWN` tunes the rest; `SWEEP_RETRY=0` makes every in-suite
+failure red when you want the strictest reading.
 
 `.vibe/measure.sh` is the one that decides layout questions. **A screenshot
 cannot tell 1px apart from 1px overlapped** — three faults reached him that way.
