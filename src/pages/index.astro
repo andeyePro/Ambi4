@@ -299,6 +299,14 @@ const VOICES: Record<string, [string, string][]> = {
             </select>
             <button type="button" id="compose-chords" class="secondary-button">Type the chords</button>
           </div>
+          <div class="create-row create-midi-row">
+            <label class="secondary-button create-midi-label" for="compose-midi">
+              Import a MIDI file
+              <input type="file" id="compose-midi" accept=".mid,.midi,audio/midi,audio/x-midi" class="visually-hidden" />
+            </label>
+            <label class="visually-hidden" for="compose-midi-track">Import onto which instrument</label>
+            <select id="compose-midi-track" class="genre-select create-midi-track"></select>
+          </div>
           <div class="create-row create-melody-row">
             <label class="visually-hidden" for="compose-melody-text">Type a melody, one note per beat</label>
             <input
@@ -13974,6 +13982,136 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // v0.0.109 schema), a dash holds the note through the next beat, a
         // dot rests it. One bar per write — the grid's own span — and the
         // writer says what it wrote and what it dropped.
+        // v0.0.134 (his item 96: "MIDI file import is a compose option IMHO,
+        // the assumption is that the user composed the MIDI in another app").
+        // The file's notes land as PINNED steps on the chosen track's grid, at
+        // the track's own resolution, chained bar by bar — the same machinery
+        // typed melody uses, so an imported piece is as editable as a typed
+        // one. Everything the import could not fit is REPORTED: a chord
+        // collapsing to one note per slot is a fact about a step grid, not
+        // something to hide.
+        const midiInput = document.getElementById('compose-midi');
+        const midiTrackSelect = document.getElementById('compose-midi-track');
+        let midiModule = null;
+
+        function renderMidiTracks() {
+          if (!midiTrackSelect) return;
+          const wanted = midiTrackSelect.value;
+          midiTrackSelect.innerHTML = '';
+          for (const id of SEQ_TRACKS) {
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = TRACK_LABELS[id] || id;
+            midiTrackSelect.append(option);
+          }
+          midiTrackSelect.value = SEQ_TRACKS.includes(wanted) ? wanted : 'melody';
+        }
+        renderMidiTracks();
+        if (typeof engine.on === 'function') engine.on('tracks', renderMidiTracks);
+        describe(midiTrackSelect, 'Which instrument the file is imported onto.');
+
+        async function importMidiFile(file) {
+          const say = (text) => { if (guidedTip) guidedTip.textContent = text; };
+          if (!file) return;
+          if (!midiModule) {
+            try {
+              midiModule = await import('../scripts/midi-file.js');
+            } catch {
+              say('The MIDI reader could not load — reload the page and try again.');
+              return;
+            }
+          }
+          let parsed;
+          try {
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            parsed = midiModule.parseMidiFile(bytes);
+          } catch (error) {
+            // The reader refuses two file kinds with a reason a musician can
+            // act on (format 2, SMPTE timing); anything else is a bad file.
+            say(`That file could not be read: ${error && error.message ? error.message : 'unknown format'}.`);
+            return;
+          }
+          if (!parsed.notes.length) {
+            say('That file has no notes in it.');
+            return;
+          }
+          const track = SEQ_TRACKS.includes(midiTrackSelect.value) ? midiTrackSelect.value : 'melody';
+          const stepBeats = trackStepBeats(track);
+          const slotsPerBar = stepsPerBarFor(track);
+          const fitted = midiModule.notesToBars(parsed.notes, {
+            stepBeats,
+            slotsPerBar,
+            maxBars: 8,
+          });
+          if (!fitted.bars.length) {
+            say('Nothing in that file fitted the grid.');
+            return;
+          }
+          const blank = () => ({ on: false, prob: 1, vmin: 0.6, vmax: 0.8 });
+          const laneLength = engineModule && typeof engineModule.laneSlotsFor === 'function'
+            ? engineModule.laneSlotsFor(stepBeats)
+            : 20;
+          const list = fitted.bars.map((barSteps) => {
+            const steps = Array.from({ length: laneLength }, blank);
+            for (const record of barSteps) {
+              if (record.slot >= steps.length) continue;
+              steps[record.slot] = {
+                on: true,
+                prob: 1,
+                vmin: clamp(record.velocity, 0.05, 1),
+                vmax: clamp(record.velocity, 0.05, 1),
+                midi: record.midi,
+                ...(Math.abs(record.gate - 1) > 0.01 ? { gate: record.gate } : {}),
+              };
+            }
+            return { mode: 'manual', weights: fitted.bars.map(() => 1), steps };
+          });
+          const settingsTrack = settings.tracks[track];
+          settingsTrack.sequencers = list;
+          settingsTrack.sequencer = list[0];
+          if (list.length > 1) settingsTrack.sequencerAdvance = 'chain';
+          else delete settingsTrack.sequencerAdvance;
+          if (settingsTrack.state === 'off') settingsTrack.state = 'on';
+          engine.setParams({
+            tracks: {
+              [track]: {
+                state: settingsTrack.state,
+                sequencers: structuredClone(list),
+                sequencerAdvance: list.length > 1 ? 'chain' : null,
+              },
+            },
+          });
+          adoptEngineSequencers(track);
+          syncTrackStateUI();
+          persistSettings();
+          const label = TRACK_LABELS[track] || track;
+          const notes = [`Imported ${fitted.written} note${fitted.written === 1 ? '' : 's'} onto ${label},`
+            + ` ${fitted.bars.length} bar${fitted.bars.length === 1 ? '' : 's'}`
+            + (list.length > 1 ? ' played in order' : '') + '.'];
+          if (fitted.collapsed) {
+            notes.push(`${fitted.collapsed} note${fitted.collapsed === 1 ? '' : 's'} shared a step with another`
+              + ' — a grid step holds one note, so the highest won.');
+          }
+          if (fitted.dropped) {
+            notes.push(`${fitted.dropped} went past eight bars and were left out.`);
+          }
+          if (parsed.tempoBpm) notes.push(`The file says ${parsed.tempoBpm} bpm.`);
+          if (parsed.timeSignature && parsed.timeSignature !== settings.timeSignature) {
+            notes.push(`It is written in ${parsed.timeSignature}; this piece is in ${settings.timeSignature}.`);
+          }
+          say(notes.join(' '));
+        }
+
+        midiInput?.addEventListener('change', () => {
+          const file = midiInput.files && midiInput.files[0];
+          importMidiFile(file);
+          midiInput.value = ''; // so the same file can be imported again
+        });
+        describe(
+          document.querySelector('.create-midi-label'),
+          'Import a MIDI file you composed elsewhere. Its notes land on the chosen instrument\u2019s grid as pinned steps at the grid\u2019s current resolution, one bar per tab played in order, and anything that could not fit is reported.'
+        );
+
         const melodyText = document.getElementById('compose-melody-text');
         const melodyWrite = document.getElementById('compose-melody-write');
 
@@ -15892,6 +16030,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       align-items: center;
       flex-wrap: wrap;
       margin: 4px 0;
+    }
+
+    .create-midi-row {
+      align-items: center;
+    }
+
+    .create-midi-label {
+      cursor: pointer;
+    }
+
+    .create-midi-track {
+      flex: 0 1 auto;
+      max-width: 14ch;
     }
 
     .create-melody-input {
