@@ -52,7 +52,7 @@ each alert actually is before deciding anything.
 
 ## Whole-codebase audit, 2026-07-31 — the fix queue lives in .vss/audit-2026-07-31.md
 
-- [ ] **78 confirmed findings — work the report top-down.** DONE so far: hotfix 70/71 (v0.0.119); criticals 1 (Zero bake), 2 (legacy-key deletion), 4 (percussion density) + glide/swing/density span collapse (v0.0.120). NEXT: critical 3 (voices-smoke red + unrun), then the majors by cluster, then the vacuous test gates, then docs.
+- [ ] **78 confirmed findings — work the report top-down.** DONE so far: hotfix 70/71 (v0.0.119); criticals 1 (Zero bake), 2 (legacy-key deletion), 4 (percussion density) + glide/swing/density span collapse (v0.0.120). Critical 3 done (v0.0.121: voices-smoke 283/283 green + gated; concurrent-sum loudness law; call Release dial live; engineType honest). NEXT: the majors by cluster, then the vacuous test gates, then docs.
 - [x] *(HOTFIXED v0.0.119)* **v0.0.118's shaped-pick regression (report findings 70/71)** — a fresh pick plays the kit AS AUTHORED again; the ladder is anchored to the genre's own compiled Energy and only the dial's deviation shapes anything (below the anchor spends the whole softness ladder, above it the whole doubling ladder); kitFloorDouble now honours the owner's "IF you started with 4 to the floor" — only an even pulse doubles, pinned in genre-smoke against lofi's boom-bap; share links minted during the one-day experiment (origin kit: 1) still rebuild byte-faithfully through the kept legacy path; kit-softness-drive's baseline is back to authored-at-pick.
 
 ## Code-review findings, 2026-07-31 (max review of the session's 17 versions; 12 of 15 fixed in v0.0.118)

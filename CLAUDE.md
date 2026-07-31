@@ -62,8 +62,10 @@ Nothing ships without these. There is no `npm test`; run them by name.
 ```
 npm run build                       # must be run first — the tests use the BUILT bundle
 node tests/page-boot.mjs            # the page actually boots (it has shipped blank twice)
-node tests/engine-smoke.mjs         # ~237 engine assertions
+node tests/engine-smoke.mjs         # engine assertions
 node tests/audio-reference.mjs      # 24 frozen configs, note-for-note
+node tests/voices-smoke.mjs         # the voice library — sat RED and unrun for ~30 versions once
+node tests/genre-smoke.mjs          # genre compiler + every genre file
 ```
 
 Browser tests run against a headless Chromium on a Mac test account over SSH:

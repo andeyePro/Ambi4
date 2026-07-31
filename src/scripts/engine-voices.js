@@ -1838,10 +1838,10 @@ const ENGINE_TYPES = {
     flute: 'hybrid',
     // Sine carrier at ratio 1 with a velocity-scaled index: an FM tine.
     keys: 'fm',
-    // A gliding oscillator and a band of breath, both running the length of
-    // every chirp through the same pair of formants: two engines, each
-    // carrying a real share, which is the line the class draws.
-    call: 'hybrid',
+    // Since v0.0.88 (his ruling deleted the breath) the call is ONE engine:
+    // chirped oscillators through a formant pair — vowel filtering is
+    // subtractive synthesis by definition (the choir's own comment's law).
+    call: 'subtractive',
     // Sine carrier at ratio 1 with a high index that collapses in 120 ms —
     // the same two-operator pair as keys, driven hard enough to bark.
     tines: 'fm',
@@ -1872,8 +1872,9 @@ const ENGINE_TYPES = {
     // The same surface with the bed taken away and the grains left: still
     // nothing but filtered noise.
     cloud: 'noise',
-    // The melody voice's own body, at the texture track's level.
-    call: 'hybrid',
+    // The melody voice's own body, at the texture track's level — and the
+    // same v0.0.88 ruling: subtractive, not hybrid.
+    call: 'subtractive',
   },
   arp: {
     // Triangle and sine octave under a resonant lowpass that falls.
@@ -3311,7 +3312,12 @@ function callVoice(ctx, destination, note, patch, d, basePeak) {
     for (const formant of formants) {
       tone.connect(formant);
     }
-    const shape = { attack: length * 0.2, hold: length * 0.3, release: length * 0.5 };
+    // AUDIT FIX: the Release dial was dead here — every chirp's ring was
+    // derived from its own length alone, so the adsr the editor shows had
+    // no effect on the tail. The ring now scales with the patch's release,
+    // anchored to the voice's default so an unpatched call is byte-identical.
+    const ring = clamp(adsr.release / Math.max(0.05, d.adsr.release), 0.25, 16);
+    const shape = { attack: length * 0.2, hold: length * 0.3, release: length * 0.5 * ring };
     // ×3: the deleted breath layer carried most of the voice's energy (its
     // makeup gain sat it at up to twice the tone), so the bare whistle needs
     // making up to hold call's place in the mix — measured 0.0051 peak bare

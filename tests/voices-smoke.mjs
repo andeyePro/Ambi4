@@ -284,15 +284,31 @@ function playAndCheck(label, voice, note, { cancelAfter = false, patch } = {}) {
       `${label}: an audible gain hit ${gain.gain.min} — that is a click`);
   }
 
+  // AUDIT FIX (tests-honesty): the loudness law is about what sounds
+  // TOGETHER. The old static sum added every source a note ever starts,
+  // which over-counted sequential one-shots — the call's chirps never
+  // overlap by design, yet their whole phrase was summed as one instant.
+  // The law is now the maximum CONCURRENT sum: at every moment some source
+  // is playing, add up exactly the sources sounding then.
   let sum = 0;
+  const active = [];
   for (const source of startedSources) {
+    let contribution = 0;
     for (const product of pathProducts(source, destination)) {
       assert.ok(product <= PER_SOURCE_PEAK,
         `${label}: a source reaches the bus at ${product.toFixed(3)}`);
-      sum += product;
+      contribution += product;
     }
+    active.push({ from: source.startedAt, to: source.stoppedAt, contribution });
   }
-  assert.ok(sum <= SUM_PEAK, `${label}: summed peak ${sum.toFixed(3)} is too hot`);
+  for (const { from } of active) {
+    let atOnce = 0;
+    for (const other of active) {
+      if (other.from <= from + 1e-9 && from < other.to - 1e-9) atOnce += other.contribution;
+    }
+    if (atOnce > sum) sum = atOnce;
+  }
+  assert.ok(sum <= SUM_PEAK, `${label}: concurrent peak ${sum.toFixed(3)} is too hot`);
 
   const panner = created.find((n) => n.kind === 'panner');
   assert.ok(panner, `${label}: no StereoPanner`);
@@ -935,11 +951,15 @@ test('release caps the tail, and sustain 0 ends the note at the decay', () => {
   for (const [track, patches] of Object.entries(EXPECTED)) {
     for (const id of Object.keys(patches)) {
       const note = attackNote(track);
+      // source.irregular = 0 pins the call's humanised chirp timing, whose
+      // random jitter otherwise swamps the release difference this test
+      // measures (it flickered red/green run to run); every other voice
+      // simply ignores the field.
       const short = playAndCheck(`${track}.${id} short release`, VOICES[track][id], note, {
-        patch: { adsr: { attack: 0.01, decay: 0.05, sustain: 0.5, release: 0.05 } },
+        patch: { source: { irregular: 0 }, adsr: { attack: 0.01, decay: 0.05, sustain: 0.5, release: 0.05 } },
       });
       const long = playAndCheck(`${track}.${id} long release`, VOICES[track][id], note, {
-        patch: { adsr: { attack: 0.01, decay: 0.05, sustain: 0.5, release: 8 } },
+        patch: { source: { irregular: 0 }, adsr: { attack: 0.01, decay: 0.05, sustain: 0.5, release: 8 } },
       });
       // Grains is the exception: its cloud is a scatter of one-shots, so the
       // release can only hold an already-empty gain open.
@@ -1913,8 +1933,9 @@ test('v19: the sculpting fields land only on the voices that declare them', () =
 test('v19: the new voices are noise and hybrid, and the mix defaults are unobtrusive', () => {
   assert.equal(VOICES.texture.colour.engineType, 'noise');
   assert.equal(VOICES.texture.cloud.engineType, 'noise');
-  assert.equal(VOICES.melody.call.engineType, 'hybrid');
-  assert.equal(VOICES.texture.call.engineType, 'hybrid');
+  // v0.0.88 (his ruling) deleted the breath: one engine, formant-filtered.
+  assert.equal(VOICES.melody.call.engineType, 'subtractive');
+  assert.equal(VOICES.texture.call.engineType, 'subtractive');
   // Unobtrusive means: at its own defaults, a new voice reaches the bus no
   // harder than the LOUDEST voice already on its track, so a listener trying
   // one out never gets a jump in the mix for their trouble.
@@ -2184,7 +2205,7 @@ test('v19: cadence counts the calls in a note, and irregular unsettles them', ()
   }
 });
 
-test('v19: a call is a chirp AND a breath through two formants it can move', () => {
+test('v19/v0.0.88: a call is a chirp through two formants it can move — the breath left by ruling', () => {
   const note = { midi: 69, freq: 440, kind: null, duration: 2, when: 0.5, velocity: 0.8, pan: 0 };
   for (const [track, id] of CALL_VOICES) {
     const run = withSeed(61, () => playAndCheck(`${track}.${id} formants`, VOICES[track][id],
@@ -2210,16 +2231,14 @@ test('v19: a call is a chirp AND a breath through two formants it can move', () 
       assert.notEqual(oscillators(shifted)[0].frequency.min, oscillators(run)[0].frequency.min,
         `${track}.${id}: the octave switch did not move the call's own pitch`);
     }
-    // The hybrid claim: an oscillator and a noise source, both sustained
-    // through the call rather than one being a transient on the other.
+    // v0.0.88, his ruling verbatim: "please just delete the noise from the
+    // Call instrument and be done with it." The chirp is the whole voice —
+    // and a breath quietly returning would be the regression to catch.
     assert.ok(oscillators(run).length >= 1, `${track}.${id}: no chirp oscillator`);
-    assert.equal(noiseSources(run).length, 1,
-      `${track}.${id}: the breath must be one shared source, not one per call`);
-    // Both engines feed the same formants — that is what makes them formants.
-    for (const source of [oscillators(run)[0], noiseSources(run)[0]]) {
-      const reaches = source.outputs.some((g) => g.outputs.some((f) => bands.includes(f)));
-      assert.ok(reaches, `${track}.${id}: a source bypassed the formant pair`);
-    }
+    assert.equal(noiseSources(run).length, 0,
+      `${track}.${id}: a noise source is back in the call — v0.0.88 deleted it by ruling`);
+    const reaches = oscillators(run)[0].outputs.some((g) => g.outputs.some((f) => bands.includes(f)));
+    assert.ok(reaches, `${track}.${id}: the chirp bypassed the formant pair`);
   }
 });
 
@@ -2250,7 +2269,9 @@ const PRE_V19_GOLDEN = {
   'texture.sparkle': '1f776706:811',
   'texture.grains': 'ac0db90c:1875',
   'texture.chimes': '08d42b19:1212',
-  'texture.wash': 'aede9fe9:744',
+  // Re-pinned 2026-07-31: v0.0.80 retuned the wash DELIBERATELY (his "the
+  // Ambient wash stops sawing") and this table was never moved with it.
+  'texture.wash': '65183cb9:675',
   'arp.softPluck': 'd1490ebf:534',
   'arp.crystal': '16f5c50d:705',
   'arp.marimba': '336b527f:993',
