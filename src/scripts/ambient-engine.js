@@ -7768,21 +7768,22 @@ export function createEngine(initialParams, options = {}) {
           pan: note.pan,
           motif: melodyPlan.motifDerived === true,
         });
-        // v0.0.115, Energy stage 2d — "doubling in many for a wall of sound":
-        // from 0.85 every generated tune note gains its octave, quieter and
-        // mirrored across the stereo field. Deterministic — no draw, so no
-        // stream moves — and a PINNED note stays solo: it is the user's exact
-        // statement, and doubling it would be adding a note they never named.
-        if (params.complexity >= 0.85 && note.pinned == null && !mono) {
-          playNote(responder ?? 'melody', {
-            midi: Math.min(midi + 12, 108),
-            when: at,
-            duration: melodyDuration,
-            velocity: note.velocity * 0.55,
-            pan: -(note.pan ?? 0),
-            motif: melodyPlan.motifDerived === true,
-          });
-        }
+        // v0.0.115, Energy stage 2d — "doubling in many for a wall of sound".
+        //
+        // AUDIT FIX (the filed dead-guard defect): this never fired on a
+        // default piece. `mono` here is the MELODY track's setting, melody
+        // ships mono:true, and a mono track means one sounding note per
+        // track by definition — so on the tune the double is not merely
+        // guarded, it is IMPOSSIBLE without breaking mono. The wall of sound
+        // is therefore built where it can exist: his words are "doubling in
+        // MANY", i.e. many instruments, and the poly voices are the ones with
+        // room. The tune keeps its single line; the ARP doubles below (see
+        // the arp block), and the pad/texture are already stacked washes.
+        //
+        // Kept explicit rather than deleted: a future non-stealing voice path
+        // (a second handle that mono does not cut) is the only way the TUNE
+        // could double, and that is a voice-layer design change, not a guard.
+        void 0;
       }
     }
 
@@ -7805,16 +7806,35 @@ export function createEngine(initialParams, options = {}) {
 
     if (arpPlan) {
       const sequence = arpSequenceFor(arpPlan);
+      // Energy 2d, where it can actually happen: the arp is POLYPHONIC, so a
+      // doubled octave sounds beside its note instead of cutting it. From
+      // 0.85 every arp note gains one, quieter and mirrored across the field.
+      // Deterministic: no draw, so no stream moves. No pinned-step exemption
+      // is needed or possible here — the arp's pitches are SEQUENCE-derived
+      // (v0.0.109 excluded the arp from per-step pins for exactly that
+      // reason), so there is no stated note to preserve.
+      const doubling = params.complexity >= 0.85 && !isMono('arp');
       for (const step of arpPlan.steps) {
         if (step.beat < from || step.beat >= to || !sequence.length) continue;
         const midi = sequence[step.seqIndex % sequence.length] + 12 * (step.octave ?? 0);
+        const when = time + (swung(step.beat, 'arp') - from) * bar.secPerBeat + (step.nudge ?? 0);
+        const duration = Math.max(0.05, step.gateBeats * bar.secPerBeat);
         playNote('arp', {
           midi: clamp(midi, 36, 96),
-          when: time + (swung(step.beat, 'arp') - from) * bar.secPerBeat + (step.nudge ?? 0),
-          duration: Math.max(0.05, step.gateBeats * bar.secPerBeat),
+          when,
+          duration,
           velocity: step.velocity,
           pan: step.pan,
         });
+        if (doubling) {
+          playNote('arp', {
+            midi: clamp(midi + 12, 36, 96),
+            when,
+            duration,
+            velocity: step.velocity * 0.5,
+            pan: -(step.pan ?? 0),
+          });
+        }
       }
     }
 

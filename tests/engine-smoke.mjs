@@ -4231,48 +4231,96 @@ test('v0.0.116 chain mode: the sequencer list plays IN ORDER and wraps — a com
   }
 });
 
-test('Energy 2d: from 0.85 the tune doubles an octave up — quieter, mirrored, and never on a pinned note', async () => {
-  const seq = (midi) => [{
-    mode: 'manual',
-    weights: [1],
-    steps: Array.from({ length: 20 }, (unused, i) => (
-      i === 0
-        ? { on: true, prob: 1, vmin: 0.6, vmax: 0.6, ...(midi ? { midi } : {}) }
-        : { on: false, prob: 1, vmin: 0.5, vmax: 0.9 }
-    )),
-  }];
-  const run = async (complexity, midi) => {
+test('Energy 2d: from 0.85 the ARP doubles an octave up — quieter, mirrored, never on a pinned step', async () => {
+  // The wall of sound lands where it CAN: the arp is polyphonic, so a doubled
+  // octave sounds beside its note. The tune is mono by default — one sounding
+  // note per track is what mono MEANS — so doubling there was impossible, not
+  // merely guarded, and the guard read as a shipped feature that never fired
+  // (audit, 2026-07-31). His brief is "doubling in MANY", i.e. instruments.
+  const run = async (complexity, pin, { mono = false } = {}) => {
     const engine = createEngine({
       root: 'C', mode: 'major', bpm: 120, timeSignature: '4/4', complexity,
+      arp: { mode: 'manual', rate: '1/8' },
       tracks: {
-        melody: { state: 'on', mono: false, sequencers: seq(midi) },
-        pad: { state: 'off' }, arp: { state: 'off' }, bass: { state: 'off' },
+        arp: {
+          state: 'on',
+          mono,
+          sequencers: [{
+            mode: 'manual',
+            weights: [1],
+            steps: Array.from({ length: 20 }, (unused, i) => (
+              i === 0
+                ? { on: true, prob: 1, vmin: 0.6, vmax: 0.6, ...(pin ? { midi: pin } : {}) }
+                : { on: false, prob: 1, vmin: 0.5, vmax: 0.9 }
+            )),
+          }],
+        },
+        melody: { state: 'off' }, pad: { state: 'off' }, bass: { state: 'off' },
         texture: { state: 'off' }, percussion: { state: 'off' },
       },
     });
     const notes = [];
     engine.on('note', (n) => notes.push(n));
     await engine.start();
-    await advance(9); // melody's staged entry is bar 2 — give it real bars
+    await advance(9);
     engine.stop();
-    return notes.filter((n) => n.track === 'melody');
+    return notes.filter((n) => n.track === 'arp');
   };
 
   const plain = await run(0.7, null);
-  const doubled = await run(0.9, null);
-  assert.ok(plain.length > 0 && doubled.length >= plain.length * 2 - 1,
-    `from 0.85 each tune note gains its octave (${plain.length} → ${doubled.length})`);
-  // Pair check: for the first sounding beat, the double is +12 and quieter.
+  const doubled = await run(0.95, null);
+  assert.ok(plain.length > 0, 'the arp never sounded at 0.7');
+  assert.ok(doubled.length >= plain.length * 2 - 2,
+    `from 0.85 each arp note gains its octave (${plain.length} → ${doubled.length})`);
   const first = doubled.filter((n) => Math.abs(n.time - doubled[0].time) < 1e-6);
-  assert.equal(first.length, 2, 'a doubled note is two notes at one moment');
-  const [a, b] = first.sort((x, y) => x.midi - y.midi);
-  assert.equal(b.midi - a.midi, 12, 'the double is the octave');
-  assert.ok(b.velocity < a.velocity, 'and it sits under the stated note');
+  assert.equal(first.length, 2, 'a doubled arp note is two notes at one moment');
+  const [low, high] = first.sort((a, b) => a.midi - b.midi);
+  assert.equal(high.midi - low.midi, 12, 'the double is the octave');
+  assert.ok(high.velocity < low.velocity, 'and it sits under its own note');
 
-  const pinned = await run(0.9, 72);
-  const firstPinned = pinned.filter((n) => Math.abs(n.time - pinned[0].time) < 1e-6);
-  assert.equal(firstPinned.length, 1, 'a pinned note stays solo — the user named THAT note');
-  assert.equal(firstPinned[0].midi, 72);
+  // No pinned-step clause: the arp's pitches are sequence-derived, so v0.0.109
+  // deliberately excluded it from per-step pins — there is no stated note here
+  // to preserve, and pretending to honour one would be a comment that lies.
+  // What IS asserted: the doubling stops when the track is mono, because mono
+  // means one sounding note per track.
+  const monoArp = await run(0.95, null, { mono: true });
+  const firstMono = monoArp.filter((n) => Math.abs(n.time - monoArp[0].time) < 1e-6);
+  assert.equal(firstMono.length, 1, 'a MONO arp must not stack a doubled octave');
+});
+
+test('v0.0.116 chain mode: the sequencer list plays IN ORDER and wraps — a composed sequence, not a shuffle', async () => {
+  const oneNote = (midi) => ({
+    mode: 'manual',
+    weights: [1, 1, 1],
+    steps: Array.from({ length: 20 }, (unused, i) => (
+      i === 0
+        ? { on: true, prob: 1, vmin: 0.6, vmax: 0.6, midi }
+        : { on: false, prob: 1, vmin: 0.5, vmax: 0.9 }
+    )),
+  });
+  const engine = createEngine({
+    root: 'C', mode: 'major', bpm: 120, timeSignature: '4/4', complexity: 0.6,
+    tracks: {
+      melody: { state: 'on', mono: false, sequencerAdvance: 'chain',
+        sequencers: [oneNote(60), oneNote(62), oneNote(64)] },
+      pad: { state: 'off' }, arp: { state: 'off' }, bass: { state: 'off' },
+      texture: { state: 'off' }, percussion: { state: 'off' },
+    },
+  });
+  assert.equal(engine.getParams().tracks.melody.sequencerAdvance, 'chain',
+    'the advance mode survives the sanitiser');
+  const notes = [];
+  engine.on('note', (n) => notes.push(n));
+  await engine.start();
+  await advance(16);
+  engine.stop();
+  const midis = notes.filter((n) => n.track === 'melody').map((n) => n.midi);
+  assert.ok(midis.length >= 5, `need bars to prove the cycle, got ${midis.length}`);
+  for (let i = 1; i < midis.length; i++) {
+    const expected = { 60: 62, 62: 64, 64: 60 }[midis[i - 1]];
+    assert.equal(midis[i], expected,
+      `bar ${i}: after ${midis[i - 1]} the chain plays ${expected}, got ${midis[i]}`);
+  }
 });
 
 test('developBassGroove: ghost/push/simplify/double transform a stated groove, and pulses stay root throughout', () => {
