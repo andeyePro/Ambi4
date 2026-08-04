@@ -13015,13 +13015,44 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return;
         }
         const next = settingsFromGenre(compiled, genre.slug);
+        // v0.0.149 — HIS 124, and he was right that the two editors collide:
+        // "why do we have a set of Genre rules in a difficult to use text editor
+        // and does it really override the much easier to use GUI of the Preset
+        // editor?" It did. Apply rebuilt the WHOLE setup from the genre, so every
+        // voice choice and every dial in the voice editor went back to whatever
+        // the genre says — silently, under a button whose own message promises
+        // that "only what you changed, changes".
+        //
+        // The rules decide WHAT IS PLAYED (which chords may follow which, which
+        // patterns the kit is written from); the voice and preset editors decide
+        // WHAT IT SOUNDS LIKE. So Apply now takes only the first kind from the
+        // recompile and leaves the second alone: the sound you built survives and
+        // the notes redraw. Levels and states are the mixer, which is nobody's
+        // idea of a chord rule, so they stay as well.
+        for (const [id, track] of Object.entries(next.tracks || {})) {
+          const mine = settings.tracks?.[id];
+          if (!isPlainObject(mine)) continue;
+          if (typeof mine.voice === 'string') track.voice = mine.voice;
+          if (typeof mine.state === 'string') track.state = mine.state;
+          if (mine.level !== undefined) track.level = structuredClone(mine.level);
+          if (mine.mono !== undefined) track.mono = mine.mono;
+        }
+        // Patches are the sound outright: carried over whole, and a patch for a
+        // voice the recompile happens to name too is still the user's.
+        if (isPlainObject(settings.patches) && Object.keys(settings.patches).length) {
+          next.patches = deepMerge(structuredClone(next.patches || {}), structuredClone(settings.patches));
+        }
         next.origin = { kind: 'genre', id: genre.slug, seed };
         if (Object.keys(overrides).length) next.genreRules = overrides;
         loadParamsSnapshot(next);
         recordCleanGenreKit();
         say(null);
         syncGenreRulesUI();
-        sayUnderDials('Re-drawn from your rules — same dice, so only what you changed, changes.', 4000);
+        sayUnderDials(
+          'Re-drawn from your rules — same dice, so only what you changed, changes. '
+          + 'Your instruments and their dials are untouched: the rules decide what is played, '
+          + 'the voice editor decides how it sounds.'
+        );
       }
 
       function resetGenreRules() {

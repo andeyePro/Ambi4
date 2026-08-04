@@ -146,6 +146,59 @@ export default async function drive(page) {
   check('reset restores the genre’s own kit density', resetView.kitOnCounts[lowKey] > 1, (v) => v === true);
   check('…and the edited marker is gone', /edited/.test(state.toggleText || ''), (v) => v === false);
 
+  // v0.0.149 (his 124): "does it really override the much easier to use GUI of
+  // the Preset editor?" It did — Apply rebuilt the whole setup from the genre and
+  // took every voice choice and every voice-editor dial with it, under a button
+  // that promises only what you changed changes. The rules decide what is PLAYED;
+  // the voice editor decides how it SOUNDS. Asserted at the ENGINE either side of
+  // an Apply.
+  const kept = await page.evaluate(async () => {
+    const engine = window.__ambi4Engine;
+    // A sound the genre did not choose: a different voice, and a filter nowhere
+    // near whatever it publishes.
+    const before = engine.getParams();
+    const track = 'pad';
+    const voices = [...document.querySelectorAll(`#track-voice-${track} option`)].map((o) => o.value);
+    // Not the __live sentinel: the page ignores it by design, so picking it would
+    // make this test assert that nothing changed and then congratulate itself.
+    const other = voices.find((v) => v && !v.startsWith('__') && v !== before.tracks[track].voice) || null;
+    if (!other) return { skipped: 'only one pad voice' };
+    const select = document.getElementById(`track-voice-${track}`);
+    select.value = other;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    engine.setParams({ patches: { [track]: { [other]: { filter: { cutoff: 812 } } } } });
+    await new Promise((r) => setTimeout(r, 200));
+    const mine = {
+      was: before.tracks[track].voice,
+      asked: other,
+      voice: engine.getParams().tracks[track].voice,
+      cutoff: engine.getParams().patches?.[track]?.[other]?.filter?.cutoff ?? null,
+    };
+    // Now re-apply the rules, unchanged: the notes may redraw, the sound may not.
+    document.getElementById('genre-rules-apply')?.click();
+    await new Promise((r) => setTimeout(r, 900));
+    const after = engine.getParams();
+    return {
+      mine,
+      voiceAfter: after.tracks[track].voice,
+      cutoffAfter: after.patches?.[track]?.[other]?.filter?.cutoff ?? null,
+      note: document.getElementById('dial-confirm')?.textContent || '',
+    };
+  });
+  if (kept.skipped) {
+    check(`the pad voice list is long enough to test with (${kept.skipped})`, false, (v) => v === true);
+  } else {
+    // The change has to have LANDED for the law below to mean anything: a select
+    // whose event did nothing would make "the voice survived" vacuously true.
+    check(`the voice really changed first (${kept.mine.was} → ${kept.mine.asked})`,
+      kept.mine.voice, kept.mine.asked);
+    check('Apply keeps the voice you chose', kept.voiceAfter, kept.mine.asked);
+    check('…and the dial you set on it', kept.cutoffAfter, 812);
+    check('…and says so, so the promise is on screen too',
+      /instruments and their dials are untouched/.test(kept.note), (v) => v === true);
+  }
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(
