@@ -309,23 +309,51 @@ export function metrePulses(timeSignature) {
     ? TIME_SIGNATURES[timeSignature]
     : null;
   if (Array.isArray(named)) return named;
-  const m = /^([0-9]{1,2})\/(4|8)$/.exec(String(timeSignature ?? ''));
+  // v0.0.146 (his 120): "Time signatures, is there a reason not to allow any
+  // positive non-zero rational number in numerator and denominator?" The reason
+  // is not the ratio — it is that a lane stores FIVE BEATS (MAX_LANE_BEATS), so
+  // a bar longer than that has nowhere to be drawn. Inside five beats the
+  // denominators that name a real note value all work, and two more are added
+  // here: the HALF note (a 2/2 or 4/2 cut-time feel, two slow pulses where 4/4
+  // has four) and the SIXTEENTH (5/16, 7/16, 11/16 — the odd metres a lot of
+  // Balkan and progressive music is written in). Denominators that are not
+  // powers of two are still refused, and the reason is stated rather than
+  // hidden: a beat of a third or a fifth of a note has no note value to draw
+  // it with, so the grid could not label a single one of its own cells.
+  const m = /^([0-9]{1,2})\/(2|4|8|16)$/.exec(String(timeSignature ?? ''));
   if (!m) return null;
   const n = Number(m[1]);
-  if (m[2] === '4') {
+  const d = m[2];
+  if (d === '2') {
+    // A half-note pulse is two quarter beats, so two of them fill four.
+    if (n < 1 || n > 2) return null;
+    return Array.from({ length: n }, () => 2);
+  }
+  if (d === '4') {
     if (n < 2 || n > 5) return null;
     return Array.from({ length: n }, () => 1);
   }
-  if (n < 3 || n > 10) return null;
-  if (n % 3 === 0) return Array.from({ length: n / 3 }, () => 1.5);
-  const pulses = [];
-  let left = n;
-  while (left > 3) {
-    pulses.push(1);
-    left -= 2;
+  // Eighths and sixteenths group the same way, one note value apart: threes all
+  // through where the count divides by three, otherwise pairs with a three at
+  // the end (7/8 is 2+2+3, which is what the named table has always said, and
+  // 7/16 is the same shape a note value finer).
+  const grouped = (count, unit) => {
+    if (count % 3 === 0) return Array.from({ length: count / 3 }, () => 3 * unit);
+    const pulses = [];
+    let left = count;
+    while (left > 3) {
+      pulses.push(2 * unit);
+      left -= 2;
+    }
+    pulses.push((left === 3 ? 3 : 2) * unit);
+    return pulses;
+  };
+  if (d === '16') {
+    if (n < 3 || n > 20) return null;
+    return grouped(n, 0.25);
   }
-  pulses.push(left === 3 ? 1.5 : 1);
-  return pulses;
+  if (n < 3 || n > 10) return null;
+  return grouped(n, 0.5);
 }
 
 /** Total quarter-note beats in a bar of the given time signature. */

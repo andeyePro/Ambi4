@@ -744,7 +744,15 @@ test('sanitiseParams clamps, validates and ignores unknown keys', () => {
   assert.equal(sanitiseParams({ speed: NaN }).speed, DEFAULT_PARAMS.speed);
   assert.equal(sanitiseParams({ mode: 'klingon' }).mode, DEFAULT_PARAMS.mode);
   assert.equal(sanitiseParams({ mode: 'lydian' }).mode, 'lydian');
-  assert.equal(sanitiseParams({ timeSignature: '11/16' }).timeSignature, '4/4');
+  // v0.0.146 (his 120) ADDED /2 and /16, so 11/16 is now a legal metre — the
+  // bound was never about the ratio, it is that a lane stores five beats.
+  assert.equal(sanitiseParams({ timeSignature: '11/16' }).timeSignature, '11/16');
+  assert.equal(sanitiseParams({ timeSignature: '21/16' }).timeSignature, '4/4',
+    'past five beats there is nowhere to draw the bar');
+  assert.equal(sanitiseParams({ timeSignature: '3/2' }).timeSignature, '4/4',
+    'six beats over a half-note pulse is past the window too');
+  assert.equal(sanitiseParams({ timeSignature: '7/3' }).timeSignature, '4/4',
+    'a denominator that is not a note value has no beat to draw');
   assert.equal(sanitiseParams({ timeSignature: '7/8' }).timeSignature, '7/8');
   assert.equal(sanitiseParams({ root: 'Eb' }).root, 'D#');
   assert.equal(sanitiseParams({ root: 'H' }).root, 'C');
@@ -852,7 +860,16 @@ test('sanitiseParams validates structure and custom blocks', () => {
   assert.deepEqual(metrePulses('2/4'), [1, 1]);
   assert.equal(metrePulses('6/4'), null);
   assert.equal(metrePulses('11/8'), null);
-  assert.equal(metrePulses('4/16'), null);
+  // v0.0.146: sixteenths and halves are legal now, grouped by the same rule as
+  // eighths one note value finer — threes where the count divides by three,
+  // otherwise pairs with a three at the end.
+  assert.deepEqual(metrePulses('4/16'), [0.5, 0.5], 'four sixteenths is two pairs');
+  assert.deepEqual(metrePulses('12/16'), [0.75, 0.75, 0.75, 0.75]);
+  assert.deepEqual(metrePulses('7/16'), [0.5, 0.5, 0.75]);
+  assert.deepEqual(metrePulses('2/2'), [2, 2]);
+  assert.equal(metrePulses('3/2'), null, 'six beats is past the lane window');
+  assert.equal(metrePulses('21/16'), null);
+  assert.equal(metrePulses('7/3'), null, 'a third of a note is not a beat we can draw');
   assert.equal(sanitiseParams({ timeSignature: '5/8' }).timeSignature, '5/8');
   assert.equal(sanitiseParams({ timeSignature: '6/4' }).timeSignature, '4/4');
 

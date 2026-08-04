@@ -777,8 +777,10 @@ const VOICES: Record<string, [string, string][]> = {
             <span aria-hidden="true">/</span>
             <label class="visually-hidden" for="custom-metre-d">Beat unit</label>
             <select id="custom-metre-d">
+              <option value="2">2</option>
               <option value="4">4</option>
               <option value="8">8</option>
+              <option value="16">16</option>
             </select>
           </span>
         </div>
@@ -3739,15 +3741,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const nInput = document.getElementById('custom-metre-n');
         const dSelect = document.getElementById('custom-metre-d');
         const showCustom = (show) => { if (wrap) wrap.hidden = !show; };
+        // v0.0.146 (his 120): the denominators the engine can draw a beat for.
+        // Halves and sixteenths join quarters and eighths; the ENGINE is still
+        // the judge of the pair, and the readout shows what stuck.
+        const METRE_UNITS = ['2', '4', '8', '16'];
         const commitCustom = () => {
-          const n = clamp(Math.round(Number(nInput.value) || 4), 2, 10);
-          const d = dSelect.value === '8' ? '8' : '4';
+          const d = METRE_UNITS.includes(dSelect.value) ? dSelect.value : '4';
+          // The numerator's ceiling is whatever fits five beats at that unit,
+          // which is the lane's own storage window rather than a taste call.
+          const most = { 2: 2, 4: 5, 8: 10, 16: 20 }[d];
+          const n = clamp(Math.round(Number(nInput.value) || 4), 1, most);
           const sig = `${n}/${d}`;
           engine.setParams({ timeSignature: sig });
           const accepted = engine.getParams().timeSignature;
           settings.timeSignature = accepted;
           nInput.value = String(Number(accepted.split('/')[0]) || n);
-          dSelect.value = accepted.split('/')[1] === '8' ? '8' : '4';
+          const acceptedD = accepted.split('/')[1];
+          dSelect.value = METRE_UNITS.includes(acceptedD) ? acceptedD : '4';
           for (const ed of openEditors.values()) {
             try { ed.seq?.refresh(); } catch {}
           }
@@ -3766,7 +3776,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // NOT describe() here: this code runs before tipSeq's declaration,
         // and a describe() call this early is the recorded blank-page TDZ
         // bug (6105e0d). A plain title carries the bounds instead.
-        if (nInput) nInput.title = 'Beats per bar — up to 5 over 4, up to 10 over 8 (the step grid\u2019s own bound).';
+        if (nInput) {
+          nInput.title = 'Beats per bar. The bar can hold five quarter-note beats — the step grid\u2019s '
+            + 'own window — so that is up to 2 over 2, 5 over 4, 10 over 8 or 20 over 16.';
+        }
       }
 
       for (const [select, key] of [
@@ -4526,7 +4539,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               'Drag the Tempo dial up or down to set the speed. Tempo holds one steady value here — ' +
                 'a randomly varying tempo is rarely a good thing. If you do want it to vary, ' +
                 'drag the Tempo dial sideways in the Advanced tab.',
-              7000,
+              undefined,
               { hold: true }
             ),
         },
@@ -4552,6 +4565,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // argument is held at 0.5 for both sides: the comparison is what the
       // GESTURE changed, not where the piece happens to be in its arc.
       const dialConfirmEl = document.getElementById('dial-confirm');
+      // v0.0.146: a note you have finished reading should go when you say so.
+      if (dialConfirmEl) {
+        dialConfirmEl.title = 'Click to dismiss';
+        dialConfirmEl.addEventListener('click', () => {
+          if (dialConfirmTimer !== null) clearTimeout(dialConfirmTimer);
+          dialConfirmTimer = null;
+          dialConfirmHeldUntil = 0;
+          dialConfirmEl.classList.remove('shown');
+          dialConfirmEl.textContent = '';
+        });
+      }
       let dialConfirmTimer = null;
       const STRUCTURE_PHRASES = {
         drone: 'Now one continuous drift',
@@ -4607,7 +4631,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * later, by a side effect of it.
        */
       let dialConfirmHeldUntil = 0;
-      function sayUnderDials(text, ms = 3000, { hold = false } = {}) {
+      /**
+       * v0.0.146 (his 123): "Good but you barely have time to read the note."
+       * A note's life was a flat number picked per call site — the Tempo
+       * refusal ran 7 s for forty-five words, which is about half the time it
+       * takes to read them. It is now READING TIME: a slow-reader 140 words a
+       * minute, with a floor for the one-word ones ("Undone.") and a ceiling so
+       * nothing camps on screen forever. Clicking the note dismisses it early,
+       * which is what the pointer wants to do anyway.
+       */
+      const READING_MS_PER_WORD = 430;
+      function readingTime(text) {
+        const words = String(text ?? '').trim().split(/\s+/).filter(Boolean).length;
+        return clamp(1600 + words * READING_MS_PER_WORD, 1600, 30000);
+      }
+
+      function sayUnderDials(text, ms = readingTime(text), { hold = false } = {}) {
         if (!dialConfirmEl) return;
         if (!hold && Date.now() < dialConfirmHeldUntil) return;
         dialConfirmHeldUntil = hold ? Date.now() + ms : 0;
@@ -4646,7 +4685,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         spreadTaught = true;
         sayUnderDials(
           'Dragging sideways gives that dial a range to drift between. Drag back the other way to settle it on one value, or tap the middle to start again.',
-          7000,
+          undefined,
           { hold: true }
         );
       }
