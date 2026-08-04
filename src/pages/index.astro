@@ -16909,10 +16909,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       max-width: 14ch;
     }
 
+    /* v0.0.154: the compose pickers sit at the same height as the buttons beside
+       them, and narrow enough that the row does not wrap. Three rows gained a
+       picker in v0.0.152–153; `.genre-select`'s own 44px minimum (it is a
+       touch-target rule for the big genre control) made each of those rows two
+       lines tall, which pushed the Create panel's lower rows under the sticky
+       transport on a short window — typed-melody-drive caught it as a click that
+       could not land. Two classes deep so it beats `.genre-select`, which is
+       declared after it. 16px on the font is deliberate: anything smaller makes
+       iOS Safari zoom the page when the select is focused. */
+    .create-row .create-midi-track {
+      min-height: 34px;
+      padding: 4px 6px;
+      max-width: 11ch;
+    }
+
     /* v0.0.148: the words box is the same control with room for a couple of
        lines — a poem is typed in lines, so it gets lines. */
     .create-words-input {
-      flex: 1 1 260px;
+      flex: 1 1 200px;
       min-width: 0;
       background: var(--bg);
       color: var(--fg);
@@ -16925,7 +16940,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     .create-melody-input {
-      flex: 1 1 220px;
+      flex: 1 1 160px;
       min-width: 0;
       background: var(--bg);
       color: var(--fg);
