@@ -78,6 +78,13 @@ export function syllableCount(word) {
   if (/[aeiou]{2}ti?on$/.test(w) || /[aeiou]{2}sion$/.test(w)) count += 1;
   // A word whose vowels run out before its consonants do: rhy-thm, al-go-rithm.
   if (/thms?$/.test(w)) count += 1;
+  // An `i` before another vowel is its own syllable — pi-A-no, am-BI-ent,
+  // ra-di-o, cu-ri-ous — UNLESS it follows t, s or c, where the pair is one
+  // sound: na-tion, mis-sion, spe-cial. The vowel-group scan reads every one of
+  // these as a single group and comes up short.
+  for (const match of w.matchAll(/([a-z])i[aeou]/g)) {
+    if (!'tsc'.includes(match[1])) count += 1;
+  }
   return Math.max(1, count);
 }
 
