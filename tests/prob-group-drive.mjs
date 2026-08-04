@@ -12,6 +12,12 @@
  * Asserts the ENGINE's stored steps (getParams().tracks.bass.sequencer.steps),
  * not the dots: a dot painted a colour the engine never stored is the failure
  * class this repo tests against everywhere.
+ *
+ * v0.0.145 rewrote the gesture to his 119: "once one dot is selected, a second
+ * empty dot should appear next to it to allow a second probability group, then
+ * third, etc." So a step carries one dot PER GROUP the lane uses plus an empty
+ * one for the next, and the dots are addressed by (step, group) rather than by
+ * a flat index — which is also why every check below had to be re-written.
  */
 
 export default async function drive(page) {
@@ -38,15 +44,20 @@ export default async function drive(page) {
   check('the bass editor opened', opened, true);
   await page.waitForTimeout(600);
 
-  const clickDot = (i) =>
-    page.evaluate((idx) => {
+  /** Press the dot for `group` under step `i` (0-based), or the empty one. */
+  const pressDot = (i, group) =>
+    page.evaluate(([idx, id]) => {
       const editor = document.getElementById('voice-editor-bass');
-      const dots = editor ? [...editor.querySelectorAll('.seq-dot')] : [];
-      if (!dots[idx]) return false;
-      dots[idx].scrollIntoView({ block: 'center' });
-      dots[idx].click();
+      const cells = editor ? [...editor.querySelectorAll('.seq-dot-cell')] : [];
+      const host = cells[idx];
+      if (!host) return false;
+      const dots = [...host.children];
+      const dot = id === null ? dots[dots.length - 1] : dots.find((d) => Number(d.dataset.group) === id);
+      if (!dot) return false;
+      dot.scrollIntoView({ block: 'center' });
+      dot.click();
       return true;
-    }, i).then((ok) => page.waitForTimeout(200).then(() => ok));
+    }, [i, group]).then((ok) => page.waitForTimeout(220).then(() => ok));
 
   const engineGroups = () =>
     page.evaluate(() => {
@@ -54,59 +65,60 @@ export default async function drive(page) {
       return steps.slice(0, 8).map((s) => (Number.isFinite(s.group) ? s.group : null));
     });
 
-  const domState = () =>
+  /** How many dots each step offers, and which groups they stand for. */
+  const dotShape = () =>
     page.evaluate(() => {
       const editor = document.getElementById('voice-editor-bass');
-      const dots = [...editor.querySelectorAll('.seq-dot')].slice(0, 8);
+      const cells = [...editor.querySelectorAll('.seq-dot-cell')].slice(0, 8);
       return {
-        active: dots.map((d) => d.classList.contains('seq-dot-active')),
-        labels: dots.map((d) => d.getAttribute('aria-label') || ''),
+        counts: cells.map((c) => c.children.length),
+        groups: cells.map((c) => [...c.children].map((d) => Number(d.dataset.group))),
+        filled: cells.map((c) => [...c.children].map((d) => d.classList.contains('seq-dot-on'))),
+        labels: [...cells[0].children].map((d) => d.getAttribute('aria-label') || ''),
       };
     });
 
-  // Start a group on step 1, then paint step 5 in ACROSS THE GAP — the exact
-  // gesture the old rule could not express (its left neighbour is ungrouped,
-  // so it would have started a second group in a second colour).
-  check('dot 1 pressed', await clickDot(0), true);
+  // A lane with no groups offers exactly ONE dot per step: the empty one that
+  // starts the first group. That is the whole of his 119 request — the way to
+  // make another group has to be visible, not "press Escape first".
+  const fresh = await dotShape();
+  check('an ungrouped lane offers one empty dot per step', [...new Set(fresh.counts)], [1]);
+  check('…and it says what it is for', /Put step 1 in probability group 1/.test(fresh.labels[0]), (v) => v === true);
+
+  check('step 1 dot pressed', await pressDot(0, null), true);
   let g = await engineGroups();
   const gid = g[0];
-  check('step 1 started a group in the ENGINE', Number.isFinite(gid), (v) => v === true);
+  check('step 1 started a group in the ENGINE', gid, 0);
+  const twoDots = await dotShape();
+  check('a second, empty dot now appears on every step', [...new Set(twoDots.counts)], [2]);
+  check('…the first stands for the group that exists', twoDots.groups[0][0], 0);
+  check('…and it is filled on the step that is in it', twoDots.filled[0], [true, false]);
 
-  check('dot 5 pressed', await clickDot(4), true);
+  // His ruling, unchanged: a gap is NOT a group boundary.
+  check('step 5 group-1 dot pressed', await pressDot(4, 0), true);
   g = await engineGroups();
   check('step 5 joined the SAME group across the gap', g[4], gid);
   check('the gap stayed ungrouped', [g[1], g[2], g[3]], [null, null, null]);
 
-  check('dot 3 pressed', await clickDot(2), true);
+  check('step 3 group-1 dot pressed', await pressDot(2, 0), true);
   g = await engineGroups();
   check('step 3 joined it too', g[2], gid);
 
-  const dom = await domState();
-  check('the selected group rings on the grid', dom.active[0] && dom.active[2] && dom.active[4], (v) => v === true);
-  check('a member dot says it is selected', /selected/.test(dom.labels[0]), (v) => v === true);
-
-  // A selected member pressed again leaves the group.
-  check('dot 3 pressed again', await clickDot(2), true);
+  // Pressing the dot a step already holds takes it out — no selection state
+  // needed, which is what made the old model hard to discover.
+  check('step 3 pressed again', await pressDot(2, 0), true);
   g = await engineGroups();
   check('step 3 left the group', g[2], null);
 
-  // Esc drops the selection; the next press starts a FRESH group.
-  await page.evaluate(() => {
-    const editor = document.getElementById('voice-editor-bass');
-    const cell = editor.querySelectorAll('.seq-cell')[0];
-    cell.tabIndex = 0;
-    cell.focus();
-  });
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
-  const afterEsc = await domState();
-  check('Esc drops the selection', afterEsc.active.some(Boolean), (v) => v === false);
-
-  check('dot 7 pressed', await clickDot(6), true);
+  // The empty dot is how a SECOND group starts, with no Escape and no mode.
+  check('step 7 empty dot pressed', await pressDot(6, null), true);
   g = await engineGroups();
-  check('a fresh press starts a NEW group', Number.isFinite(g[6]) && g[6] !== gid, (v) => v === true);
+  check('a second group starts on the empty dot', g[6], 1);
+  const threeDots = await dotShape();
+  check('…and a third empty dot appears', [...new Set(threeDots.counts)], [3]);
+  check('…groups 1 and 2 keep their own dots, in order', threeDots.groups[0], [0, 1, 2]);
 
-  // Keyboard path: G on a focused cell paints into the selected group.
+  // Keyboard: G paints into the selected group, which is the one just used.
   await page.evaluate(() => {
     const editor = document.getElementById('voice-editor-bass');
     const cell = editor.querySelectorAll('.seq-cell')[1];
@@ -114,9 +126,20 @@ export default async function drive(page) {
     cell.focus();
   });
   await page.keyboard.press('g');
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(220);
   g = await engineGroups();
-  check('G paints the focused step into the selected group', g[1], g[6]);
+  check('G paints the focused step into the selected group', g[1], 1);
+
+  // The row cannot grow past the colours it can tell apart: six groups, then
+  // no empty seventh dot, because a group with no colour cannot be read off the
+  // grid. Driven through the DOTS, the way a person would — pressing the empty
+  // dot on a fresh step each time hands out the next group id.
+  for (let step = 2; step <= 7; step++) await pressDot(step, null);
+  const capShape = await dotShape();
+  const groupsNow = (await engineGroups()).filter((v) => Number.isFinite(v));
+  check('six groups exist at the ENGINE', new Set(groupsNow).size, 6);
+  check('six groups is the cap — one dot per colour, no empty seventh', capShape.counts[0], 6);
+  check('…and the dots stand for groups 1 to 6 in order', capShape.groups[0], [0, 1, 2, 3, 4, 5]);
 
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {

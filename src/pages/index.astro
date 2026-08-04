@@ -6802,6 +6802,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return top + 1;
       }
 
+      /** How many groups a lane already uses, so the row can offer the next. */
+      function groupsUsedIn(lane, slots) {
+        const seen = new Set();
+        for (let i = 0; i < slots; i++) {
+          const g = lane[i] && lane[i].group;
+          if (Number.isFinite(g)) seen.add(g);
+        }
+        return [...seen].sort((a, b) => a - b);
+      }
+
       const SEQ_LEGEND_BASE =
         'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
         'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability, Shift+[ / Shift+] ' +
@@ -6811,9 +6821,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         'Pointer: drag a cell vertically for the velocity band, grab the fat handle at ' +
         'the band top for its loudest edge, drag sideways across cells to tie them into ' +
         'one long note, and drag the thin bar under a step for its probability. The dots ' +
-        'along the bottom colour-code probability groups: press any dot to start a group ' +
-        'or select an existing one (its dots ring), press more dots to paint them in — ' +
-        'gaps are fine — and press a selected member again to remove it. Inside a group ' +
+        'along the bottom are the probability groups: each step shows one dot per group ' +
+        'the lane uses plus an EMPTY one for the next: press the empty dot to start a new ' +
+        'group, press a coloured one to put that step in that group — gaps are fine — and ' +
+        'press the dot a step already holds to take it out. Inside a group ' +
         'each step in turn only gets its chance if the previous member actually sounded.';
 
       // v21: the third per-step axis only exists where the engine takes it, so
@@ -7285,21 +7296,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           const grouped = Number.isFinite(s.group);
           const selected = grouped && activeGroup && activeGroup.lane === li && activeGroup.id === s.group;
-          ref.dot.classList.toggle('seq-dot-on', grouped);
-          ref.dot.classList.toggle('seq-dot-active', !!selected);
-          ref.dot.style.background = grouped
-            ? GROUP_COLOURS[s.group % GROUP_COLOURS.length]
-            : '';
-          ref.dot.setAttribute(
-            'aria-label',
-            selected
-              ? `Step ${i + 1} is in the selected probability group ${s.group + 1}. Press to remove it.`
-              : grouped
-                ? `Step ${i + 1} is in probability group ${s.group + 1}. Press to select that group for painting.`
-                : activeGroup && activeGroup.lane === li
-                  ? `Step ${i + 1} is ungrouped. Press to paint it into the selected group.`
-                  : `Step ${i + 1} is ungrouped. Press to start a new probability group.`
-          );
+          // v0.0.145: one dot per group slot. The dot for the group this step is
+          // in is filled in that group's colour; the rest are empty, and the
+          // last empty one is how a new group gets started.
+          const dots = ref.dots && ref.dots.length ? ref.dots : [ref.dot];
+          for (const dot of dots) {
+            const id = Number(dot.dataset.group);
+            const mine = grouped && s.group === id;
+            dot.classList.toggle('seq-dot-on', mine);
+            dot.classList.toggle('seq-dot-active', !!(mine && selected));
+            dot.style.background = mine ? GROUP_COLOURS[id % GROUP_COLOURS.length] : '';
+            dot.setAttribute(
+              'aria-label',
+              mine
+                ? `Step ${i + 1} is in probability group ${id + 1} — press to take it out`
+                : `Put step ${i + 1} in probability group ${id + 1}`
+            );
+          }
           drawPin(li, i);
         }
 
@@ -7423,6 +7436,83 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
         }
 
+        /**
+         * The dots a cell offers: one per group the lane already uses, plus one
+         * empty for the next. Capped by the colour list, because a group with no
+         * colour of its own cannot be read off the grid.
+         */
+        const MAX_GROUPS = GROUP_COLOURS.length;
+        function groupSlots(li) {
+          const used = groupsUsedIn(laneSteps(lanes[li]), stepsPerBarFor(track));
+          const slots = [...used];
+          // The next id the lane would hand out, offered as an empty dot.
+          if (slots.length < MAX_GROUPS) {
+            let next = 0;
+            while (slots.includes(next)) next += 1;
+            slots.push(next);
+          }
+          return slots;
+        }
+        function buildDots(li) {
+          return groupSlots(li).map((id) => {
+            const dot = document.createElement('button');
+            dot.type = 'button';
+            dot.className = 'seq-dot';
+            dot.dataset.group = String(id);
+            return dot;
+          });
+        }
+
+        /** Put this step in group `id` — or take it out if it is already in it. */
+        function setGroup(li, i, id) {
+          const lane = laneSteps(lanes[li]);
+          const s = lane[i];
+          if (Number.isFinite(s.group) && s.group === id) {
+            // null, not delete: an absent field survives the engine's step
+            // merge, so null is the only thing that actually clears one.
+            s.group = null;
+            if (activeGroup && activeGroup.lane === li && activeGroup.id === id) activeGroup = null;
+          } else {
+            s.group = id;
+            activeGroup = { lane: li, id };
+          }
+          rebuildDotRow(li);
+          repaintDots();
+          commitSequencer(track);
+        }
+
+        /**
+         * The dot COUNT depends on how many groups the lane uses, so a click
+         * that starts a new group has to grow every cell's row by one. Rebuilt
+         * only when the count actually changes — a click is not a drag, but a
+         * needless rebuild of every cell's buttons still throws away focus.
+         */
+        function rebuildDotRow(li) {
+          const refs = cellRefs[li];
+          if (!refs) return;
+          const wanted = groupSlots(li);
+          const first = refs.find((r) => r && r.dot)?.dot?.parentElement;
+          if (first && first.children.length === wanted.length) return;
+          for (let i = 0; i < refs.length; i++) {
+            const ref = refs[i];
+            const host = ref && ref.dot ? ref.dot.parentElement : null;
+            if (!host) continue;
+            host.replaceChildren(...buildDots(li));
+            ref.dot = host.firstElementChild;
+            ref.dots = [...host.children];
+            wireDots(li, i, ref.dots);
+          }
+        }
+
+        function wireDots(li, i, dots) {
+          for (const dot of dots) {
+            dot.addEventListener('click', (e) => {
+              e.stopPropagation();
+              setGroup(li, i, Number(dot.dataset.group));
+            });
+          }
+        }
+
         function toggleGroup(li, i) {
           const lane = laneSteps(lanes[li]);
           const s = lane[i];
@@ -7529,10 +7619,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             commitSequencer(track);
           };
 
-          dot.addEventListener('click', (e) => {
-            e.stopPropagation();
-            toggleGroup(li, i);
-          });
+          // v0.0.145: the dots are wired per group slot in wireDots — a single
+          // listener here would fire for the first dot as well and take the step
+          // out of a group the click was trying to put it into.
+          wireDots(li, i, [...dot.parentElement.children]);
 
           // Fat handle: drags the band's TOP (loudest) edge on its own.
           bandTop.addEventListener('pointerdown', (e) => {
@@ -7723,7 +7813,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               commit();
             } else if (e.key === 'g' || e.key === 'G') {
               e.preventDefault();
-              toggleGroup(li, i);
+              // v0.0.145: the keyboard equivalent of pressing a dot — the active
+              // group if one is selected, otherwise the next free group slot,
+              // which is the empty dot the row is now showing.
+              const slots = groupSlots(li);
+              const id = activeGroup && activeGroup.lane === li
+                ? activeGroup.id
+                : slots[slots.length - 1];
+              setGroup(li, i, id);
             } else if (e.ctrlKey || e.metaKey) {
               // AUDIT FIX: a browser/OS chord is not a grid edit — ⌘T, ⌘G,
               // ⌘[ and friends were silently tying, grouping and re-probing
@@ -8233,11 +8330,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               const dotCell = document.createElement('div');
               dotCell.className = 'seq-dot-cell';
               dotCell.setAttribute('role', 'gridcell');
-              const dot = document.createElement('button');
-              dot.type = 'button';
-              dot.className = 'seq-dot';
-              dotCell.append(dot);
+              // v0.0.145 (his 119): "once one dot is selected, a second empty
+              // dot should appear next to it to allow a second probability
+              // group, then third, etc." So a cell carries one dot per group the
+              // lane uses PLUS an empty one for the next group — the way to
+              // start a second group is visible instead of being "press Escape
+              // first, then a dot", which nothing on screen ever said.
+              dotCell.append(...buildDots(li));
               dotRow.append(dotCell);
+              const dot = dotCell.firstElementChild;
               const cell = document.createElement('div');
               cell.className = 'seq-cell';
               cell.setAttribute('role', 'gridcell');
@@ -8262,7 +8363,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               probFill.className = 'seq-prob-fill';
               prob.append(probFill);
               probRow.append(prob);
-              cellRefs[li][i] = { cell, band, bandTop, probFill, dot, pitch };
+              cellRefs[li][i] = { cell, band, bandTop, probFill, dot, dots: [...dotCell.children], pitch };
               wireCell(li, i, cell, prob, bandTop, dot);
               row.append(cell);
             }
@@ -18460,11 +18561,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .seq-dot-cell {
       display: flex;
       justify-content: center;
+      /* v0.0.145: a cell can hold several dots — one per probability group,
+         plus the empty one that starts the next. They wrap rather than push
+         the grid wider, because the column width belongs to the step. */
+      flex-wrap: wrap;
+      gap: 2px;
+      align-content: center;
     }
 
     .seq-dot {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
       padding: 0;
       background: none;
       border: 1px solid var(--border);
