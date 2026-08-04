@@ -1957,3 +1957,26 @@ skin are deliberate noise transients), and does NOT recur one waveform period
 later (a saw's wrap heard through an open attack filter is the instrument). Its
 recorded-click list is empty and must stay that way; a fixed one has to be
 removed from it, which the harness enforces.
+
+## `patches`: null clears (v0.0.143)
+
+Module ownership: **the engine** (`sanitisePatches` in `ambient-engine.js`).
+
+Patches MERGE — that is what lets one dial move without disturbing the rest of
+the instrument — so until v0.0.143 they could only ever accumulate and there was
+no way to take one back:
+
+- `patches: { pad: { warm: null } }` drops that voice's entry.
+- `patches: { pad: null }` drops the whole track's bank.
+- An absent key still inherits, exactly as every other section does, and junk
+  that is not null (a string, a number) still leaves the stored patch alone.
+
+What it fixed: a genre's kit patch survived a **Blank slate**, and the **Zero
+voices** button — whose own message says "patches cleared" — deleted them in the
+page's settings while the engine went on playing the patch it already had. Both
+now clear at the engine, behind the `patchClear` capability probe, so an older
+engine bundle simply does less rather than lying.
+
+Found by measuring the kit's patch either side of a Blank slate in
+`tests/create-drive.mjs` instead of assuming it was empty — the assumption
+passed for one genre draw and failed for the next, which is what exposed it.

@@ -61,6 +61,18 @@ export default async function drive(page) {
 
   // Blank slate is the REAL one now: states off AND the FX zeroed (his
   // "still have massive reverb and delay" was the stub's gap).
+  // The kit's patch as it stands BEFORE the blank: the law below is that a blank
+  // slate does not rewrite it, and params.patches keeps whatever a genre wrote
+  // for the same voice, so "unchanged" has to be measured against this rather
+  // than against an assumption about what is in there.
+  const kitBefore = await page.evaluate(() => {
+    const p = window.__ambi4Engine.getParams();
+    const voice = p.tracks.percussion.voice;
+    const patch = p.patches?.percussion?.[voice] ?? null;
+    if (!patch) return null;
+    const { sends, ...rest } = patch;
+    return JSON.stringify(rest);
+  });
   await page.click('#create-blank');
   await page.waitForTimeout(500);
   const blank = await page.evaluate(() => {
@@ -78,6 +90,75 @@ export default async function drive(page) {
   check('blank slate turns every track off at the ENGINE', blank.states.every((v) => v === 'off'), (v) => v === true);
   check('…drops the room to its smallest', blank.reverbTail <= 0.5, (v) => v === true);
   check('…and zeroes every default voice’s sends', blank.sends.every((v) => v === 0), (v) => v === true);
+
+  // v0.0.143, his 117: "none of the instruments seem to be at sensible blanks.
+  // For example I would expect only one OSC to be selected, detune to be zero,
+  // the filter cutoff to be fully open with resonance zero, likewise envelope
+  // should be at whatever people would expect of a zeroed state." Asserted at
+  // the ENGINE's own sanitised patch, not at the dials — a dial drawing a value
+  // the engine never received is the failure this repo keeps catching.
+  const init = await page.evaluate(() => {
+    const p = window.__ambi4Engine.getParams();
+    // params.patches echoes what was SENT, so a partial override is partial
+    // here — which is exactly what the kit's must be.
+    const read = (id) => {
+      const t = p.tracks[id];
+      const patch = p.patches?.[id]?.[t.voice];
+      if (!patch) return null;
+      return {
+        shape2: patch.source ? patch.source.shape2 : undefined,
+        detune: patch.source ? patch.source.detune : undefined,
+        cutoff: patch.filter ? patch.filter.cutoff : undefined,
+        q: patch.filter ? patch.filter.q : undefined,
+        envAmount: patch.filter ? patch.filter.envAmount : undefined,
+        adsr: patch.adsr || null,
+        keys: Object.keys(patch).sort(),
+      };
+    };
+    return {
+      tuned: Object.keys(p.tracks).filter((id) => id !== 'percussion').map((id) => [id, read(id)]),
+      kit: read('percussion'),
+      kitRest: (() => {
+        const voice = p.tracks.percussion.voice;
+        const patch = p.patches?.percussion?.[voice] ?? null;
+        if (!patch) return null;
+        const { sends, ...rest } = patch;
+        return JSON.stringify(rest);
+      })(),
+      seed: p.harmony?.seed ?? null,
+      arpMode: p.arp?.mode ?? null,
+    };
+  });
+  // Every tuned track must HAVE a patch after a blank slate: on the old code
+  // they carried a sends-only override, so this list was full of undefineds and
+  // the laws below are what caught it.
+  const tuned = init.tuned.filter(([, v]) => v);
+  check('every tuned track gets an init patch at all', tuned.length, init.tuned.length);
+  check('every tuned track opens on ONE oscillator', tuned.every(([, v]) => v.shape2 === null), (v) => v === true);
+  check('…with no spread', tuned.every(([, v]) => v.detune === 0), (v) => v === true);
+  check('…the filter fully open', tuned.every(([, v]) => v.cutoff >= 12000), (v) => v === true);
+  check('…resonance and filter envelope at their floors',
+    tuned.every(([, v]) => v.q <= 0.1 && v.envAmount === 0), (v) => v === true);
+  check('…and a gate for an envelope: instant on, full while held, instant off',
+    tuned.every(([, v]) => v.adsr && v.adsr.attack <= 0.001 && v.adsr.decay <= 0.001
+      && v.adsr.sustain === 1 && v.adsr.release <= 0.01), (v) => v === true);
+  // The kit is deliberately NOT zeroed: it publishes one envelope for three
+  // sounds, so a zeroed envelope would leave three clicks and no way back
+  // until per-sound envelopes land (his open item 129).
+  // What the measurement actually showed, and it is the right answer: a blank
+  // slate clears the genre's kit patch and writes NO envelope, filter or
+  // oscillator of its own, so the kit falls back to the sound its voice
+  // publishes. The tuned tracks get the init patch; the kit gets nothing,
+  // because one envelope for three sounds cannot be zeroed without leaving
+  // three clicks (his open item 129).
+  check('a blank slate leaves the kit on its own authored sound, with no init written over it',
+    init.kitRest, '{}');
+  check('…and it really did have a genre patch before, so that is a change not a coincidence',
+    kitBefore !== null && kitBefore !== '{}', (v) => v === true);
+  // The two reasons "stuff happens" when you turn the instruments on.
+  check('blank leaves ONE chord, not a progression the app wrote',
+    Array.isArray(init.seed) && init.seed.length === 1, (v) => v === true);
+  check('…and the arp is manual, so its cleared lane stays cleared', init.arpMode, 'manual');
 
   // Seeding: voices arrive from the genre, states stay off.
   // The fresh visit draws a RANDOM genre, so "did a voice change" races the
@@ -227,6 +308,54 @@ export default async function drive(page) {
   check('Play after Blank slate schedules NOTHING', blankPlay.running && blankPlay.notes === 0, (v) => v === true);
   await page.click('#toggle-play').catch(() => {});
   await page.waitForTimeout(300);
+
+  // v0.0.143, the second half of his 117: "if I press play and turn on all
+  // instruments, stuff happens - that's not particularly blank". So turn them
+  // ALL on and measure what the engine schedules. A held chord is the floor —
+  // an instrument that is on has to sound something — but there must be no
+  // progression, no drum pattern and no melodic line, because none of that was
+  // asked for. Note events carry their track, so this is measured per track.
+  // The panel HIDES rather than unmounts, and the block above pressed Escape —
+  // so reopen it before clicking, or the click lands on an invisible button.
+  if (await page.evaluate(() => document.getElementById('play-along').hidden)) {
+    await page.click('#play-along-open');
+    await page.waitForTimeout(250);
+  }
+  await page.click('#create-blank');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const engine = window.__ambi4Engine;
+    const tracks = {};
+    for (const id of Object.keys(engine.getParams().tracks)) tracks[id] = { state: 'on' };
+    engine.setParams({ tracks });
+    window.__onNotes = [];
+    engine.on('note', (e) => { window.__onNotes.push({ track: e.track, midi: e.midi }); });
+  });
+  await page.click('#toggle-play');
+  await page.waitForTimeout(4000);
+  const allOn = await page.evaluate(() => {
+    const byTrack = {};
+    for (const n of window.__onNotes) {
+      byTrack[n.track] = byTrack[n.track] || new Set();
+      byTrack[n.track].add(n.midi);
+    }
+    return {
+      states: Object.values(window.__ambi4Engine.getParams().tracks).map((t) => t.state),
+      tracks: Object.fromEntries(Object.entries(byTrack).map(([k, v]) => [k, [...v].sort((a, b) => a - b)])),
+      total: window.__onNotes.length,
+    };
+  });
+  await page.click('#toggle-play').catch(() => {});
+  await page.waitForTimeout(200);
+  check('every track really was switched on', allOn.states.every((s) => s === 'on'), (v) => v === true);
+  const stepped = ['bass', 'melody', 'arp', 'percussion'].filter((id) => allOn.tracks[id]);
+  check('no drum pattern, no bassline, no melody, no arp line — nothing was written',
+    stepped, []);
+  // The sustaining tracks may hold the one chord; what they must NOT do is move
+  // through a progression, so the set of pitches they play is one chord's worth.
+  const held = ['pad', 'texture'].flatMap((id) => allOn.tracks[id] || []);
+  check('the sustaining tracks hold one chord at most, never a sequence',
+    held.length <= 4, (v) => v === true);
 
   // Guided start is a visible option now.
   const guided = await page.evaluate(() => !!document.getElementById('guided-start'));

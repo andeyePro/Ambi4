@@ -2363,6 +2363,16 @@ function sanitisePatches(value, base, laneIds = PERCUSSION_LANES, order = TRACK_
     const partialBank = v && v[track] && typeof v[track] === 'object' && !Array.isArray(v[track])
       ? v[track]
       : null;
+    // v0.0.143 — NULL CLEARS, the same law the step lane already follows
+    // (absent inherits, null clears). Until now a patch could only ever
+    // ACCUMULATE: `patches` merged and nothing in the API could take one back,
+    // so a genre's kit patch survived a Blank slate and "Voices back to stock,
+    // patches cleared" cleared them in the page's own settings while the engine
+    // went on playing the patch it already had. Found by measuring the kit's
+    // patch either side of a Blank slate rather than assuming it was empty.
+    //   patches: { pad: null }              drops that track's whole bank
+    //   patches: { pad: { warm: null } }    drops one voice's entry
+    if (v && track in v && v[track] === null) continue;
     const ids = new Set([
       ...(baseBank ? Object.keys(baseBank) : []),
       ...(partialBank ? Object.keys(partialBank) : []),
@@ -2370,6 +2380,7 @@ function sanitisePatches(value, base, laneIds = PERCUSSION_LANES, order = TRACK_
     const bank = {};
     for (const id of ids) {
       if (!id.trim()) continue;
+      if (partialBank && id in partialBank && partialBank[id] === null) continue;
       const merged = mergePatch(
         baseBank ? baseBank[id] : undefined,
         partialBank && id in partialBank ? partialBank[id] : undefined,

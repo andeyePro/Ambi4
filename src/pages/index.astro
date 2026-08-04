@@ -2615,6 +2615,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // silently-clamped half) where it doesn't.
         const bipolar = probePatchSource({ detune: -25 }) || {};
         engineCaps.patchDetuneBipolar = bipolar.detune === -25;
+
+        // v0.0.143: does this engine take null as "drop this patch"? Without it
+        // Blank slate and Zero voices can only add, never take away.
+        engineCaps.patchClear = false;
+        try {
+          const seeded = sanitiseParams({ patches: { pad: { warm: { filter: { cutoff: 900 } } } } });
+          const cleared = sanitiseParams({ patches: { pad: null } }, seeded);
+          engineCaps.patchClear = !!seeded.patches?.pad?.warm && !cleared.patches?.pad;
+        } catch {}
       }
 
       // v21 track-param probes. Same reasoning as the patch probe above: these
@@ -9266,7 +9275,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (source && controlsFieldAllowed(sourceSpec, 'detune')) {
           const bipolar = engineCaps.patchDetuneBipolar;
           const detuneMin = bipolar ? -DETUNE_MAX : 0;
-          veRange(source, 'Detune', {
+          veRange(source, 'Spread', {
             min: detuneMin,
             max: DETUNE_MAX,
             step: 1,
@@ -9780,8 +9789,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const n = Math.round(clamp(x, detuneMin, DETUNE_MAX));
             return bipolar && Math.abs(n) <= DETUNE_DETENT ? 0 : n;
           };
-          addKnob(source, {
-            label: 'Detune',
+          // v0.0.143 (his 117): "surely that should only exist when you have
+          // OSC 2 on, as IMHO it would intuitively be the detune between OSC1
+          // and OSC2". He is right about what the word implies and this engine
+          // does something else with it: several voices are a STACK of the same
+          // waveform (the eighties saw is five saws spread apart), and the dial
+          // scales how far apart the whole stack sits — `spread` is the layer
+          // tables' own name for it. So the dial takes that name rather than
+          // implying a two-oscillator gap it does not have. Voices where it
+          // genuinely cannot act already omit it through their `controls`
+          // descriptor (bass.breath, bass.acid), and voices-smoke now MEASURES
+          // that claim rather than trusting the table.
+          const spreadCell = addKnob(source, {
+            label: 'Spread',
             field: 'source.detune',
             min: detuneMin,
             max: DETUNE_MAX,
@@ -9796,6 +9816,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               commit();
             },
           });
+          describe(
+            spreadCell.cell,
+            'How far apart the oscillator stack sits, in cents. Several voices are '
+            + 'a stack of the same waveform rather than two different ones, so this '
+            + 'still widens them with OSC 2 off.'
+          );
         }
         // v18: percussion trades the 3-position Octave switch for a continuous
         // Pitch dial (±24 semitones) and gains a Noise dial — but only where
@@ -13954,12 +13980,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // Blank-slate button loads — tracks off, grids cleared, no genre, FX
         // zeroed — not a stub that only switched states off.
         createBlank?.addEventListener('click', () => {
+          clearEnginePatches();
           loadParamsSnapshot(buildBlankParams());
           clearGenreTag();
           presetName.value = '';
           if (guidedTip) {
             guidedTip.textContent =
-              'Silence, genuinely: instruments off, grids cleared, FX zeroed. Build up from here.';
+              'Silence, genuinely: instruments off, grids cleared, FX zeroed, one chord, and every '
+              + 'tuned instrument on a plain single-oscillator sound with the filter open. Build up from here.';
           }
         });
 
@@ -13991,12 +14019,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (Array.isArray(seq.steps)) clearLane(seq.steps);
           else Object.values(seq.steps).forEach(clearLane);
         };
-        document.getElementById('zero-voices')?.addEventListener('click', zeroWith((p) => {
-          for (const [id, t] of Object.entries(p.tracks || {})) {
-            if (DEFAULTS.tracks[id]?.voice) t.voice = DEFAULTS.tracks[id].voice;
-            if (p.patches && p.patches[id]) delete p.patches[id];
-          }
-        }, 'Voices back to stock, patches cleared. Everything else kept.'));
+        document.getElementById('zero-voices')?.addEventListener('click', () => {
+          // v0.0.143: the delete below is on the PAGE's settings, and the engine
+          // MERGES patches — so before this version "patches cleared" cleared
+          // them on screen while the engine went on playing what it already had.
+          // The engine now takes null as "drop it", and this is the button whose
+          // whole job that is.
+          clearEnginePatches();
+          zeroWith((p) => {
+            for (const [id, t] of Object.entries(p.tracks || {})) {
+              if (DEFAULTS.tracks[id]?.voice) t.voice = DEFAULTS.tracks[id].voice;
+              if (p.patches && p.patches[id]) delete p.patches[id];
+            }
+          }, 'Voices back to stock, patches cleared. Everything else kept.')();
+        });
         document.getElementById('zero-chords')?.addEventListener('click', zeroWith((p) => {
           // An array, not a string: the engine's seed sanitiser rejects a
           // bare string whole (audit major #5), which made this button a no-op.
@@ -14945,12 +14981,66 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // arp steps, no genre, zero swing/complexity/repetition. What plays
       // after this is only what the user builds. Groundwork for the AI-free
       // pledge on listed presets/albums.
+      /**
+       * v0.0.143 (his 117): what a synth looks like with nothing dialled in.
+       * "I would expect only one OSC to be selected, detune to be zero, the
+       * filter cutoff to be fully open with resonance zero, likewise envelope
+       * should be at whatever people would expect of a zeroed state."
+       *
+       * So: ONE oscillator (shape2 null is OSC 2 off), the shape dial at its own
+       * zero — which is a sine, the plainest tone there is — no spread, no fold,
+       * the filter as open as the schema goes (12 kHz) with its resonance and
+       * envelope at their floors, and a gate for an envelope: on the instant a
+       * note starts, full while it is held, off the instant it ends. Sends zero,
+       * because his first Blank slate report was "still massive reverb".
+       *
+       * NOT applied to the kit. A kit publishes one envelope for three sounds
+       * (his open item 129), so a zeroed envelope there would leave three clicks
+       * and no per-sound way back — its authored sounds stay, with sends zeroed
+       * like everything else.
+       */
+      const INIT_PATCH = Object.freeze({
+        source: { shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0, fold: 0 },
+        filter: { type: 'lowpass', cutoff: 12000, q: 0.1, envAmount: 0 },
+        adsr: { attack: 0.001, decay: 0.001, sustain: 1, release: 0.01 },
+        sends: { reverb: 0, delay: 0 },
+      });
+
+      /**
+       * Drop every stored patch AT THE ENGINE. Patches merge — that is what
+       * makes editing one dial leave the rest alone — so the only way to take
+       * one back is to say so, which v0.0.143 taught the sanitiser to accept
+       * (null clears; see sanitisePatches). Probed, because an engine that does
+       * not understand null would silently keep the patch, and then the button
+       * would be lying again rather than doing less.
+       */
+      function clearEnginePatches() {
+        if (!engineCaps.patchClear) return;
+        const wipe = {};
+        for (const id of Object.keys(settings.tracks || {})) wipe[id] = null;
+        for (const id of TRACK_IDS) wipe[id] = null;
+        engine.setParams({ patches: wipe });
+      }
+
       function buildBlankParams() {
         const blank = structuredClone(DEFAULTS);
         blank.swing = 0;
         blank.complexity = 0;
         blank.repetition = 0;
         blank.arp.steps = new Array(16).fill(false);
+        // v0.0.143 (his 117): "I still get a chord sequence, and if I press play
+        // and turn on all instruments, stuff happens - that's not particularly
+        // blank." Two reasons it did, both fixed here:
+        //   * with no seed the engine writes its own progression, so a pad or a
+        //     texture — neither of which has a step grid — played a composition
+        //     nobody asked for. One tonic chord is the floor: an instrument that
+        //     is on has to sound SOMETHING, and one held chord is the least it
+        //     can be while still being an instrument.
+        //   * the arp ignores its cleared steps unless its mode is manual
+        //     (`params.arp.mode === 'manual'` is the engine's own test), so a
+        //     cleared arp lane still generated a pattern.
+        blank.harmony = { ...(blank.harmony || {}), seed: ['I'] };
+        blank.arp.mode = 'manual';
         // v0.0.89 (his 103): blank means the FX too — he pressed Blank slate
         // and "still [had] massive reverb and delay", because the voices'
         // default sends and the room survived. Room to its smallest, every
@@ -14966,11 +15056,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           t.state = 'off';
           t.randomness = 0;
           if (typeof t.voice === 'string') {
+            // The kit keeps its authored sound and loses only its sends; every
+            // tuned track opens on the init patch above.
+            const init = track === 'percussion'
+              ? { sends: { reverb: 0, delay: 0 } }
+              : structuredClone(INIT_PATCH);
             blank.patches[track] = {
               ...(blank.patches[track] || {}),
               [t.voice]: {
                 ...((blank.patches[track] || {})[t.voice] || {}),
-                sends: { reverb: 0, delay: 0 },
+                ...init,
               },
             };
           }
@@ -14987,10 +15082,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       if (blankSlate) {
         describe(
           blankSlate,
-          'Silence everything: all tracks off, all sequencers cleared and set to Manual, no genre. ' +
+          'Silence everything: all tracks off, all sequencers cleared and set to Manual, no genre, ' +
+            'one chord instead of a progression, and every tuned instrument reset to a plain ' +
+            'single-oscillator sound — filter open, resonance off, envelope a plain gate. ' +
             'Whatever plays after this is entirely yours.'
         );
         blankSlate.addEventListener('click', () => {
+          clearEnginePatches();
           loadParamsSnapshot(buildBlankParams());
           clearGenreTag();
           presetName.value = '';

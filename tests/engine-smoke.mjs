@@ -1675,6 +1675,54 @@ test('stop() during an ending cancels the outro and still resolves', async () =>
   assert.ok(await settleWithin(engine.finish(), 1), 'finish() after a stop must resolve at once');
 });
 
+test('v0.0.143 patches: null CLEARS, absent still inherits — the only way to take a patch back', () => {
+  // Until this version `patches` could only accumulate: the merge is what makes
+  // editing one dial leave everything else alone, but nothing in the API could
+  // say "drop it". So a genre's kit patch survived a Blank slate, and the Zero
+  // voices button — whose whole job is "patches cleared" — cleared them in the
+  // page's own settings while the engine went on playing the patch it had.
+  // Found by measuring the kit's patch either side of a Blank slate in
+  // create-drive rather than assuming it was empty.
+  const seeded = sanitiseParams({
+    patches: {
+      pad: { warm: { filter: { cutoff: 900 } }, glass: { adsr: { attack: 0.4 } } },
+      bass: { sub: { adsr: { attack: 0.5 } } },
+    },
+  });
+  assert.equal(seeded.patches.pad.warm.filter.cutoff, 900);
+  assert.equal(seeded.patches.pad.glass.adsr.attack, 0.4);
+
+  // Absent inherits — the law every other section follows, unchanged.
+  const inherited = sanitiseParams({ patches: {} }, seeded);
+  assert.equal(inherited.patches.pad.warm.filter.cutoff, 900, 'an absent patches key must inherit');
+  assert.equal(inherited.patches.bass.sub.adsr.attack, 0.5);
+
+  // One VOICE's entry, dropped by name.
+  const oneVoice = sanitiseParams({ patches: { pad: { warm: null } } }, seeded);
+  assert.equal(oneVoice.patches.pad.warm, undefined, 'null must drop that voice');
+  assert.equal(oneVoice.patches.pad.glass.adsr.attack, 0.4, 'its sibling voice stays');
+  assert.equal(oneVoice.patches.bass.sub.adsr.attack, 0.5, 'another track stays');
+
+  // A whole track's bank, dropped at once — what Blank slate needs.
+  const oneTrack = sanitiseParams({ patches: { pad: null } }, seeded);
+  assert.equal(oneTrack.patches.pad, undefined, 'null must drop the whole bank');
+  assert.equal(oneTrack.patches.bass.sub.adsr.attack, 0.5);
+
+  // Every track at once, which is what a blank slate sends.
+  const all = sanitiseParams({ patches: { pad: null, bass: null } }, seeded);
+  assert.deepEqual(all.patches, {}, 'a blank slate can leave no patch behind');
+
+  // Clearing and writing in the same call: the write wins, on an empty base.
+  const replaced = sanitiseParams({ patches: { pad: { warm: null, glass: { adsr: { attack: 0.1 } } } } }, seeded);
+  assert.equal(replaced.patches.pad.warm, undefined);
+  assert.equal(replaced.patches.pad.glass.adsr.attack, 0.1);
+
+  // And null is not a value a patch can hold by accident: a null INSIDE a patch
+  // section is still just an unusable value, not a clear.
+  const junk = sanitiseParams({ patches: { pad: { warm: { filter: null } } } }, seeded);
+  assert.equal(junk.patches.pad.warm.filter.cutoff, 900, 'a null section leaves the stored patch alone');
+});
+
 test('sanitiseParams sanitises patches sparsely and deeply', () => {
   assert.deepEqual(sanitiseParams({}).patches, {});
   assert.deepEqual(sanitiseParams({ patches: 'nope' }).patches, {});
@@ -1770,8 +1818,17 @@ test('sanitiseParams sanitises patches sparsely and deeply', () => {
       marimba: { filter: { cutoff: 800 } },
     },
   });
-  assert.deepEqual(sanitiseParams({ patches: { arp: { crystal: null } } }, base).patches, base.patches,
+  // v0.0.143 CHANGED THIS LAW DELIBERATELY: null used to be "invalid, keep what
+  // you have", which made clearing a patch impossible and left Blank slate and
+  // Zero voices unable to take one back. null now CLEARS (see the v0.0.143
+  // test above). Junk that is not null still leaves the stored patch alone,
+  // which is what this line was really protecting.
+  assert.deepEqual(sanitiseParams({ patches: { arp: { crystal: null } } }, base).patches, {},
+    'null drops the entry — and with it the last one, the whole bank');
+  assert.deepEqual(sanitiseParams({ patches: { arp: { crystal: 'nope' } } }, base).patches, base.patches,
     'an invalid incoming patch leaves the stored one alone');
+  assert.deepEqual(sanitiseParams({ patches: { arp: { crystal: 42 } } }, base).patches, base.patches,
+    'and a number is not a patch either');
   assert.deepEqual(sanitiseParams({ bpm: 80 }, base).patches, base.patches,
     'an unrelated update keeps the patches');
 
