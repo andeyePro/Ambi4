@@ -345,6 +345,8 @@ const VOICES: Record<string, [string, string][]> = {
               autocomplete="off"
               spellcheck="false"
             />
+            <label class="visually-hidden" for="compose-beat-track">Write onto which kit</label>
+            <select id="compose-beat-track" class="genre-select create-midi-track"></select>
             <button type="button" id="compose-beat-write" class="secondary-button">Write it</button>
           </div>
           <div id="guided-tree" class="create-row create-guided-tree" hidden>
@@ -14475,17 +14477,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           select.value = ids.includes(wanted) ? wanted : (ids.includes(fallback) ? fallback : ids[0]);
         };
-        const tunedSequenced = () => SEQ_TRACKS.filter((id) => id !== 'percussion');
+        // Which set a track belongs to is decided by its VOICE SET, not by its id:
+        // a user track built as a kit is a kit, and offering it as somewhere to
+        // type note names would be offering a control that cannot work.
+        const isKitTrack = (id) => voiceSetOf(id) === 'percussion';
+        const tunedSequenced = () => SEQ_TRACKS.filter((id) => !isKitTrack(id));
+        const kitSequenced = () => SEQ_TRACKS.filter(isKitTrack);
+        const beatTrackSelect = document.getElementById('compose-beat-track');
         function renderMidiTracks() {
           fillTrackPicker(midiTrackSelect, SEQ_TRACKS, 'melody');
           fillTrackPicker(melodyTrackSelect, tunedSequenced(), 'melody');
           fillTrackPicker(wordsTrackSelect, tunedSequenced(), 'melody');
+          fillTrackPicker(beatTrackSelect, kitSequenced(), 'percussion');
         }
         renderMidiTracks();
         if (typeof engine.on === 'function') engine.on('tracks', renderMidiTracks);
         describe(midiTrackSelect, 'Which instrument the file is imported onto.');
         describe(melodyTrackSelect, 'Which instrument the typed notes are written onto — any of them, not just the melody.');
         describe(wordsTrackSelect, 'Which instrument sings the words — any tuned track, not just the melody.');
+        describe(beatTrackSelect, 'Which kit the typed beat is written onto.');
 
         /** The track a compose tool is pointed at, defaulting to the melody. */
         const composeTarget = (select) => {
@@ -14903,11 +14913,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         function writeTypedBeat() {
           const raw = (beatText?.value || '').trim();
           if (!raw) return;
-          const lanes = (settings.tracks.percussion.lanes || []).map((l) => l.id);
+          // v0.0.153: whichever kit the picker names — the built-in one, or a kit
+          // a listener built. Its LANES are its own, so the letters land on that
+          // kit's sounds rather than on three ids assumed to exist.
+          const target = (() => {
+            const id = beatTrackSelect && typeof beatTrackSelect.value === 'string'
+              ? beatTrackSelect.value : 'percussion';
+            return settings.tracks[id] ? id : 'percussion';
+          })();
+          const lanes = (settings.tracks[target].lanes || []).map((l) => l.id);
           // A letter naming a lane the kit does not have falls to the nearest
           // one it does, so a three-lane notation still lands on a bigger kit.
           const laneFor = (id) => (lanes.includes(id) ? id : lanes[0]);
-          const slotsPerBar = stepsPerBarFor('percussion');
+          const slotsPerBar = stepsPerBarFor(target);
           const MAX_BARS = 8;
           const blank = () => ({
             on: false, prob: 1, vmin: 0.6, vmax: 0.8,
@@ -14959,7 +14977,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
             return;
           }
-          const track = settings.tracks.percussion;
+          const track = settings.tracks[target];
           const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps }));
           track.sequencers = list;
           track.sequencer = list[0];
@@ -14967,7 +14985,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (track.state === 'off') track.state = 'on';
           engine.setParams({
             tracks: {
-              percussion: {
+              [target]: {
                 state: track.state,
                 sequencers: structuredClone(list),
                 ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
@@ -14975,8 +14993,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             },
           });
           syncTrackStateUI();
-          const editor = document.getElementById('voice-editor-percussion');
-          if (editor && !editor.hidden) renderVoiceEditor('percussion');
+          const editor = document.getElementById(`voice-editor-${target}`);
+          if (editor && !editor.hidden) renderVoiceEditor(target);
           persistSettings();
           if (guidedTip) {
             guidedTip.textContent =

@@ -32,6 +32,20 @@ export default async function drive(page) {
   check('the beat box is in the compose row', present.input && present.button, (v) => v === true);
   check('…and says what the letters are', /K kick/.test(present.placeholder), (v) => v === true);
 
+  // v0.0.153: the beat row names its KIT, the same way every other compose row
+  // names its instrument. Kits are picked by voice set, so a user-built kit
+  // belongs here and a tuned track does not.
+  const picker = await page.evaluate(() => {
+    const select = document.getElementById('compose-beat-track');
+    if (!select) return null;
+    return { ids: [...select.options].map((o) => o.value), value: select.value };
+  });
+  check('the beat row has a kit picker', !!picker, (v) => v === true);
+  check('…defaulting to the built-in kit', picker && picker.value, 'percussion');
+  check('…and it offers kits only, never a tuned track',
+    picker && !picker.ids.some((id) => ['melody', 'bass', 'arp', 'pad', 'texture'].includes(id)),
+    (v) => v === true);
+
   const write = async (text) => {
     await page.evaluate((t) => {
       const box = document.getElementById('compose-beat-text');
