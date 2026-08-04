@@ -319,6 +319,18 @@ const VOICES: Record<string, [string, string][]> = {
             />
             <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
           </div>
+          <div class="create-row create-words-row">
+            <label class="visually-hidden" for="compose-words-text">Type the words, one line per phrase</label>
+            <textarea
+              id="compose-words-text"
+              class="create-words-input"
+              rows="2"
+              placeholder="Type the words, a line at a time — the metre comes out of them and the melody from your chords"
+              autocomplete="off"
+              spellcheck="false"
+            ></textarea>
+            <button type="button" id="compose-words-write" class="secondary-button">Sing it</button>
+          </div>
           <div class="create-row create-melody-row">
             <label class="visually-hidden" for="compose-beat-text">Type a beat, one token per step</label>
             <input
@@ -14239,7 +14251,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto the melody grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Words land next.'
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto the melody grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -14627,6 +14639,176 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               (dropped.length ? ` — dropped: ${dropped.join(' ')} (eight bars is the cap).` : '.');
           }
         }
+
+        // v0.0.148 — his 116, the third compose method, in his own words:
+        // "c) lyrics that you enter - like a poem - and the system determines the
+        // meter, so can, for example, generate a melody based on the chosen chord
+        // sequence."
+        //
+        // So three steps, and each one is his sentence: SCAN the words for their
+        // stresses (src/scripts/lyrics.js, a pure module with its own suite);
+        // take the METRE from those stresses and apply it, saying so; and give
+        // every syllable a note from THE CHORD SEQUENCE — a chord tone under a
+        // stressed syllable, a passing scale tone under an unstressed one.
+        //
+        // Everything it writes is ordinary pinned steps on the melody grid, so a
+        // stress the heuristic got wrong is a step you drag. That is the whole
+        // reason it is allowed to guess at English at all.
+        const wordsText = document.getElementById('compose-words-text');
+        const wordsWrite = document.getElementById('compose-words-write');
+        let lyricsModulePromise = null;
+        const getLyrics = () => {
+          if (!lyricsModulePromise) {
+            lyricsModulePromise = import('../scripts/lyrics.js').catch(() => null);
+          }
+          return lyricsModulePromise;
+        };
+
+        /** The chord sequence the words are being sung over, as scale degrees. */
+        function chordDegreesNow() {
+          const seed = engine.getParams().harmony?.seed;
+          if (Array.isArray(seed) && seed.length) {
+            return seed.map((slot) => (Number.isFinite(slot?.degree) ? slot.degree : 0));
+          }
+          return null;
+        }
+
+        async function writeTypedWords() {
+          const raw = (wordsText?.value || '').trim();
+          if (!raw) return;
+          const lyrics = await getLyrics();
+          if (!lyrics) {
+            if (guidedTip) guidedTip.textContent = 'The words module did not load — reload and try again.';
+            return;
+          }
+          const scanned = lyrics.scan(raw);
+          const syllableTotal = scanned.reduce((n, line) => n + line.syllables.length, 0);
+          if (!syllableTotal) {
+            if (guidedTip) guidedTip.textContent = 'No words understood — type a line of lyrics.';
+            return;
+          }
+
+          // 1. THE METRE, out of the words. Applied only when the stresses
+          // actually fall into a pattern; a line with nothing to go on leaves the
+          // metre alone rather than asserting 4/4 over whatever is set.
+          const metre = lyrics.metreOfScan(scanned);
+          let metreNote = '';
+          if (metre.confident && metre.timeSignature !== settings.timeSignature) {
+            const before = settings.timeSignature;
+            settings.timeSignature = metre.timeSignature;
+            engine.setParams({ timeSignature: metre.timeSignature });
+            const accepted = engine.getParams().timeSignature;
+            settings.timeSignature = accepted;
+            if (timeSignatureSelect) timeSignatureSelect.value = accepted;
+            metreNote = accepted === metre.timeSignature
+              ? ` The words scan in ${metre.foot === 3 ? 'threes' : 'twos'}, so the metre is now ${accepted} (it was ${before}).`
+              : '';
+          }
+
+          // 2. WHERE each syllable sits: stresses on the metre's own pulses.
+          const slotsPerBar = stepsPerBarFor('melody');
+          const pulseSlots = pulseStartsFor('melody', slotsPerBar);
+          const MAX_BARS = 8;
+          const { placed, dropped } = lyrics.layOut(scanned, {
+            pulseSlots,
+            slotsPerBar,
+            maxBars: MAX_BARS,
+          });
+          if (!placed.length) {
+            if (guidedTip) guidedTip.textContent = 'Those words did not fit a bar — try a shorter line.';
+            return;
+          }
+
+          // 3. WHAT each syllable sings, from the chord sequence. A stressed
+          // syllable takes a chord tone (root, third, fifth in turn, so a line
+          // moves instead of sitting on the root); an unstressed one takes the
+          // scale step between the chord tone and the next, which is what a
+          // passing note is. No chord sequence set means the tonic chord, and the
+          // report says so rather than pretending there was a progression.
+          const scaleName = settings.mode;
+          const scale = (engineModule && engineModule.SCALES && engineModule.SCALES[scaleName])
+            || [0, 2, 4, 5, 7, 9, 11];
+          const rootPc = engineModule && typeof engineModule.pitchClass === 'function'
+            ? (engineModule.pitchClass(settings.root) ?? 0)
+            : 0;
+          const degreeAt = (bar) => {
+            const chords = chordDegreesNow();
+            if (!chords) return 0;
+            return chords[bar % chords.length];
+          };
+          const midiFor = (degree, step) => (
+            engineModule && typeof engineModule.scaleDegreeToMidi === 'function'
+              ? engineModule.scaleDegreeToMidi(degree + step, scale, rootPc, 4)
+              : 60 + rootPc + scale[((degree + step) % scale.length + scale.length) % scale.length]
+          );
+
+          const blank = () => ({
+            on: false, prob: 1, vmin: 0.6, vmax: 0.8,
+            tie: false, gate: null, group: null, midi: null,
+          });
+          const bars = [];
+          const ensure = (index) => {
+            while (bars.length <= index) bars.push(Array.from({ length: 20 }, blank));
+            return bars[index];
+          };
+          const CHORD_TONES = [0, 2, 4]; // root, third, fifth, by scale step
+          let toneAt = 0;
+          for (const syllable of placed) {
+            const steps = ensure(syllable.bar);
+            const degree = degreeAt(syllable.bar);
+            let midi;
+            if (syllable.stressed) {
+              midi = midiFor(degree, CHORD_TONES[toneAt % CHORD_TONES.length]);
+              toneAt += 1;
+            } else {
+              // Between the chord tone just used and the next one: a passing note.
+              midi = midiFor(degree, CHORD_TONES[toneAt % CHORD_TONES.length] + 1);
+            }
+            steps[syllable.slot] = {
+              ...blank(),
+              on: true,
+              midi,
+              vmin: syllable.stressed ? 0.7 : 0.5,
+              vmax: syllable.stressed ? 0.9 : 0.65,
+            };
+          }
+
+          const track = settings.tracks.melody;
+          const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps }));
+          track.sequencers = list;
+          track.sequencer = list[0];
+          if (bars.length > 1) track.sequencerAdvance = 'chain';
+          if (track.state === 'off') track.state = 'on';
+          engine.setParams({
+            tracks: {
+              melody: {
+                state: track.state,
+                sequencers: structuredClone(list),
+                ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
+              },
+            },
+          });
+          syncTrackStateUI();
+          const editor = document.getElementById('voice-editor-melody');
+          if (editor && !editor.hidden) renderVoiceEditor('melody');
+          persistSettings();
+          if (guidedTip) {
+            const stresses = placed.filter((s) => s.stressed).length;
+            guidedTip.textContent =
+              `Sung: ${placed.length} syllable${placed.length === 1 ? '' : 's'} across `
+              + `${bars.length} bar${bars.length === 1 ? '' : 's'}`
+              + (bars.length > 1 ? ' (played in order)' : '')
+              + `, ${stresses} of them on the beat.`
+              + metreNote
+              + (chordDegreesNow() ? ' The notes come from your chord sequence.'
+                : ' There is no chord sequence set, so the line sits on the tonic — type the chords to give it a progression.')
+              + (dropped ? ' Some lines did not fit: eight bars is the cap.' : '')
+              + ' Every note is an ordinary step — drag any note the words got wrong.';
+          }
+        }
+
+        wordsWrite?.addEventListener('click', () => { writeTypedWords(); });
+        describe(wordsWrite, 'Reads the metre out of your words and writes a melody for them: one note per syllable, the stressed ones on the beat, the pitches from your chord sequence. Ordinary steps afterwards — drag anything it got wrong.');
 
         // v0.0.147 — his 118, in full: "Much better, how do I type percussion?"
         // Until now the answer was "you cannot": typing wrote NOTE NAMES, and a
@@ -16635,6 +16817,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .create-midi-track {
       flex: 0 1 auto;
       max-width: 14ch;
+    }
+
+    /* v0.0.148: the words box is the same control with room for a couple of
+       lines — a poem is typed in lines, so it gets lines. */
+    .create-words-input {
+      flex: 1 1 260px;
+      min-width: 0;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      resize: vertical;
     }
 
     .create-melody-input {
