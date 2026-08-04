@@ -179,6 +179,56 @@ export default async function drive(page) {
   const cleared = await laneAtEngine();
   check('Clear turns every ENGINE step off', cleared.every((on) => !on), (v) => v === true);
 
+  // v0.0.144 (his 119): "there's a view bug, you need to go out and in to see
+  // the wide boxes." THE DRAG was never tested — every check above uses the
+  // keyboard T, which committed through a path that redrew the spans, while the
+  // sideways drag updated the cells and never merged the boxes. So the gesture
+  // he actually uses is the one that was broken. Dragged here with real pointer
+  // events, and the boxes must be merged with NO rebuild in between.
+  const dragged = await page.evaluate(async () => {
+    const editor = document.getElementById('voice-editor-bass');
+    const cells = [...editor.querySelectorAll('.seq-cell')];
+    // A lane with no ties to start from, so the drag is the only cause.
+    const engine = window.__ambi4Engine;
+    const bar = Array.from({ length: 20 }, () => ({ on: false }));
+    bar[8] = { on: true };
+    engine.setParams({ tracks: { bass: { sequencer: { mode: 'manual', steps: bar } } } });
+    await new Promise((r) => setTimeout(r, 400));
+    const fresh = [...editor.querySelectorAll('.seq-cell')];
+    const head = fresh[4];
+    head.scrollIntoView({ block: 'center' });
+    // Re-read the box AFTER scrolling: page coordinates move under it.
+    const box = head.getBoundingClientRect();
+    const plain = Math.round(fresh[7].getBoundingClientRect().width);
+    const y = box.top + box.height / 2;
+    const send = (type, x, extra = {}) => head.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, clientX: x, clientY: y, ...extra,
+    }));
+    send('pointerdown', box.left + box.width / 2);
+    // Three columns to the right: cells 4,5,6 merge into one box.
+    for (let step = 1; step <= 3; step++) {
+      send('pointermove', box.left + box.width / 2 + (box.width + 3) * step);
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    send('pointerup', box.left + box.width / 2 + (box.width + 3) * 3);
+    await new Promise((r) => setTimeout(r, 300));
+    const after = [...editor.querySelectorAll('.seq-cell')];
+    const stored = engine.getParams().tracks.bass.sequencer.steps
+      .slice(4, 9).map((s) => ({ on: s.on === true, tie: s.tie === true }));
+    return {
+      plain,
+      headWidth: Math.round(after[4].getBoundingClientRect().width),
+      absorbedHidden: [5, 6, 7].map((i) => after[i].style.display === 'none'),
+      stored,
+    };
+  });
+  check('a sideways DRAG ties the steps at the ENGINE',
+    dragged.stored.slice(0, 3).every((s) => s.on && s.tie), (v) => v === true);
+  check('…and the boxes merge immediately, with no reopen',
+    dragged.headWidth >= dragged.plain * 3.5, (v) => v === true);
+  check('…the absorbed steps lose their boxes there and then',
+    dragged.absorbedHidden.slice(0, 2), [true, true]);
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

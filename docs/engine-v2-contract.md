@@ -1980,3 +1980,28 @@ engine bundle simply does less rather than lying.
 Found by measuring the kit's patch either side of a Blank slate in
 `tests/create-drive.mjs` instead of assuming it was empty — the assumption
 passed for one genre draw and failed for the next, which is what exposed it.
+
+## A drawn note is as long as it looks (v0.0.144)
+
+Module ownership: **the engine** (`drawnSpan` in `ambient-engine.js`), gated by
+`tests/engine-smoke.mjs` and `tests/tie-merge-drive.mjs`.
+
+His 119: "trying this with a bass line having 4 1/16ths as a merged note sounds
+no different to a single 1/16th." Measured, both came to 1.8 s at 120 bpm, for
+two different reasons:
+
+- a manual BASS step rang until the next onset, so a lone sixteenth already
+  sustained to the end of the bar and merging four of them changed nothing;
+- a manual MELODY or user-track step was a flat one beat, which a four-slot tie
+  at sixteenths exactly equalled.
+
+So a note a grid draws now lasts the slots it spans, times its gate if it names
+one (`drawnSpan`). A one-slot box plays one slot. Sustaining a sparse grid is
+still available and is now something you ASK for — tie the steps, or set the
+gate — rather than the only thing on offer. A grid that draws a one-slot box and
+plays eight is the same class of fault as a readout that lies about its dial.
+
+Two factory presets (deep-focus, push) moved deliberately with this and the
+frozen reference was re-taken at 0.0.144 in the same commit; the audible change
+is exactly the one asked for — a drawn bass note of 0.362 beats became the 0.134
+beats it was drawn as.

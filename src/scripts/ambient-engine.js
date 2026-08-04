@@ -863,6 +863,30 @@ function gatedSpan(note, gate, stepBeats) {
   return (note.slots ?? 1) * stepBeats * gate;
 }
 
+/**
+ * How long a note a manual grid DREW lasts, in beats (v0.0.143, his 119).
+ *
+ * His measurement: "trying this with a bass line having 4 1/16ths as a merged
+ * note sounds no different to a single 1/16th." He was exactly right, and both
+ * halves of the old model were at fault:
+ *
+ *   * a manual BASS step rang until the NEXT onset, so a lone sixteenth already
+ *     sustained to the end of the bar — measured 1.8 s either way at 120 bpm —
+ *     and merging four of them changed nothing at all;
+ *   * a manual MELODY or user-track step was a flat one BEAT, so a four-slot
+ *     tie at sixteenths came to exactly the beat it already had.
+ *
+ * A grid that draws a one-slot box and plays eight slots is the same class of
+ * fault as a readout that lies about its dial. So a drawn note is as long as
+ * what is drawn: the slots it spans, times its gate if it names one. Sustaining
+ * a sparse grid is still available and is now something you ASK for — tie the
+ * steps, or set the gate — rather than the only thing on offer.
+ */
+function drawnSpan(note, stepBeats) {
+  const slots = note.slots ?? 1;
+  return note.gate !== undefined ? gatedSpan(note, note.gate, stepBeats) : slots * stepBeats;
+}
+
 function defaultStepLane() {
   return Array.from({ length: SEQUENCER_STEP_COUNT }, () => ({ ...DEFAULT_STEP }));
 }
@@ -6981,14 +7005,14 @@ export function createEngine(initialParams, options = {}) {
     // reinforcing the root, not a melodic scale tone.
     const fifth = root + 7;
     if (plan.manual) {
-      plan.steps.forEach((step, i) => {
-        // A step rings until the next one, so a sparse grid still sustains —
-        // unless the step names its own gate, which is the length outright.
-        const next = i + 1 < plan.steps.length ? plan.steps[i + 1].beat : bar.beats;
+      plan.steps.forEach((step) => {
+        // v0.0.143 (his 119): as long as what is DRAWN. This used to ring until
+        // the next onset, which meant a lone sixteenth sustained to the end of
+        // the bar and merging four of them into one wide box changed nothing —
+        // measured 1.8 s either way at 120 bpm, which is what he reported.
+        // Sustain is now something the grid says: tie the steps, or set a gate.
         const at = swung(step.beat, 'bass');
-        const gated = step.gate !== undefined
-          ? gatedSpan(step, step.gate, trackStepBeats('bass')) * bar.secPerBeat
-          : (swung(next, 'bass') - at) * bar.secPerBeat * 0.9;
+        const gated = drawnSpan(step, trackStepBeats('bass')) * bar.secPerBeat;
         playNote('bass', {
           midi: step.pinned ?? (step.fifth ? fifth : root),
           when: time + at * bar.secPerBeat + step.nudge,
@@ -7107,16 +7131,11 @@ export function createEngine(initialParams, options = {}) {
       });
     }
     notes = mergeTies(notes, lane, slots);
-    for (const note of notes) {
-      // A gated step is exactly as long as it says: the tie has already merged
-      // the slots, and the gate scales the span they add up to. Without one, a
-      // tied note is one note over both slots and lasts as long as it spans.
-      if (note.gate !== undefined) {
-        note.duration = gatedSpan(note, note.gate, stepBeats);
-      } else if (note.slots > 1) {
-        note.duration = Math.max(note.duration, note.slots * stepBeats);
-      }
-    }
+    // v0.0.143 (his 119): as long as what is drawn — the slots the note spans,
+    // scaled by its gate if it names one. This used to leave an un-gated step at
+    // the flat beat it was born with, so a four-slot tie at sixteenths came to
+    // the same beat and the merge was inaudible.
+    for (const note of notes) note.duration = drawnSpan(note, stepBeats);
     // The cadence rule applies whoever owns the rhythm: the last note of a
     // phrase, or of a section, lands on a chord tone.
     const last = notes[notes.length - 1];
@@ -7598,13 +7617,7 @@ export function createEngine(initialParams, options = {}) {
       });
     }
     notes = mergeTies(notes, lane, slots);
-    for (const note of notes) {
-      if (note.gate !== undefined) {
-        note.duration = gatedSpan(note, note.gate, stepBeats);
-      } else if (note.slots > 1) {
-        note.duration = Math.max(note.duration, note.slots * stepBeats);
-      }
-    }
+    for (const note of notes) note.duration = drawnSpan(note, stepBeats);
     return notes;
   }
 

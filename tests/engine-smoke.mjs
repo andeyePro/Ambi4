@@ -1291,6 +1291,68 @@ test('v0.0.57: the six added scales are well-formed and reachable', () => {
   assert.equal(SCALES.harmonicMinor[6] - SCALES.harmonicMinor[5], 3);
 });
 
+test('v0.0.144: a drawn note is as long as it looks — a tie of four sixteenths lasts four, not one', () => hiddenTab(async () => {
+  // His 119: "trying this with a bass line having 4 1/16ths as a merged note
+  // sounds no different to a single 1/16th." Measured before the fix: BOTH came
+  // to 1.8 s at 120 bpm, because a manual bass step rang until the next onset —
+  // so a lone sixteenth already sustained to the end of the bar and merging four
+  // changed nothing. Melody had the mirror fault: a flat one-beat note, which a
+  // four-slot tie at sixteenths exactly equalled.
+  const secPerBeat = 60 / 120;
+  const lane = (steps) => {
+    const bar = Array.from({ length: 20 }, () => ({ on: false }));
+    steps.forEach((s, i) => { bar[i] = s; });
+    return bar;
+  };
+  const measure = async (track, steps) => {
+    const engine = createEngine({
+      bpm: 120,
+      speed: 1,
+      timeSignature: '4/4',
+      structure: 'drone',
+      repetition: 0,
+      complexity: 0.5,
+      harmony: { seed: ['I'] },
+      tracks: Object.fromEntries(TRACK_ORDER.map((n) => [
+        n,
+        n === track
+          ? { state: 'on', randomness: 0, mono: false, sequencer: { mode: 'manual', steps: lane(steps) } }
+          : { state: 'off' },
+      ])),
+    });
+    const notes = [];
+    engine.on('note', (e) => { if (e.track === track) notes.push(e); });
+    await engine.start();
+    await advance(14, FAST);
+    engine.stop();
+    return notes;
+  };
+
+  const sixteenth = 0.25 * secPerBeat; // stepBeats 0.25 at the default rung
+  for (const track of ['bass', 'melody']) {
+    const single = await measure(track, [{ on: true }]);
+    const tied = await measure(track, [
+      { on: true, tie: true }, { on: true, tie: true }, { on: true, tie: true }, { on: true },
+    ]);
+    assert.ok(single.length > 0, `${track}: a single step played nothing`);
+    assert.ok(tied.length > 0, `${track}: a tied run played nothing`);
+    // A lone drawn sixteenth is a sixteenth long — not the rest of the bar.
+    for (const note of single) {
+      assert.ok(note.duration <= sixteenth * 1.75,
+        `${track}: a lone sixteenth lasted ${note.duration.toFixed(3)}s, more than the box it was drawn in`);
+    }
+    // Four merged slots last about four times as long as one. Not exactly ×4:
+    // melody scales its own note lengths, so the LAW is the ratio, measured
+    // against the same track's single step rather than an absolute number.
+    const one = Math.min(...single.map((n) => n.duration));
+    const four = Math.max(...tied.map((n) => n.duration));
+    assert.ok(four > one * 2.5,
+      `${track}: four tied sixteenths (${four.toFixed(3)}s) must be audibly longer than one (${one.toFixed(3)}s)`);
+    assert.ok(four < one * 6,
+      `${track}: four tied sixteenths (${four.toFixed(3)}s) is longer than four of them`);
+  }
+}));
+
 test('arp quantises to its grid in every rate, including 7/8', () => hiddenTab(async () => {
   const secPerBeat = 60 / 240; // bpm 120 × speed 2
   for (const [rate, stepBeats] of Object.entries(ARP_RATES)) {

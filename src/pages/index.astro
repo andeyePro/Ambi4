@@ -7609,6 +7609,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 updateCell(li, k);
               }
               tieEnd = last;
+              // v0.0.144 (his 119): "there's a view bug, you need to go out and
+              // in to see the wide boxes." The merge into one wide box is drawn
+              // by applyTieSpans, and the DRAG never called it — only the
+              // keyboard T did, through commit(). So the boxes stayed separate
+              // until something else rebuilt the grid, which is what closing and
+              // reopening the editor does.
+              applyTieSpans(li);
             };
 
             const onMove = (ev) => {
