@@ -319,6 +319,18 @@ const VOICES: Record<string, [string, string][]> = {
             />
             <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
           </div>
+          <div class="create-row create-melody-row">
+            <label class="visually-hidden" for="compose-beat-text">Type a beat, one token per step</label>
+            <input
+              type="text"
+              id="compose-beat-text"
+              class="create-melody-input"
+              placeholder="Type a beat: K . s H K k S H (K kick, S snare, H hat; . rests)"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="compose-beat-write" class="secondary-button">Write it</button>
+          </div>
           <div id="guided-tree" class="create-row create-guided-tree" hidden>
             <p class="hint guided-question" id="guided-question"></p>
             <div class="create-row guided-choices" id="guided-choices"></div>
@@ -14227,7 +14239,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, and Type a melody writes note names straight onto the melody grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). Words and MIDI-file import land next.'
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto the melody grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Words land next.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -14615,6 +14627,120 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               (dropped.length ? ` — dropped: ${dropped.join(' ')} (eight bars is the cap).` : '.');
           }
         }
+
+        // v0.0.147 — his 118, in full: "Much better, how do I type percussion?"
+        // Until now the answer was "you cannot": typing wrote NOTE NAMES, and a
+        // kit has no note names. So a drum line is typed the way drum machines
+        // and trackers have always written one — one token per STEP, letters
+        // naming which sound, a dot for a rest:
+        //
+        //   K . s H  K k S H      kick, rest, quiet snare, hat, …
+        //   KH . S .              two letters in one token is two sounds at once
+        //   |                     a bar break you can see; also implied by length
+        //
+        // CASE is the accent, which is what a tracker's own notation means by it:
+        // upper is struck hard, lower is a ghost note. Longer than a bar writes
+        // more bars, chained in order, capped at eight — the same machinery the
+        // typed melody uses, because a drum line is not a special case.
+        const beatText = document.getElementById('compose-beat-text');
+        const beatWrite = document.getElementById('compose-beat-write');
+        const BEAT_LETTERS = { k: 'low', b: 'low', s: 'mid', c: 'mid', h: 'high', t: 'high' };
+
+        function writeTypedBeat() {
+          const raw = (beatText?.value || '').trim();
+          if (!raw) return;
+          const lanes = (settings.tracks.percussion.lanes || []).map((l) => l.id);
+          // A letter naming a lane the kit does not have falls to the nearest
+          // one it does, so a three-lane notation still lands on a bigger kit.
+          const laneFor = (id) => (lanes.includes(id) ? id : lanes[0]);
+          const slotsPerBar = stepsPerBarFor('percussion');
+          const MAX_BARS = 8;
+          const blank = () => ({
+            on: false, prob: 1, vmin: 0.6, vmax: 0.8,
+            tie: false, gate: null, group: null, midi: null,
+          });
+          const emptyBar = () => Object.fromEntries(
+            lanes.map((id) => [id, Array.from({ length: 20 }, blank)])
+          );
+          const bars = [emptyBar()];
+          const tokens = raw.split(/[\s,]+/).filter(Boolean);
+          let slot = 0;
+          let written = 0;
+          const dropped = [];
+          for (const token of tokens) {
+            if (token === '|') {
+              // An explicit bar break: jump to the top of the next bar.
+              if (slot % slotsPerBar !== 0) slot += slotsPerBar - (slot % slotsPerBar);
+              continue;
+            }
+            const barIndex = Math.floor(slot / slotsPerBar);
+            if (barIndex >= MAX_BARS) { dropped.push(token); continue; }
+            while (bars.length <= barIndex) bars.push(emptyBar());
+            const at = slot % slotsPerBar;
+            if (token === '.' || token === '-') { slot += 1; continue; }
+            let hit = false;
+            for (const ch of token) {
+              const id = BEAT_LETTERS[ch.toLowerCase()];
+              if (!id) continue;
+              const lane = bars[barIndex][laneFor(id)];
+              if (!lane) continue;
+              const loud = ch === ch.toUpperCase();
+              lane[at] = {
+                ...blank(),
+                on: true,
+                vmin: loud ? 0.75 : 0.4,
+                vmax: loud ? 0.95 : 0.6,
+              };
+              hit = true;
+              written += 1;
+            }
+            if (!hit) dropped.push(token);
+            slot += 1;
+          }
+          if (!written) {
+            if (guidedTip) {
+              guidedTip.textContent =
+                'No drums understood — K is the kick, S the snare, H the hat (lower case for a '
+                + 'quiet one), . a rest, | a bar break.';
+            }
+            return;
+          }
+          const track = settings.tracks.percussion;
+          const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps }));
+          track.sequencers = list;
+          track.sequencer = list[0];
+          if (bars.length > 1) track.sequencerAdvance = 'chain';
+          if (track.state === 'off') track.state = 'on';
+          engine.setParams({
+            tracks: {
+              percussion: {
+                state: track.state,
+                sequencers: structuredClone(list),
+                ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
+              },
+            },
+          });
+          syncTrackStateUI();
+          const editor = document.getElementById('voice-editor-percussion');
+          if (editor && !editor.hidden) renderVoiceEditor('percussion');
+          persistSettings();
+          if (guidedTip) {
+            guidedTip.textContent =
+              `Beat written: ${written} hit${written === 1 ? '' : 's'} across `
+              + `${bars.length} bar${bars.length === 1 ? '' : 's'}`
+              + (bars.length > 1 ? ' (played in order)' : '')
+              + (dropped.length ? ` — dropped: ${dropped.join(' ')}.` : '.');
+          }
+        }
+
+        beatWrite?.addEventListener('click', writeTypedBeat);
+        beatText?.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            writeTypedBeat();
+          }
+        });
+        describe(beatWrite, 'Writes the typed drums onto the kit grid. One token per STEP: K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break. CAPITALS hit hard, lower case is a ghost note.');
 
         melodyWrite?.addEventListener('click', writeTypedMelody);
         melodyText?.addEventListener('keydown', (e) => {
