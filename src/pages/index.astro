@@ -7420,6 +7420,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             (st, i) => { st.on = i % 2 === 0; },
             (st) => { st.on = false; },
           ];
+          // v0.0.150: a mass edit rewrites the lane's whole rhythm, so it drops
+          // the TIES with it. Found while writing gesture-integrity-drive:
+          // pressing Clear left the merged wide boxes behind — a tie on a step
+          // that is off means nothing musically, and the boxes it merges are
+          // still hidden, so the lane read as "cleared" while showing a shape it
+          // no longer has and swallowing a cell nobody could then click.
+          // null, not delete: an absent field survives the engine's step merge.
+          const untie = (st) => { st.tie = null; };
           massActions.forEach((btn, idx) => {
             btn.addEventListener('click', () => {
               const li = clamp(focusPos.lane, 0, lanes.length - 1);
@@ -7428,7 +7436,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               // engine keeps a fixed-length lane; the metre decides how many
               // steps are in play) — mass edit acts on the VISIBLE bar.
               const n = Math.min(stepsPerBarFor(track), steps.length, cellRefs[li].length);
-              for (let i = 0; i < n; i++) massFns[idx](steps[i], i);
+              for (let i = 0; i < n; i++) { massFns[idx](steps[i], i); untie(steps[i]); }
               for (let i = 0; i < n; i++) updateCell(li, i);
               applyTieSpans(li);
               commitSequencer(track);
