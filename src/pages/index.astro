@@ -317,6 +317,8 @@ const VOICES: Record<string, [string, string][]> = {
               autocomplete="off"
               spellcheck="false"
             />
+            <label class="visually-hidden" for="compose-melody-track">Write onto which instrument</label>
+            <select id="compose-melody-track" class="genre-select create-midi-track"></select>
             <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
           </div>
           <div class="create-row create-words-row">
@@ -329,6 +331,8 @@ const VOICES: Record<string, [string, string][]> = {
               autocomplete="off"
               spellcheck="false"
             ></textarea>
+            <label class="visually-hidden" for="compose-words-track">Sing onto which instrument</label>
+            <select id="compose-words-track" class="genre-select create-midi-track"></select>
             <button type="button" id="compose-words-write" class="secondary-button">Sing it</button>
           </div>
           <div class="create-row create-melody-row">
@@ -14290,7 +14294,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto the melody grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag.'
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -14450,21 +14454,44 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const midiTrackSelect = document.getElementById('compose-midi-track');
         let midiModule = null;
 
-        function renderMidiTracks() {
-          if (!midiTrackSelect) return;
-          const wanted = midiTrackSelect.value;
-          midiTrackSelect.innerHTML = '';
-          for (const id of SEQ_TRACKS) {
+        // v0.0.152 (his open item: "Start with ANY track, not a privileged few —
+        // chords=pad, melody=melody, drums=percussion, bass, arp, or even texture
+        // if they like"): every compose tool that writes notes now says WHICH
+        // instrument it is writing onto, through one populator so the three
+        // pickers cannot drift apart. Typed melody and words offer the TUNED
+        // tracks (a kit has no note names to type or sing); MIDI import keeps the
+        // whole sequenced set, since a file can carry a drum part.
+        const melodyTrackSelect = document.getElementById('compose-melody-track');
+        const wordsTrackSelect = document.getElementById('compose-words-track');
+        const fillTrackPicker = (select, ids, fallback) => {
+          if (!select) return;
+          const wanted = select.value;
+          select.innerHTML = '';
+          for (const id of ids) {
             const option = document.createElement('option');
             option.value = id;
             option.textContent = TRACK_LABELS[id] || id;
-            midiTrackSelect.append(option);
+            select.append(option);
           }
-          midiTrackSelect.value = SEQ_TRACKS.includes(wanted) ? wanted : 'melody';
+          select.value = ids.includes(wanted) ? wanted : (ids.includes(fallback) ? fallback : ids[0]);
+        };
+        const tunedSequenced = () => SEQ_TRACKS.filter((id) => id !== 'percussion');
+        function renderMidiTracks() {
+          fillTrackPicker(midiTrackSelect, SEQ_TRACKS, 'melody');
+          fillTrackPicker(melodyTrackSelect, tunedSequenced(), 'melody');
+          fillTrackPicker(wordsTrackSelect, tunedSequenced(), 'melody');
         }
         renderMidiTracks();
         if (typeof engine.on === 'function') engine.on('tracks', renderMidiTracks);
         describe(midiTrackSelect, 'Which instrument the file is imported onto.');
+        describe(melodyTrackSelect, 'Which instrument the typed notes are written onto — any of them, not just the melody.');
+        describe(wordsTrackSelect, 'Which instrument sings the words — any tuned track, not just the melody.');
+
+        /** The track a compose tool is pointed at, defaulting to the melody. */
+        const composeTarget = (select) => {
+          const id = select && typeof select.value === 'string' ? select.value : 'melody';
+          return settings.tracks[id] ? id : 'melody';
+        };
 
         async function importMidiFile(file) {
           const say = (text) => { if (guidedTip) guidedTip.textContent = text; };
@@ -14574,8 +14601,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         function writeTypedMelody() {
           const raw = (melodyText?.value || '').trim();
           if (!raw) return;
+          // v0.0.152: any tuned track, not just the melody (his "start with ANY
+          // track"). The grid resolution and the metre are the TARGET's, which is
+          // why this is read before a single slot is computed.
+          const target = composeTarget(melodyTrackSelect);
           const tokens = raw.split(/[\s,|]+/).filter(Boolean);
-          const slotsPerBar = stepsPerBarFor('melody');
+          const slotsPerBar = stepsPerBarFor(target);
           const beats = Math.floor(slotsPerBar / 4);
           // A writer that REPLACES a lane says null out loud where a step has
           // nothing — the engine's tie/gate/group/midi are sticky by design
@@ -14647,7 +14678,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (guidedTip) guidedTip.textContent = 'No notes understood — write note names like C4, E♭4, G3; dash holds, dot rests.';
             return;
           }
-          const track = settings.tracks.melody;
+          const track = settings.tracks[target];
           const list = bars.map((steps) => ({
             mode: 'manual',
             weights: bars.map(() => 1),
@@ -14659,7 +14690,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (track.state === 'off') track.state = 'on';
           engine.setParams({
             tracks: {
-              melody: {
+              [target]: {
                 state: track.state,
                 sequencers: structuredClone(list),
                 ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
@@ -14667,12 +14698,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             },
           });
           syncTrackStateUI();
-          const editor = document.getElementById('voice-editor-melody');
-          if (editor && !editor.hidden) renderVoiceEditor('melody');
+          const editor = document.getElementById(`voice-editor-${target}`);
+          if (editor && !editor.hidden) renderVoiceEditor(target);
           persistSettings();
           if (guidedTip) {
             guidedTip.textContent =
-              `Melody written: ${written} note${written === 1 ? '' : 's'} across ` +
+              `${TRACK_LABELS[target] || target} written: ${written} note${written === 1 ? '' : 's'} across ` +
               `${bars.length} bar${bars.length === 1 ? '' : 's'}` +
               (bars.length > 1 ? ' (played in order)' : '') +
               (dropped.length ? ` — dropped: ${dropped.join(' ')} (eight bars is the cap).` : '.');
@@ -14720,6 +14751,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (guidedTip) guidedTip.textContent = 'The words module did not load — reload and try again.';
             return;
           }
+          // v0.0.152: any tuned track can sing them, not only the melody.
+          const target = composeTarget(wordsTrackSelect);
           const scanned = lyrics.scan(raw);
           const syllableTotal = scanned.reduce((n, line) => n + line.syllables.length, 0);
           if (!syllableTotal) {
@@ -14745,8 +14778,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
 
           // 2. WHERE each syllable sits: stresses on the metre's own pulses.
-          const slotsPerBar = stepsPerBarFor('melody');
-          const pulseSlots = pulseStartsFor('melody', slotsPerBar);
+          const slotsPerBar = stepsPerBarFor(target);
+          const pulseSlots = pulseStartsFor(target, slotsPerBar);
           const MAX_BARS = 8;
           const { placed, dropped } = lyrics.layOut(scanned, {
             pulseSlots,
@@ -14812,7 +14845,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             };
           }
 
-          const track = settings.tracks.melody;
+          const track = settings.tracks[target];
           const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps }));
           track.sequencers = list;
           track.sequencer = list[0];
@@ -14820,7 +14853,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (track.state === 'off') track.state = 'on';
           engine.setParams({
             tracks: {
-              melody: {
+              [target]: {
                 state: track.state,
                 sequencers: structuredClone(list),
                 ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
@@ -14828,13 +14861,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             },
           });
           syncTrackStateUI();
-          const editor = document.getElementById('voice-editor-melody');
-          if (editor && !editor.hidden) renderVoiceEditor('melody');
+          const editor = document.getElementById(`voice-editor-${target}`);
+          if (editor && !editor.hidden) renderVoiceEditor(target);
           persistSettings();
           if (guidedTip) {
             const stresses = placed.filter((s) => s.stressed).length;
             guidedTip.textContent =
-              `Sung: ${placed.length} syllable${placed.length === 1 ? '' : 's'} across `
+              `${TRACK_LABELS[target] || target} sings ${placed.length} syllable${placed.length === 1 ? '' : 's'} across `
               + `${bars.length} bar${bars.length === 1 ? '' : 's'}`
               + (bars.length > 1 ? ' (played in order)' : '')
               + `, ${stresses} of them on the beat.`

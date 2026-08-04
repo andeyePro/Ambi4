@@ -132,6 +132,7 @@ export default async function drive(page) {
 
   check('the report counts the syllables and says where the notes came from',
     /8 syllables/.test(iambic.tip) && /from your chord sequence/.test(iambic.tip), (v) => v === true);
+  check('…and names the instrument that sang them', /Melody sings/.test(iambic.tip), (v) => v === true);
   check('…and says the steps are yours to edit', /drag any note the words got wrong/.test(iambic.tip), (v) => v === true);
 
   // A triple-time poem must MOVE the metre — his "the system determines the
@@ -171,6 +172,44 @@ export default async function drive(page) {
     return JSON.stringify(window.__ambi4Engine.getParams().tracks.melody.sequencers);
   });
   check('blank words change nothing', refused, before);
+
+  // v0.0.152 (his "start with ANY track, not a privileged few"): the words can be
+  // sung by any tuned instrument, and the picker says which. Asserted at the
+  // ENGINE on a track that is NOT the melody, because "it works for melody" was
+  // never the question.
+  const onBass = await page.evaluate(async () => {
+    const select = document.getElementById('compose-words-track');
+    const has = [...select.options].some((o) => o.value === 'bass');
+    if (!has) return { skipped: 'no bass in the picker' };
+    select.value = 'bass';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    const before = JSON.stringify(window.__ambi4Engine.getParams().tracks.melody.sequencers);
+    const box = document.getElementById('compose-words-text');
+    box.value = 'The river carries every stone away';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('compose-words-write').click();
+    await new Promise((r) => setTimeout(r, 900));
+    const p = window.__ambi4Engine.getParams();
+    const steps = (seq) => (Array.isArray(seq.steps) ? seq.steps : Object.values(seq.steps)[0]);
+    return {
+      bassNotes: p.tracks.bass.sequencers.flatMap((s) => steps(s).filter((x) => x.on).map((x) => x.midi)),
+      bassState: p.tracks.bass.state,
+      melodyUnchanged: JSON.stringify(p.tracks.melody.sequencers) === before,
+      tip: document.getElementById('guided-tip')?.textContent || '',
+      picker: [...select.options].map((o) => o.value),
+    };
+  });
+  if (onBass.skipped) {
+    check(`the picker offers more than the melody (${onBass.skipped})`, false, (v) => v === true);
+  } else {
+    check('the picker offers the tuned tracks, and not the kit',
+      onBass.picker.includes('bass') && !onBass.picker.includes('percussion'), (v) => v === true);
+    check('the words land on the instrument the picker names',
+      onBass.bassNotes.length > 0 && onBass.bassNotes.every((m) => Number.isFinite(m)), (v) => v === true);
+    check('…that instrument is switched on', onBass.bassState !== 'off', (v) => v === true);
+    check('…the melody is left exactly as it was', onBass.melodyUnchanged, true);
+    check('…and the report names it', /Bass sings/.test(onBass.tip), (v) => v === true);
+  }
 
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
