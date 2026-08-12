@@ -210,6 +210,25 @@ track → master), which would have booked a namespace with no room for
 step-rule enum values — graph edges serialise from v0.0.39 and are permanent
 from the moment one is shared.
 
+**The reserved tokens, verbatim (2026-08-12).** These are the wire spellings a
+serialised graph edge, sampling field or step rule will use. Nothing enforces
+them yet because nothing serialises them yet — that is exactly why they are
+written down now, while changing a spelling still costs nothing. The registry
+build adopts this table as its vocabulary; any addition extends the table in
+the same commit.
+
+| Namespace | Reserved tokens | Source of the list |
+|---|---|---|
+| Path levels | `dial` `voice` `instrument` `track` `bus` `master` | D7, this section |
+| Modulation sources | `env` `lfo` `macro` | D4/D8 — per-voice envelopes, global LFOs, macros |
+| Utility modules | `sh` `mix` `mul` `slew` | The maths-module item: Sample & hold, Mix (signed sum), Multiply, Slew |
+| Sampling (when a stepped source fires) | `note` `bar` `chord` `section` | The sampling-control dial's four icon positions |
+| Step rule (what value it takes) | `absolute` `walk` `up` `down` `pingpong` `cycle` | The fourth-bay step-rule item |
+
+Two spellings ruled out on sight, so nobody books them by accident: `inst`
+(ambiguous against a future `instance`) and `random` (says less than
+`absolute` about what the draw is relative to — the span).
+
 ### D8 — The Randomise row dissolves into ordinary dials
 
 The five Voice/Volume/Pitch/Timing/Pan dials are a *second* randomness system
