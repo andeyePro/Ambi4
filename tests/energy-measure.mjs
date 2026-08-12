@@ -489,6 +489,42 @@ test('D2: a dial move reaches the scheduled stream inside its latency budget', a
     `over budget: ${hardOver.map((v) => `${v.dial} took ${v.measured}, budget ${v.budget} — ${v.detail}`).join('; ')}`);
 });
 
+// --------------------------------------------------------------------------
+// D2b — the mid-energy edit landing, PINNED (2026-08-12).
+//
+// The consult follow-up prescribed "invalidate frozen plans on an upward
+// complexity move". That fix was BUILT and measured INERT, then reverted:
+// the craft bass groove it would clear is default-off, the percussion bank
+// held 0–1 entries in every seeded run, and clearing both changed not one
+// scheduled event at either 0.42→0.62 or 0.62→0.82. There is no frozen plan
+// swallowing the edit any more — the audit-era fixes already removed it (the
+// 2.00-bar figure this item carried is historic; D2 measures 1.25 bars at
+// low energy today, and that tail is identical rng draws crossing decision
+// thresholds, not a replayed plan). What this test does is HOLD the good
+// number: from Energy 0.6, an upward edit must land audibly in the next bar.
+// If someone introduces a cache that replays rhythm material across an edit,
+// this goes red the day it lands.
+// --------------------------------------------------------------------------
+
+test('D2b: an upward Energy edit lands audibly in the next bar (mid energy)', async () => {
+  const base = 0.6;
+  const moved = 0.85;
+  const plan = await firstDifference({ complexity: complexityFromEnergy(moved) }, base);
+  report('D2b the mid-energy edit landing, pinned');
+  report(`     Energy ${base} → ${moved} (complexity ${complexityFromEnergy(base).toFixed(2)} `
+    + `→ ${complexityFromEnergy(moved).toFixed(2)}): first audible difference `
+    + `${plan.bars.toFixed(2)} bars past the barline it followed`);
+  report(`             ${plan.before} → ${plan.after}`);
+  // "≤ 1 bar" is a claim about WHICH BAR the change lands in, and the landing
+  // note carries the engine's own timing humanisation — a downbeat played
+  // 8 ms behind the barline reads 1.01 bars without being one iota later
+  // musically. 0.05 bars (~200 ms here) is the allowance for that offset,
+  // far under the half-bar it would take to call the claim false.
+  assert.ok(plan.bars <= 1.05,
+    `an upward complexity edit took ${plan.bars.toFixed(2)} bars to sound different (budget 1 bar): `
+    + `${plan.before} → ${plan.after}`);
+});
+
 /** Seconds from a volume edit to the end of the ramp it schedules on `output`. */
 async function volumeSettleTime(energy, volume) {
   const engine = createEngine(paramsAtEnergy(energy), { rng: seededRng(SEED) });
@@ -515,10 +551,10 @@ async function volumeSettleTime(energy, volume) {
  * the first scheduled event that differs from the untouched run of the same
  * seed. Both runs are driven for the same number of BARS.
  */
-async function firstDifference(edit) {
+async function firstDifference(edit, baseEnergy = 0.35) {
   const BARS = 7;
   const capture = async (applyAt) => {
-    const engine = createEngine(paramsAtEnergy(0.35), { rng: seededRng(SEED) });
+    const engine = createEngine(paramsAtEnergy(baseEnergy), { rng: seededRng(SEED) });
     const log = record(engine);
     await engine.start();
     let when = null;
