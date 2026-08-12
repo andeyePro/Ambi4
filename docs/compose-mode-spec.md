@@ -10,11 +10,16 @@ Built: the Create door itself, rebuilt to his 103 (v0.0.85/89/90) — Blank slat
 that empties everything including FX, the Zero buttons, guided start,
 tap-a-rhythm with raw-take retention and Re-fit (v0.0.87/107), typed chords
 (v0.0.68/76), typed melody up to eight bars played in order (v0.0.110/116), and
-editable per-step pitch (v0.0.109/111). NOT built: MIDI-file import (which now
-has every engine piece it needs — pitch pins plus chain mode), words/lyrics
-(awaiting his ruling on which of the two meanings he wants), and the fuller
-genre-tree guided start. Where this spec and the shipped Create door disagree,
-the door is what he reviewed.
+editable per-step pitch (v0.0.109/111). Since then the rest has landed too:
+MIDI-file import (v0.0.134), words/lyrics with the metre read out of the
+stresses (v0.0.148, his ruling c), the fuller genre-tree guided start
+(v0.0.135), typed beats (v0.0.147), every compose tool aimed at any instrument
+(v0.0.152/153), and the first derivation running the OTHER way — **Fit chords
+to the tune** (v0.0.155) reads whatever tune a track already carries and
+writes the diatonic chord loop that fits it (pure module
+`src/scripts/harmonise.js`; on-beat notes decide, off-beat notes pass, no
+draw anywhere so the same tune always yields the same loop). Where this spec
+and the shipped Create door disagree, the door is what he reviewed.
 
 ## What it is
 
@@ -51,7 +56,7 @@ of these."
 | Start with | Enter it by | Derivations offered |
 |---|---|---|
 | Chords (pad) | Type (the roman-numeral loop editor, v0.0.68/76) · play (play-along/MIDI, working again v0.0.82) | Melody suggestion; bass root-following |
-| Melody | Play · type into the step grid (needs the pitch-editable grid from the transparency build) | Chord suggestion (already a backlog item for played MIDI) |
+| Melody | Play · type into the step grid (needs the pitch-editable grid from the transparency build) | Chord suggestion — SHIPPED v0.0.155 as Fit chords to the tune, reading any tuned track's grid whatever put the notes there |
 | Beat (percussion) | Step editor · **tap a rhythm — space bar or button** (his "love it") | Bass placement coupling (bass-follows-kick, from the Energy brief) |
 | Bass | Play · type | Kick coupling the other way; chord roots |
 | Arp / texture | Pick a voice and a pattern seed, then edit | Follows the chord loop once one exists |

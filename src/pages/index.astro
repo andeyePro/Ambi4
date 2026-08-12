@@ -349,6 +349,11 @@ const VOICES: Record<string, [string, string][]> = {
             <select id="compose-beat-track" class="genre-select create-midi-track"></select>
             <button type="button" id="compose-beat-write" class="secondary-button">Write it</button>
           </div>
+          <div class="create-row create-harmonise-row">
+            <button type="button" id="compose-harmonise" class="secondary-button">Fit chords to the tune</button>
+            <label class="visually-hidden" for="compose-harmonise-track">Fit chords to which instrument&rsquo;s tune</label>
+            <select id="compose-harmonise-track" class="genre-select create-midi-track"></select>
+          </div>
           <div id="guided-tree" class="create-row create-guided-tree" hidden>
             <p class="hint guided-question" id="guided-question"></p>
             <div class="create-row guided-choices" id="guided-choices"></div>
@@ -14296,7 +14301,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag.'
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. And the derivation runs the other way too: Fit chords to the tune reads whatever tune an instrument already carries \u2014 typed, sung, imported or drawn \u2014 and writes the chord loop that fits it, notes on the beat deciding each bar\u2019s chord and notes between passing.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -14484,11 +14489,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const tunedSequenced = () => SEQ_TRACKS.filter((id) => !isKitTrack(id));
         const kitSequenced = () => SEQ_TRACKS.filter(isKitTrack);
         const beatTrackSelect = document.getElementById('compose-beat-track');
+        const harmoniseTrackSelect = document.getElementById('compose-harmonise-track');
         function renderMidiTracks() {
           fillTrackPicker(midiTrackSelect, SEQ_TRACKS, 'melody');
           fillTrackPicker(melodyTrackSelect, tunedSequenced(), 'melody');
           fillTrackPicker(wordsTrackSelect, tunedSequenced(), 'melody');
           fillTrackPicker(beatTrackSelect, kitSequenced(), 'percussion');
+          fillTrackPicker(harmoniseTrackSelect, tunedSequenced(), 'melody');
         }
         renderMidiTracks();
         if (typeof engine.on === 'function') engine.on('tracks', renderMidiTracks);
@@ -14496,6 +14503,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(melodyTrackSelect, 'Which instrument the typed notes are written onto — any of them, not just the melody.');
         describe(wordsTrackSelect, 'Which instrument sings the words — any tuned track, not just the melody.');
         describe(beatTrackSelect, 'Which kit the typed beat is written onto.');
+        describe(harmoniseTrackSelect, 'Which instrument’s tune the chords are fitted to.');
 
         /** The track a compose tool is pointed at, defaulting to the melody. */
         const composeTarget = (select) => {
@@ -14891,6 +14899,77 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         wordsWrite?.addEventListener('click', () => { writeTypedWords(); });
         describe(wordsWrite, 'Reads the metre out of your words and writes a melody for them: one note per syllable, the stressed ones on the beat, the pitches from your chord sequence. Ordinary steps afterwards — drag anything it got wrong.');
+
+        // v0.0.155 — the derivation half of his compose entry point one: "Play
+        // or type a melody, chords derived algorithmically on request." The
+        // tune can have arrived any way at all — typed, sung from words,
+        // imported, played in, or drawn a step at a time — so the button reads
+        // the CHOSEN track's stored grid rather than any text box, and commits
+        // through the chord editor's own funnel so the editor re-reads what
+        // the engine actually accepted. The derivation itself is a pure module
+        // (src/scripts/harmonise.js, its rules pinned in
+        // tests/harmonise-smoke.mjs): on-beat notes decide, off-beat notes
+        // pass, an empty bar carries its chord, and there is no draw anywhere,
+        // so the same tune always yields the same loop.
+        const harmoniseButton = document.getElementById('compose-harmonise');
+        let harmoniseModulePromise = null;
+        const getHarmonise = () => {
+          if (!harmoniseModulePromise) {
+            harmoniseModulePromise = import('../scripts/harmonise.js').catch(() => null);
+          }
+          return harmoniseModulePromise;
+        };
+
+        async function deriveChordsFromTrack() {
+          const say = (text) => { if (guidedTip) guidedTip.textContent = text; };
+          const target = composeTarget(harmoniseTrackSelect);
+          const label = TRACK_LABELS[target] || target;
+          const track = settings.tracks[target];
+          const seqs = Array.isArray(track?.sequencers) && track.sequencers.length
+            ? track.sequencers
+            : (track && track.sequencer ? [track.sequencer] : []);
+          const slotsPerBar = stepsPerBarFor(target);
+          const bars = seqs.map((seq) => {
+            const steps = Array.isArray(seq?.steps) ? seq.steps : [];
+            const notes = [];
+            steps.forEach((step, slot) => {
+              if (slot >= slotsPerBar) return;
+              if (step && step.on && Number.isFinite(step.midi)) notes.push({ slot, midi: step.midi });
+            });
+            return notes;
+          });
+          if (!bars.some((bar) => bar.length)) {
+            say(`Nothing pitched on ${label} to fit chords to — type a melody, sing the words or import a file onto it first.`);
+            return;
+          }
+          const harmonise = await getHarmonise();
+          if (!harmonise) {
+            say('The chord-fitting module did not load — reload the page and try again.');
+            return;
+          }
+          const scale = (engineModule && engineModule.SCALES && engineModule.SCALES[settings.mode])
+            || [0, 2, 4, 5, 7, 9, 11];
+          const rootPc = engineModule && typeof engineModule.pitchClass === 'function'
+            ? (engineModule.pitchClass(settings.root) ?? 0)
+            : 0;
+          const derived = harmonise.deriveChords(bars, {
+            scale,
+            rootPc,
+            pulseSlots: pulseStartsFor(target, slotsPerBar),
+            maxChords: 8,
+          });
+          if (!derived) {
+            say(`${label}'s notes all sit outside the ${settings.root} ${settings.mode} scale, so no chord can claim them — check the Root and Scale first.`);
+            return;
+          }
+          commitProgression(derived.numerals.join(' '));
+          say(`Chords fitted to ${label}'s tune: ${derived.numerals.join(' – ')}.`
+            + (derived.emptyBars ? ` ${derived.emptyBars} bar${derived.emptyBars === 1 ? ' had' : 's had'} no notes and carries the chord through.` : '')
+            + ' They are in the chord editor now — press Type the chords to hear each one and change any of them.');
+        }
+
+        harmoniseButton?.addEventListener('click', () => { deriveChordsFromTrack(); });
+        describe(harmoniseButton, 'Reads the tune already on the chosen instrument — typed, sung, imported or drawn — and writes the chord loop that fits it. Notes on the beat decide each bar’s chord, notes between the beats are passing notes, and the result is editable in the chord editor.');
 
         // v0.0.147 — his 118, in full: "Much better, how do I type percussion?"
         // Until now the answer was "you cannot": typing wrote NOTE NAMES, and a
@@ -16077,7 +16156,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#control-progression',
-          text: 'Chords is the loop the piece keeps coming back to. Each chord has a card: press one to hear it, and the notes it plays are printed on it, so you never have to imagine a chord from its name. The arrows move a chord through the scale and the button beside them makes it wider. Leave the box empty and the app writes the loop itself.',
+          text: 'Chords is the loop the piece keeps coming back to. Each chord has a card: press one to hear it, and the notes it plays are printed on it, so you never have to imagine a chord from its name. The arrows move a chord through the scale and the button beside them makes it wider. Leave the box empty and the app writes the loop itself — or press Fit chords to the tune, on Create, and it fits one to a tune you already have.',
         },
         {
           tab: 'advanced',
