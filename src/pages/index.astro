@@ -183,6 +183,10 @@ const VOICES: Record<string, [string, string][]> = {
     <div class="module-panel transport-module">
       <div class="transport-head">
         <span class="panel-label transport-label" aria-hidden="true">Transport</span>
+        <!-- v0.0.157 (his 136): the processor is a right-aligned column across
+             the panel's three rows — title here beside TRANSPORT, dial level
+             with the play buttons, readout on the genre-picker row. -->
+        <span class="panel-label processor-label" id="processor-label">Processor</span>
       </div>
       <div class="transport-main">
         <div class="transport-buttons">
@@ -469,15 +473,9 @@ const VOICES: Record<string, [string, string][]> = {
           </div>
 
         </div>
-        <!-- v0.0.96: label, dial and readout are ONE block. They were split
-             across three containers (header, transport row, genre row) — the
-             no-orphan rule's worst offender, recorded as deliberate at the
-             time and reversed now. -->
-        <div class="processor-row">
-          <span class="panel-label processor-label" id="processor-label">Processor</span>
-          <div class="dial-slot dial-label-external" id="processor-dial"></div>
-          <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
-        </div>
+        <!-- v0.0.157 (his 136, reversing v0.0.96's one-block merge): the dial
+             sits last in the button row, pushed right, level with Play. -->
+        <div class="dial-slot dial-label-external" id="processor-dial"></div>
       </div>
 
       <!-- v26 genre transport: the genre picker sits directly UNDER the
@@ -546,6 +544,9 @@ const VOICES: Record<string, [string, string][]> = {
             <button type="button" id="genre-rules-reset" class="secondary-button" hidden>Back to the genre's rules</button>
           </div>
         </div>
+        <!-- v0.0.157 (his 136): the processor readout closes the right-aligned
+             processor column, on the genre picker's own row. -->
+        <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
       </div>
 
       <div class="transport-row">
@@ -11269,8 +11270,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         );
         setProcessorTier(settings.ui.processor);
       } else {
-        // Label, dial and readout live in the one row now: one removal.
-        document.querySelector('.processor-row')?.remove();
+        // The processor column spans three rows (title / dial / readout), so
+        // no governor means three removals, not one.
+        document.getElementById('processor-label')?.remove();
+        document.getElementById('processor-dial')?.remove();
+        document.getElementById('processor-readout')?.remove();
       }
 
       // ---- v13/v18 front-page oscilloscope (above the tabs) ---------------
@@ -16142,7 +16146,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           tab: 'simple',
-          target: '.processor-row',
+          target: '#processor-dial',
           text: 'Processor decides how hard this runs. Auto watches the machine and backs off when it gets warm; Eco is the coolest setting.',
         },
         {
@@ -16493,7 +16497,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        where it cannot resize the transport buttons. */
     .transport-main {
       display: flex;
-      align-items: center;
+      /* v0.0.157: flex-start, not center — the dial block is the row's tallest
+         item (knob + caption), so centring the 56px buttons against it dropped
+         them 8.5px below the knob. Top-aligned, knob and buttons share a top
+         edge, which is what "level with Play" means. Measured, not eyeballed. */
+      align-items: flex-start;
       /* v0.0.43: wrapping is fine again — it was never the problem. The
          staircase came from the NESTED wrap (a button group that became two
          rows tall, with the icons centred against it). With `display: contents`
@@ -16655,23 +16663,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       display: contents;
     }
 
-    .transport-main > .processor-row,
-
-
-    /* The dial carries a value caption under it, so its block is taller than a
-       56px transport button — and centring the block lifts the dial itself
-       above the buttons' centre line. Both are 56px, so aligning their TOPS is
-       what actually puts the dial level with Play. */
-    .transport-main > .processor-row {
+    /* v0.0.157 (his 136): the processor is a right-aligned COLUMN across the
+       panel's three rows — title beside TRANSPORT on the heading row, dial
+       last in the button row, readout last on the genre row. Each is pushed
+       right with margin-left:auto so the three right edges line up at the
+       panel edge; the title may overhang the clock button below it, which he
+       allowed explicitly. The dial carries a value caption under it, so its
+       block is taller than a 56px transport button — aligning TOPS is what
+       actually puts the dial level with Play. */
+    .transport-main > #processor-dial {
+      margin-left: auto;
       align-self: flex-start;
     }
-    .processor-row {
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-    }
-    .processor-row .processor-readout {
-      text-align: center;
+    .genre-row .processor-readout {
+      margin-left: auto;
+      text-align: right;
       white-space: nowrap;
     }
 
@@ -17521,12 +17527,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* -- processor dial (transport panel) -- */
 
     /* v18: the title is up in the panel header (one baseline with TRANSPORT)
-       and the status text is down in the transport status row, so what sits
-       in the button row is the dial and nothing else — a fixed-size item. */
-    .processor-row {
-      display: flex;
+       and the status text is down on the genre row, so what sits in the
+       button row is the dial and nothing else — a fixed-size item. */
+    #processor-dial {
       flex: 0 0 auto;
-      justify-content: center;
       --knob-size: 56px;
     }
 
@@ -19735,7 +19739,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        back-swipe. It is repeated here for the cells around them so a drag
        that starts a pixel outside the face is not stolen either. */
     @media (pointer: coarse) {
-      .processor-row,
+      #processor-dial,
       .dissonance-row,
       .vary-cells {
         --knob-size: 88px;
