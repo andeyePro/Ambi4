@@ -9408,7 +9408,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // now ranges (mix, detune, filter cutoff/q/envAmount, ADSR ×4, both
       // sends) — it reads a RangeValue's midpoint for display and always
       // writes back a plain number, collapsing any existing {min,max}.
-      function buildSliderEditor(container, patch, commit, controls, track = null, defaults = null) {
+      function buildSliderEditor(container, patch, commit, controls, track = null, defaults = null, detuneMode = null) {
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -9466,7 +9466,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (source && controlsFieldAllowed(sourceSpec, 'detune')) {
           const bipolar = engineCaps.patchDetuneBipolar;
           const detuneMin = bipolar ? -DETUNE_MAX : 0;
-          veRange(source, 'Spread', {
+          // v0.0.158 (his 135): same honesty as the knob editor — on a pair
+          // voice the value is the exact osc1-to-osc2 gap and the control
+          // follows the OSC 2 select; on a stack it stays Spread.
+          const pairGap = detuneMode === 'pair';
+          const detuneControl = veRange(source, pairGap ? 'Detune' : 'Spread', {
             min: detuneMin,
             max: DETUNE_MAX,
             step: 1,
@@ -9478,6 +9482,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               commit();
             },
           });
+          const detuneWrap = detuneControl ? detuneControl.closest('.control') : null;
+          if (pairGap && osc2Enabled !== null && detuneWrap) {
+            const syncMixOnly = syncMixControl;
+            syncMixControl = () => {
+              syncMixOnly();
+              detuneWrap.hidden = !osc2Enabled;
+            };
+            syncMixControl();
+          }
         }
         // v18: the same percussion Pitch/Noise swap the knob editor makes,
         // gated on the same engine probe (see buildKnobEditor).
@@ -9720,7 +9733,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * `field` on a knob's options is the dotted patch path it edits
        * ('filter.cutoff'); it is consumed here, never passed to createKnob.
        */
-      function buildKnobEditor(container, patch, commit, knobs, controls, defaults, ghost = null, track = null) {
+      function buildKnobEditor(container, patch, commit, knobs, controls, defaults, ghost = null, track = null, detuneMode = null) {
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -9982,17 +9995,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           };
           // v0.0.143 (his 117): "surely that should only exist when you have
           // OSC 2 on, as IMHO it would intuitively be the detune between OSC1
-          // and OSC2". He is right about what the word implies and this engine
-          // does something else with it: several voices are a STACK of the same
-          // waveform (the eighties saw is five saws spread apart), and the dial
-          // scales how far apart the whole stack sits — `spread` is the layer
-          // tables' own name for it. So the dial takes that name rather than
-          // implying a two-oscillator gap it does not have. Voices where it
-          // genuinely cannot act already omit it through their `controls`
-          // descriptor (bass.breath, bass.acid), and voices-smoke now MEASURES
-          // that claim rather than trusting the table.
+          // and OSC2". v0.0.158 (his 135) finishes the thought: on a genuine
+          // two-oscillator voice (detuneMode 'pair') the layer spreads are
+          // normalised so the dial value IS the exact gap between osc 1 and
+          // osc 2 in cents — so it is called Detune, and it hides with osc 2
+          // off, because a gap needs two. On a unison STACK (the eighties saw
+          // is five saws spread apart) the dial scales the whole field's
+          // width, keeps the conventional name Spread, and still works with
+          // osc 2 off. voices-smoke MEASURES both claims off the rendered
+          // graph rather than trusting the tables.
+          const pairGap = detuneMode === 'pair';
           const spreadCell = addKnob(source, {
-            label: 'Spread',
+            label: pairGap ? 'Detune' : 'Spread',
             field: 'source.detune',
             min: detuneMin,
             max: DETUNE_MAX,
@@ -10009,10 +10023,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
           describe(
             spreadCell.cell,
-            'How far apart the oscillator stack sits, in cents. Several voices are '
-            + 'a stack of the same waveform rather than two different ones, so this '
-            + 'still widens them with OSC 2 off.'
+            pairGap
+              ? 'The exact gap between OSC 1 and OSC 2, in cents — plus is OSC 2 '
+                + 'sharp of OSC 1, minus flat.'
+              : 'How far apart the oscillator stack sits, in cents. This voice is '
+                + 'a stack of the same waveform rather than two different ones, so '
+                + 'this still widens it with OSC 2 off.'
           );
+          // A gap needs two oscillators: on a pair voice the dial follows the
+          // OSC 2 toggle the same way Mix does. Composed onto syncMixCell so
+          // the toggle's one call keeps both in step; the stored value is
+          // untouched, so switching OSC 2 back on restores the gap as was.
+          if (pairGap && osc2Enabled !== null) {
+            const syncMixOnly = syncMixCell;
+            syncMixCell = () => {
+              syncMixOnly();
+              spreadCell.cell.hidden = !osc2Enabled;
+            };
+            syncMixCell();
+          }
         }
         // v18: percussion trades the 3-position Octave switch for a continuous
         // Pitch dial (±24 semitones) and gains a Noise dial — but only where
@@ -10662,7 +10691,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           let knobsBuilt = false;
           if (knobApi) {
             try {
-              buildKnobEditor(patchBox, editView, commit, patchKnobs, controls, base, ghost, track);
+              buildKnobEditor(patchBox, editView, commit, patchKnobs, controls, base, ghost, track,
+                voiceEntry && voiceEntry.detuneMode ? voiceEntry.detuneMode : null);
               knobsBuilt = true;
             } catch {
               for (const knob of patchKnobs) {
@@ -10677,7 +10707,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // Slider fallback: no knob.js, so no ghost pointers either — the
           // instrument tabs still edit the override, just without the
           // "common" read-out.
-          if (!knobsBuilt) buildSliderEditor(patchBox, editView, commit, controls, track, base);
+          if (!knobsBuilt) {
+            buildSliderEditor(patchBox, editView, commit, controls, track, base,
+              voiceEntry && voiceEntry.detuneMode ? voiceEntry.detuneMode : null);
+          }
           ed.knobs.push(...patchKnobs);
           if (resetButton) resetButton.textContent = resetLabel();
         }

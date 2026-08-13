@@ -92,6 +92,12 @@ export default async function drive(page) {
 
   // The grid tells the truth about the chain: the order toggle reads In
   // order and the weight box — which a chained list ignores — is hidden.
+  // Close the Create popover first: v0.0.157's tighter transport panel put
+  // the tab strip inside the open popover's shadow, and Playwright refuses a
+  // click another element would swallow — a person's first click would land
+  // on the popover and close it, which is exactly what this does.
+  await page.click('#play-along-open');
+  await page.waitForTimeout(150);
   await page.click('#tab-advanced');
   await page.waitForTimeout(300);
   await page.evaluate(() => {

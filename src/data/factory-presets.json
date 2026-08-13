@@ -2254,7 +2254,7 @@
           "choir": {
             "source": {
               "mix": 0.55,
-              "detune": 12
+              "detune": 18.666666666666668
             },
             "filter": {
               "type": "lowpass",
@@ -2847,7 +2847,7 @@
           "choir": {
             "source": {
               "mix": 0.5,
-              "detune": 9
+              "detune": 14
             },
             "filter": {
               "type": "lowpass",
@@ -3258,7 +3258,7 @@
           "choir": {
             "source": {
               "mix": 0.4,
-              "detune": 8
+              "detune": 12.444444444444445
             },
             "filter": {
               "type": "lowpass",

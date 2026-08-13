@@ -1440,7 +1440,11 @@ const DEFAULTS = {
     },
     choir: {
       source: {
-        osc1: 'sawtooth', osc2: 'sawtooth', shape1: 2, shape2: 2, mix: 0.5, detune: 9, octave: 0,
+        // v0.0.158 (his 135): 14, not 9 — the dial is now the EXACT gap
+        // between osc 1 and osc 2 in cents, and this voice's authored gap is
+        // 14 (osc 1 at -9, osc 2 at +5). The layer spreads were rescaled in
+        // the same commit, so the sound at these defaults is bit-identical.
+        osc1: 'sawtooth', osc2: 'sawtooth', shape1: 2, shape2: 2, mix: 0.5, detune: 14, octave: 0,
         fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 1800, q: 0.5, envAmount: 1 },
@@ -1579,7 +1583,9 @@ const DEFAULTS = {
     },
     nylon: {
       source: {
-        osc1: 'triangle', osc2: 'sawtooth', shape1: 1, shape2: 2, mix: 0.306, detune: 5, octave: 0,
+        // v0.0.158 (his 135): -5, not 5 — the dial reads the exact osc 1 to
+        // osc 2 gap now, and nylon's second string sits 5 cents FLAT.
+        osc1: 'triangle', osc2: 'sawtooth', shape1: 1, shape2: 2, mix: 0.306, detune: -5, octave: 0,
         fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 2200, q: 2.4, envAmount: 1 },
@@ -1588,7 +1594,9 @@ const DEFAULTS = {
     },
     tape: {
       source: {
-        osc1: 'triangle', osc2: 'sawtooth', shape1: 1, shape2: 2, mix: 0.375, detune: 6, octave: 0,
+        // v0.0.158 (his 135): 9, not 6 — the authored gap is 9 cents (osc 1
+        // at -4, osc 2 at +5); the dial now says so exactly.
+        osc1: 'triangle', osc2: 'sawtooth', shape1: 1, shape2: 2, mix: 0.375, detune: 9, octave: 0,
         fold: 0,
       },
       filter: { type: 'lowpass', cutoff: 1800, q: 0.8, envAmount: 0 },
@@ -2236,8 +2244,12 @@ function padChoir(ctx, destination, note, patch) {
   }
 
   const layers = layersFor(p, [
-    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.34, cents: -9, spread: -1 },
-    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.34, cents: 5, spread: 0.5556 },
+    // v0.0.158 (his 135): spreads normalised so one cent of dial is one cent
+    // of gap between the two oscillators (-9/14 and 5/14; the default detune
+    // moved 9 -> 14 in the same commit, so cents at the defaults are exactly
+    // the authored -9/+5 they always were).
+    { type: 'sawtooth', group: 'a', ratio: 1, weight: 0.34, cents: -9, spread: -9 / 14 },
+    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.34, cents: 5, spread: 5 / 14 },
   ]);
   // The fold sits on the voices, not on the breath: folding noise is grit, not
   // a timbre, and the formants have to see the vowel it makes either way.
@@ -2951,8 +2963,11 @@ function melodyNylon(ctx, destination, note, patch) {
   resonanceGain.connect(amp);
 
   const layers = layersFor(p, [
+    // v0.0.158 (his 135): spread +1 with the DEFAULT detune now -5, not
+    // spread -1 with detune 5 — same -5 cents at the defaults, but the dial
+    // reads the signed gap honestly: minus means osc 2 flat of osc 1.
     { type: 'triangle', group: 'a', ratio: 1, weight: 0.5, cents: 0, spread: 0 },
-    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.22, cents: -5, spread: -1 },
+    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.22, cents: -5, spread: 1 },
   ]);
   const stack = foldBus(rig, p, body, stackPeak(layers));
   for (const layer of layers) {
@@ -2998,8 +3013,10 @@ function melodyTape(ctx, destination, note, patch) {
   filtered.connect(rig.out);
 
   const layers = layersFor(p, [
-    { type: 'triangle', group: 'a', ratio: 1, weight: 0.5, cents: -4, spread: -0.667 },
-    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.3, cents: 5, spread: 0.833 },
+    // v0.0.158 (his 135): -4/9 and 5/9, so one cent of dial is one cent of
+    // gap (default detune moved 6 -> 9; cents at the defaults unchanged).
+    { type: 'triangle', group: 'a', ratio: 1, weight: 0.5, cents: -4, spread: -4 / 9 },
+    { type: 'sawtooth', group: 'b', ratio: 1, weight: 0.3, cents: 5, spread: 5 / 9 },
   ]);
   const stack = foldBus(rig, p, amp, stackPeak(layers));
   for (const layer of layers) {
@@ -4131,3 +4148,35 @@ export const VOICES = {
     },
   },
 };
+
+/**
+ * v0.0.158 (his 135): what the detune dial actually IS, per voice, so the
+ * editor can say so instead of one label covering three mechanisms.
+ *
+ * - 'pair' — a genuine two-oscillator voice. The layer spreads are normalised
+ *   so the dial value IS the gap between osc 1 and osc 2, in cents, sign and
+ *   all (voices-smoke MEASURES this: render at dial D, read the two layers'
+ *   cents off the graph, the difference must be exactly D). With osc 2 off
+ *   there is no gap to set, so the editor hides the dial — his 117 instinct,
+ *   now true by construction.
+ * - 'stack' — a unison stack (the eighties saw is five saws spread apart).
+ *   The dial scales the width of the whole field; the conventional name is
+ *   unison detune or SPREAD, and the editor keeps that name. Not chorus:
+ *   chorus is delayed modulated copies, a different mechanism.
+ * - 'scatter' — no oscillator pair at all: glass's partial jitter, bell's
+ *   beating partial, chimes' tube scatter. Spread again, per-note.
+ */
+const DETUNE_MODES = {
+  pair: [
+    ['pad', 'choir'],
+    ['bass', 'sub'], ['bass', 'round'], ['bass', 'fingered'],
+    ['bass', 'sawbass'], ['bass', 'upright'],
+    ['melody', 'pluck'], ['melody', 'nylon'], ['melody', 'tape'],
+    ['arp', 'softPluck'], ['arp', 'muted'],
+  ],
+  stack: [['pad', 'warm'], ['pad', 'strings'], ['pad', 'polysaw']],
+  scatter: [['pad', 'glass'], ['melody', 'bell'], ['texture', 'chimes']],
+};
+for (const [mode, pairs] of Object.entries(DETUNE_MODES)) {
+  for (const [track, id] of pairs) VOICES[track][id].detuneMode = mode;
+}

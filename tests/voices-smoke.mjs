@@ -432,7 +432,10 @@ test('VOICES matches the contract exactly', () => {
       const voice = VOICES[track][id];
       assert.equal(voice.label, label, `${track}.${id}: label`);
       assert.equal(typeof voice.play, 'function', `${track}.${id}: play`);
-      assert.equal(Object.keys(voice).sort().join(','), 'controls,defaults,engineType,label,play',
+      // detuneMode (v0.0.158) is optional — its own tests below pin exactly
+      // which voices carry it and what each value must mean.
+      const keys = Object.keys(voice).filter((k) => k !== 'detuneMode').sort().join(',');
+      assert.equal(keys, 'controls,defaults,engineType,label,play',
         `${track}.${id}: unexpected keys`);
     }
   }
@@ -586,7 +589,8 @@ const SCHEMA = {
     shape1: { range: [0, 3] },
     shape2: { range: [0, 3], orNull: true },
     mix: { range: [0, 1] },
-    detune: { range: [0, 50] },
+    // v18 bipolar (v0.0.158: nylon's default is now signed): -50..50.
+    detune: { range: [-50, 50] },
     octave: { oneOf: [-1, 0, 1] },
   },
   filter: {
@@ -618,7 +622,7 @@ const PERCUSSION_SOURCE = {
   shape1: { range: [0, 3] },
   shape2: { range: [0, 3], orNull: true },
   mix: { range: [0, 1] },
-  detune: { range: [0, 50] },
+  detune: { range: [-50, 50] },
   pitch: { range: [-24, 24] },
   noise: { range: [0, 1] },
 };
@@ -2620,6 +2624,100 @@ test('v12 legato: a non-oscillator voice falls back to a plain retrigger without
       `${track}.${id}: a legato hint on a non-oscillator voice must not throw`);
     assert.ok(startedSources.length >= 1, `${track}.${id}: the fallback retrigger produced no source`);
     for (const source of startedSources) source.onended?.();
+  }
+});
+
+// --------------------------------------------------------------------------
+// v0.0.158 (his 135): the detune dial's three honesties, MEASURED
+// --------------------------------------------------------------------------
+
+/**
+ * On a 'pair' voice the dial value must BE the gap between osc 1 and osc 2 in
+ * cents — sign and all. Measured off the rendered graph, not read off the
+ * tables: play at dial D, find each expected layer's base detune among the
+ * oscillators actually created, and require the pair's difference to be D.
+ * The expected per-layer spreads are pinned here so a future re-voicing that
+ * silently breaks the one-cent-is-one-cent law goes red.
+ */
+const PAIR_SPREADS = {
+  'pad.choir': [-9 / 14, 5 / 14],
+  'bass.sub': [0, 1],
+  'bass.round': [0, 1],
+  'bass.fingered': [0, 1],
+  'bass.sawbass': [0, 1],
+  'bass.upright': [0, 1],
+  'melody.pluck': [0, 1],
+  'melody.nylon': [0, 1],
+  'melody.tape': [-4 / 9, 5 / 9],
+  'arp.softPluck': [0, 1],
+  'arp.muted': [0, 1],
+};
+
+test('detuneMode: the published map matches the library', () => {
+  const expected = {
+    pair: Object.keys(PAIR_SPREADS),
+    stack: ['pad.warm', 'pad.strings', 'pad.polysaw'],
+    scatter: ['pad.glass', 'melody.bell', 'texture.chimes'],
+  };
+  for (const [mode, keys] of Object.entries(expected)) {
+    for (const key of keys) {
+      const [track, id] = key.split('.');
+      assert.equal(VOICES[track][id].detuneMode, mode,
+        `${key}: expected detuneMode '${mode}', got '${VOICES[track][id].detuneMode}'`);
+    }
+  }
+  // Nobody else may claim a mode: the dial's label logic keys off it.
+  for (const [track, group] of Object.entries(VOICES)) {
+    for (const [id, voice] of Object.entries(group)) {
+      const key = `${track}.${id}`;
+      const claimed = Object.values(expected).some((keys) => keys.includes(key));
+      if (!claimed) {
+        assert.equal(voice.detuneMode, undefined, `${key}: unexpected detuneMode`);
+      }
+    }
+  }
+});
+
+test('pair voices: one cent of dial is one cent of gap, measured', () => {
+  const DIAL = 24;
+  for (const [key, [sa, sb]] of Object.entries(PAIR_SPREADS)) {
+    const [track, id] = key.split('.');
+    const voice = VOICES[track][id];
+    const note = { midi: 57, freq: null, kind: null, when: 0.5, duration: 1, velocity: 0.8, pan: 0 };
+    withSeed(17, () => playAndCheck(`${key} pair gap`, voice, note,
+      { patch: { source: { detune: DIAL } } }));
+    const cents = created
+      .filter((n) => n.kind === 'oscillator')
+      .map((n) => n.detune.max);
+    const find = (want) => cents.some((c) => Math.abs(c - want) < 1e-6);
+    assert.ok(find(sa * DIAL),
+      `${key}: no oscillator at ${sa * DIAL} ct (osc 1 layer) — cents seen: ${cents.join(', ')}`);
+    assert.ok(find(sb * DIAL),
+      `${key}: no oscillator at ${sb * DIAL} ct (osc 2 layer) — cents seen: ${cents.join(', ')}`);
+    assert.ok(Math.abs((sb - sa) * DIAL - DIAL) < 1e-9,
+      `${key}: the pinned spreads make a gap of ${(sb - sa) * DIAL}, not ${DIAL} — the table lies`);
+  }
+});
+
+test('pair voices: the authored default cents survive the normalisation', () => {
+  // The rescale moved spreads AND defaults together, so at each voice's own
+  // defaults the layers must sit at exactly the cents the voice was written
+  // with. A regression here is an audible re-voicing, not a maths slip.
+  const AUTHORED = {
+    'pad.choir': [-9, 5],
+    'melody.nylon': [0, -5],
+    'melody.tape': [-4, 5],
+  };
+  for (const [key, [ca, cb]] of Object.entries(AUTHORED)) {
+    const [track, id] = key.split('.');
+    const voice = VOICES[track][id];
+    const note = { midi: 57, freq: null, kind: null, when: 0.5, duration: 1, velocity: 0.8, pan: 0 };
+    withSeed(17, () => playAndCheck(`${key} defaults`, voice, note, { patch: voice.defaults }));
+    const cents = created.filter((n) => n.kind === 'oscillator').map((n) => n.detune.max);
+    for (const want of [ca, cb]) {
+      assert.ok(cents.some((c) => Math.abs(c - want) < 1e-6),
+        `${key}: no oscillator at the authored ${want} ct — cents seen: ${cents.join(', ')}`);
+    }
   }
 });
 

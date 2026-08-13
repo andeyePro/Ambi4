@@ -173,7 +173,7 @@ New param `patches: { [track]: { [voiceId]: Patch } }` — sparse; absent = voic
 Patch = {
   source: { // subtractive core (voices with FM/physical sources expose what applies)
     osc1: 'sine'|'triangle'|'sawtooth'|'square', osc2: same|null,
-    mix: 0–1, detune: 0–50 (cents), octave: -1|0|1
+    mix: 0–1, detune: -50–50 (cents; see below), octave: -1|0|1
   },
   filter: { type: 'lowpass'|'highpass'|'bandpass'|'notch', cutoff: 40–12000 (Hz, log UI),
             q: 0.1–20, envAmount: 0–1 },
@@ -185,6 +185,15 @@ Patch = {
   merged over that voice's own defaults) and must honour filter/adsr; subtractive-source
   voices honour `source` too; FM/noise/physical voices ignore `source` fields that don't
   apply. Each voice exports its defaults: `VOICES[track][id].defaults` (full Patch).
+- `detune` (v0.0.158, his 135): `VOICES[track][id].detuneMode` says what the dial IS.
+  On a `'pair'` voice (a genuine two-oscillator design) the layer spreads are
+  normalised so the dial value IS the signed gap between osc 1 and osc 2 in cents —
+  the editor labels it Detune and hides it with osc 2 off, because a gap needs two.
+  On a `'stack'` (unison stack — polysaw's five saws) it scales the width of the whole
+  field and keeps the conventional name Spread; `'scatter'` (glass/bell/chimes) is
+  per-note jitter, Spread again. voices-smoke measures the pair law off the rendered
+  graph: one cent of dial must be one cent of gap, and the authored default cents
+  must survive any re-voicing.
 - Engine: per-track per-note it passes `patches[track]?.[voiceId]` through to play(), and
   applies `sends` by giving each track its OWN reverb-send and delay-send gains (replacing
   any global fixed sends). Patch changes apply to newly scheduled notes (no retro-edit).
