@@ -526,18 +526,26 @@ const VOICES: Record<string, [string, string][]> = {
           hidden
         >
           <span class="panel-label popover-title" id="genre-rules-title">Genre rules</span>
+          <!-- v0.0.161 (his 133 + 130): the rules are GRAPHICAL — chords are
+               pressable chips, patterns are tap-grids, and every rule can be
+               added or removed. "The genre rules are still horribly text
+               based" + "the user should be able to edit create and zero all
+               rules from within the app". The sections are rendered by
+               renderRulesUI() from a working model; Apply commits it. -->
           <p class="hint">
-            The rules this genre draws every bar from. Edit them and Apply: the
-            piece is re-drawn from YOUR rules with the same dice, so only what
-            you change, changes. One entry per line; empty a box to fall back
-            to the genre's own rules.
+            The rules this genre draws every bar from. Change them and Apply:
+            the piece is re-drawn from YOUR rules with the same dice, so only
+            what you change, changes. + adds a rule, × removes one — remove a
+            section's every rule and it stops ruling.
           </p>
-          <label class="genre-rules-label" for="genre-rules-progressions">Chord progressions (roman numerals — the app seeds its loop from one)</label>
-          <textarea id="genre-rules-progressions" class="genre-rules-text" rows="5" spellcheck="false" autocomplete="off"></textarea>
-          <label class="genre-rules-label" for="genre-rules-anchors" id="genre-rules-anchors-label">Kit patterns (x is a hit, - a rest, sixteenths)</label>
-          <textarea id="genre-rules-anchors" class="genre-rules-text" rows="4" spellcheck="false" autocomplete="off"></textarea>
-          <label class="genre-rules-label" for="genre-rules-cells">Syncopation cells (short x/- fragments the bass leans on)</label>
-          <textarea id="genre-rules-cells" class="genre-rules-text" rows="2" spellcheck="false" autocomplete="off"></textarea>
+          <span class="genre-rules-label" id="genre-rules-progressions-label">Chord progressions — the loop seeds from one row; click a chord to change it</span>
+          <div id="genre-rules-progressions-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-progressions-label"></div>
+          <span class="genre-rules-label" id="genre-rules-subs-label">Substitutions — sometimes swap one chord for another, at the odds you set</span>
+          <div id="genre-rules-subs-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-subs-label"></div>
+          <span class="genre-rules-label" id="genre-rules-anchors-label">Kit patterns</span>
+          <div id="genre-rules-anchors-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-anchors-label"></div>
+          <span class="genre-rules-label" id="genre-rules-cells-label">Syncopation cells — short figures the bass leans on</span>
+          <div id="genre-rules-cells-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-cells-label"></div>
           <p id="genre-rules-error" class="hint genre-rules-error" role="alert" hidden></p>
           <div class="genre-fav-actions">
             <button type="button" id="genre-rules-apply" class="secondary-button">Apply</button>
@@ -12872,19 +12880,335 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function effectiveGenreRules(genre) {
         const rules = isPlainObject(settings.genreRules) ? settings.genreRules : {};
         const essence = genre?.essence || {};
+        // Array.isArray, not truthiness: an EMPTY override is a real ruling —
+        // "this section stops ruling" (his 130's zero) — and must not fall
+        // back to the genre's own list.
+        const pick = (over, base) => (
+          Array.isArray(over) ? over : (Array.isArray(base) ? base : [])
+        );
         return {
-          progressionGrammar:
-            rules.progressionGrammar || essence.chordLanguage?.progressionGrammar || [],
-          grooves: rules.grooves || genre?.fallbackLists?.grooves || [],
-          anchorPatterns:
-            rules.anchorPatterns || essence.grooveGrammar?.anchorPatterns || [],
-          syncopationCells:
-            rules.syncopationCells || essence.grooveGrammar?.syncopationCells || [],
+          progressionGrammar: pick(rules.progressionGrammar, essence.chordLanguage?.progressionGrammar),
+          substitutionRules: pick(rules.substitutionRules, essence.chordLanguage?.substitutionRules),
+          grooves: pick(rules.grooves, genre?.fallbackLists?.grooves),
+          anchorPatterns: pick(rules.anchorPatterns, essence.grooveGrammar?.anchorPatterns),
+          syncopationCells: pick(rules.syncopationCells, essence.grooveGrammar?.syncopationCells),
         };
       }
 
       function genreRulesEdited() {
         return isPlainObject(settings.genreRules) && Object.keys(settings.genreRules).length > 0;
+      }
+
+      // ---- v0.0.161 (his 133 + 130): the graphical rules editor ---------
+      // The panel edits a WORKING MODEL rendered as chips and tap-grids;
+      // Apply serialises it through the same validate/compile path the old
+      // text boxes fed, so storage, share links and the same-dice law are
+      // untouched. The model rebuilds from the effective rules when the
+      // panel opens (and after Apply/Reset) — never under a live edit.
+      let rulesModel = null;
+      let rulesModelDirty = false;
+
+      const CHORD_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+      const CHORD_SUFFIXES = ['', '7', '9', 'maj7'];
+      function chordChoices(current) {
+        const list = [];
+        for (const numeral of CHORD_NUMERALS) {
+          for (const suffix of CHORD_SUFFIXES) {
+            list.push(numeral + suffix, numeral.toLowerCase() + suffix);
+          }
+        }
+        if (current && !list.includes(current)) list.unshift(current);
+        return list;
+      }
+
+      function buildRulesModel(genre) {
+        const rules = effectiveGenreRules(genre);
+        rulesModel = {
+          kitPath: genreKitPath(genre),
+          progressionGrammar: rules.progressionGrammar
+            .map((line) => String(line).split(/\s+/).filter(Boolean))
+            .filter((line) => line.length),
+          substitutionRules: rules.substitutionRules.filter(isPlainObject).map((r) => ({
+            from: String(r.from ?? 'V'),
+            to: String(r.to ?? 'IV'),
+            prob: clamp(Number(r.prob) || 0, 0, 1),
+          })),
+          grooves: rules.grooves.filter(isPlainObject).map((groove) => {
+            const out = {};
+            for (const lane of ['low', 'mid', 'high']) {
+              if (typeof groove[lane] === 'string') out[lane] = groove[lane];
+            }
+            return out;
+          }),
+          anchorPatterns: rules.anchorPatterns.map(String),
+          syncopationCells: rules.syncopationCells.map(String),
+        };
+        rulesModelDirty = false;
+      }
+
+      function rulesButton(label, title, onClick, className = 'rules-mini-button') {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = className;
+        b.textContent = label;
+        if (title) {
+          b.title = title;
+          b.setAttribute('aria-label', title);
+        }
+        b.addEventListener('click', () => {
+          rulesModelDirty = true;
+          onClick();
+          renderRulesUI();
+        });
+        return b;
+      }
+
+      /** A chord as a compact select — native, so keyboard and touch both
+       * work for free. The remove entry keeps a chord deletable without a
+       * second button per chip. */
+      function chordChip(value, title, onChange, removable) {
+        const select = document.createElement('select');
+        select.className = 'rule-chip';
+        if (title) {
+          select.title = title;
+          select.setAttribute('aria-label', title);
+        }
+        if (removable) {
+          const opt = document.createElement('option');
+          opt.value = '__remove';
+          opt.textContent = '× remove';
+          select.append(opt);
+        }
+        for (const token of chordChoices(value)) {
+          const opt = document.createElement('option');
+          opt.value = token;
+          opt.textContent = token;
+          select.append(opt);
+        }
+        select.value = value;
+        select.addEventListener('change', () => {
+          rulesModelDirty = true;
+          onChange(select.value === '__remove' ? null : select.value);
+          renderRulesUI();
+        });
+        return select;
+      }
+
+      const maskHitAt = (mask, i) => /[xX]/.test(mask[i]);
+      const toggleMaskAt = (mask, i) =>
+        mask.slice(0, i) + (maskHitAt(mask, i) ? '-' : 'x') + mask.slice(i + 1);
+      const resizeMask = (mask, len) =>
+        (mask.length >= len ? mask.slice(0, len) : mask + '-'.repeat(len - mask.length));
+
+      function maskStrip(mask, title, onToggle) {
+        const strip = document.createElement('span');
+        strip.className = 'rule-strip';
+        if (title) strip.setAttribute('aria-label', title);
+        [...mask].forEach((ch, i) => {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = 'rule-step';
+          if (i % 4 === 0) cell.classList.add('rule-step-beat');
+          cell.setAttribute('aria-pressed', String(/[xX]/.test(ch)));
+          cell.title = `Step ${i + 1} — press to ${/[xX]/.test(ch) ? 'rest' : 'hit'}`;
+          cell.setAttribute('aria-label', cell.title);
+          cell.addEventListener('click', () => {
+            rulesModelDirty = true;
+            onToggle(i);
+            renderRulesUI();
+          });
+          strip.append(cell);
+        });
+        return strip;
+      }
+
+      function lengthSelect(current, choices, title, onChange) {
+        const select = document.createElement('select');
+        select.className = 'rule-chip rule-length';
+        select.title = title;
+        select.setAttribute('aria-label', title);
+        for (const n of choices.includes(current) ? choices : [current, ...choices]) {
+          const opt = document.createElement('option');
+          opt.value = String(n);
+          opt.textContent = `${n} steps`;
+          select.append(opt);
+        }
+        select.value = String(current);
+        select.addEventListener('change', () => {
+          rulesModelDirty = true;
+          onChange(Math.round(Number(select.value) || current));
+          renderRulesUI();
+        });
+        return select;
+      }
+
+      function renderRulesUI() {
+        if (!rulesModel) return;
+        const m = rulesModel;
+
+        const prog = document.getElementById('genre-rules-progressions-ui');
+        if (prog) {
+          prog.innerHTML = '';
+          m.progressionGrammar.forEach((line, li) => {
+            const row = document.createElement('div');
+            row.className = 'rules-row';
+            line.forEach((token, ti) => {
+              row.append(chordChip(token, `Chord ${ti + 1} of progression ${li + 1}`, (next) => {
+                if (next === null) line.splice(ti, 1);
+                else line[ti] = next;
+                if (!line.length) m.progressionGrammar.splice(li, 1);
+              }, true));
+            });
+            row.append(rulesButton('+', `Add a chord to progression ${li + 1}`, () => {
+              line.push(line[line.length - 1] || 'I');
+            }));
+            row.append(rulesButton('×', `Remove progression ${li + 1}`, () => {
+              m.progressionGrammar.splice(li, 1);
+            }, 'rules-mini-button rules-remove'));
+            prog.append(row);
+          });
+          prog.append(rulesButton('+ progression', 'Add a progression', () => {
+            m.progressionGrammar.push(['I', 'IV', 'V', 'I']);
+          }, 'secondary-button rules-add'));
+        }
+
+        const subs = document.getElementById('genre-rules-subs-ui');
+        if (subs) {
+          subs.innerHTML = '';
+          m.substitutionRules.forEach((rule, ri) => {
+            const row = document.createElement('div');
+            row.className = 'rules-row';
+            row.append(chordChip(rule.from, `Rule ${ri + 1}: the chord that may be swapped`, (v) => {
+              if (v) rule.from = v;
+            }, false));
+            const arrow = document.createElement('span');
+            arrow.className = 'rules-arrow';
+            arrow.textContent = '→';
+            arrow.setAttribute('aria-hidden', 'true');
+            row.append(arrow);
+            row.append(chordChip(rule.to, `Rule ${ri + 1}: what it becomes`, (v) => {
+              if (v) rule.to = v;
+            }, false));
+            const prob = document.createElement('select');
+            prob.className = 'rule-chip rule-length';
+            prob.title = `Rule ${ri + 1}: how often the swap happens`;
+            prob.setAttribute('aria-label', prob.title);
+            const stops = [];
+            for (let pct = 5; pct <= 100; pct += 5) stops.push(pct);
+            const currentPct = Math.round(rule.prob * 100);
+            for (const pct of stops.includes(currentPct) ? stops : [currentPct, ...stops]) {
+              const opt = document.createElement('option');
+              opt.value = String(pct);
+              opt.textContent = `${pct}%`;
+              prob.append(opt);
+            }
+            prob.value = String(currentPct);
+            prob.addEventListener('change', () => {
+              rulesModelDirty = true;
+              rule.prob = clamp(Math.round(Number(prob.value)) / 100, 0, 1);
+            });
+            row.append(prob);
+            row.append(rulesButton('×', `Remove substitution ${ri + 1}`, () => {
+              m.substitutionRules.splice(ri, 1);
+            }, 'rules-mini-button rules-remove'));
+            subs.append(row);
+          });
+          subs.append(rulesButton('+ substitution', 'Add a substitution rule', () => {
+            m.substitutionRules.push({ from: 'V', to: 'IV', prob: 0.25 });
+          }, 'secondary-button rules-add'));
+        }
+
+        const kit = document.getElementById('genre-rules-anchors-ui');
+        if (kit) {
+          kit.innerHTML = '';
+          if (m.kitPath) {
+            m.grooves.forEach((groove, gi) => {
+              const block = document.createElement('div');
+              block.className = 'rules-block';
+              // Highest lane on top, as every drum grid draws it.
+              for (const lane of ['high', 'mid', 'low']) {
+                const row = document.createElement('div');
+                row.className = 'rules-row';
+                const label = document.createElement('span');
+                label.className = 'rules-lane-label';
+                label.textContent = lane;
+                row.append(label);
+                if (typeof groove[lane] === 'string') {
+                  row.append(maskStrip(groove[lane], `Pattern ${gi + 1}, ${lane} lane`, (i) => {
+                    groove[lane] = toggleMaskAt(groove[lane], i);
+                  }));
+                  row.append(rulesButton('×', `Remove the ${lane} lane from pattern ${gi + 1}`, () => {
+                    delete groove[lane];
+                    if (!Object.keys(groove).length) m.grooves.splice(gi, 1);
+                  }, 'rules-mini-button rules-remove'));
+                } else {
+                  row.append(rulesButton(`+ ${lane} lane`, `Add a ${lane} lane to pattern ${gi + 1}`, () => {
+                    const len = groove.low?.length || groove.mid?.length || groove.high?.length || 16;
+                    groove[lane] = '-'.repeat(len);
+                  }));
+                }
+                block.append(row);
+              }
+              const foot = document.createElement('div');
+              foot.className = 'rules-row rules-block-foot';
+              const len = groove.low?.length || groove.mid?.length || groove.high?.length || 16;
+              foot.append(lengthSelect(len, [8, 12, 16, 20, 32], `Pattern ${gi + 1} length in steps`, (n) => {
+                const clamped = clamp(n, 4, 32);
+                for (const lane of ['low', 'mid', 'high']) {
+                  if (typeof groove[lane] === 'string') groove[lane] = resizeMask(groove[lane], clamped);
+                }
+              }));
+              foot.append(rulesButton('× pattern', `Remove pattern ${gi + 1}`, () => {
+                m.grooves.splice(gi, 1);
+              }, 'rules-mini-button rules-remove'));
+              block.append(foot);
+              kit.append(block);
+            });
+            kit.append(rulesButton('+ pattern', 'Add a kit pattern', () => {
+              m.grooves.push({ low: 'x---x---x---x---', mid: '----x-------x---', high: '--x---x---x---x-' });
+            }, 'secondary-button rules-add'));
+          } else {
+            m.anchorPatterns.forEach((mask, ai) => {
+              const row = document.createElement('div');
+              row.className = 'rules-row';
+              row.append(maskStrip(mask, `Anchor pattern ${ai + 1}`, (i) => {
+                m.anchorPatterns[ai] = toggleMaskAt(mask, i);
+              }));
+              row.append(lengthSelect(mask.length, [8, 12, 16, 20, 32], `Pattern ${ai + 1} length in steps`, (n) => {
+                m.anchorPatterns[ai] = resizeMask(mask, clamp(n, 4, 32));
+              }));
+              row.append(rulesButton('×', `Remove pattern ${ai + 1}`, () => {
+                m.anchorPatterns.splice(ai, 1);
+              }, 'rules-mini-button rules-remove'));
+              kit.append(row);
+            });
+            kit.append(rulesButton('+ pattern', 'Add an anchor pattern', () => {
+              m.anchorPatterns.push('x---x---x---x---');
+            }, 'secondary-button rules-add'));
+          }
+        }
+
+        const cells = document.getElementById('genre-rules-cells-ui');
+        if (cells) {
+          cells.innerHTML = '';
+          m.syncopationCells.forEach((mask, ci) => {
+            const row = document.createElement('div');
+            row.className = 'rules-row';
+            row.append(maskStrip(mask, `Syncopation cell ${ci + 1}`, (i) => {
+              m.syncopationCells[ci] = toggleMaskAt(mask, i);
+            }));
+            row.append(lengthSelect(mask.length, [2, 3, 4, 6, 8], `Cell ${ci + 1} length in steps`, (n) => {
+              m.syncopationCells[ci] = resizeMask(mask, clamp(n, 2, 16));
+            }));
+            row.append(rulesButton('×', `Remove cell ${ci + 1}`, () => {
+              m.syncopationCells.splice(ci, 1);
+            }, 'rules-mini-button rules-remove'));
+            cells.append(row);
+          });
+          cells.append(rulesButton('+ cell', 'Add a syncopation cell', () => {
+            m.syncopationCells.push('x-x-');
+          }, 'secondary-button rules-add'));
+        }
       }
 
       function syncGenreRulesUI() {
@@ -12897,53 +13221,47 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const reset = document.getElementById('genre-rules-reset');
         if (reset) reset.hidden = !edited;
         if (!genre) return;
-        const rules = effectiveGenreRules(genre);
-        const fill = (id, text) => {
-          const el = document.getElementById(id);
-          if (el && document.activeElement !== el) el.value = text;
-        };
-        const kitPath = genreKitPath(genre);
         const kitLabel = document.getElementById('genre-rules-anchors-label');
         if (kitLabel) {
-          kitLabel.textContent = kitPath
-            ? 'Kit patterns (low / mid / high lanes, x is a hit, - a rest; blank line between patterns)'
-            : 'Kit anchor patterns (x is a hit, - a rest; guidance for the auto kit)';
+          kitLabel.textContent = genreKitPath(genre)
+            ? 'Kit patterns — what the kit is written from; press a step (highest lane on top)'
+            : 'Kit anchor patterns — density guidance the auto kit leans on';
         }
-        fill('genre-rules-progressions', rules.progressionGrammar.join('\n'));
-        fill(
-          'genre-rules-anchors',
-          kitPath ? groovesToLines(rules.grooves) : rules.anchorPatterns.join('\n')
-        );
-        fill('genre-rules-cells', rules.syncopationCells.join('\n'));
+        // Rebuild the working model only while nobody is mid-edit: the panel
+        // closed, or open and untouched. An Apply/Reset clears the dirty flag
+        // first, so their sync lands the fresh truth.
+        const panel = document.getElementById('genre-rules');
+        if (!panel || panel.hidden || !rulesModelDirty || !rulesModel) {
+          buildRulesModel(genre);
+          renderRulesUI();
+        }
       }
 
       function readGenreRulesForm(kitPath) {
-        const raw = (id) => document.getElementById(id)?.value || '';
-        const lines = (id) =>
-          raw(id)
-            .split('\n')
-            .map((s) => s.trim())
-            .filter(Boolean);
-        const form = {
-          progressionGrammar: lines('genre-rules-progressions'),
-          syncopationCells: lines('genre-rules-cells'),
-          anchorPatterns: [],
-          grooves: [],
+        const m = rulesModel || {
+          progressionGrammar: [], substitutionRules: [], grooves: [], anchorPatterns: [], syncopationCells: [],
         };
-        if (kitPath) {
-          for (const blockText of raw('genre-rules-anchors').split(/\n\s*\n/)) {
-            const groove = {};
-            for (const line of blockText.split('\n')) {
-              const m = /^\s*(low|mid|high)\s*:\s*([x-]+)\s*$/i.exec(line);
-              if (m) groove[m[1].toLowerCase()] = m[2];
-              else if (line.trim()) groove.INVALID = line.trim();
-            }
-            if (Object.keys(groove).length) form.grooves.push(groove);
-          }
-        } else {
-          form.anchorPatterns = lines('genre-rules-anchors');
-        }
-        return form;
+        return {
+          progressionGrammar: m.progressionGrammar
+            .filter((line) => line.length)
+            .map((line) => line.join(' ')),
+          substitutionRules: m.substitutionRules.map((rule) => ({
+            from: rule.from, to: rule.to, prob: rule.prob,
+          })),
+          syncopationCells: [...m.syncopationCells],
+          anchorPatterns: kitPath ? [] : [...m.anchorPatterns],
+          grooves: kitPath
+            ? m.grooves
+              .map((groove) => {
+                const clean = {};
+                for (const lane of ['low', 'mid', 'high']) {
+                  if (typeof groove[lane] === 'string') clean[lane] = groove[lane];
+                }
+                return clean;
+              })
+              .filter((groove) => Object.keys(groove).length)
+            : [],
+        };
       }
 
       /** The first thing wrong with the form, in plain words — or null. */
@@ -12975,6 +13293,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             return `Syncopation cells use only x and - (2 to 16 steps): "${cell}"`;
           }
         }
+        for (const rule of form.substitutionRules || []) {
+          if (!genreCompiler.parseChordToken(rule.from) || !genreCompiler.parseChordToken(rule.to)) {
+            return `Substitution not understood — "${rule.from} → ${rule.to}" must both be roman-numeral chords.`;
+          }
+          if (!Number.isFinite(rule.prob) || rule.prob < 0 || rule.prob > 1) {
+            return 'A substitution needs odds between 0 and 100%.';
+          }
+        }
         return null;
       }
 
@@ -12982,16 +13308,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function genreWithOverrides(genre, overrides) {
         const edited = structuredClone(genre);
         edited.essence = edited.essence || {};
-        if (overrides.progressionGrammar) {
+        // Array.isArray throughout (v0.0.161): an EMPTY override is the
+        // user's "this rule stops ruling" and must be laid on, not skipped.
+        if (Array.isArray(overrides.progressionGrammar)) {
           edited.essence.chordLanguage = edited.essence.chordLanguage || {};
           edited.essence.chordLanguage.progressionGrammar = overrides.progressionGrammar;
           // The seed pool also draws from fallbackLists.progressions (they
           // weigh double, deliberately) — a user rewriting the chord rules
-          // means THESE rules, so the fallback pool empties too.
+          // means THESE rules, so the fallback pool empties too. An emptied
+          // grammar then seeds 'I' (the compiler's own floor): no chord
+          // rules means the loop sits at home.
           edited.fallbackLists = edited.fallbackLists || {};
           edited.fallbackLists.progressions = [];
         }
-        if (overrides.grooves) {
+        if (Array.isArray(overrides.substitutionRules)) {
+          edited.essence.chordLanguage = edited.essence.chordLanguage || {};
+          edited.essence.chordLanguage.substitutionRules = overrides.substitutionRules;
+        }
+        if (Array.isArray(overrides.grooves)) {
           edited.fallbackLists = edited.fallbackLists || {};
           edited.fallbackLists.grooves = overrides.grooves.map((groove) => {
             const clean = {};
@@ -13001,12 +13335,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             return clean;
           });
         }
-        if (overrides.anchorPatterns || overrides.syncopationCells) {
+        if (Array.isArray(overrides.anchorPatterns) || Array.isArray(overrides.syncopationCells)) {
           edited.essence.grooveGrammar = edited.essence.grooveGrammar || {};
-          if (overrides.anchorPatterns) {
+          if (Array.isArray(overrides.anchorPatterns)) {
             edited.essence.grooveGrammar.anchorPatterns = overrides.anchorPatterns;
           }
-          if (overrides.syncopationCells) {
+          if (Array.isArray(overrides.syncopationCells)) {
             edited.essence.grooveGrammar.syncopationCells = overrides.syncopationCells;
           }
         }
@@ -13096,11 +13430,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return;
         }
         const own = genre.essence || {};
+        // No length guard (v0.0.161): deleting a section's every rule IS a
+        // difference — the stored empty list is what "zeroed" means.
         const differs = (lines, base) =>
-          lines.length > 0 && JSON.stringify(lines) !== JSON.stringify(base || []);
+          JSON.stringify(lines) !== JSON.stringify(base || []);
         const overrides = {};
         if (differs(form.progressionGrammar, own.chordLanguage?.progressionGrammar)) {
           overrides.progressionGrammar = form.progressionGrammar;
+        }
+        if (differs(form.substitutionRules, own.chordLanguage?.substitutionRules)) {
+          overrides.substitutionRules = form.substitutionRules;
         }
         if (kitPath && differs(form.grooves, genre.fallbackLists?.grooves)) {
           overrides.grooves = form.grooves;
@@ -13151,6 +13490,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         loadParamsSnapshot(next);
         recordCleanGenreKit();
         say(null);
+        rulesModelDirty = false;
         syncGenreRulesUI();
         sayUnderDials(
           'Re-drawn from your rules — same dice, so only what you changed, changes. '
@@ -13162,6 +13502,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function resetGenreRules() {
         const genre = currentGenre();
         if (!genre) return;
+        rulesModelDirty = false;
         const seed = Number.isFinite(settings.origin?.seed) ? settings.origin.seed : randomSeed();
         applyGenre(genre, seed);
         const errorEl = document.getElementById('genre-rules-error');
@@ -13313,6 +13654,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       });
 
       setupPopover('genre-rules-toggle', 'genre-rules');
+      // Opening the panel always shows the CURRENT truth: rebuild the model
+      // on open (after setupPopover has toggled `hidden`), so stale edits
+      // from a closed session never sit under a fresh Apply.
+      document.getElementById('genre-rules-toggle')?.addEventListener('click', () => {
+        const panel = document.getElementById('genre-rules');
+        if (panel && !panel.hidden) {
+          const genre = currentGenre();
+          if (genre) {
+            buildRulesModel(genre);
+            renderRulesUI();
+          }
+        }
+      });
       document.getElementById('genre-rules-apply')?.addEventListener('click', applyGenreRules);
       document.getElementById('genre-rules-reset')?.addEventListener('click', resetGenreRules);
       describe(
@@ -16213,7 +16567,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#genre-select',
-          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices together, a different piece each time you pick it. Surprise me, at the foot of the list, chooses for you. Favourites keeps the ones you come back to, and each mood you favourite gets its own entry that plays a random favourite from it.',
+          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices together, a different piece each time you pick it. Rules, beside the picker, opens those rules as controls — every one changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, at the foot of the list, chooses for you. Favourites keeps the ones you come back to.',
         },
         {
           tab: 'simple',
@@ -16834,7 +17188,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     .genre-rules {
-      width: min(480px, calc(100vw - 32px));
+      width: min(560px, calc(100vw - 32px));
+      max-height: min(72vh, 640px);
+      overflow-y: auto;
     }
 
     .genre-rules-label {
@@ -16844,16 +17200,87 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       color: var(--muted);
     }
 
-    .genre-rules-text {
-      width: 100%;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.85rem;
-      background: var(--bg);
-      color: var(--fg);
+    /* v0.0.161 (his 133): the rules render as chips and tap-grids. */
+    .rules-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .rules-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+    }
+    .rules-block {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 6px;
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 6px 8px;
-      resize: vertical;
+    }
+    .rule-chip {
+      min-height: 26px;
+      padding: 2px 4px;
+      font-size: 0.8rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .rules-mini-button {
+      min-width: 26px;
+      min-height: 26px;
+      padding: 2px 6px;
+      font-size: 0.8rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .rules-remove {
+      color: var(--secondary);
+    }
+    .rules-add {
+      align-self: flex-start;
+      margin-top: 2px;
+    }
+    .rule-strip {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 2px;
+    }
+    .rule-step {
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    /* A heavier leading edge marks each beat, so sixteen squares read as
+       four beats rather than a picket fence. */
+    .rule-step-beat {
+      border-left-width: 3px;
+    }
+    .rule-step[aria-pressed='true'] {
+      background: var(--link);
+      border-color: var(--link);
+    }
+    .rules-lane-label {
+      flex: 0 0 34px;
+      font-size: 0.72rem;
+      text-align: right;
+      color: var(--secondary);
+    }
+    .rules-arrow {
+      color: var(--secondary);
+    }
+    .rules-block-foot {
+      justify-content: flex-end;
     }
 
     .genre-rules-error {

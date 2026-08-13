@@ -275,15 +275,12 @@ browser, so fewer connections give the best experience for everyone.
 Nothing above appears on the Simple tab. Corner affordances appear only when
 **Advanced** is open. The Simple tab keeps its **four** dials.
 
-**[decide] Which tier gates the patch sockets.** An earlier draft said "Studio
-tier". There is no Studio tier — the ladder is Free, Plus, Pro, Premium — and
-the standing owner rule is that no paid feature is ever visible before its tier
-can be bought. Payments do not exist at v0.1.0, so gating the graph to a paid
-tier means the whole of v0.0.39 ships dark at the public release, built ahead
-of launch blockers. Worse, v0.0.40's chord-sequence linking is specified to use
-those same cables and is free-tier value. Either the graph is free at launch
-and a paid gate applies only to the v0.2.x user-authored instrument work, or
-the graph moves after v0.1.0. This is a pricing decision, not a build one.
+**DECIDED (owner, 2026-08-13, his 137: a).** The modulation graph is FREE at
+launch; only the v0.2.x user-authored instrument work carries a paid gate.
+The routing half is therefore buildable now, in the phase order below —
+phase 1 (the parameter registry) is the entry point. The earlier draft's
+"Studio tier" said a tier that does not exist; the ladder is Free, Plus, Pro,
+Premium, and no paid feature is visible before its tier can be bought.
 
 ---
 
