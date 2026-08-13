@@ -2550,6 +2550,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         stepGate: false,
         stepPitch: false,
         patchDetuneBipolar: false,
+        // v0.0.163: weighted-by-section voice blends (sanitiser probe below).
+        voiceBlend: false,
         randomness: {},
         dissonance: {},
         vary: {},
@@ -2724,6 +2726,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ? (gateProbe.melody.sequencer.steps || [])[0]
             : null;
         engineCaps.stepGate = isPlainObject(probedStep) && probedStep.gate === 1.5;
+
+        // v0.0.163 (his 128 a): the voice blend, probed the same way — the
+        // Blend entry only ever renders where the engine can hold weights.
+        const blendProbe = probeTracks({ pad: { voiceWeights: { warm: 1, glass: 1 } } });
+        engineCaps.voiceBlend =
+          blendProbe && isPlainObject(blendProbe.pad) && isPlainObject(blendProbe.pad.voiceWeights)
+          && blendProbe.pad.voiceWeights.warm === 1;
 
         // v0.0.111: the per-step pitch pin (v0.0.109 schema), probed the same way.
         const pitchProbe = probeTracks({ melody: { sequencer: { steps: [{ on: true, midi: 72 }] } } });
@@ -4032,6 +4041,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // would be a temporal-dead-zone crash, the shipped blank-page bug.
       const soundingVoice = new Map();
       const VOICE_LIVE_VALUE = '__live';
+      const VOICE_BLEND_VALUE = '__blend';
 
       /**
        * Wire one track row's lamp and voice selector. Extracted from the boot
@@ -4075,13 +4085,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // preset carrying a user track this build never rendered a row for used
         // to throw here — inside init(), which is a blank page.
         if (!voiceSelect) return;
+        // v0.0.163 (his 128 a, the editor half): a track with more than one
+        // voice offers a blend — several voices with weights, drawn per
+        // section by the engine. Only where the engine holds the weights.
+        if (engineCaps.voiceBlend && voiceSelect.options.length > 1) {
+          const blend = document.createElement('option');
+          blend.value = VOICE_BLEND_VALUE;
+          blend.textContent = 'Blend voices…';
+          voiceSelect.append(blend);
+        }
         voiceSelect.addEventListener('change', () => {
           // The dynamic "what you're hearing" option is display-only and
           // disabled, so it can never be the user's pick — but a stray
           // programmatic change event must not store it as a voice id.
           if (voiceSelect.value === VOICE_LIVE_VALUE) return;
+          if (voiceSelect.value === VOICE_BLEND_VALUE) {
+            openBlendEditor(id);
+            refreshVoiceSelect(id);
+            return;
+          }
           settings.tracks[id].voice = voiceSelect.value;
-          engine.setParams({ tracks: { [id]: { voice: voiceSelect.value } } });
+          // v0.0.163: an explicit pick ends the blend, exactly as it ends the
+          // wander — the title on the live option says so.
+          delete settings.tracks[id].voiceWeights;
+          engine.setParams({ tracks: { [id]: { voice: voiceSelect.value, voiceWeights: null } } });
           persistSettings();
           soundingVoice.delete(id);
           refreshVoiceSelect(id);
@@ -12246,6 +12273,117 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return false;
       }
 
+      // ---- v0.0.163 (his 128 a): the voice-blend editor -----------------
+      // A small fixed dialog: one weight per voice, 0 leaves a voice out.
+      // Two or more nonzero weights store a blend; exactly one just picks
+      // that voice; none clears the blend. The engine draws per section.
+      function closeBlendEditor() {
+        document.getElementById('voice-blend-editor')?.remove();
+      }
+      function openBlendEditor(track) {
+        closeBlendEditor();
+        const select = document.getElementById(`track-voice-${track}`);
+        if (!select || !settings.tracks[track]) return;
+        const voices = [...select.options]
+          .filter((o) => o.value && o.value !== VOICE_LIVE_VALUE && o.value !== VOICE_BLEND_VALUE)
+          .map((o) => ({ id: o.value, label: o.textContent }));
+        if (voices.length < 2) return;
+        const stored = settings.tracks[track].voiceWeights;
+        const weights = new Map(voices.map((v) => [v.id,
+          isPlainObject(stored) && Number.isFinite(stored[v.id])
+            ? clamp(Math.round(stored[v.id]), 0, 10)
+            : (!isPlainObject(stored) && v.id === settings.tracks[track].voice ? 1 : 0),
+        ]));
+        const panel = document.createElement('div');
+        panel.className = 'module-panel blend-editor';
+        panel.id = 'voice-blend-editor';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-labelledby', 'voice-blend-title');
+        const title = document.createElement('span');
+        title.className = 'panel-label popover-title';
+        title.id = 'voice-blend-title';
+        title.textContent = `Blend — ${TRACK_LABELS[track] || track}`;
+        panel.append(title);
+        const hint = document.createElement('p');
+        hint.className = 'hint';
+        hint.textContent =
+          'Give each voice a weight: every new section draws the sounding voice '
+          + 'from them. 0 leaves a voice out; a single nonzero weight is simply '
+          + 'that voice. Your voice pick stays as it is underneath.';
+        panel.append(hint);
+        for (const v of voices) {
+          const row = document.createElement('div');
+          row.className = 'blend-row';
+          const label = document.createElement('label');
+          label.textContent = v.label;
+          label.htmlFor = `blend-weight-${track}-${v.id}`;
+          const input = document.createElement('input');
+          input.type = 'number';
+          input.id = `blend-weight-${track}-${v.id}`;
+          input.min = '0';
+          input.max = '10';
+          input.step = '1';
+          input.inputMode = 'numeric';
+          input.value = String(weights.get(v.id));
+          input.addEventListener('change', () => {
+            weights.set(v.id, clamp(Math.round(Number(input.value) || 0), 0, 10));
+            input.value = String(weights.get(v.id));
+          });
+          row.append(label, input);
+          panel.append(row);
+        }
+        const actions = document.createElement('div');
+        actions.className = 'blend-actions';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'secondary-button';
+        cancel.textContent = 'Cancel';
+        cancel.addEventListener('click', closeBlendEditor);
+        const clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'secondary-button';
+        clear.textContent = 'No blend';
+        clear.addEventListener('click', () => {
+          commitBlend(track, {});
+          closeBlendEditor();
+        });
+        const done = document.createElement('button');
+        done.type = 'button';
+        done.className = 'secondary-button';
+        done.textContent = 'Done';
+        done.addEventListener('click', () => {
+          const out = {};
+          for (const [id2, w] of weights) if (w > 0) out[id2] = w;
+          commitBlend(track, out);
+          closeBlendEditor();
+        });
+        actions.append(cancel, clear, done);
+        panel.append(actions);
+        panel.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') closeBlendEditor();
+        });
+        document.body.append(panel);
+        panel.querySelector('input')?.focus();
+      }
+      function commitBlend(track, out) {
+        const ids = Object.keys(out);
+        if (ids.length >= 2) {
+          settings.tracks[track].voiceWeights = out;
+          engine.setParams({ tracks: { [track]: { voiceWeights: out } } });
+        } else {
+          delete settings.tracks[track].voiceWeights;
+          engine.setParams({ tracks: { [track]: { voiceWeights: null } } });
+          if (ids.length === 1) {
+            // One weight is not a blend — it is a choice, honoured as one.
+            settings.tracks[track].voice = ids[0];
+            engine.setParams({ tracks: { [track]: { voice: ids[0] } } });
+          }
+        }
+        persistSettings();
+        soundingVoice.delete(track);
+        refreshVoiceSelect(track);
+      }
+
       /**
        * v18: the row's <select> shows what you are HEARING — the sounding
        * voice once wander has moved it, and "Custom (Subtractive)" when that
@@ -12261,8 +12399,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const chosen = settings.tracks[track].voice;
         const sounding = soundingVoice.get(track) || chosen;
         const edited = patchIsEdited(track, sounding);
+        // v0.0.163: a blended track ALWAYS shows its live option — the drawn
+        // voice with the state named — even in the sections where the draw
+        // happens to land on the stored pick.
+        const blended = isPlainObject(settings.tracks[track].voiceWeights);
         let live = select.querySelector('.voice-live-option');
-        if (!edited && sounding === chosen) {
+        if (!edited && sounding === chosen && !blended) {
           if (live) live.remove();
           select.value = chosen;
           return;
@@ -12281,17 +12423,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // gentle anti-monotony wander was indistinguishable from his own
         // choice. The label now carries the state, and the title carries the
         // escape hatch.
-        const wandering = !edited && sounding !== chosen;
+        const wandering = !edited && !blended && sounding !== chosen;
         const text = edited
           ? engineType
             ? `Custom (${engineType})`
             : 'Custom'
+          : blended
+            ? `${voiceLabel(track, sounding)} · blend`
+            : wandering
+              ? `${voiceLabel(track, sounding)} · wandering`
+              : voiceLabel(track, sounding);
+        live.title = blended
+          ? 'Several voices share this track by weight; each new section draws one. Blend voices… changes the weights; picking a voice ends the blend.'
           : wandering
-            ? `${voiceLabel(track, sounding)} · wandering`
-            : voiceLabel(track, sounding);
-        live.title = wandering
-          ? 'The generator wandered onto this voice for variety — your own choice is unchanged, and picking any voice ends the wander at once.'
-          : '';
+            ? 'The generator wandered onto this voice for variety — your own choice is unchanged, and picking any voice ends the wander at once.'
+            : '';
         if (live.textContent !== text) live.textContent = text;
         live.selected = true;
       }
@@ -18550,6 +18696,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .track-row[data-track-state='off'] .track-name::after {
       content: ' — off';
+    }
+
+    /* v0.0.163: the voice-blend dialog — small, fixed, self-contained. */
+    .blend-editor {
+      position: fixed;
+      left: 50%;
+      top: 18%;
+      transform: translateX(-50%);
+      width: min(340px, calc(100vw - 32px));
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 60;
+    }
+    .blend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .blend-row label {
+      flex: 1 1 auto;
+    }
+    .blend-row input {
+      width: 64px;
+      min-height: 30px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px 6px;
+    }
+    .blend-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
     }
 
     .track-voice {
