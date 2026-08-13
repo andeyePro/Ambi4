@@ -5457,14 +5457,20 @@ test('a per-instrument override reaches play() for its own kind only', () => hid
       assert.equal(patch.filter.cutoff, 200, 'the low override did not reach play()');
       assert.equal(patch.adsr.release, 0.5, 'the common patch was lost under the override');
       assert.equal(patch.perKind, undefined, 'a voice was handed the whole override map');
+      assert.equal(patch.kindAdsr, undefined, 'a filter-only override sprouted a kindAdsr');
     }
     for (const patch of heard.get('mid')) {
       assert.equal(patch.filter.cutoff, 900, 'an unoverridden kind must play the common patch');
       assert.equal(patch.adsr.release, 0.5);
+      assert.equal(patch.kindAdsr, undefined);
     }
     for (const patch of heard.get('high')) {
       assert.equal(patch.filter.cutoff, 900, 'the low override leaked onto the high lane');
-      assert.equal(patch.adsr.release, 2);
+      // v0.0.159 (his 129a): adsr keeps its provenance across the merge — the
+      // kit-wide value stays in adsr (the voice reads it as the scale/common
+      // anchor) and the lane's OWN envelope arrives separately, exact.
+      assert.equal(patch.adsr.release, 0.5, 'the kit-wide adsr was lost under a kind override');
+      assert.equal(patch.kindAdsr.release, 2, 'the high lane\'s own envelope never arrived');
     }
 
     assert.ok(pad.plays.length, 'the pad never sounded');

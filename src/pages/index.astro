@@ -10286,6 +10286,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         // -- envelope --
         const env = controlsSectionVisible(adsrSpec) ? knobSection('Envelope') : null;
+        // v0.0.159 (his 129a): a kit plays three sounds, each with its own
+        // published envelope. On Common these dials are a SCALE over all of
+        // them; on a sound's tab they are that sound's own exact envelope.
+        if (env && track === 'percussion') {
+          describe(
+            env,
+            ghost
+              ? 'This sound’s own envelope — exact. The Common tab’s Decay '
+                + 'scales every sound together; its other dials apply to any '
+                + 'sound that has not set its own.'
+              : 'Each sound keeps its own envelope (see its tab). Decay here '
+                + 'SCALES them all — double it and every sound rings twice as '
+                + 'long; the other dials apply to sounds that have not set '
+                + 'their own.'
+          );
+        }
         if (env && allowed(adsrSpec, 'attack')) {
           addLogKnob(
             env,
@@ -10462,6 +10478,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return clone;
         }
 
+        // v0.0.159 (his 129a): the voice publishes each sound's OWN envelope
+        // in defaults.perKind, so a sound's tab opens on that truth and an
+        // override only ever records what the user moved AWAY from it. The
+        // kit-wide envelope dials on Common are a SCALE over all of them.
+        function publishedKind(kind) {
+          const per = base && isPlainObject(base.perKind) ? base.perKind : null;
+          return per && isPlainObject(per[kind]) ? structuredClone(per[kind]) : {};
+        }
+        function kindBaseline(kind) {
+          return deepMerge(commonPatch(), publishedKind(kind));
+        }
+
         function kindOverride(kind) {
           const per = isPlainObject(patch.perKind) ? patch.perKind : null;
           return per && isPlainObject(per[kind]) ? per[kind] : {};
@@ -10494,7 +10522,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         function commit() {
           if (kitKind) {
-            const over = sparseOverride(commonPatch(), editView);
+            const over = sparseOverride(kindBaseline(kitKind), editView);
             if (!isPlainObject(patch.perKind)) patch.perKind = {};
             if (Object.keys(over).length) patch.perKind[kitKind] = over;
             else delete patch.perKind[kitKind];
@@ -10659,8 +10687,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
           let ghost = null;
           if (kitKind) {
-            const common = commonPatch();
-            editView = deepMerge(common, kindOverride(kitKind));
+            // The baseline a sound's tab edits against is common + the
+            // sound's published envelope (v0.0.159) — the ghost then shows
+            // that truth, not the kit-wide number, under an overridden dial.
+            const common = kindBaseline(kitKind);
+            editView = deepMerge(structuredClone(common), kindOverride(kitKind));
             const readPath = (source, field) => {
               const [section, key] = field.split('.');
               const box = isPlainObject(source[section]) ? source[section] : null;
@@ -10688,10 +10719,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             editView = patch;
           }
 
+          // On a sound's tab the dial DEFAULTS are the sound's own published
+          // envelope, so double-click returns to that sound's truth.
+          const tabBase = kitKind ? deepMerge(base, publishedKind(kitKind)) : base;
           let knobsBuilt = false;
           if (knobApi) {
             try {
-              buildKnobEditor(patchBox, editView, commit, patchKnobs, controls, base, ghost, track,
+              buildKnobEditor(patchBox, editView, commit, patchKnobs, controls, tabBase, ghost, track,
                 voiceEntry && voiceEntry.detuneMode ? voiceEntry.detuneMode : null);
               knobsBuilt = true;
             } catch {
@@ -10708,7 +10742,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // instrument tabs still edit the override, just without the
           // "common" read-out.
           if (!knobsBuilt) {
-            buildSliderEditor(patchBox, editView, commit, controls, track, base,
+            buildSliderEditor(patchBox, editView, commit, controls, track, tabBase,
               voiceEntry && voiceEntry.detuneMode ? voiceEntry.detuneMode : null);
           }
           ed.knobs.push(...patchKnobs);

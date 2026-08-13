@@ -773,8 +773,23 @@ test('every voice publishes a complete, in-range default patch', () => {
       const { defaults } = VOICES[track][id];
       const where = `${track}.${id} defaults`;
       assert.ok(defaults && typeof defaults === 'object', `${where}: missing`);
-      assert.deepEqual(Object.keys(defaults).sort(), ['adsr', 'filter', 'sends', 'source'],
+      // v0.0.159: a kit also publishes each sound's own envelope in perKind.
+      const groups = Object.keys(defaults).filter((k) => k !== 'perKind').sort();
+      assert.deepEqual(groups, ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      if (defaults.perKind !== undefined) {
+        assert.equal(track, 'percussion', `${where}: perKind on a non-kit voice`);
+        assert.deepEqual(Object.keys(defaults.perKind).sort(), ['high', 'low', 'mid'],
+          `${where}.perKind: wrong kinds`);
+        for (const [kind, per] of Object.entries(defaults.perKind)) {
+          assert.deepEqual(Object.keys(per), ['adsr'], `${where}.perKind.${kind}: wrong groups`);
+          for (const [field, rule] of Object.entries(SCHEMA.adsr)) {
+            assert.ok(inRange(per.adsr[field], rule.range),
+              `${where}.perKind.${kind}.adsr.${field}: ${per.adsr[field]} is outside `
+              + `${rule.range.join('–')}`);
+          }
+        }
+      }
       for (const [group, fields] of Object.entries(schemaFor(track, id))) {
         assert.deepEqual(Object.keys(defaults[group]).sort(), Object.keys(fields).sort(),
           `${where}.${group}: wrong fields`);
@@ -2625,6 +2640,82 @@ test('v12 legato: a non-oscillator voice falls back to a plain retrigger without
     assert.ok(startedSources.length >= 1, `${track}.${id}: the fallback retrigger produced no source`);
     for (const source of startedSources) source.onended?.();
   }
+});
+
+// --------------------------------------------------------------------------
+// v0.0.159 (his 129a): per-sound kit envelopes, MEASURED
+// --------------------------------------------------------------------------
+
+/** Every time a gain envelope fades to the silence floor, sorted. */
+function fadeEnds() {
+  return automation
+    .filter((a) => a.name === 'gain.gain' && a.kind === 'exponential' && a.value <= 1e-3)
+    .map((a) => a.time)
+    .sort((x, y) => x - y);
+}
+
+const KIT_NOTE = (kind) => (
+  { midi: null, freq: null, kind, duration: 0.25, when: 0.5, velocity: 0.8, pan: 0 }
+);
+
+test('a kit patched with its own defaults reproduces every sound exactly', () => {
+  // The flattening bug in one line: with ONE published ADSR, applying the
+  // kit's own defaults as a patch could not reproduce the kit — the anchor
+  // was kit-wide, so every layer whose kind rings shorter or longer than the
+  // published number came back wrong. With per-kind published envelopes the
+  // two runs must fade at the same times, layer for layer.
+  for (const id of Object.keys(VOICES.percussion)) {
+    const voice = VOICES.percussion[id];
+    for (const kind of ['low', 'mid', 'high']) {
+      const bare = withSeed(23, () => {
+        playAndCheck(`percussion.${id}/${kind} bare`, voice, KIT_NOTE(kind));
+        return fadeEnds();
+      });
+      const patched = withSeed(23, () => {
+        playAndCheck(`percussion.${id}/${kind} own defaults`, voice, KIT_NOTE(kind),
+          { patch: voice.defaults });
+        return fadeEnds();
+      });
+      assert.equal(patched.length, bare.length,
+        `percussion.${id}/${kind}: layer count moved under the kit's own defaults`);
+      for (let i = 0; i < bare.length; i++) {
+        const drift = Math.abs(patched[i] - bare[i]);
+        assert.ok(drift < 0.02,
+          `percussion.${id}/${kind}: a layer fading at ${bare[i].toFixed(3)} bare fades at `
+          + `${patched[i].toFixed(3)} under the kit's own defaults (drift ${drift.toFixed(3)})`);
+      }
+    }
+  }
+});
+
+test('the kit-wide Decay dial SCALES every sound, and a per-sound override is exact', () => {
+  // Scale law (his ruling a): common decay at twice its published value makes
+  // every sound ring twice its own length.
+  const dust = VOICES.percussion.dust;
+  const published = dust.defaults.adsr.decay;             // 0.34, the anchor
+  for (const kind of ['low', 'mid', 'high']) {
+    const own = dust.defaults.perKind[kind].adsr;
+    const doubled = withSeed(29, () => {
+      playAndCheck(`percussion.dust/${kind} decay x2`, dust, KIT_NOTE(kind),
+        { patch: { adsr: { decay: published * 2 } } });
+      return fadeEnds();
+    });
+    const want = 0.5 + own.attack + own.decay * 2;        // when + attack + scaled ring
+    const hit = doubled.some((t) => Math.abs(t - want) < 0.01);
+    assert.ok(hit,
+      `dust/${kind}: primary should fade at ${want.toFixed(3)} under a doubled kit Decay `
+      + `— fades seen: ${doubled.map((t) => t.toFixed(3)).join(', ')}`);
+  }
+  // Exactness law: a sound's OWN decay override means exactly that number.
+  const exact = withSeed(31, () => {
+    playAndCheck('percussion.dust/high own decay', dust, KIT_NOTE('high'),
+      { patch: { perKind: { high: { adsr: { decay: 0.4 } } } } });
+    return fadeEnds();
+  });
+  const wantHigh = 0.5 + 0.002 + 0.4;                     // when + published attack + set decay
+  assert.ok(exact.some((t) => Math.abs(t - wantHigh) < 0.01),
+    `dust/high: an own-decay of 0.4 s should fade at ${wantHigh.toFixed(3)} `
+    + `— fades seen: ${exact.map((t) => t.toFixed(3)).join(', ')}`);
 });
 
 // --------------------------------------------------------------------------

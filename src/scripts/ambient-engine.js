@@ -5224,7 +5224,8 @@ export function createEngine(initialParams, options = {}) {
    */
   function resolvePatchRanges(track, voiceId, patch) {
     let out = null;
-    for (const section of Object.keys(PATCH_SCHEMA)) {
+    // kindAdsr (v0.0.159) carries the same rangeable fields as adsr.
+    for (const section of [...Object.keys(PATCH_SCHEMA), 'kindAdsr']) {
       const fields = patch[section];
       if (!fields) continue;
       for (const [field, value] of Object.entries(fields)) {
@@ -5275,9 +5276,25 @@ export function createEngine(initialParams, options = {}) {
     if (cached) return cached;
     let merged = kindPatches.get(key);
     if (!merged) {
-      merged = common.perKind
-        ? mergeSections(common, lane === null ? null : common.perKind[lane])
-        : common;
+      if (common.perKind) {
+        const over = lane === null ? null : common.perKind[lane];
+        merged = mergeSections(common, over);
+        // v0.0.159 (his 129a): adsr keeps its PROVENANCE across the merge.
+        // The kit-wide dials stay in `adsr` — the voice applies them as a
+        // SCALE over each sound's own envelope — and the lane's own envelope
+        // overrides ride separately in `kindAdsr`, exact. Folding both into
+        // one section is what made a lane's short envelope unknowable.
+        if (over && over.adsr && Object.keys(over.adsr).length) {
+          merged.kindAdsr = { ...over.adsr };
+          if (common.adsr && Object.keys(common.adsr).length) {
+            merged.adsr = { ...common.adsr };
+          } else {
+            delete merged.adsr;
+          }
+        }
+      } else {
+        merged = common;
+      }
       kindPatches.set(key, merged);
     }
     const resolved = resolvePatchRanges(track, voiceId, merged);

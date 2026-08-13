@@ -185,6 +185,16 @@ Patch = {
   merged over that voice's own defaults) and must honour filter/adsr; subtractive-source
   voices honour `source` too; FM/noise/physical voices ignore `source` fields that don't
   apply. Each voice exports its defaults: `VOICES[track][id].defaults` (full Patch).
+- Kit envelopes (v0.0.159, his 129a): a kit publishes each sound's OWN envelope in
+  `defaults.perKind[kind].adsr` — the values its primary layer is authored with — and
+  the engine keeps adsr PROVENANCE across the per-lane merge: the kit-wide dials stay
+  in `adsr` and a lane's own overrides arrive separately in `kindAdsr` (runtime-only;
+  stored form keeps `perKind[kind].adsr`). The voice then reads the kit-wide DECAY as
+  a SCALE over every sound's own decay (published value = factor 1), attack/sustain/
+  release as kit-wide values a sound's own tab overrides exactly, and anchors each
+  layer's span to its own kind's primary decay — so a kit patched with its own
+  defaults reproduces every sound exactly (voices-smoke measures this off the fade
+  times, per kit, per sound).
 - `detune` (v0.0.158, his 135): `VOICES[track][id].detuneMode` says what the dial IS.
   On a `'pair'` voice (a genuine two-oscillator design) the layer spreads are
   normalised so the dial value IS the signed gap between osc 1 and osc 2 in cents —

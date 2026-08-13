@@ -1113,13 +1113,36 @@ function pitchOf(source, d) {
  * NaN away from a silent track for the rest of the session, so nothing here
  * believes a number until it has checked it.
  */
-function patchFor(defaults, patch) {
+function patchFor(defaults, patch, kind = null) {
   if (!patch || typeof patch !== 'object') return null;
   const source = part(patch, 'source');
   const filter = part(patch, 'filter');
   const shape = part(patch, 'adsr');
   const sends = part(patch, 'sends');
   const d = defaults;
+  // v0.0.159 (his 129a): a kit publishes a PER-SOUND envelope in
+  // defaults.perKind, and the note's own kind picks it. The engine delivers
+  // the lane's user overrides in `kindAdsr` (kept apart from the kit-wide
+  // adsr so provenance survives the merge); a raw caller that still hands the
+  // whole patch with `perKind` intact — the tests do — gets the same reading.
+  const dk = kind && d.perKind && d.perKind[kind] ? d.perKind[kind].adsr : null;
+  const rawPerKind = kind && patch.perKind && typeof patch.perKind === 'object'
+    && !Array.isArray(patch.perKind) && patch.perKind[kind]
+    ? part(patch.perKind[kind], 'adsr') : {};
+  const own = { ...rawPerKind, ...part(patch, 'kindAdsr') };
+  // His ruling a, exactly as worded: the kit-wide DECAY dial is a SCALE over
+  // every sound's own decay (published value = factor 1, double = every sound
+  // rings twice its own length). Attack, sustain and release stay kit-wide
+  // values a sound's own tab can override — a dial that says 0.001 s must
+  // mean 0.001 s, so only the one he named scales.
+  const kitScaled = (f, lo, hi) => {
+    const base = inRange(own[f], lo, hi, dk[f]);
+    const factor = Number.isFinite(shape[f]) && Number.isFinite(d.adsr[f]) && d.adsr[f] > 0
+      ? clamp(shape[f], lo, hi) / d.adsr[f]
+      : 1;
+    return clamp(base * factor, lo, hi);
+  };
+  const kitExact = (f, lo, hi) => inRange(own[f], lo, hi, inRange(shape[f], lo, hi, dk[f]));
   const shape1 = shapeOf(source.shape1, source.osc1, d.source.shape1, false);
   const shape2 = shapeOf(source.shape2, source.osc2, d.source.shape2, true);
   return {
@@ -1151,12 +1174,19 @@ function patchFor(defaults, patch) {
       q: inRange(filter.q, 0.1, 20, d.filter.q),
       envAmount: inRange(filter.envAmount, 0, 1, d.filter.envAmount),
     },
-    adsr: {
-      attack: inRange(shape.attack, 0.001, 8, d.adsr.attack),
-      decay: inRange(shape.decay, 0.001, 8, d.adsr.decay),
-      sustain: inRange(shape.sustain, 0, 1, d.adsr.sustain),
-      release: inRange(shape.release, 0.01, 12, d.adsr.release),
-    },
+    adsr: dk
+      ? {
+        attack: kitExact('attack', 0.001, 8),
+        decay: kitScaled('decay', 0.001, 8),
+        sustain: inRange(own.sustain, 0, 1, inRange(shape.sustain, 0, 1, dk.sustain)),
+        release: kitExact('release', 0.01, 12),
+      }
+      : {
+        attack: inRange(shape.attack, 0.001, 8, d.adsr.attack),
+        decay: inRange(shape.decay, 0.001, 8, d.adsr.decay),
+        sustain: inRange(shape.sustain, 0, 1, d.adsr.sustain),
+        release: inRange(shape.release, 0.01, 12, d.adsr.release),
+      },
     // Carried for completeness only: the engine reads sends off the defaults
     // and drives its own per-track send gains with them.
     sends: {
@@ -1171,7 +1201,12 @@ function patchFor(defaults, patch) {
     // hat the kick's decay (up to 11.6× measured) and the mid's lowpass in
     // front of a 9 kHz burst (~32 dB down: the hat vanished).
     anchor: {
-      decay: d.adsr.decay,
+      // v0.0.159: on a kit the anchor is the SOUND's own published decay, so
+      // a layer that declares no span rings at exactly the envelope the dial
+      // names (span = layerDecay / kindDecay = 1 for each kind's primary
+      // layer, and every declared span in the kit tables is authored relative
+      // to its own kind's primary).
+      decay: dk ? dk.decay : d.adsr.decay,
       cutoff: d.filter.cutoff,
       type: d.filter.type,
       shape1: d.source.shape1,
@@ -1389,10 +1424,13 @@ function struckEnv(param, t0, base, p) {
   }
   // NOT also forcing sustain to 0 here, though a struck layer arguably has no
   // plateau: that removes the release response adsrEnv only applies to a
-  // sustaining envelope, and `bass.upright`'s own release law caught it. What
-  // remains — a kit's single published ADSR still lengthening its shortest
-  // layers under a patch — needs per-kind ADSR (the schema already has
-  // `perKind`) and an owner ruling, filed in TODO with measured numbers.
+  // sustaining envelope, and `bass.upright`'s own release law caught it.
+  // v0.0.159 (his 129a): on a kit, p.adsr is now the SOUND's own envelope
+  // (per-kind published default, exact per-kind overrides, kit-wide dials as
+  // a scale) and p.anchor.decay is that sound's published decay — so the
+  // span a layer declares is honoured relative to its own kind's primary,
+  // and an undeclared span is 1: the layer rings at exactly the envelope the
+  // dial names. The old kit-wide anchor left secondaries up to 16% off.
   return adsrEnv(param, t0, base, p.adsr, span);
 }
 
@@ -1727,6 +1765,16 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 1390, q: 0.8, envAmount: 0 },
       adsr: { attack: 0.006, decay: 0.3, sustain: 0, release: 0.05 },
       sends: { reverb: 0.2, delay: 0.1 },
+      // v0.0.159 (his 129a): each sound's OWN authored envelope — the values
+      // its primary layer is written with in percSoft() — published so the
+      // kit editor's per-sound tabs open on the truth and the engine can hold
+      // each sound to its own length. The kit-wide adsr above stays as the
+      // SCALE anchor. voices-smoke measures both laws off the rendered graph.
+      perKind: {
+        low: { adsr: { attack: 0.008, decay: 0.36, sustain: 0, release: 0.05 } },
+        mid: { adsr: { attack: 0.006, decay: 0.3, sustain: 0, release: 0.05 } },
+        high: { adsr: { attack: 0.004, decay: 0.075, sustain: 0, release: 0.05 } },
+      },
     },
     hand: {
       source: {
@@ -1735,6 +1783,11 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.004, decay: 0.15, sustain: 0, release: 0.05 },
       sends: { reverb: 0.25, delay: 0.12 },
+      perKind: {
+        low: { adsr: { attack: 0.005, decay: 0.45, sustain: 0, release: 0.05 } },
+        mid: { adsr: { attack: 0.004, decay: 0.15, sustain: 0, release: 0.05 } },
+        high: { adsr: { attack: 0.0015, decay: 0.05, sustain: 0, release: 0.05 } },
+      },
     },
     tick: {
       source: {
@@ -1743,6 +1796,11 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.0015, decay: 0.035, sustain: 0, release: 0.05 },
       sends: { reverb: 0.3, delay: 0.2 },
+      perKind: {
+        low: { adsr: { attack: 0.003, decay: 0.05, sustain: 0, release: 0.05 } },
+        mid: { adsr: { attack: 0.0015, decay: 0.035, sustain: 0, release: 0.05 } },
+        high: { adsr: { attack: 0.001, decay: 0.022, sustain: 0, release: 0.05 } },
+      },
     },
     // v27: the worn kit — a thumpy short kick, a snare that is a puff of
     // filtered noise rather than a crack, and hats kept dark and low.
@@ -1753,6 +1811,11 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 4040, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.008, decay: 0.34, sustain: 0, release: 0.05 },
       sends: { reverb: 0.18, delay: 0.08 },
+      perKind: {
+        low: { adsr: { attack: 0.008, decay: 0.28, sustain: 0, release: 0.05 } },
+        mid: { adsr: { attack: 0.004, decay: 0.13, sustain: 0, release: 0.05 } },
+        high: { adsr: { attack: 0.002, decay: 0.028, sustain: 0, release: 0.05 } },
+      },
     },
   },
 };
@@ -1760,7 +1823,16 @@ const DEFAULTS = {
 /** The published defaults are reference data; nobody gets to edit them in place. */
 for (const track of Object.values(DEFAULTS)) {
   for (const patch of Object.values(track)) {
-    for (const group of Object.values(patch)) Object.freeze(group);
+    for (const [key, group] of Object.entries(patch)) {
+      // perKind nests a sparse patch per sound (v0.0.159) — freeze those too.
+      if (key === 'perKind') {
+        for (const per of Object.values(group)) {
+          for (const section of Object.values(per)) Object.freeze(section);
+          Object.freeze(per);
+        }
+      }
+      Object.freeze(group);
+    }
     Object.freeze(patch);
   }
   Object.freeze(track);
@@ -3677,11 +3749,11 @@ function percSoft(ctx, destination, note, patch) {
   const rig = createRig(ctx, destination, note);
   // A kit has one filter control for three drums: whichever damp the struck
   // kind uses is the one the patch takes over.
-  const p = patchFor(DEFAULTS.percussion.soft, patch);
+  const kind = kindOf(note);
+  const p = patchFor(DEFAULTS.percussion.soft, patch, kind);
   const t = timeOf(ctx, note);
   const v = velOf(note);
   const dur = durOf(note, 0.25);
-  const kind = kindOf(note);
   const peak = level(PEAK.percussion * KIND_TRIM[kind], v);
 
   const amp = rig.gain(1);
@@ -3729,11 +3801,11 @@ function percSoft(ctx, destination, note, patch) {
 /** Hand drum: dum with a real pitch drop, an open slap, and a finger tick. */
 function percHand(ctx, destination, note, patch) {
   const rig = createRig(ctx, destination, note);
-  const p = patchFor(DEFAULTS.percussion.hand, patch);
+  const kind = kindOf(note);
+  const p = patchFor(DEFAULTS.percussion.hand, patch, kind);
   const t = timeOf(ctx, note);
   const v = velOf(note);
   const dur = durOf(note, 0.25);
-  const kind = kindOf(note);
   const peak = level(PEAK.percussion * KIND_TRIM[kind], v);
 
   const amp = rig.gain(1);
@@ -3782,11 +3854,11 @@ function percHand(ctx, destination, note, patch) {
 /** Ticks: the minimal kit — filtered clicks, barely more than punctuation. */
 function percTick(ctx, destination, note, patch) {
   const rig = createRig(ctx, destination, note);
-  const p = patchFor(DEFAULTS.percussion.tick, patch);
+  const kind = kindOf(note);
+  const p = patchFor(DEFAULTS.percussion.tick, patch, kind);
   const t = timeOf(ctx, note);
   const v = velOf(note);
   const dur = durOf(note, 0.25);
-  const kind = kindOf(note);
   const peak = level(PEAK.percussion * KIND_TRIM[kind] * 0.8, v);
 
   const amp = rig.gain(1);
@@ -3824,11 +3896,11 @@ function percTick(ctx, destination, note, patch) {
  */
 function percDust(ctx, destination, note, patch) {
   const rig = createRig(ctx, destination, note);
-  const p = patchFor(DEFAULTS.percussion.dust, patch);
+  const kind = kindOf(note);
+  const p = patchFor(DEFAULTS.percussion.dust, patch, kind);
   const t = timeOf(ctx, note);
   const v = velOf(note);
   const dur = durOf(note, 0.25);
-  const kind = kindOf(note);
   // The whole kit sits a shade under the others: a lo-fi kit that punches
   // through is not a lo-fi kit.
   const peak = level(PEAK.percussion * KIND_TRIM[kind] * 0.9, v);
