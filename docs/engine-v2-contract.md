@@ -194,6 +194,12 @@ Patch = {
   merged over that voice's own defaults) and must honour filter/adsr; subtractive-source
   voices honour `source` too; FM/noise/physical voices ignore `source` fields that don't
   apply. Each voice exports its defaults: `VOICES[track][id].defaults` (full Patch).
+- Raw takes (v0.0.164): `getLastTake()` / `setLastTake(take)` move the beat-domain
+  raw capture out of the engine and back — the page persists it in its own settings
+  (NEVER in params, so it cannot reach a share link, a preset or the audio path) and
+  hands it back at boot, which is what makes Re-fit outlive a reload. The setter
+  sanitises hard: known-shaped track id, finite bounded beat rows, a 2000-row cap,
+  and garbage clears rather than stores.
 - Voice blends (v0.0.162, his 128 a): `tracks[t].voiceWeights = { voiceId: weight }` —
   several voices on one track; each new SECTION draws the sounding voice from the
   weights on the engine's own rng (seed-deterministic; a track with no blend spends

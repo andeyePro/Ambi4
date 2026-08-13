@@ -2529,6 +2529,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           && typeof engine.stopCapture === 'function'
           && typeof engine.undoCapture === 'function'
           && typeof engine.getCapture === 'function',
+        // v0.0.164: the raw take can leave the engine and come back — which
+        // is what lets a performance survive a reload.
+        lastTake: typeof engine.getLastTake === 'function'
+          && typeof engine.setLastTake === 'function',
         removeTrack: typeof engine.removeTrack === 'function',
         trackManifest: typeof engine.getTrackManifest === 'function',
         swing: false,
@@ -14357,6 +14361,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           take = engine.stopCapture();
         } catch {}
         if (take && take.written) adoptEngineSequencers(take.track);
+        // v0.0.164: the RAW take rides the persisted settings (and only
+        // them — paramsSnapshot strips it, so no share link or preset ever
+        // carries a performance the link was not about).
+        if (engineCaps.lastTake) {
+          try {
+            const raw = engine.getLastTake();
+            if (raw) settings.lastTake = raw;
+            else delete settings.lastTake;
+            persistSettings();
+          } catch {}
+        }
         showPlayed(take && take.written ? `♪ ${take.written}` : '');
         setPlayAlongUI();
       }
@@ -15746,7 +15761,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           setPlayAlongUI();
         });
-        describe(createRefit, 'Lands your last take on the grid as it is NOW — change the time signature or tempo first, and the raw timing you played is re-fitted to it.');
+        describe(createRefit, 'Lands your last take on the grid as it is NOW — change the time signature or tempo first, and the raw timing you played is re-fitted to it. Your take stays on this device, even across a reload, until a new one replaces it.');
       }
 
       setupPopover('timers-toggle', 'timers-popover');
@@ -16082,6 +16097,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // (recordCleanGenreKit after a genre apply) and a loaded snapshot
         // rightly stands the follow down.
         delete s.genreKitClean;
+        // v0.0.164: the raw capture take is a PERFORMANCE MOMENT, persisted
+        // for this device only — a share link or preset carrying someone's
+        // key-taps would be both bloat and a small leak.
+        delete s.lastTake;
         return s;
       }
 
@@ -16165,11 +16184,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        */
       function loadParamsSnapshot(params) {
         const ui = settings.ui;
+        // v0.0.164: like ui, the raw take is session bookkeeping a snapshot
+        // never carries — loading one must not throw the performance away.
+        const lastTake = settings.lastTake;
         const clone = structuredClone(params);
         migrateLegacyArpSteps(clone);
         settings = deepMerge(DEFAULTS, clone);
         normaliseV6Tracks(settings);
         settings.ui = ui;
+        if (isPlainObject(lastTake)) settings.lastTake = lastTake;
         engine.setParams(engineParamsFrom(settings));
         syncUIFromSettings();
         applyDensityScale();
@@ -16902,6 +16925,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const editor = document.getElementById(`voice-editor-${id}`);
           if (editor && !editor.hidden) renderVoiceEditor(id);
         }
+        // v0.0.164: hand a persisted raw take back to the engine, so Re-fit
+        // the last take still works after a reload. Same-value re-sets on
+        // later loads are harmless; a failed restore just leaves no take.
+        if (engineCaps.lastTake && isPlainObject(settings.lastTake)) {
+          try {
+            if (!engine.setLastTake(settings.lastTake)) delete settings.lastTake;
+          } catch {}
+        }
+        try { setPlayAlongUI(); } catch {}
         updateComplexityDisplay();
         updateFrontScope();
       }

@@ -65,9 +65,13 @@ the Mac checkout.
 Nothing ships without these. There is no `npm test`; run them by name.
 
 ```
+export PATH=~/.claude/toolchains/bin:$PATH   # Astro 7 needs Node >= 22.12; the container default is 20
 npm run build                       # must be run first — the tests use the BUILT bundle
 node tests/all.mjs                  # EVERY node suite; non-zero exit if any is red
 ```
+
+Run ONE gate at a time: two concurrent `tests/all.mjs` runs contend and flake
+each other, and a flake misread as red has already cost a false alarm here.
 
 `tests/all.mjs` discovers the suites rather than listing them, so a new one is
 run the day it lands. It exists because a list in a doc cannot fail: two suites

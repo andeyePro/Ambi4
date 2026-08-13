@@ -6477,6 +6477,43 @@ export function createEngine(initialParams, options = {}) {
     return true;
   }
 
+  /**
+   * v0.0.164: the raw take, out and back in — so the PAGE can persist a
+   * performance across a reload and Re-fit still means something tomorrow.
+   * Deep copies both ways, never a live reference; the setter sanitises hard
+   * (a stored blob is attacker-adjacent the day settings sync anywhere).
+   */
+  const TAKE_MAX_ROWS = 2000;
+  function sanitiseTake(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const track = typeof value.track === 'string' && MANIFEST_VOICE_ID.test(value.track)
+      ? value.track : null;
+    if (!track || !Array.isArray(value.beats)) return null;
+    const beats = [];
+    for (const row of value.beats.slice(0, TAKE_MAX_ROWS)) {
+      if (!row || typeof row !== 'object') continue;
+      const start = Number(row.start);
+      if (!Number.isFinite(start) || start < -64 || start > 4096) continue;
+      const endRaw = Number(row.end);
+      const end = Number.isFinite(endRaw) && endRaw >= start && endRaw <= 8192 ? endRaw : null;
+      beats.push({
+        start,
+        end,
+        lane: typeof row.lane === 'string' && row.lane.length <= 32 ? row.lane : null,
+        velocity: Number.isFinite(Number(row.velocity)) ? clamp(Number(row.velocity), 0, 1) : null,
+        midi: Number.isFinite(Number(row.midi)) ? clamp(Math.round(Number(row.midi)), 0, 127) : null,
+      });
+    }
+    return beats.length ? { track, beats } : null;
+  }
+  function getLastTake() {
+    return lastTake ? structuredClone(lastTake) : null;
+  }
+  function setLastTake(value) {
+    lastTake = sanitiseTake(structuredClone(value ?? null));
+    return lastTake !== null;
+  }
+
   /** What the record button needs to draw itself. */
   function getCapture() {
     return {
@@ -9163,6 +9200,8 @@ export function createEngine(initialParams, options = {}) {
     armCapture,
     stopCapture,
     undoCapture,
+    getLastTake,
+    setLastTake,
     requantiseCapture,
     getCapture,
     // Post-master mix as a MediaStream (what the listener hears), for
