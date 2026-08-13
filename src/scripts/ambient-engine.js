@@ -1812,6 +1812,25 @@ function sanitiseVary(value, base) {
  * SILENTLY, exactly as it always has been: this loop never reads a key off the
  * input that the id set does not name.
  */
+/**
+ * v0.0.162 (his 128: a — weighted by section): several voices on one track,
+ * each with a weight; each new SECTION draws the sounding voice from them.
+ * `{ voiceId: weight }`, positive finite weights on plausible ids; null
+ * clears the blend; anything else is dropped. Ids the library does not know
+ * are kept out at draw time (voiceFor's own fallback law), not here — the
+ * sanitiser has no voice bank to ask.
+ */
+function sanitiseVoiceWeights(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = {};
+  for (const [id, weight] of Object.entries(value)) {
+    if (!MANIFEST_VOICE_ID.test(id)) continue;
+    const w = Number(weight);
+    if (Number.isFinite(w) && w > 0) out[id] = clamp(w, 0.01, 100);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.tracks;
   const v = value && typeof value === 'object' ? value : null;
@@ -1861,6 +1880,12 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
         ?? shape.glide,
       vary: sanitiseVary(partial && partial.vary, baseTrack.vary),
     };
+    // v0.0.162: sparse — present only while a blend is set. Supplying the key
+    // (even null) replaces; omitting it inherits, like every other field.
+    const weights = sanitiseVoiceWeights(
+      partial && 'voiceWeights' in partial ? partial.voiceWeights : baseTrack.voiceWeights
+    );
+    if (weights) track.voiceWeights = weights;
     if (shape.tuned) {
       track.dissonance = sanitiseRangeValue(partial && partial.dissonance, 0, 1)
         ?? sanitiseRangeValue(baseTrack.dissonance, 0, 1)
@@ -4514,6 +4539,9 @@ export function createEngine(initialParams, options = {}) {
   const sequencerPlayed = new Set();
   // vary.voice wander: EPHEMERAL, so it never reaches params/getParams.
   const wanderedVoice = new Map();  // track → the voice id actually sounding
+  // v0.0.162 (his 128 a): the section's draw from a track's voiceWeights —
+  // ephemeral like the wander; getParams keeps reporting the user's config.
+  const sectionVoice = new Map();   // track → the voice this section drew
   // Per-kind patch merges (v14 kit), by `${track}:${voice}:${kind}`.
   const kindPatches = new Map();
   // The same merges with every v7 range resolved to a number, thrown away each
@@ -5529,7 +5557,45 @@ export function createEngine(initialParams, options = {}) {
    */
   function effectiveVoice(track) {
     const config = params.tracks[track];
-    return wanderedVoice.get(track) ?? (config ? config.voice : undefined);
+    return wanderedVoice.get(track)
+      ?? sectionVoice.get(track)
+      ?? (config ? config.voice : undefined);
+  }
+
+  /**
+   * v0.0.162 (his 128: a): each new section draws every blended track's voice
+   * from its weights. Deterministic from the seed on a fresh boot (the draw
+   * rides the engine's own rng in bar order); a track with no blend spends no
+   * draw, so every piece stored before this behaves to the byte.
+   */
+  function drawSectionVoices(time) {
+    let changed = false;
+    for (const name of trackOrder()) {
+      const config = params.tracks[name];
+      const weights = config && config.voiceWeights;
+      if (!weights) {
+        if (sectionVoice.delete(name)) changed = true;
+        continue;
+      }
+      const bank = voiceBank(name) || {};
+      const pool = Object.entries(weights).filter(([id]) => bank[id]);
+      if (!pool.length) {
+        if (sectionVoice.delete(name)) changed = true;
+        continue;
+      }
+      const total = pool.reduce((sum, [, w]) => sum + w, 0);
+      let at = rng() * total;
+      let drawn = pool[pool.length - 1][0];
+      for (const [id, w] of pool) {
+        at -= w;
+        if (at <= 1e-12) { drawn = id; break; }
+      }
+      if (sectionVoice.get(name) !== drawn) {
+        sectionVoice.set(name, drawn);
+        changed = true;
+      }
+    }
+    if (changed) applySends(0.4, time);
   }
 
   function voiceFor(track) {
@@ -5558,6 +5624,13 @@ export function createEngine(initialParams, options = {}) {
     let changed = false;
     for (const name of trackOrder()) {
       if (params.tracks[name].state === 'off' || held.has(name)) continue;
+      // v0.0.162: a track with an authored voice blend has STATED its voice
+      // policy — the anti-monotony wander stands down for it entirely (before
+      // any draw, so blend-free pieces keep their exact streams).
+      if (params.tracks[name].voiceWeights) {
+        if (wanderedVoice.delete(name)) changed = true;
+        continue;
+      }
       const amount = varyAmount(name, 'voice');
       if (amount <= 0) {
         if (wanderedVoice.delete(name)) changed = true;
@@ -7883,6 +7956,8 @@ export function createEngine(initialParams, options = {}) {
       || section.intensity !== currentSection.intensity;
     if (changed || !sectionAnnounced) {
       sectionAnnounced = true;
+      // v0.0.162: a new section is when a blended track re-draws its voice.
+      drawSectionVoices(time);
       // A section change picks the hook variant that suits the new intensity —
       // at the next pass boundary, never mid-loop, so the loop stays a loop —
       // and, in the same spirit, its own motif at the next phrase boundary.
@@ -8833,10 +8908,19 @@ export function createEngine(initialParams, options = {}) {
     const tracks = partial && typeof partial === 'object' && partial.tracks
       && typeof partial.tracks === 'object' ? partial.tracks : null;
     if (!tracks) return;
+    let blendTouched = false;
     for (const name of trackOrder()) {
       const track = tracks[name] && typeof tracks[name] === 'object' ? tracks[name] : null;
       if (track && 'voice' in track) wanderedVoice.delete(name);
+      // v0.0.162: touching a blend (or the explicit voice under one) drops
+      // the section's draw for that track and re-draws below, so the edit is
+      // audible now rather than a section away.
+      if (track && ('voiceWeights' in track || 'voice' in track)) {
+        sectionVoice.delete(name);
+        blendTouched = true;
+      }
     }
+    if (blendTouched && isRunning) drawSectionVoices(null);
   }
 
   function setParams(partial) {

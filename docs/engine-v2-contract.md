@@ -194,6 +194,14 @@ Patch = {
   merged over that voice's own defaults) and must honour filter/adsr; subtractive-source
   voices honour `source` too; FM/noise/physical voices ignore `source` fields that don't
   apply. Each voice exports its defaults: `VOICES[track][id].defaults` (full Patch).
+- Voice blends (v0.0.162, his 128 a): `tracks[t].voiceWeights = { voiceId: weight }` —
+  several voices on one track; each new SECTION draws the sounding voice from the
+  weights on the engine's own rng (seed-deterministic; a track with no blend spends
+  no draw, so blend-free pieces are byte-identical). `getParams` keeps reporting the
+  configured `voice`; `getResolved` reports the drawn one — the same seam the
+  vary.voice wander uses, and that wander stands down entirely on a blended track,
+  because an authored blend IS the voice policy. Editing a blend re-draws at once.
+  BY-REGISTER claiming (his option b) is deliberately later.
 - Kit envelopes (v0.0.159, his 129a): a kit publishes each sound's OWN envelope in
   `defaults.perKind[kind].adsr` — the values its primary layer is authored with — and
   the engine keeps adsr PROVENANCE across the per-lane merge: the kit-wide dials stay

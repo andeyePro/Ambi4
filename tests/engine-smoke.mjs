@@ -1187,6 +1187,40 @@ test('v0.0.160: an additive metre cycles its bars in order, at their own lengths
     `a 3/4 bar ran ${d1.toFixed(3)}s against the 4/4 bar's ${d0.toFixed(3)}s`);
 });
 
+test('v0.0.162: a voice blend draws per section, wander stands down, config stays yours', async () => {
+  const run = async () => {
+    const engine = createEngine({
+      bpm: 240, speed: 2, complexity: 0.6, structure: 'abab', timeSignature: '4/4',
+      tracks: {
+        ...tracksAll('off'),
+        // vary.voice at FULL: on the old engine the anti-monotony wander
+        // would stray onto any voice in the bank, so the containment law
+        // below fails there — an authored blend states the voice policy.
+        pad: { state: 'on', voice: 'warm', vary: { voice: 1 }, voiceWeights: { warm: 1, glass: 1 } },
+      },
+    }, { rng: seededRng(6202) });
+    const perBar = [];
+    const perSection = [];
+    engine.on('bar', () => perBar.push(engine.getResolved().tracks.pad.voice));
+    engine.on('section', () => perSection.push(engine.getResolved().tracks.pad.voice));
+    await engine.start();
+    await advance(26, { step: 0.12, sleep: 16 });
+    const config = engine.getParams().tracks.pad.voice;
+    engine.stop();
+    return { perBar, perSection, config };
+  };
+  const a = await run();
+  assert.ok(a.perSection.length >= 3, `only ${a.perSection.length} sections played`);
+  assert.ok(a.perBar.every((v) => v === 'warm' || v === 'glass'),
+    `a blended pad may only sound its weighted voices — saw ${[...new Set(a.perBar)].join(', ')}`);
+  assert.equal(a.config, 'warm', 'getParams must keep reporting the user\'s configured voice');
+  assert.ok(new Set(a.perSection).size > 1,
+    `a 50/50 blend never drew its second voice across ${a.perSection.length} sections`);
+  // Same seed, same draws: the blend is part of the piece, not a shrug.
+  const b = await run();
+  assert.deepEqual(b.perSection, a.perSection, 'the section draws must be seed-deterministic');
+});
+
 test('engine emits bar, section and note events in sane time order', async () => {
   const engine = createEngine({
     bpm: 120, speed: 2, timeSignature: '3/4', complexity: 0.6, structure: 'abab', repetition: 0.5,
