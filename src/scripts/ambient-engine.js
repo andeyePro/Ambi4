@@ -320,6 +320,23 @@ export function metrePulses(timeSignature) {
   // powers of two are still refused, and the reason is stated rather than
   // hidden: a beat of a third or a fifth of a note has no note value to draw
   // it with, so the grid could not label a single one of its own cells.
+  // v0.0.160 (his 134): ADDITIVE metres — '4/4+3/4' is a repeating CYCLE of
+  // bars, one component each, which is how 7/4 fits a five-beat lane: no bar
+  // is ever wider than its own component. This top-level read answers for the
+  // WIDEST component (storage, lane sizing, readouts all want the longest
+  // bar); the scheduler asks metreAt() for the bar it is actually planning.
+  // Up to four components, each a legal single metre.
+  if (typeof timeSignature === 'string' && timeSignature.includes('+')) {
+    const parts = metreComponents(timeSignature);
+    if (!parts) return null;
+    let widest = null;
+    for (const part of parts) {
+      const pulses = metrePulses(part);
+      const beats = pulses.reduce((a, b) => a + b, 0);
+      if (!widest || beats > widest.beats) widest = { pulses, beats };
+    }
+    return widest.pulses;
+  }
   const m = /^([0-9]{1,2})\/(2|4|8|16)$/.exec(String(timeSignature ?? ''));
   if (!m) return null;
   const n = Number(m[1]);
@@ -356,7 +373,35 @@ export function metrePulses(timeSignature) {
   return grouped(n, 0.5);
 }
 
-/** Total quarter-note beats in a bar of the given time signature. */
+/**
+ * v0.0.160 (his 134): the components of an additive metre — '4/4+3/4' →
+ * ['4/4', '3/4'] — when every part is a legal single metre and there are at
+ * most four of them; null for a plain metre or anything malformed. A part may
+ * not itself contain '+', so this cannot recurse.
+ */
+export function metreComponents(timeSignature) {
+  if (typeof timeSignature !== 'string' || !timeSignature.includes('+')) return null;
+  const parts = timeSignature.split('+').map((s) => s.trim());
+  if (parts.length < 2 || parts.length > 4) return null;
+  if (parts.some((p) => p.includes('+') || !Array.isArray(metrePulses(p)))) return null;
+  return parts;
+}
+
+/**
+ * The single metre bar number `barIndex` plays: the additive cycle taken in
+ * order, repeating — bar 0 of '4/4+3/4' is 4/4, bar 1 is 3/4, bar 2 is 4/4
+ * again. A plain metre answers itself for every bar.
+ */
+export function metreAt(timeSignature, barIndex = 0) {
+  const parts = metreComponents(timeSignature);
+  if (!parts) return timeSignature;
+  const n = parts.length;
+  const i = ((Math.round(barIndex) % n) + n) % n;
+  return parts[i];
+}
+
+/** Total quarter-note beats in a bar of the given time signature (the widest
+ * bar of an additive cycle — see metrePulses). */
 export function beatsPerBar(timeSignature) {
   const pulses = metrePulses(timeSignature) ?? TIME_SIGNATURES['4/4'];
   return pulses.reduce((a, b) => a + b, 0);
@@ -4757,9 +4802,12 @@ export function createEngine(initialParams, options = {}) {
     return legalResolution(asked) ? asked : SEQUENCER_STEP_BEATS;
   }
 
-  /** How many slots this track's bar plays at its own resolution. */
+  /** How many slots this track's bar plays at its own resolution — the bar
+   * being planned, so an additive cycle's shorter bars play their own prefix
+   * (v0.0.160). Every caller runs inside scheduleBar, after currentBarNumber
+   * is set to the bar under construction. */
   function trackSlots(track) {
-    return stepsPerBarAt(params.timeSignature, trackStepBeats(track));
+    return stepsPerBarAt(metreAt(params.timeSignature, currentBarNumber), trackStepBeats(track));
   }
 
   function trackDensity(track) {
@@ -6227,7 +6275,7 @@ export function createEngine(initialParams, options = {}) {
       return {
         origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
         stepSeconds: secPerBeat * (ARP_RATES[rate] ?? 0.5),
-        stepCount: arpLaneLength(params.timeSignature, rate),
+        stepCount: arpLaneLength(metreAt(params.timeSignature, currentBarNumber), rate),
       };
     }
     // A take is quantised onto the TRACK's own grid — its resolution as well
@@ -6236,7 +6284,7 @@ export function createEngine(initialParams, options = {}) {
     return {
       origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
       stepSeconds: secPerBeat * beats,
-      stepCount: stepsPerBarAt(params.timeSignature, beats),
+      stepCount: stepsPerBarAt(metreAt(params.timeSignature, currentBarNumber), beats),
     };
   }
 
@@ -6555,7 +6603,7 @@ export function createEngine(initialParams, options = {}) {
   /** Write a fresh cell for the section that is starting. */
   function establishMotif() {
     motif = buildMotif({
-      beatsPerBar: beatsPerBar(params.timeSignature),
+      beatsPerBar: beatsPerBar(metreAt(params.timeSignature, currentBarNumber)),
       complexity: params.complexity,
       scaleLength: scale().length,
       rng,
@@ -6948,7 +6996,7 @@ export function createEngine(initialParams, options = {}) {
     // this key exists to prevent.
     const band = (v) => Math.round(clamp(v, 0, 2) * 4) / 4;
     const key = [
-      currentSection.label, bassIntensityBand(), params.timeSignature,
+      currentSection.label, bassIntensityBand(), metreAt(params.timeSignature, currentBarNumber),
       band(params.complexity), band(trackDensity('bass')),
     ].join(':');
     if (bassGroove && bassGrooveKey === key) return bassGroove;
@@ -7136,7 +7184,7 @@ export function createEngine(initialParams, options = {}) {
   function manualDegrees() {
     if (!motif || !motif.steps.length) return [0, 2, 4];
     return developMotif(motif, phraseOp(), {
-      beatsPerBar: beatsPerBar(params.timeSignature),
+      beatsPerBar: beatsPerBar(metreAt(params.timeSignature, currentBarNumber)),
       scaleLength: scale().length,
       rng,
     }).steps;
@@ -7283,7 +7331,7 @@ export function createEngine(initialParams, options = {}) {
   function planMelody(intensity) {
     if (isManual('melody')) return planMelodyManual();
     if (!motif) return emptyMelodyPlan();
-    const barBeats = beatsPerBar(params.timeSignature);
+    const barBeats = beatsPerBar(metreAt(params.timeSignature, currentBarNumber));
     const scaleLength = scale().length;
     const op = phraseOp();
     const spread = trackRandomness('melody');
@@ -7411,7 +7459,7 @@ export function createEngine(initialParams, options = {}) {
     const cfg = effectiveArp(intensity, !manual);
     const stepBeats = ARP_RATES[cfg.rate] ?? 0.5;
     const lane = manual ? sequencerFor('arp').steps : null;
-    const laneLength = manual ? arpLaneLength(params.timeSignature, cfg.rate) : 0;
+    const laneLength = manual ? arpLaneLength(metreAt(params.timeSignature, currentBarNumber), cfg.rate) : 0;
     const sequence = buildArpSequence(chordMidis(4, 4), cfg.pattern, cfg.octaves);
     if (!sequence.length) return null;
     const plan = { pattern: cfg.pattern, octaves: cfg.octaves, steps: [] };
@@ -7761,7 +7809,9 @@ export function createEngine(initialParams, options = {}) {
       bassPocket = null;
       frozenPlans.clear();
     }
-    const pulses = metrePulses(params.timeSignature) ?? TIME_SIGNATURES['4/4'];
+    // v0.0.160 (his 134): an additive metre is a repeating cycle of bars —
+    // this bar plays its own component, and everything below reads `bar`.
+    const pulses = metrePulses(metreAt(params.timeSignature, barIndex)) ?? TIME_SIGNATURES['4/4'];
     const secPerBeat = 60 / clamp(params.bpm * params.speed, 10, 400);
     const starts = [];
     let acc = 0;

@@ -166,6 +166,8 @@ const engineModule = await import('../src/scripts/ambient-engine.js');
 const {
   sanitiseParams,
   metrePulses,
+  metreComponents,
+  metreAt,
   randomnessIsHold,
   REVERB_TAIL_RANGE,
   quantiseToScale,
@@ -872,6 +874,27 @@ test('sanitiseParams validates structure and custom blocks', () => {
   assert.equal(metrePulses('7/3'), null, 'a third of a note is not a beat we can draw');
   assert.equal(sanitiseParams({ timeSignature: '5/8' }).timeSignature, '5/8');
   assert.equal(sanitiseParams({ timeSignature: '6/4' }).timeSignature, '4/4');
+  // v0.0.160 (his 134): additive metres — a repeating cycle of bars, which is
+  // how 7/4 fits a five-beat lane. The top-level pulse read answers for the
+  // WIDEST component; metreAt names each bar's own component, cycling.
+  assert.deepEqual(metrePulses('4/4+3/4'), [1, 1, 1, 1], 'additive answers the widest bar');
+  assert.equal(beatsPerBar('4/4+3/4'), 4);
+  assert.deepEqual(metrePulses('3/4+9/8'), [1.5, 1.5, 1.5], 'widest by BEATS, not by count');
+  assert.deepEqual(metrePulses('3/4+6/8'), [1, 1, 1], 'equal widths keep the FIRST component');
+  assert.deepEqual(metreComponents('2/4+3/8+5/16'), ['2/4', '3/8', '5/16']);
+  assert.equal(metreComponents('4/4'), null, 'a plain metre has no components');
+  assert.equal(metreAt('4/4+3/4', 0), '4/4');
+  assert.equal(metreAt('4/4+3/4', 1), '3/4');
+  assert.equal(metreAt('4/4+3/4', 2), '4/4');
+  assert.equal(metreAt('4/4+3/4', -1), '3/4', 'negative bars cycle too');
+  assert.equal(metreAt('7/8', 5), '7/8', 'a plain metre answers itself');
+  assert.equal(sanitiseParams({ timeSignature: '4/4+3/4' }).timeSignature, '4/4+3/4');
+  assert.equal(sanitiseParams({ timeSignature: '4/4+' }).timeSignature, '4/4',
+    'a trailing plus is malformed');
+  assert.equal(sanitiseParams({ timeSignature: '4/4+6/4' }).timeSignature, '4/4',
+    'every component must be a legal single metre');
+  assert.equal(sanitiseParams({ timeSignature: '2/4+2/4+2/4+2/4+2/4' }).timeSignature, '4/4',
+    'the cycle caps at four bars');
 
   assert.equal(sanitiseParams({ structure: 'journey' }).structure, 'journey');
   assert.equal(sanitiseParams({ structure: 'nope' }).structure, 'auto');
@@ -1140,6 +1163,28 @@ test('engine survives extreme parameter combinations', async () => {
     await advance(0.8);
   }
   engine.stop();
+});
+
+test('v0.0.160: an additive metre cycles its bars in order, at their own lengths', async () => {
+  const engine = createEngine({
+    bpm: 240, speed: 2, timeSignature: '4/4+3/4', complexity: 0.5, structure: 'drone',
+  });
+  const bars = [];
+  engine.on('bar', (e) => bars.push(e));
+  await engine.start();
+  await advance(8, { step: 0.12, sleep: 16 });
+  engine.stop();
+  assert.ok(bars.length >= 4, `only ${bars.length} bars played`);
+  for (const e of bars) {
+    assert.equal(e.beatsPerBar, e.bar % 2 === 0 ? 4 : 3,
+      `bar ${e.bar} of 4/4+3/4 played ${e.beatsPerBar} beats`);
+  }
+  // The bar DURATIONS follow the cycle too: a 3/4 bar is three quarters of
+  // the 4/4 bar, which is what makes the pair FEEL like one bar of 7/4.
+  const d0 = bars[1].time - bars[0].time;
+  const d1 = bars[2].time - bars[1].time;
+  assert.ok(Math.abs(d1 / d0 - 0.75) < 0.02,
+    `a 3/4 bar ran ${d1.toFixed(3)}s against the 4/4 bar's ${d0.toFixed(3)}s`);
 });
 
 test('engine emits bar, section and note events in sane time order', async () => {

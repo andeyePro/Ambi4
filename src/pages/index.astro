@@ -809,7 +809,8 @@ const VOICES: Record<string, [string, string][]> = {
           </select>
           <span id="custom-metre" class="custom-metre" hidden>
             <label class="visually-hidden" for="custom-metre-n">Beats per bar</label>
-            <input id="custom-metre-n" type="number" min="2" max="10" value="4" inputmode="numeric" />
+            <!-- v0.0.160 (his 134): text, not number - "4+3" is a legal numerator now. -->
+            <input id="custom-metre-n" type="text" value="4" inputmode="numeric" pattern="[0-9+ ]*" size="5" />
             <span aria-hidden="true">/</span>
             <label class="visually-hidden" for="custom-metre-d">Beat unit</label>
             <select id="custom-metre-d">
@@ -3786,13 +3787,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // The numerator's ceiling is whatever fits five beats at that unit,
           // which is the lane's own storage window rather than a taste call.
           const most = { 2: 2, 4: 5, 8: 10, 16: 20 }[d];
-          const n = clamp(Math.round(Number(nInput.value) || 4), 1, most);
-          const sig = `${n}/${d}`;
+          // v0.0.160 (his 134): "4+3" is an ADDITIVE metre — a repeating
+          // cycle of bars, one component each, which is how 7/4 fits the
+          // five-beat lane: 4/4+3/4. Up to four components, each clamped to
+          // the same storage window a single bar has. The engine remains the
+          // judge: commit re-reads getParams and shows what stuck.
+          const counts = String(nInput.value ?? '')
+            .split('+')
+            .map((s) => clamp(Math.round(Number(s.trim())), 1, most))
+            .filter((n) => Number.isFinite(n))
+            .slice(0, 4);
+          if (!counts.length) counts.push(4);
+          const sig = counts.map((n) => `${n}/${d}`).join('+');
           engine.setParams({ timeSignature: sig });
           const accepted = engine.getParams().timeSignature;
           settings.timeSignature = accepted;
-          nInput.value = String(Number(accepted.split('/')[0]) || n);
-          const acceptedD = accepted.split('/')[1];
+          const parts = accepted.split('+').map((p) => p.split('/'));
+          nInput.value = parts.map((p) => p[0]).join('+');
+          const acceptedD = parts[0][1];
           dSelect.value = METRE_UNITS.includes(acceptedD) ? acceptedD : '4';
           for (const ed of openEditors.values()) {
             try { ed.seq?.refresh(); } catch {}
@@ -3814,7 +3826,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // bug (6105e0d). A plain title carries the bounds instead.
         if (nInput) {
           nInput.title = 'Beats per bar. The bar can hold five quarter-note beats — the step grid\u2019s '
-            + 'own window — so that is up to 2 over 2, 5 over 4, 10 over 8 or 20 over 16.';
+            + 'own window — so that is up to 2 over 2, 5 over 4, 10 over 8 or 20 over 16. '
+            + 'Write 4+3 for an additive metre: bars alternate 4 then 3, which is how 7/4 '
+            + 'works — no single bar outgrows the grid.';
         }
       }
 
@@ -16352,11 +16366,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const wrap = document.getElementById('custom-metre');
           if (wrap) wrap.hidden = named;
           if (!named) {
-            const [n, d] = String(settings.timeSignature).split('/');
+            // v0.0.160: an additive metre restores as its numerator cycle
+            // ('4/4+3/4' shows 4+3 over 4).
+            const parts = String(settings.timeSignature).split('+').map((p) => p.split('/'));
             const nEl = document.getElementById('custom-metre-n');
             const dEl = document.getElementById('custom-metre-d');
-            if (nEl) nEl.value = n;
-            if (dEl) dEl.value = d === '8' ? '8' : '4';
+            if (nEl) nEl.value = parts.map((p) => p[0]).join('+');
+            if (dEl) dEl.value = ['2', '4', '8', '16'].includes(parts[0][1]) ? parts[0][1] : '4';
           }
         }
         // A preset, a genre or a share link can bring its own loop, key and

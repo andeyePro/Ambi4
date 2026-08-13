@@ -35,7 +35,16 @@ Six tracks, fixed order and ids: `pad`, `bass`, `melody`, `texture`, `arp`, `per
                            // lydian|mixolydian|aeolian|wholeTone|blues|harmonicMinor|
                            // melodicMinor|locrian|diminished|chromatic
   timeSignature: '4/4',    // named: 3/4|4/4|5/4|6/8|7/8 — PLUS custom N/4 (2–5)
-                           // and N/8 (3–10) since v0.0.98, anything metrePulses() grids
+                           // and N/8 (3–10) since v0.0.98, anything metrePulses() grids.
+                           // v0.0.160 (his 134): ADDITIVE '4/4+3/4' — a repeating
+                           // CYCLE of bars, up to four components, each a legal
+                           // single metre; this is how 7/4 fits the five-beat lane.
+                           // metrePulses()/beatsPerBar() answer for the WIDEST
+                           // component (storage/readout); metreAt(ts, barIndex)
+                           // names each bar's own component and the scheduler,
+                           // planners and capture grid all read the bar they are
+                           // actually planning. Shorter bars play a lane's prefix,
+                           // the law shorter metres have always had.
   bpm: 60,                 // 20–220 (widened at v0.0.71 when tempo left Energy)
   volume: 0.8,             // 0–1
   structure: 'auto',       // 'auto'|'drone'|'waves'|'build'|'abab'|'journey'|'custom'
