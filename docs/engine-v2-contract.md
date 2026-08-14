@@ -194,6 +194,15 @@ Patch = {
   merged over that voice's own defaults) and must honour filter/adsr; subtractive-source
   voices honour `source` too; FM/noise/physical voices ignore `source` fields that don't
   apply. Each voice exports its defaults: `VOICES[track][id].defaults` (full Patch).
+- Sampling (v0.0.167, routing phase 4's engine half): `params.sampling` — a sparse
+  map keyed like the walks (`'track:param'`, the `'@global'` pseudo-track included)
+  saying WHEN that spread's walk advances. Honoured values: `chord` (a bar that
+  begins a fresh chord) and `section` (a bar that begins a section); `bar` is the
+  default and is never stored; `note` is deliberately NOT on the wire until the
+  per-note resolution path exists — an accepted token played as bar would be a
+  lying control. Supplying the map replaces it; absent inherits. Shaped drifts
+  (rise/fall/swell/cycle/step) gate their phase counters the same way. The tiny
+  sampling dial (D4) is the UI half, pending the phase-3 gesture ruling.
 - Raw takes (v0.0.164): `getLastTake()` / `setLastTake(take)` move the beat-domain
   raw capture out of the engine and back — the page persists it in its own settings
   (NEVER in params, so it cannot reach a share link, a preset or the audio path) and

@@ -1348,6 +1348,9 @@ export const DEFAULT_PARAMS = Object.freeze({
   // this version, and stays byte-identical to one — a key absent here is a
   // dial that is not drifting.
   spans: Object.freeze({}),
+  // v0.0.167 (routing phase 4, engine half): WHEN each spread's walk
+  // advances, per dial — sparse, keyed like the walks ('track:param').
+  sampling: Object.freeze({}),
   // v26 seed: the chord loop the hook establishes from, or null to walk one.
   harmony: Object.freeze({ rhythm: 'auto', seed: null }),
   structure: 'auto',
@@ -2522,6 +2525,24 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
     }
   }
   if (!out.spans) out.spans = {};
+  // v0.0.167: sampling — when a spread's walk advances. Values are the
+  // reserved tokens the engine HONOURS today: bar (the default, never
+  // stored), chord, section. 'note' stays OFF the wire until the per-note
+  // resolution path exists — a token accepted but played as bar would be a
+  // lying control. Supplying `sampling` replaces the map; absent inherits.
+  {
+    const SAMPLING_KEY = /^[@A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9_.-]{1,64}$/;
+    const asked = at('sampling');
+    const source = asked !== undefined ? asked : from.sampling;
+    const map = {};
+    if (source && typeof source === 'object' && !Array.isArray(source)) {
+      for (const [key, value] of Object.entries(source)) {
+        if (!SAMPLING_KEY.test(key)) continue;
+        if (value === 'chord' || value === 'section') map[key] = value;
+      }
+    }
+    out.sampling = map;
+  }
   {
     const asked = at('tempoLanding');
     const inherited = from.tempoLanding === 'bar' ? 'bar' : 'beat';
@@ -2635,6 +2656,7 @@ function copyParams(params, order = TRACK_ORDER) {
     spans: Object.fromEntries(
       Object.entries(params.spans || {}).map(([key, span]) => [key, { ...span }])
     ),
+    sampling: { ...(params.sampling || {}) },
     // A manifest is an object inside the entry: a spread of the entry alone
     // would hand its dials out by reference.
     userTracks: params.userTracks.map((entry) => (entry.manifest
@@ -4561,6 +4583,20 @@ export function createEngine(initialParams, options = {}) {
    */
   const WALK_STEP = 0.15;
 
+  // v0.0.167: what the CURRENT bar begins, for sampling-gated walks. Set at
+  // the top of scheduleBar (section) and just before advanceWalks (chord —
+  // read off chordBarsLeft before the harmony frame decrements it).
+  let samplingSectionFresh = false;
+  let samplingChordFresh = false;
+
+  /** The sampling this walk key follows: its override, else bar (the
+   * registry default for every row today — when rows diverge, this is where
+   * the registry's own sampling column gets read). */
+  function walkSampling(key) {
+    const token = params.sampling ? params.sampling[key] : undefined;
+    return token === 'chord' || token === 'section' ? token : 'bar';
+  }
+
   function walk(track, param) {
     const key = `${track}:${param}`;
     let position = walkPhases.get(key);
@@ -4646,6 +4682,13 @@ export function createEngine(initialParams, options = {}) {
       // step probability included — therefore sit still until it is released.
       const track = key.slice(0, key.indexOf(':'));
       if (held.has(track) || frozen.has(track)) continue;
+      // v0.0.167: a chord- or section-sampled walk advances only on a bar
+      // that BEGINS one — covering the '@global' pseudo-track for free,
+      // since its phases live in the same map. Shaped drifts hold their
+      // phase counters the same way: the gate sits before the shape runs.
+      const sampling = walkSampling(key);
+      if (sampling === 'chord' && !samplingChordFresh) continue;
+      if (sampling === 'section' && !samplingSectionFresh) continue;
       // v0.0.72: a SHAPED drift advances on a fixed path instead of wandering.
       // The walk position is the same 0–1 number either way, so every consumer
       // — resolveRange, the live readouts, the dial's own live mark — is
@@ -7955,6 +7998,7 @@ export function createEngine(initialParams, options = {}) {
     // before start() learns where the piece begins.
     const changed = section.label !== currentSection.label
       || section.intensity !== currentSection.intensity;
+    samplingSectionFresh = changed || !sectionAnnounced;
     if (changed || !sectionAnnounced) {
       sectionAnnounced = true;
       // v0.0.162: a new section is when a blended track re-draws its voice.
@@ -7995,6 +8039,9 @@ export function createEngine(initialParams, options = {}) {
     // Hold, re-rolls and the drift walks all settle before anything is drawn,
     // so a bar is realised exactly once against a stable set of decisions.
     applyHolds();
+    // v0.0.167: will this bar start a fresh chord? The harmony frame below
+    // decides with exactly this comparison, after the walks have stepped.
+    samplingChordFresh = chordBarsLeft <= 0;
     advanceWalks();
     resolveGlobalSpans();
     // A lane's loop is the bar, so the Markov pick between a track's several

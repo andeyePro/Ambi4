@@ -324,6 +324,14 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
    step to the registry's `sampling` field, add the inherit state, and ship the
    bottom-left tiny dial with its four icons. Delivers "a min-max dial must say
    how the value is chosen" without any patching yet.
+   **ENGINE HALF SHIPPED v0.0.167 (2026-08-14)**: `params.sampling` (sparse,
+   walk-keyed, replace-on-supply), honoured for `chord` and `section` with
+   `bar` the unstored default, gating both the random walk and every shaped
+   drift's phase counter; `'@global'` spans gate through the same map.
+   `note` is refused at the sanitiser until per-note resolution exists (the
+   bar-cadenced caches make it structurally later), so no stored token can
+   lie. The tiny-dial UI waits on the phase-3 gesture ruling (fromClaude 10)
+   because its bottom-left bay belongs to the new face layout.
 5. **Modulation graph (D3-D6, D10).** A serialisable list of
    `{source, destination}` edges — no depth field, since spread is depth.
    Sources are envelopes (per voice), LFOs and macros (global), and any

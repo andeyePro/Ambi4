@@ -1204,6 +1204,55 @@ test('v0.0.165: the registry and the patch schema cannot drift', async () => {
   assert.deepEqual(reg.RESERVED_TOKENS.stepRules, ['absolute', 'walk', 'up', 'down', 'pingpong', 'cycle']);
 });
 
+test('v0.0.167: sampling gates a spread\'s walk to chord and section starts', async () => {
+  const run = async (sampling) => {
+    const engine = createEngine({
+      bpm: 240, speed: 2, complexity: 0.5, structure: 'abab', timeSignature: '4/4',
+      harmony: { rhythm: 4 },
+      tracks: {
+        ...tracksAll('off'),
+        pad: { state: 'on', level: { min: 0.2, max: 0.8 }, randomness: 0.5 },
+      },
+      sampling,
+    }, { rng: seededRng(6711) });
+    const perBar = [];
+    engine.on('bar', () => perBar.push(engine.getResolved().tracks.pad.level));
+    await engine.start();
+    await advance(26, { step: 0.12, sleep: 16 });
+    engine.stop();
+    return perBar;
+  };
+  // The 'bar' event fires BEFORE that bar's own walk step, so a boundary
+  // bar's new draw is visible one event later: a change at index i means the
+  // walk advanced during bar i-1. The law: changes may sit only at indices
+  // congruent to 1 modulo the period.
+  const changeIndices = (values) => {
+    const changes = [];
+    for (let i = 1; i < values.length; i++) {
+      if (values[i].toFixed(6) !== values[i - 1].toFixed(6)) changes.push(i);
+    }
+    return changes;
+  };
+  // abab: 8-bar sections; changes visible at indices 1, 9, 17...
+  const sectioned = await run({ 'pad:level': 'section' });
+  assert.ok(sectioned.length >= 17, `only ${sectioned.length} bars played`);
+  const sectionChanges = changeIndices(sectioned);
+  assert.ok(sectionChanges.length >= 1,
+    'the level never moved at all — the gate froze it instead of sampling it');
+  for (const i of sectionChanges) {
+    assert.equal(i % 8, 1,
+      `a section-sampled level moved mid-section (change at bar-event ${i}; changes: ${sectionChanges.join(', ')})`);
+  }
+  // harmony.rhythm pinned at 4; changes visible at indices 1, 5, 9...
+  const chorded = await run({ 'pad:level': 'chord' });
+  const chordChanges = changeIndices(chorded);
+  assert.ok(chordChanges.length >= 1, 'the chord-sampled level never moved at all');
+  for (const i of chordChanges) {
+    assert.equal(i % 4, 1,
+      `a chord-sampled level moved mid-chord (change at bar-event ${i}; changes: ${chordChanges.join(', ')})`);
+  }
+});
+
 test('v0.0.160: an additive metre cycles its bars in order, at their own lengths', async () => {
   const engine = createEngine({
     bpm: 240, speed: 2, timeSignature: '4/4+3/4', complexity: 0.5, structure: 'drone',
