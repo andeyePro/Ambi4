@@ -311,9 +311,11 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
    ceiling, and the literals survive only as no-registry fallbacks. The one
    deliberate exception is documented in place: the octave DIAL ships ±1
    while the registry (and sanitiser) accept ±2, because every voice's own
-   OCTAVES table clamps at ±1. Still open for 2b: the full literal→loop
-   collapse (labels/formats/tooltips as registry UI metadata), the slider
-   fallback editor's literals, and allowRange as a derived property.
+   OCTAVES table clamps at ±1. **Phase 2b SHIPPED v0.0.169 (2026-08-14)**: the slider fallback
+   editor's fourteen domain literals joined the registry reads through the
+   shared patchDomain() both editors now use. Still open for 2c: the full
+   literal→loop collapse (labels/formats/tooltips as registry UI metadata)
+   and allowRange as a derived property.
 3. **Gesture rebuild (D1, D2, D9).** Base-and-spread drag model, axis lock,
    centre-tap default, muted-grey zeroed state, live-value pointer (reusing the
    `ghostValue` substrate), full-diameter indicator for enumerations. Deletes

@@ -9430,6 +9430,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return true;
       }
 
+      /**
+       * Phase 2b (v0.0.169): BOTH editors read each dial's domain off the
+       * registry — one source of truth; the literal pair survives only as
+       * the fallback an engine bundle without a registry would boot on.
+       * Octave stays the documented exception (the dial ships ±1, the
+       * registry ±2 — the voices' own OCTAVES table clamps there).
+       */
+      function patchDomain(path, lo, hi) {
+        const table = engineModule && engineModule.PARAM_REGISTRY;
+        const row = table ? table[`patch.${path}`] : null;
+        return row && row.kind === 'number' ? row.domain : [lo, hi];
+      }
+
       // Fallback editor: the pre-v5 slider/select controls — the path when
       // knob.js is missing or its API throws. Writes the same
       // shape-normalised patch the knob editor writes.
@@ -9476,11 +9489,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (osc2Control) describe(osc2Control, 'Adds a second oscillator; Mix balances the two.');
         }
         if (source && controlsFieldAllowed(sourceSpec, 'mix')) {
+          const [sMixLo, sMixHi] = patchDomain('source.mix', 0, 1);
           const mixControl = veRange(source, 'Mix', {
-            min: 0,
-            max: 1,
+            min: sMixLo,
+            max: sMixHi,
             step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.source.mix, 0, 1, 0.5)),
+            value: rangeMid(sanitiseRangeValueIn(patch.source.mix, sMixLo, sMixHi, 0.5)),
             onChange: (v) => {
               patch.source.mix = v;
               commit();
@@ -9544,30 +9558,32 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
         if (source && pitchInPlaceOfOctave && sourceEditable('pitch')) {
+          const [sPtLo, sPtHi] = patchDomain('source.pitch', -24, 24);
           veRange(source, 'Pitch', {
-            min: -24,
-            max: 24,
+            min: sPtLo,
+            max: sPtHi,
             step: 1,
             value: clamp(
               typeof patch.source.pitch === 'number'
                 ? patch.source.pitch
                 : (patch.source.octave || 0) * 12,
-              -24,
-              24
+              sPtLo,
+              sPtHi
             ),
             format: (v) => (v > 0 ? `+${Math.round(v)} st` : `${Math.round(v)} st`),
             onChange: (v) => {
-              patch.source.pitch = Math.round(clamp(v, -24, 24));
+              patch.source.pitch = Math.round(clamp(v, sPtLo, sPtHi));
               commit();
             },
           });
         }
         if (source && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
+          const [sNzLo, sNzHi] = patchDomain('source.noise', 0, 1);
           veRange(source, 'Noise', {
-            min: 0,
-            max: 1,
+            min: sNzLo,
+            max: sNzHi,
             step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.source.noise, 0, 1, defaults?.source?.noise ?? 1)),
+            value: rangeMid(sanitiseRangeValueIn(patch.source.noise, sNzLo, sNzHi, defaults?.source?.noise ?? 1)),
             format: pctFormat,
             parse: pctParse,
             onChange: (v) => {
@@ -9587,11 +9603,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           controlsFieldAllowed(sourceSpec, 'fold') &&
           typeof defaults?.source?.fold === 'number'
         ) {
+          const [sFdLo, sFdHi] = patchDomain('source.fold', 0, 1);
           veRange(source, 'Fold', {
-            min: 0,
-            max: 1,
+            min: sFdLo,
+            max: sFdHi,
             step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.source.fold, 0, 1, defaults?.source?.fold ?? 0)),
+            value: rangeMid(sanitiseRangeValueIn(patch.source.fold, sFdLo, sFdHi, defaults?.source?.fold ?? 0)),
             format: pctFormat,
             parse: pctParse,
             onChange: (v) => {
@@ -9634,11 +9651,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
         if (filter && controlsFieldAllowed(filterSpec, 'cutoff')) {
+          const [sCfLo, sCfHi] = patchDomain('filter.cutoff', 40, 12000);
           veRange(filter, 'Cutoff', {
-            min: 40,
-            max: 12000,
+            min: sCfLo,
+            max: sCfHi,
             log: true,
-            value: rangeMid(sanitiseRangeValueIn(patch.filter.cutoff, 40, 12000, 2000)),
+            value: rangeMid(sanitiseRangeValueIn(patch.filter.cutoff, sCfLo, sCfHi, 2000)),
             format: hzFormat,
             onChange: (v) => {
               patch.filter.cutoff = Math.round(v);
@@ -9647,11 +9665,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
         if (filter && controlsFieldAllowed(filterSpec, 'q')) {
+          const [sQLo, sQHi] = patchDomain('filter.q', 0.1, 20);
           veRange(filter, 'Resonance', {
-            min: 0.1,
-            max: 20,
+            min: sQLo,
+            max: sQHi,
             step: 0.1,
-            value: rangeMid(sanitiseRangeValueIn(patch.filter.q, 0.1, 20, 0.7)),
+            value: rangeMid(sanitiseRangeValueIn(patch.filter.q, sQLo, sQHi, 0.7)),
             onChange: (v) => {
               patch.filter.q = v;
               commit();
@@ -9659,11 +9678,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
         if (filter && controlsFieldAllowed(filterSpec, 'envAmount')) {
+          const [sEaLo, sEaHi] = patchDomain('filter.envAmount', 0, 1);
           veRange(filter, 'Env amount', {
-            min: 0,
-            max: 1,
+            min: sEaLo,
+            max: sEaHi,
             step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.filter.envAmount, 0, 1, 0.3)),
+            value: rangeMid(sanitiseRangeValueIn(patch.filter.envAmount, sEaLo, sEaHi, 0.3)),
             onChange: (v) => {
               patch.filter.envAmount = v;
               commit();
@@ -9673,11 +9693,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         const adsr = controlsSectionVisible(adsrSpec) ? veSection(container, 'Envelope') : null;
         if (adsr && controlsFieldAllowed(adsrSpec, 'attack')) {
+          const [sAtLo, sAtHi] = patchDomain('adsr.attack', 0.001, 8);
           veRange(adsr, 'Attack', {
-            min: 0.001,
-            max: 8,
+            min: sAtLo,
+            max: sAtHi,
             log: true,
-            value: rangeMid(sanitiseRangeValueIn(patch.adsr.attack, 0.001, 8, 0.01)),
+            value: rangeMid(sanitiseRangeValueIn(patch.adsr.attack, sAtLo, sAtHi, 0.01)),
             format: secFormat,
             onChange: (v) => {
               patch.adsr.attack = v;
@@ -9686,11 +9707,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
         if (adsr && controlsFieldAllowed(adsrSpec, 'decay')) {
+          const [sDcLo, sDcHi] = patchDomain('adsr.decay', 0.001, 8);
           veRange(adsr, 'Decay', {
-            min: 0.001,
-            max: 8,
+            min: sDcLo,
+            max: sDcHi,
             log: true,
-            value: rangeMid(sanitiseRangeValueIn(patch.adsr.decay, 0.001, 8, 0.2)),
+            value: rangeMid(sanitiseRangeValueIn(patch.adsr.decay, sDcLo, sDcHi, 0.2)),
             format: secFormat,
             onChange: (v) => {
               patch.adsr.decay = v;
@@ -9699,11 +9721,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
         if (adsr && controlsFieldAllowed(adsrSpec, 'sustain')) {
+          const [sSuLo, sSuHi] = patchDomain('adsr.sustain', 0, 1);
           veRange(adsr, 'Sustain', {
-            min: 0,
-            max: 1,
+            min: sSuLo,
+            max: sSuHi,
             step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.adsr.sustain, 0, 1, 0.7)),
+            value: rangeMid(sanitiseRangeValueIn(patch.adsr.sustain, sSuLo, sSuHi, 0.7)),
             onChange: (v) => {
               patch.adsr.sustain = v;
               commit();
@@ -9711,11 +9734,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
         if (adsr && controlsFieldAllowed(adsrSpec, 'release')) {
+          const [sRlLo, sRlHi] = patchDomain('adsr.release', 0.01, 12);
           veRange(adsr, 'Release', {
-            min: 0.01,
-            max: 12,
+            min: sRlLo,
+            max: sRlHi,
             log: true,
-            value: rangeMid(sanitiseRangeValueIn(patch.adsr.release, 0.01, 12, 0.5)),
+            value: rangeMid(sanitiseRangeValueIn(patch.adsr.release, sRlLo, sRlHi, 0.5)),
             format: secFormat,
             onChange: (v) => {
               patch.adsr.release = v;
@@ -9726,11 +9750,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         const sends = controlsSectionVisible(sendsSpec) ? veSection(container, 'Sends') : null;
         if (sends && controlsFieldAllowed(sendsSpec, 'reverb')) {
+          const [sRvLo, sRvHi] = patchDomain('sends.reverb', 0, 1);
           veRange(sends, 'Reverb', {
-            min: 0,
-            max: 1,
+            min: sRvLo,
+            max: sRvHi,
             step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.sends.reverb, 0, 1, 0.3)),
+            value: rangeMid(sanitiseRangeValueIn(patch.sends.reverb, sRvLo, sRvHi, 0.3)),
             onChange: (v) => {
               patch.sends.reverb = v;
               commit();
@@ -9738,11 +9763,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
         if (sends && controlsFieldAllowed(sendsSpec, 'delay')) {
+          const [sDlLo, sDlHi] = patchDomain('sends.delay', 0, 1);
           veRange(sends, 'Delay', {
-            min: 0,
-            max: 1,
+            min: sDlLo,
+            max: sDlHi,
             step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.sends.delay, 0, 1, 0.15)),
+            value: rangeMid(sanitiseRangeValueIn(patch.sends.delay, sDlLo, sDlHi, 0.15)),
             onChange: (v) => {
               patch.sends.delay = v;
               commit();
@@ -9772,11 +9798,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // without a registry would boot on. Octave is the one deliberate
         // exception below: the registry (and sanitiser) accept ±2, the DIAL
         // ships ±1 because every voice's own OCTAVES table clamps there.
-        const regDomain = (path, lo, hi) => {
-          const table = engineModule && engineModule.PARAM_REGISTRY;
-          const row = table ? table[`patch.${path}`] : null;
-          return row && row.kind === 'number' ? row.domain : [lo, hi];
-        };
+        const regDomain = patchDomain;
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
