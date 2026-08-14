@@ -35,15 +35,19 @@ export default async function drive(page) {
   const dialogOpen = await page.evaluate(() => !!document.getElementById('voice-blend-editor'));
   check('the blend dialog opens', dialogOpen, true);
 
-  // Warm 1 / Glass 1, Done.
+  // Warm 1 / Glass 1, everything else 0, Done. ZEROING FIRST matters: the
+  // dialog seeds the CURRENT voice at weight 1, and a fresh visit draws a
+  // RANDOM genre — a draw that lands the pad on Polysaw would otherwise ride
+  // into the blend and fail the exact-weights assert on the draw (the repo's
+  // own pin-the-genre trap, met here as pin-the-weights).
   await page.evaluate(() => {
-    const set = (id, v) => {
-      const el = document.getElementById(id);
+    const set = (el, v) => {
       el.value = String(v);
       el.dispatchEvent(new Event('change', { bubbles: true }));
     };
-    set('blend-weight-pad-warm', 1);
-    set('blend-weight-pad-glass', 1);
+    for (const input of document.querySelectorAll('#voice-blend-editor input')) set(input, 0);
+    set(document.getElementById('blend-weight-pad-warm'), 1);
+    set(document.getElementById('blend-weight-pad-glass'), 1);
   });
   await page.click('#voice-blend-editor button:has-text("Done")');
   await page.waitForTimeout(400);

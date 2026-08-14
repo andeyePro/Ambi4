@@ -2242,9 +2242,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     // ---- v12/v18 detune dial --------------------------------------------
-    // Bipolar where the engine takes it (probed at boot): the same 50 cents
-    // flat as sharp, with a centre detent so "in tune" is findable by feel.
-    const DETUNE_MAX = 50;
+    // Bipolar where the engine takes it (a registry fact since phase 2a):
+    // the same 50 cents flat as sharp, with a centre detent so "in tune" is
+    // findable by feel. The 50 is the pre-registry fallback; the boot code
+    // re-points this at the registry row's ceiling the moment the engine
+    // module lands, so the dial and the sanitiser cannot disagree.
+    let DETUNE_MAX = 50;
     const DETUNE_DETENT = 1; // cents swallowed either side of zero
 
     function detuneFormat(v, bipolar) {
@@ -2649,8 +2652,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         engineCaps.patchCall = Boolean(registryRow('patch.source.cadence'));
         engineCaps.patchFold = Boolean(registryRow('patch.source.fold'));
         engineCaps.patchV19Range = Boolean(registryRow('patch.source.tilt')?.rangeable);
-        // Bipolar detune is a registry DOMAIN fact now: the floor is below 0.
-        engineCaps.patchDetuneBipolar = (registryRow('patch.source.detune')?.domain?.[0] ?? 0) < 0;
+        // Bipolar detune is a registry DOMAIN fact now: the floor is below 0,
+        // and the dial's ceiling is the row's own (phase 2a: one source).
+        const detuneRow = registryRow('patch.source.detune');
+        engineCaps.patchDetuneBipolar = (detuneRow?.domain?.[0] ?? 0) < 0;
+        if (detuneRow && Number.isFinite(detuneRow.domain?.[1])) DETUNE_MAX = detuneRow.domain[1];
 
         // v0.0.143: does this engine take null as "drop this patch"? Without it
         // Blank slate and Zero voices can only add, never take away.
@@ -9207,8 +9213,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'tilt',
             label: 'Tilt',
-            min: -1,
-            max: 1,
             marks: [-1, 0, 1],
             fallback: 0,
             format: (v) => (v <= -0.995 ? 'Brown' : v >= 0.995 ? 'White' : plainFormat(v)),
@@ -9217,9 +9221,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'bandCentre',
             label: 'Band',
-            min: 60,
-            max: 8000,
-            log: true,
             fallback: 800,
             format: hzFormat,
             hint: 'Where the resonant band sits — the pitch you hear in the bed. Low is a rumble, high is a hiss.',
@@ -9227,8 +9228,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'bandWidth',
             label: 'Width',
-            min: 0.1,
-            max: 4,
             step: 0.05,
             fallback: 2,
             format: octaveSpanFormat,
@@ -9239,8 +9238,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'sweepRate',
             label: 'Sweep',
-            min: 0,
-            max: 0.5,
             step: 0.005,
             fallback: 0.05,
             format: rateHzFormat,
@@ -9249,8 +9246,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'sweepDepth',
             label: 'Depth',
-            min: 0,
-            max: 1,
             fallback: 0.15,
             format: pctFormat,
             parse: pctParse,
@@ -9259,8 +9254,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'gust',
             label: 'Gust',
-            min: 0,
-            max: 1,
             fallback: 0.2,
             format: pctFormat,
             parse: pctParse,
@@ -9269,8 +9262,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'gustRate',
             label: 'Gust rate',
-            min: 0.02,
-            max: 0.5,
             step: 0.005,
             fallback: 0.08,
             format: rateHzFormat,
@@ -9279,8 +9270,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'swell',
             label: 'Swell',
-            min: 0,
-            max: 1,
             fallback: 0,
             format: pctFormat,
             parse: pctParse,
@@ -9291,8 +9280,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'burst',
             label: 'Density',
-            min: 0,
-            max: 1,
             fallback: 0.2,
             format: pctFormat,
             parse: pctParse,
@@ -9301,8 +9288,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'burstSharp',
             label: 'Sharpness',
-            min: 0,
-            max: 1,
             fallback: 0.5,
             format: pctFormat,
             parse: pctParse,
@@ -9316,8 +9301,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'glide',
             label: 'Sweep',
-            min: -24,
-            max: 24,
             step: 1,
             marks: [-24, -12, 0, 12, 24],
             fallback: 0,
@@ -9327,8 +9310,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'glideCurve',
             label: 'Curve',
-            min: 0,
-            max: 1,
             fallback: 0.5,
             format: pctFormat,
             parse: pctParse,
@@ -9339,9 +9320,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'formant1',
             label: 'Formant 1',
-            min: 60,
-            max: 8000,
-            log: true,
             fallback: 900,
             format: hzFormat,
             hint: 'The lower of the two resonances that give the call its vowel — its body.',
@@ -9349,9 +9327,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'formant2',
             label: 'Formant 2',
-            min: 60,
-            max: 8000,
-            log: true,
             fallback: 2200,
             format: hzFormat,
             hint: 'The upper resonance. Far above the first reads as a whistle; close to it, as a hoot.',
@@ -9361,8 +9336,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'cadence',
             label: 'Cadence',
-            min: 0.5,
-            max: 8,
             step: 0.1,
             fallback: 2,
             format: perBarFormat,
@@ -9371,8 +9344,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           {
             field: 'irregular',
             label: 'Irregular',
-            min: 0,
-            max: 1,
             fallback: 0.25,
             format: pctFormat,
             parse: pctParse,
@@ -9389,15 +9360,39 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * existed and must not be read as a claim about them. `controls` then
        * gets the final say, so a voice can still hide a field it defaults.
        */
+      /**
+       * Phase 2a of the routing programme (v0.0.166): the spec tables above
+       * keep only what is genuinely per-dial — label, format, hint, marks,
+       * step, fallback. Each dial's min/max and log-ness come from the
+       * REGISTRY row for patch.source.<field>, the same table the engine's
+       * sanitiser is built from, so a domain exists in exactly one place.
+       * A row the registry lacked would leave that spec without a domain —
+       * engine-smoke's drift test makes that impossible to ship.
+       */
+      function overlayRegistryDomains(groups) {
+        return groups.map(([heading, specs]) => [heading, specs.map((spec) => {
+          const row = engineModule && engineModule.PARAM_REGISTRY
+            ? engineModule.PARAM_REGISTRY[`patch.source.${spec.field}`]
+            : null;
+          if (!row || row.kind !== 'number') return spec;
+          return {
+            ...spec,
+            min: row.domain[0],
+            max: row.domain[1],
+            ...(row.curve === 'log' ? { log: true } : {}),
+          };
+        })]);
+      }
+
       function v19GroupsFor(sourceSpec, defaults) {
         const shipped = defaults && isPlainObject(defaults.source) ? defaults.source : null;
         if (!shipped) return [];
         const groups = [];
         if (engineCaps.patchSculpt && shipped.tilt !== undefined && controlsFieldAllowed(sourceSpec, 'tilt')) {
-          groups.push(...SCULPT_GROUPS);
+          groups.push(...overlayRegistryDomains(SCULPT_GROUPS));
         }
         if (engineCaps.patchCall && shipped.cadence !== undefined && controlsFieldAllowed(sourceSpec, 'cadence')) {
-          groups.push(...CALL_GROUPS);
+          groups.push(...overlayRegistryDomains(CALL_GROUPS));
         }
         return groups;
       }
@@ -9770,6 +9765,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * ('filter.cutoff'); it is consumed here, never passed to createKnob.
        */
       function buildKnobEditor(container, patch, commit, knobs, controls, defaults, ghost = null, track = null, detuneMode = null) {
+        // Phase 2a (v0.0.166): a dial's domain is the REGISTRY row the
+        // engine's sanitiser is built from — stated once per dial here, not
+        // three times (min/max, the value clamp, the write clamp). The
+        // literal pair survives only as the fallback an engine bundle
+        // without a registry would boot on. Octave is the one deliberate
+        // exception below: the registry (and sanitiser) accept ±2, the DIAL
+        // ships ±1 because every voice's own OCTAVES table clamps there.
+        const regDomain = (path, lo, hi) => {
+          const table = engineModule && engineModule.PARAM_REGISTRY;
+          const row = table ? table[`patch.${path}`] : null;
+          return row && row.kind === 'number' ? row.domain : [lo, hi];
+        };
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -9994,17 +10001,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
 
         if (source && allowed(sourceSpec, 'mix')) {
+          const [mixLo, mixHi] = regDomain('source.mix', 0, 1);
           const mixKnob = addKnob(source, {
             label: 'Mix',
             field: 'source.mix',
-            min: 0,
-            max: 1,
-            value: sanitiseRangeValueIn(patch.source.mix, 0, 1, 0.5),
+            min: mixLo,
+            max: mixHi,
+            value: sanitiseRangeValueIn(patch.source.mix, mixLo, mixHi, 0.5),
             format: plainFormat,
             allowRange: true,
             defaultValue: defaults.source.mix,
             onInput: (v) => {
-              patch.source.mix = mapRV(v, (x) => clamp(x, 0, 1));
+              patch.source.mix = mapRV(v, (x) => clamp(x, mixLo, mixHi));
               commit();
             },
           });
@@ -10123,11 +10131,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const n = Math.round(v);
             return n > 0 ? `+${n} st` : `${n} st`;
           };
+          const [ptLo, ptHi] = regDomain('source.pitch', -24, 24);
           addKnob(source, {
             label: 'Pitch',
             field: 'source.pitch',
-            min: -24,
-            max: 24,
+            min: ptLo,
+            max: ptHi,
             step: 1,
             // An older stored patch carries the octave switch instead; ×12
             // reads it in the new dial's units so nothing jumps on upgrade.
@@ -10136,33 +10145,34 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // wrote NaN into the patch and the pitch silently reverted.
             value: sanitiseRangeValueIn(
               patch.source.pitch ?? (patch.source.octave || 0) * 12,
-              -24,
-              24,
+              ptLo,
+              ptHi,
               0
             ),
             marks: [-24, -12, 0, 12, 24],
             format: semitones,
             defaultValue: defaults.source.pitch ?? (defaults.source.octave || 0) * 12,
             onInput: (v) => {
-              patch.source.pitch = mapRV(v, (n) => Math.round(clamp(n, -24, 24)));
+              patch.source.pitch = mapRV(v, (n) => Math.round(clamp(n, ptLo, ptHi)));
               commit();
             },
           });
         }
 
         if (source && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
+          const [nzLo, nzHi] = regDomain('source.noise', 0, 1);
           addKnob(source, {
             label: 'Noise',
             field: 'source.noise',
-            min: 0,
-            max: 1,
-            value: sanitiseRangeValueIn(patch.source.noise, 0, 1, defaults.source.noise ?? 0.5),
+            min: nzLo,
+            max: nzHi,
+            value: sanitiseRangeValueIn(patch.source.noise, nzLo, nzHi, defaults.source.noise ?? 0.5),
             format: pctFormat,
             parse: pctParse,
             allowRange: engineCaps.patchNoiseRange,
             ...(defaults.source.noise != null ? { defaultValue: defaults.source.noise } : {}),
             onInput: (v) => {
-              patch.source.noise = mapRV(v, (x) => clamp(x, 0, 1));
+              patch.source.noise = mapRV(v, (x) => clamp(x, nzLo, nzHi));
               commit();
             },
           });
@@ -10180,18 +10190,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           allowed(sourceSpec, 'fold') &&
           typeof defaults?.source?.fold === 'number'
         ) {
+          const [fdLo, fdHi] = regDomain('source.fold', 0, 1);
           addKnob(source, {
             label: 'Fold',
             field: 'source.fold',
-            min: 0,
-            max: 1,
-            value: sanitiseRangeValueIn(patch.source.fold, 0, 1, defaults.source.fold ?? 0),
+            min: fdLo,
+            max: fdHi,
+            value: sanitiseRangeValueIn(patch.source.fold, fdLo, fdHi, defaults.source.fold ?? 0),
             format: pctFormat,
             parse: pctParse,
             allowRange: true,
             defaultValue: defaults.source.fold ?? 0,
             onInput: (v) => {
-              patch.source.fold = mapRV(v, (x) => clamp(x, 0, 1));
+              patch.source.fold = mapRV(v, (x) => clamp(x, fdLo, fdHi));
               commit();
             },
           });
@@ -10271,12 +10282,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // v7: cutoff is on the default-RANGE list — rangeDefault starts a
           // freshly-opened (plain-number) patch already split into a
           // min=max=value range, ready for the second thumb.
+          const [cfLo, cfHi] = regDomain('filter.cutoff', 40, 12000);
           addLogKnob(
             filter,
             'Cutoff',
-            40,
-            12000,
-            sanitiseRangeValueIn(patch.filter.cutoff, 40, 12000, 2000),
+            cfLo,
+            cfHi,
+            sanitiseRangeValueIn(patch.filter.cutoff, cfLo, cfHi, 2000),
             hzFormat,
             (v) => {
               patch.filter.cutoff = mapRV(v, Math.round);
@@ -10287,34 +10299,36 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           );
         }
         if (filter && allowed(filterSpec, 'q')) {
+          const [qLo, qHi] = regDomain('filter.q', 0.1, 20);
           addKnob(filter, {
             label: 'Resonance',
             field: 'filter.q',
-            min: 0.1,
-            max: 20,
+            min: qLo,
+            max: qHi,
             step: 0.1,
-            value: sanitiseRangeValueIn(patch.filter.q, 0.1, 20, 0.7),
+            value: sanitiseRangeValueIn(patch.filter.q, qLo, qHi, 0.7),
             format: plainFormat,
             allowRange: true,
             defaultValue: defaults.filter.q,
             onInput: (v) => {
-              patch.filter.q = mapRV(v, (x) => clamp(x, 0.1, 20));
+              patch.filter.q = mapRV(v, (x) => clamp(x, qLo, qHi));
               commit();
             },
           });
         }
         if (filter && allowed(filterSpec, 'envAmount')) {
+          const [eaLo, eaHi] = regDomain('filter.envAmount', 0, 1);
           addKnob(filter, {
             label: 'Env amount',
             field: 'filter.envAmount',
-            min: 0,
-            max: 1,
-            value: sanitiseRangeValueIn(patch.filter.envAmount, 0, 1, 0.3),
+            min: eaLo,
+            max: eaHi,
+            value: sanitiseRangeValueIn(patch.filter.envAmount, eaLo, eaHi, 0.3),
             format: plainFormat,
             allowRange: true,
             defaultValue: defaults.filter.envAmount,
             onInput: (v) => {
-              patch.filter.envAmount = mapRV(v, (x) => clamp(x, 0, 1));
+              patch.filter.envAmount = mapRV(v, (x) => clamp(x, eaLo, eaHi));
               commit();
             },
           });
@@ -10339,12 +10353,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           );
         }
         if (env && allowed(adsrSpec, 'attack')) {
+          const [atLo, atHi] = regDomain('adsr.attack', 0.001, 8);
           addLogKnob(
             env,
             'Attack',
-            0.001,
-            8,
-            sanitiseRangeValueIn(patch.adsr.attack, 0.001, 8, 0.01),
+            atLo,
+            atHi,
+            sanitiseRangeValueIn(patch.adsr.attack, atLo, atHi, 0.01),
             secFormat,
             (v) => {
               patch.adsr.attack = v;
@@ -10355,12 +10370,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           );
         }
         if (env && allowed(adsrSpec, 'decay')) {
+          const [dcLo, dcHi] = regDomain('adsr.decay', 0.001, 8);
           addLogKnob(
             env,
             'Decay',
-            0.001,
-            8,
-            sanitiseRangeValueIn(patch.adsr.decay, 0.001, 8, 0.2),
+            dcLo,
+            dcHi,
+            sanitiseRangeValueIn(patch.adsr.decay, dcLo, dcHi, 0.2),
             secFormat,
             (v) => {
               patch.adsr.decay = v;
@@ -10371,28 +10387,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           );
         }
         if (env && allowed(adsrSpec, 'sustain')) {
+          const [suLo, suHi] = regDomain('adsr.sustain', 0, 1);
           addKnob(env, {
             label: 'Sustain',
             field: 'adsr.sustain',
-            min: 0,
-            max: 1,
-            value: sanitiseRangeValueIn(patch.adsr.sustain, 0, 1, 0.7),
+            min: suLo,
+            max: suHi,
+            value: sanitiseRangeValueIn(patch.adsr.sustain, suLo, suHi, 0.7),
             format: plainFormat,
             allowRange: true,
             defaultValue: defaults.adsr.sustain,
             onInput: (v) => {
-              patch.adsr.sustain = mapRV(v, (x) => clamp(x, 0, 1));
+              patch.adsr.sustain = mapRV(v, (x) => clamp(x, suLo, suHi));
               commit();
             },
           });
         }
         if (env && allowed(adsrSpec, 'release')) {
+          const [rlLo, rlHi] = regDomain('adsr.release', 0.01, 12);
           addLogKnob(
             env,
             'Release',
-            0.01,
-            12,
-            sanitiseRangeValueIn(patch.adsr.release, 0.01, 12, 0.5),
+            rlLo,
+            rlHi,
+            sanitiseRangeValueIn(patch.adsr.release, rlLo, rlHi, 0.5),
             secFormat,
             (v) => {
               patch.adsr.release = v;
@@ -10411,9 +10429,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           addKnob(sends, {
             label: 'Reverb',
             field: 'sends.reverb',
-            min: 0,
-            max: 1,
-            value: sanitiseRangeValueIn(patch.sends.reverb, 0, 1, 0.3),
+            min: regDomain('sends.reverb', 0, 1)[0],
+            max: regDomain('sends.reverb', 0, 1)[1],
+            value: sanitiseRangeValueIn(patch.sends.reverb, ...regDomain('sends.reverb', 0, 1), 0.3),
             format: plainFormat,
             allowRange: true,
             rangeDefault: true,
@@ -10428,9 +10446,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           addKnob(sends, {
             label: 'Delay',
             field: 'sends.delay',
-            min: 0,
-            max: 1,
-            value: sanitiseRangeValueIn(patch.sends.delay, 0, 1, 0.15),
+            min: regDomain('sends.delay', 0, 1)[0],
+            max: regDomain('sends.delay', 0, 1)[1],
+            value: sanitiseRangeValueIn(patch.sends.delay, ...regDomain('sends.delay', 0, 1), 0.15),
             format: plainFormat,
             allowRange: true,
             rangeDefault: true,

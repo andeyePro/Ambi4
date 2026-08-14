@@ -305,6 +305,15 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
 2. **`buildKnobEditor` becomes a renderer over the registry.** The ~600 lines
    of hand-written `addKnob` literals collapse into a loop. Behaviour must be
    byte-identical; the existing smoke tests are the gate.
+   **Phase 2a SHIPPED v0.0.166 (2026-08-14)**: every dial DOMAIN in the knob
+   editor and the sculpt/call spec tables now reads the registry row
+   (`regDomain`/`overlayRegistryDomains`), `DETUNE_MAX` is the registry
+   ceiling, and the literals survive only as no-registry fallbacks. The one
+   deliberate exception is documented in place: the octave DIAL ships ±1
+   while the registry (and sanitiser) accept ±2, because every voice's own
+   OCTAVES table clamps at ±1. Still open for 2b: the full literal→loop
+   collapse (labels/formats/tooltips as registry UI metadata), the slider
+   fallback editor's literals, and allowRange as a derived property.
 3. **Gesture rebuild (D1, D2, D9).** Base-and-spread drag model, axis lock,
    centre-tap default, muted-grey zeroed state, live-value pointer (reusing the
    `ghostValue` substrate), full-diameter indicator for enumerations. Deletes
