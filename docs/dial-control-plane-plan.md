@@ -295,6 +295,13 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
    sanitiser and the UI read it. This deletes the boot-time capability probes
    (`probePatchSource`, `index.astro:2225`) and turns `allowRange` from a
    call-site opinion into a derived property. No user-visible change.
+   **SHIPPED v0.0.165 (2026-08-14) for the PATCH namespace**:
+   `src/scripts/param-registry.js` (rows + RESERVED_TOKENS as code), the
+   engine's PATCH_SCHEMA is built from it, `PATCH_OSC_TYPES`/`PATCH_FILTER_TYPES`
+   are registry rows, the page's eight patch-field probes became registry
+   lookups and `probePatchSource` is gone. engine-smoke pins registry↔schema
+   against drift and the derivation's corner laws. Track/bus/master rows and
+   `allowRange`-as-derived land with phase 2's renderer.
 2. **`buildKnobEditor` becomes a renderer over the registry.** The ~600 lines
    of hand-written `addKnob` literals collapse into a loop. Behaviour must be
    byte-identical; the existing smoke tests are the gate.

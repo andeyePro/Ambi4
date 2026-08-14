@@ -2626,48 +2626,31 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         })();
       }
 
-      // v18 patch-schema probe: percussion trades its 3-position Octave switch
-      // for a continuous Pitch dial and gains a Noise dial, but ONLY once the
-      // engine's PATCH_SCHEMA accepts those fields — a dial writing a key the
-      // sanitiser drops is a dial that does nothing. sanitiseParams is a pure
-      // function, so the probe runs a throwaway patch through the very code
-      // path a real edit would take (rather than trusting a version number),
-      // and asks the same question of the {min,max} form for rangeability.
-      function probePatchSource(source) {
-        if (typeof sanitiseParams !== 'function') return null;
-        try {
-          const probed = sanitiseParams({ patches: { percussion: { __probe: { source } } } });
-          const bank = probed && isPlainObject(probed.patches) ? probed.patches.percussion : null;
-          const patch = bank && isPlainObject(bank.__probe) ? bank.__probe : null;
-          return patch && isPlainObject(patch.source) ? patch.source : null;
-        } catch {
-          return null;
-        }
-      }
+      // The v18 patch-schema probe function lived here until phase 1 of the
+      // routing programme retired it: the registry below IS the schema's own
+      // source, so the questions it answered are now table lookups.
       {
-        const plain = probePatchSource({ pitch: 7, noise: 0.5 }) || {};
-        const ranged = probePatchSource({ noise: { min: 0.2, max: 0.6 } }) || {};
-        engineCaps.patchPitch = typeof plain.pitch === 'number';
-        engineCaps.patchNoise = isNumberOrRange(plain.noise);
-        engineCaps.patchNoiseRange = isPlainObject(ranged.noise);
-        // v19 sculpting / call synthesis and the v20 wavefolder ride the same
-        // schema probe: a voice may declare the dials in its `controls` before
-        // the engine's sanitiser accepts them, and a dial whose value is
-        // dropped on the way to play() is a dial that does nothing. One
-        // representative field per family answers for the whole family — they
-        // land in PATCH_SCHEMA as one block.
-        const v19 = probePatchSource({ tilt: 0.25, cadence: 2, fold: 0.5 }) || {};
-        const v19Ranged = probePatchSource({ tilt: { min: -0.5, max: 0.5 } }) || {};
-        engineCaps.patchSculpt = typeof v19.tilt === 'number';
-        engineCaps.patchCall = typeof v19.cadence === 'number';
-        engineCaps.patchFold = isNumberOrRange(v19.fold);
-        engineCaps.patchV19Range = isPlainObject(v19Ranged.tilt);
-        // v12 left detune unipolar because the sanitiser clamped to [0,50];
-        // it has taken -50..50 since v18, so the dial goes bipolar the moment
-        // the probe says a negative value survives — and stays unipolar (no
-        // silently-clamped half) where it doesn't.
-        const bipolar = probePatchSource({ detune: -25 }) || {};
-        engineCaps.patchDetuneBipolar = bipolar.detune === -25;
+        // Phase 1 of the routing programme (his 137 a): the patch-field facts
+        // moved from boot-time probes into the parameter registry — the ONE
+        // table the engine's sanitiser is itself built from, so asking it IS
+        // asking the code path a real edit takes, without running one. The
+        // engineCaps keys stay (dozens of readers gate on them); only their
+        // source changed. A bundle whose engine has no registry answers null
+        // rows, which lands exactly where a failed probe always landed: the
+        // dependent dials stay hidden rather than lying.
+        const registryRow = (path) => {
+          const table = engineModule && engineModule.PARAM_REGISTRY;
+          return table && isPlainObject(table[path]) ? table[path] : null;
+        };
+        engineCaps.patchPitch = Boolean(registryRow('patch.source.pitch'));
+        engineCaps.patchNoise = Boolean(registryRow('patch.source.noise'));
+        engineCaps.patchNoiseRange = Boolean(registryRow('patch.source.noise')?.rangeable);
+        engineCaps.patchSculpt = Boolean(registryRow('patch.source.tilt'));
+        engineCaps.patchCall = Boolean(registryRow('patch.source.cadence'));
+        engineCaps.patchFold = Boolean(registryRow('patch.source.fold'));
+        engineCaps.patchV19Range = Boolean(registryRow('patch.source.tilt')?.rangeable);
+        // Bipolar detune is a registry DOMAIN fact now: the floor is below 0.
+        engineCaps.patchDetuneBipolar = (registryRow('patch.source.detune')?.domain?.[0] ?? 0) < 0;
 
         // v0.0.143: does this engine take null as "drop this patch"? Without it
         // Blank slate and Zero voices can only add, never take away.

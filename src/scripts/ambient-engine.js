@@ -17,6 +17,15 @@
  *   5. scheduler + public engine
  */
 
+// The parameter registry is the ONE table both this sanitiser and the page
+// read (dial-control-plane phase 1): pure frozen data, no audio, no DOM —
+// importing it keeps this module's import-anywhere promise intact.
+import { PARAM_REGISTRY, patchSectionRows, patchSections } from './param-registry.js';
+
+// Re-exported so the page (and anything else driving the engine) reads the
+// SAME table the sanitiser above is built from — the phase-1 contract.
+export { PARAM_REGISTRY, RESERVED_TOKENS, paramRow, isRangeable } from './param-registry.js';
+
 // ---------------------------------------------------------------------------
 // 1. Music theory
 // ---------------------------------------------------------------------------
@@ -815,9 +824,10 @@ const DEFAULT_STEP = Object.freeze({ on: true, prob: 1, vmin: 0.5, vmax: 0.9 });
 const STEP_GATE_RANGE = Object.freeze([0.1, 2]);
 
 /** Oscillator shapes a patch may ask a subtractive voice for. */
-export const PATCH_OSC_TYPES = Object.freeze(['sine', 'triangle', 'sawtooth', 'square']);
+// Sourced from the registry rows (phase 1): one list, two long-standing names.
+export const PATCH_OSC_TYPES = PARAM_REGISTRY['patch.source.osc1'].domain;
 
-export const PATCH_FILTER_TYPES = Object.freeze(['lowpass', 'highpass', 'bandpass', 'notch']);
+export const PATCH_FILTER_TYPES = PARAM_REGISTRY['patch.filter.type'].domain;
 
 /**
  * How many sequencer slots a metre uses, counted from slot 0. Every metre is
@@ -2046,91 +2056,45 @@ function patchNumber(value, lo, hi) {
 /** v5 morph positions of the legacy oscillator names. */
 const OSC_SHAPES = Object.freeze({ sine: 0, triangle: 1, sawtooth: 2, square: 3 });
 
-const PATCH_SCHEMA = Object.freeze({
-  source: Object.freeze({
-    osc1: (v) => oneOf(v, PATCH_OSC_TYPES, undefined),
-    // A null osc2 is meaningful: "single oscillator", not "unset".
-    osc2: (v) => (v === null ? null : oneOf(v, PATCH_OSC_TYPES, undefined)),
-    // v5 morph dial: 0 sine, 1 triangle, 2 sawtooth, 3 square; fractional legal.
-    //
-    // v0.0.74: RANGEABLE. The owner's ask was "either tell me why you won't add
-    // variation to all dials, or add it to them all, including OSCs and picker
-    // dials like filter type", and the reason I had given did not survive
-    // contact: an oscillator morphing between two shapes bar by bar is a
-    // perfectly ordinary thing for a synth to do, and the morph is CONTINUOUS
-    // anyway — fractional positions were always legal here. The only reason it
-    // was excluded is that v7 called it discrete, which it is not.
-    shape1: (v) => sanitiseRangeValue(v, 0, 3),
-    shape2: (v) => (v === null ? null : sanitiseRangeValue(v, 0, 3)),
-    mix: (v) => sanitiseRangeValue(v, 0, 1),
-    // Bipolar since v12: the dial detunes flat as readily as sharp, and the
-    // octave switch reaches two either way. Defaults are unchanged, so every
-    // stored patch keeps sounding exactly as it did.
-    detune: (v) => sanitiseRangeValue(v, -50, 50),
-    // v0.0.74: rangeable, and rounded at RESOLUTION rather than here — a span
-    // of −1 to +1 is a meaningful ask (the voice jumps octave bar by bar) and
-    // rounding the ends kept it meaningful while letting the walk pick one.
-    octave: (v) => {
-      const ranged = sanitiseRangeValue(v, -2, 2);
+/**
+ * PATCH_SCHEMA, built from the registry (phase 1 of the routing programme).
+ * The hand-written table this replaces carried every domain twice over —
+ * here and in the page's dial literals — and the derivation preserves its
+ * semantics exactly: enums answer only their own values (null legal where
+ * the row says so — a null osc2/shape2 is "single oscillator", not unset),
+ * numbers clamp through sanitiseRangeValue, and octave rounds value AND span
+ * ends because a fractional octave stop does not exist. engine-smoke pins
+ * the registry and this build against each other so neither can drift.
+ * The field-by-field history the old literal carried lives on in
+ * param-registry.js and git; the LAWS live in the tests.
+ */
+function patchFieldSanitiser(row) {
+  if (row.kind === 'enum') {
+    return row.nullable
+      ? (v) => (v === null ? null : oneOf(v, row.domain, undefined))
+      : (v) => oneOf(v, row.domain, undefined);
+  }
+  const [lo, hi] = row.domain;
+  if (row.integer) {
+    return (v) => {
+      const ranged = sanitiseRangeValue(v, lo, hi);
       if (ranged === undefined) return undefined;
       if (typeof ranged === 'number') return Math.round(ranged);
       return { min: Math.round(ranged.min), max: Math.round(ranged.max) };
-    },
-    // v18: the percussion kits tune in semitones instead of by the octave
-    // switch — the same two octaves either way, but continuous and rangeable,
-    // and `noise` is the level of their noise component (1 is the kit as it
-    // was built). Both ride the same field table, so a perKind override takes
-    // them exactly where the common patch does; the voices ignore either field
-    // on a track that plays notes.
-    pitch: (v) => sanitiseRangeValue(v, -24, 24),
-    noise: (v) => sanitiseRangeValue(v, 0, 1),
-    // v20 shape modifier: a wavefolder on the oscillator sources. 0 is bypass
-    // — the voices add no node for it — and 1 folds the loudest peaks back on
-    // themselves several times over. Rangeable like every other continuous
-    // field, and resolved to a number per bar before any voice sees it.
-    fold: (v) => sanitiseRangeValue(v, 0, 1),
-    // v19 noise sculpting: the dials that turn the two texture noise voices
-    // into one modular instrument. Every one is continuous and therefore
-    // rangeable, and every one is resolved to a number before it reaches a
-    // voice, exactly like the fields above. The table stays track-agnostic —
-    // which voices HONOUR them is the voice library's `controls` to declare,
-    // not the sanitiser's to police.
-    tilt: (v) => sanitiseRangeValue(v, -1, 1),
-    bandCentre: (v) => sanitiseRangeValue(v, 60, 8000),
-    bandWidth: (v) => sanitiseRangeValue(v, 0.1, 4),
-    sweepRate: (v) => sanitiseRangeValue(v, 0, 0.5),
-    sweepDepth: (v) => sanitiseRangeValue(v, 0, 1),
-    gust: (v) => sanitiseRangeValue(v, 0, 1),
-    gustRate: (v) => sanitiseRangeValue(v, 0.02, 0.5),
-    burst: (v) => sanitiseRangeValue(v, 0, 1),
-    burstSharp: (v) => sanitiseRangeValue(v, 0, 1),
-    swell: (v) => sanitiseRangeValue(v, 0, 1),
-    // v19 call synthesis: the same deal for the pitched chirp primitive that
-    // melody and texture both offer.
-    glide: (v) => sanitiseRangeValue(v, -24, 24),
-    glideCurve: (v) => sanitiseRangeValue(v, 0, 1),
-    formant1: (v) => sanitiseRangeValue(v, 60, 8000),
-    formant2: (v) => sanitiseRangeValue(v, 60, 8000),
-    cadence: (v) => sanitiseRangeValue(v, 0.5, 8),
-    irregular: (v) => sanitiseRangeValue(v, 0, 1),
-  }),
-  filter: Object.freeze({
-    type: (v) => oneOf(v, PATCH_FILTER_TYPES, undefined),
-    cutoff: (v) => sanitiseRangeValue(v, 40, 12000),
-    q: (v) => sanitiseRangeValue(v, 0.1, 20),
-    envAmount: (v) => sanitiseRangeValue(v, 0, 1),
-  }),
-  adsr: Object.freeze({
-    attack: (v) => sanitiseRangeValue(v, 0.001, 8),
-    decay: (v) => sanitiseRangeValue(v, 0.001, 8),
-    sustain: (v) => sanitiseRangeValue(v, 0, 1),
-    release: (v) => sanitiseRangeValue(v, 0.01, 12),
-  }),
-  sends: Object.freeze({
-    reverb: (v) => sanitiseRangeValue(v, 0, 1),
-    delay: (v) => sanitiseRangeValue(v, 0, 1),
-  }),
-});
+    };
+  }
+  if (row.nullable) {
+    return (v) => (v === null ? null : sanitiseRangeValue(v, lo, hi));
+  }
+  return (v) => sanitiseRangeValue(v, lo, hi);
+}
+
+const PATCH_SCHEMA = Object.freeze(Object.fromEntries(patchSections().map((section) => [
+  section,
+  Object.freeze(Object.fromEntries(
+    patchSectionRows(section).map(([field, row]) => [field, patchFieldSanitiser(row)])
+  )),
+])));
 
 // -- v23 user instrument manifests -------------------------------------------
 //

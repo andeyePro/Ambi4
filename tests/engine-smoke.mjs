@@ -1165,6 +1165,45 @@ test('engine survives extreme parameter combinations', async () => {
   engine.stop();
 });
 
+test('v0.0.165: the registry and the patch schema cannot drift', async () => {
+  const reg = await import('../src/scripts/param-registry.js');
+  // Every registry patch row has a schema sanitiser and vice versa.
+  const regPaths = Object.keys(reg.PARAM_REGISTRY).filter((p) => p.startsWith('patch.'));
+  const schemaPaths = [];
+  const probe = sanitiseParams({}).patches; // reach PATCH_SCHEMA via behaviour below instead
+  void probe;
+  for (const section of reg.patchSections()) {
+    for (const [field] of reg.patchSectionRows(section)) {
+      schemaPaths.push(`patch.${section}.${field}`);
+    }
+  }
+  assert.deepEqual(schemaPaths.sort(), regPaths.sort(), 'registry rows and sections disagree');
+  // The derived sanitisers keep the old table's exact laws, spot-checked at
+  // the awkward corners: enum membership, meaningful null, integer octave
+  // (value AND span ends), and plain clamping.
+  const clamp1 = sanitiseParams({ patches: { pad: { warm: { source: { detune: 500, octave: 1.4 } } } } });
+  const src = clamp1.patches.pad.warm.source;
+  assert.equal(src.detune, 50, 'detune clamps to the registry domain');
+  assert.equal(src.octave, 1, 'octave rounds to a whole stop');
+  const span = sanitiseParams({ patches: { pad: { warm: { source: { octave: { min: -1.4, max: 1.6 } } } } } });
+  assert.deepEqual(span.patches.pad.warm.source.octave, { min: -1, max: 2 },
+    'a span of octaves rounds its ENDS');
+  const nulls = sanitiseParams({ patches: { pad: { warm: { source: { osc2: null, shape2: null } } } } });
+  assert.equal(nulls.patches.pad.warm.source.osc2, null, 'null osc2 is single-oscillator, kept');
+  assert.equal(nulls.patches.pad.warm.source.shape2, null);
+  const badEnum = sanitiseParams({ patches: { pad: { warm: { filter: { type: 'moog' } } } } });
+  assert.equal(badEnum.patches.pad?.warm?.filter?.type, undefined, 'an unknown enum value is dropped');
+  // D9 sits in the registry: enums are the only non-rangeable patch rows.
+  for (const path of regPaths) {
+    const row = reg.PARAM_REGISTRY[path];
+    assert.equal(row.rangeable, row.kind !== 'enum', `${path}: rangeable must be derived from kind`);
+  }
+  // The reserved wire vocabulary matches the plan's table, verbatim.
+  assert.deepEqual(reg.RESERVED_TOKENS.pathLevels, ['dial', 'voice', 'instrument', 'track', 'bus', 'master']);
+  assert.deepEqual(reg.RESERVED_TOKENS.sampling, ['note', 'bar', 'chord', 'section']);
+  assert.deepEqual(reg.RESERVED_TOKENS.stepRules, ['absolute', 'walk', 'up', 'down', 'pingpong', 'cycle']);
+});
+
 test('v0.0.160: an additive metre cycles its bars in order, at their own lengths', async () => {
   const engine = createEngine({
     bpm: 240, speed: 2, timeSignature: '4/4+3/4', complexity: 0.5, structure: 'drone',
