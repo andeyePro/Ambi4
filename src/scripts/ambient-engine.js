@@ -1318,6 +1318,10 @@ function genreSlug(value) {
   return genreTable && !genreTable.has(slug) ? undefined : slug;
 }
 
+/** The grammar of a walk key ('track:param', '@global' included) — the
+ * address a sampling override or a routing edge names a dial by. */
+const WALK_KEY_GRAMMAR = /^[@A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9_.-]{1,64}$/;
+
 export const DEFAULT_PARAMS = Object.freeze({
   speed: 1,
   // v14: straight by default. The dial is global; per-track overrides are a
@@ -1351,6 +1355,12 @@ export const DEFAULT_PARAMS = Object.freeze({
   // v0.0.167 (routing phase 4, engine half): WHEN each spread's walk
   // advances, per dial — sparse, keyed like the walks ('track:param').
   sampling: Object.freeze({}),
+  // v0.0.168 (routing phase 5, first slice): the modulation graph's edges —
+  // { source, destination }, one slot per destination — and the two global
+  // sources they can name today.
+  routing: Object.freeze([]),
+  lfo1: Object.freeze({ bars: 4 }),
+  macro1: 0.5,
   // v26 seed: the chord loop the hook establishes from, or null to walk one.
   harmony: Object.freeze({ rhythm: 'auto', seed: null }),
   structure: 'auto',
@@ -2531,17 +2541,45 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   // resolution path exists — a token accepted but played as bar would be a
   // lying control. Supplying `sampling` replaces the map; absent inherits.
   {
-    const SAMPLING_KEY = /^[@A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9_.-]{1,64}$/;
     const asked = at('sampling');
     const source = asked !== undefined ? asked : from.sampling;
     const map = {};
     if (source && typeof source === 'object' && !Array.isArray(source)) {
       for (const [key, value] of Object.entries(source)) {
-        if (!SAMPLING_KEY.test(key)) continue;
+        if (!WALK_KEY_GRAMMAR.test(key)) continue;
         if (value === 'chord' || value === 'section') map[key] = value;
       }
     }
     out.sampling = map;
+  }
+  // v0.0.168: the graph's edges. One slot per destination (D4) — the LAST
+  // edge naming a destination wins, because the newest patch REPLACES the
+  // occupant; nothing sums, nothing fights. Sources are the two that exist;
+  // destinations use the walk-key grammar. Supplying replaces; absent
+  // inherits — same law as sampling.
+  {
+    const ROUTING_SOURCES = ['lfo.1', 'macro.1'];
+    const asked = at('routing');
+    const source = asked !== undefined ? asked : from.routing;
+    const byDest = new Map();
+    if (Array.isArray(source)) {
+      for (const edge of source.slice(0, 64)) {
+        if (!edge || typeof edge !== 'object' || Array.isArray(edge)) continue;
+        if (!ROUTING_SOURCES.includes(edge.source)) continue;
+        if (typeof edge.destination !== 'string' || !WALK_KEY_GRAMMAR.test(edge.destination)) continue;
+        byDest.set(edge.destination, { source: edge.source, destination: edge.destination });
+      }
+    }
+    out.routing = [...byDest.values()];
+  }
+  {
+    const lfoAsked = at('lfo1');
+    const lfoFrom = from.lfo1 && typeof from.lfo1 === 'object' ? from.lfo1 : {};
+    const rawBars = lfoAsked && typeof lfoAsked === 'object' && !Array.isArray(lfoAsked)
+      ? lfoAsked.bars : lfoFrom.bars;
+    const bars = Number.isFinite(Number(rawBars)) ? Math.round(Number(rawBars)) : 4;
+    out.lfo1 = { bars: Math.min(64, Math.max(1, bars)) };
+    out.macro1 = numberIn(at('macro1'), [0, 1], numberIn(from.macro1, [0, 1], 0.5));
   }
   {
     const asked = at('tempoLanding');
@@ -2657,6 +2695,8 @@ function copyParams(params, order = TRACK_ORDER) {
       Object.entries(params.spans || {}).map(([key, span]) => [key, { ...span }])
     ),
     sampling: { ...(params.sampling || {}) },
+    routing: (params.routing || []).map((edge) => ({ ...edge })),
+    lfo1: { ...(params.lfo1 || { bars: 4 }) },
     // A manifest is an object inside the entry: a spread of the entry alone
     // would hand its dials out by reference.
     userTracks: params.userTracks.map((entry) => (entry.manifest
@@ -4589,6 +4629,47 @@ export function createEngine(initialParams, options = {}) {
   let samplingSectionFresh = false;
   let samplingChordFresh = false;
 
+  // v0.0.168 (routing phase 5, first slice): what each patched destination
+  // is currently being HELD AT by its source. Recomputed once a bar under
+  // the same sampling gate a walk obeys, so chord/section sampling composes
+  // with a route; a removed edge drops out and the internal walk resumes.
+  const routedPositions = new Map();
+  let lfo1Phase = 0;
+
+  function routingSourceValue(source) {
+    if (source === 'lfo.1') {
+      return clamp(0.5 - Math.cos(lfo1Phase * Math.PI * 2) * 0.5, 0, 1);
+    }
+    if (source === 'macro.1') {
+      return clamp(Number.isFinite(params.macro1) ? params.macro1 : 0.5, 0, 1);
+    }
+    return undefined;
+  }
+
+  function advanceRouting() {
+    const bars = params.lfo1 && Number.isFinite(params.lfo1.bars)
+      ? Math.max(1, params.lfo1.bars) : 4;
+    lfo1Phase = (lfo1Phase + 1 / bars) % 1;
+    const edges = Array.isArray(params.routing) ? params.routing : [];
+    for (const edge of edges) {
+      const key = edge.destination;
+      const track = key.slice(0, key.indexOf(':'));
+      // Hold and freeze cover a routed dial exactly as they cover a walk:
+      // the held value stands until the track is released.
+      if (held.has(track) || isFrozenTrack(track)) continue;
+      const sampling = walkSampling(key);
+      if (routedPositions.has(key)) {
+        if (sampling === 'chord' && !samplingChordFresh) continue;
+        if (sampling === 'section' && !samplingSectionFresh) continue;
+      }
+      const value = routingSourceValue(edge.source);
+      if (value !== undefined) routedPositions.set(key, value);
+    }
+    for (const key of [...routedPositions.keys()]) {
+      if (!edges.some((e) => e.destination === key)) routedPositions.delete(key);
+    }
+  }
+
   /** The sampling this walk key follows: its override, else bar (the
    * registry default for every row today — when rows diverge, this is where
    * the registry's own sampling column gets read). */
@@ -4599,6 +4680,10 @@ export function createEngine(initialParams, options = {}) {
 
   function walk(track, param) {
     const key = `${track}:${param}`;
+    // v0.0.168: a patched destination's position IS its source — the edge
+    // replaces the internal randomiser (D4: one slot, nothing sums).
+    const routed = routedPositions.get(key);
+    if (routed !== undefined) return routed;
     let position = walkPhases.get(key);
     if (position === undefined) {
       position = rng();
@@ -8043,6 +8128,7 @@ export function createEngine(initialParams, options = {}) {
     // decides with exactly this comparison, after the walks have stepped.
     samplingChordFresh = chordBarsLeft <= 0;
     advanceWalks();
+    advanceRouting();
     resolveGlobalSpans();
     // A lane's loop is the bar, so the Markov pick between a track's several
     // sequencers happens here, before anything reads one. Not during a repeat

@@ -338,6 +338,14 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
    parameter patched out. One slot per destination, so patching replaces the
    internal randomiser. Patch sockets, ENV/LFO/MACRO panels, connection
    accounting in `power.js`.
+   **FIRST ENGINE SLICE SHIPPED v0.0.168 (2026-08-14)**: `params.routing`
+   edges with `lfo.1` (global sine, `params.lfo1.bars`) and `macro.1`
+   (`params.macro1`) as sources; one-slot-per-destination enforced at the
+   sanitiser (last wins); a routed walk key's position IS the source value,
+   gated by hold/freeze and composed with v0.0.167 sampling. Still to come
+   in this phase: envelopes as sources (per-voice), LFO 2+/macro 2+,
+   params-as-sources, the socket UI (after the phase-3 ruling), and the
+   D10 power-governor accounting.
 6. **Dissolve the Randomise row (D8).** Volume, Timing and Pan become spreads
    on their own dials; Pitch splits into Passing notes and Octave wander; Voice
    becomes a probability dial. `vary.*` migrates: `null` becomes a MACRO patch,

@@ -194,6 +194,17 @@ Patch = {
   merged over that voice's own defaults) and must honour filter/adsr; subtractive-source
   voices honour `source` too; FM/noise/physical voices ignore `source` fields that don't
   apply. Each voice exports its defaults: `VOICES[track][id].defaults` (full Patch).
+- Routing (v0.0.168, phase 5's first slice): `params.routing` — a list of
+  `{ source, destination }` edges, ONE slot per destination (the last edge naming a
+  destination wins; the newest patch REPLACES the internal randomiser — nothing
+  sums). Sources today: `lfo.1` (a global sine over `params.lfo1.bars` bars, 1–64,
+  advanced once a bar) and `macro.1` (`params.macro1`, 0–1). A destination is a
+  walk key; while routed, its position IS the source's value — resolveRange,
+  live readouts and the dial's own mark all follow for free — and hold/freeze
+  and `params.sampling` gate a routed value exactly as they gate a walk, so a
+  section-sampled route holds its delivered value all section. Envelopes
+  (per-voice), more LFOs/macros, params-as-sources and the socket UI are later
+  phases; supplying `routing` replaces the list, absent inherits.
 - Sampling (v0.0.167, routing phase 4's engine half): `params.sampling` — a sparse
   map keyed like the walks (`'track:param'`, the `'@global'` pseudo-track included)
   saying WHEN that spread's walk advances. Honoured values: `chord` (a bar that

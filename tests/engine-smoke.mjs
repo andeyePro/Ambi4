@@ -1253,6 +1253,74 @@ test('v0.0.167: sampling gates a spread\'s walk to chord and section starts', as
   }
 });
 
+test('v0.0.168: a routed dial follows its source - exactly, one slot, sampling composes', async () => {
+  const LEVEL = { min: 0.2, max: 0.8 };
+  const run = async (extra, bars = 22, onBar = null) => {
+    const engine = createEngine({
+      bpm: 240, speed: 2, complexity: 0.5, structure: 'abab', timeSignature: '4/4',
+      tracks: { ...tracksAll('off'), pad: { state: 'on', level: { ...LEVEL }, randomness: 0.5 } },
+      ...extra,
+    }, { rng: seededRng(6820) });
+    const perBar = [];
+    engine.on('bar', (e) => {
+      perBar.push(engine.getResolved().tracks.pad.level);
+      if (onBar) onBar(engine, e, perBar);
+    });
+    await engine.start();
+    await advance(bars, { step: 0.12, sleep: 16 });
+    engine.stop();
+    return perBar;
+  };
+
+  // MACRO law: the routed level IS min + (max-min) x macro1, exactly.
+  const macroed = await run({
+    routing: [{ source: 'macro.1', destination: 'pad:level' }], macro1: 0.75,
+  });
+  const want = LEVEL.min + (LEVEL.max - LEVEL.min) * 0.75;
+  assert.ok(macroed.length >= 10, `only ${macroed.length} bars played`);
+  for (const [i, v] of macroed.slice(1).entries()) {
+    assert.ok(Math.abs(v - want) < 1e-9,
+      `bar-event ${i + 1}: a macro-routed level read ${v}, not the macro's own ${want}`);
+  }
+
+  // A macro EDIT lands next bar - the dial follows the source, live.
+  let edited = false;
+  const moved = await run({
+    routing: [{ source: 'macro.1', destination: 'pad:level' }], macro1: 0,
+  }, 22, (engine, e, perBar) => {
+    if (!edited && perBar.length === 6) {
+      engine.setParams({ macro1: 1 });
+      edited = true;
+    }
+  });
+  assert.ok(Math.abs(moved[3] - LEVEL.min) < 1e-9, `pre-edit the level sits at min (got ${moved[3]})`);
+  assert.ok(Math.abs(moved[moved.length - 1] - LEVEL.max) < 1e-9,
+    `post-edit the level follows to max (got ${moved[moved.length - 1]})`);
+
+  // LFO law: bars=4 - periodic with period 4, and it actually moves.
+  const lfoed = await run({
+    routing: [{ source: 'lfo.1', destination: 'pad:level' }], lfo1: { bars: 4 },
+  });
+  const steady = lfoed.slice(1);
+  assert.ok(new Set(steady.map((v) => v.toFixed(6))).size > 1, 'the LFO never moved the level');
+  for (let i = 0; i + 4 < steady.length; i++) {
+    assert.ok(Math.abs(steady[i] - steady[i + 4]) < 1e-9,
+      `an LFO of 4 bars must repeat every 4 bars (bar ${i}: ${steady[i]} vs bar ${i + 4}: ${steady[i + 4]})`);
+  }
+
+  // Sampling composes: a section-sampled route holds its delivered value
+  // until a section begins (changes only at indices = 1 mod 8).
+  const gated = await run({
+    routing: [{ source: 'lfo.1', destination: 'pad:level' }], lfo1: { bars: 4 },
+    sampling: { 'pad:level': 'section' },
+  });
+  for (let i = 2; i < gated.length; i++) {
+    if (gated[i].toFixed(6) !== gated[i - 1].toFixed(6)) {
+      assert.equal(i % 8, 1, `a section-sampled route moved mid-section (change at ${i})`);
+    }
+  }
+});
+
 test('v0.0.160: an additive metre cycles its bars in order, at their own lengths', async () => {
   const engine = createEngine({
     bpm: 240, speed: 2, timeSignature: '4/4+3/4', complexity: 0.5, structure: 'drone',
