@@ -1321,6 +1321,54 @@ test('v0.0.168: a routed dial follows its source - exactly, one slot, sampling c
   }
 });
 
+test('v0.0.170: a routed dial whose destination is no real track cannot stop the clock', async () => {
+  // The sanitiser admits any grammatical walk key, '@global' included — the
+  // pseudo-track every spread global dial already walks on — so a routing edge
+  // can legally name something params.tracks has never held. advanceWalks
+  // survives that by testing a Set built from trackOrder(); advanceRouting
+  // asked the track itself, and the scheduler died on the first bar it drew.
+  const LEVEL = { min: 0.2, max: 0.8 };
+  const run = async (routing) => {
+    const engine = createEngine({
+      bpm: 240, speed: 2, complexity: 0.5, structure: 'drone', timeSignature: '4/4',
+      tracks: { ...tracksAll('off'), pad: { state: 'on', level: { ...LEVEL }, randomness: 0.5 } },
+      routing, macro1: 0.75,
+    }, { rng: seededRng(6821) });
+    const perBar = [];
+    engine.on('bar', () => perBar.push(engine.getResolved().tracks.pad.level));
+    await engine.start();
+    await advance(10, { step: 0.12, sleep: 16 });
+    engine.stop();
+    return perBar;
+  };
+
+  // The '@global' pseudo-track is a destination CLASS, not a malformed key:
+  // it is how a global dial is addressed, and the plan's own axis (energy
+  // driving filter openness) lands on exactly this shape.
+  const globalEdge = await run([{ source: 'macro.1', destination: '@global:complexity' }]);
+  assert.ok(globalEdge.length >= 4,
+    `the clock stopped after ${globalEdge.length} bars on an @global edge`);
+
+  // A share link naming a track this piece does not have — a stored link
+  // outlives the setup it was made in, so this is ordinary, not hostile.
+  const unknownEdge = await run([{ source: 'macro.1', destination: 'ghost:level' }]);
+  assert.ok(unknownEdge.length >= 4,
+    `the clock stopped after ${unknownEdge.length} bars on an unknown-track edge`);
+
+  // And a good edge sharing the list with a bad one still delivers: an edge
+  // that addresses nothing must be inert, not poisonous to its neighbours.
+  const mixed = await run([
+    { source: 'macro.1', destination: 'ghost:level' },
+    { source: 'macro.1', destination: 'pad:level' },
+  ]);
+  assert.ok(mixed.length >= 4, `the clock stopped after ${mixed.length} bars on a mixed edge list`);
+  const want = LEVEL.min + (LEVEL.max - LEVEL.min) * 0.75;
+  for (const [i, v] of mixed.slice(1).entries()) {
+    assert.ok(Math.abs(v - want) < 1e-9,
+      `bar-event ${i + 1}: the good edge delivered ${v}, not the macro's own ${want}, once a dead edge shared its list`);
+  }
+});
+
 test('v0.0.160: an additive metre cycles its bars in order, at their own lengths', async () => {
   const engine = createEngine({
     bpm: 240, speed: 2, timeSignature: '4/4+3/4', complexity: 0.5, structure: 'drone',

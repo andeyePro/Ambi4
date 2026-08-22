@@ -4884,7 +4884,15 @@ export function createEngine(initialParams, options = {}) {
    * bottom freezes the track.
    */
   function isFrozenTrack(track) {
-    return randomnessIsHold(params.tracks[track].randomness);
+    // v0.0.170: a routing edge may address something that is not a track at
+    // all — '@global' is how a global dial is addressed, and a share link
+    // outlives the setup it was made in, so an edge naming a track this piece
+    // no longer has is ordinary. Nothing that is not a track can be frozen,
+    // and asking one for its randomness used to kill the scheduler on the
+    // first bar it drew. advanceWalks reaches the same answer by testing a
+    // Set built from trackOrder(); this is the same law, asked track-wise.
+    const config = params.tracks[track];
+    return config ? randomnessIsHold(config.randomness) : false;
   }
 
   /** A track's dissonance (v14): how far it may stray from the group chord. */

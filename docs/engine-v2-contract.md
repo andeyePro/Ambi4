@@ -182,7 +182,7 @@ New param `patches: { [track]: { [voiceId]: Patch } }` — sparse; absent = voic
 Patch = {
   source: { // subtractive core (voices with FM/physical sources expose what applies)
     osc1: 'sine'|'triangle'|'sawtooth'|'square', osc2: same|null,
-    mix: 0–1, detune: -50–50 (cents; see below), octave: -1|0|1
+    mix: 0–1, detune: -50–50 (cents; see below), octave: -2..2 (int; see below)
   },
   filter: { type: 'lowpass'|'highpass'|'bandpass'|'notch', cutoff: 40–12000 (Hz, log UI),
             q: 0.1–20, envAmount: 0–1 },
@@ -194,12 +194,28 @@ Patch = {
   merged over that voice's own defaults) and must honour filter/adsr; subtractive-source
   voices honour `source` too; FM/noise/physical voices ignore `source` fields that don't
   apply. Each voice exports its defaults: `VOICES[track][id].defaults` (full Patch).
+- Octave is three different bounds today, not one: the registry row
+  (`patch.source.octave`, `param-registry.js`) declares `-2..2`, and the
+  sanitiser is derived from that row, so `-2..2` is what a patch or a link
+  can actually carry. Every voice's own `OCTAVES` table (`engine-voices.js`,
+  "v12: two octaves either way") also spans `[-2, -1, 0, 1, 2]`. The DIAL is
+  the outlier: it still ships `-1..1` only (`index.astro`, the Octave knob)
+  — a narrower cap than anything that would refuse it downstream.
 - Routing (v0.0.168, phase 5's first slice): `params.routing` — a list of
   `{ source, destination }` edges, ONE slot per destination (the last edge naming a
   destination wins; the newest patch REPLACES the internal randomiser — nothing
-  sums). Sources today: `lfo.1` (a global sine over `params.lfo1.bars` bars, 1–64,
+  sums), capped at 64 edges (`ambient-engine.js`, `source.slice(0, 64)`) — a
+  route past the cap is silently dropped, the same shape as the LFO bars cap
+  just below. Sources today: `lfo.1` (a global sine over `params.lfo1.bars` bars, 1–64,
   advanced once a bar) and `macro.1` (`params.macro1`, 0–1). A destination is a
-  walk key; while routed, its position IS the source's value — resolveRange,
+  walk key — which includes the `@global` pseudo-track the spread global dials
+  walk on, and may name a track the piece no longer has, because a stored link
+  outlives the setup it was made in. An edge whose destination addresses no
+  live track is INERT, never fatal: nothing that is not a track can be frozen
+  or held, and the edges beside it still deliver (v0.0.170 — before it, asking
+  a non-track for its randomness threw inside the bar draw and stopped the
+  clock on the first bar). While routed, a destination's position IS the
+  source's value — resolveRange,
   live readouts and the dial's own mark all follow for free — and hold/freeze
   and `params.sampling` gate a routed value exactly as they gate a walk, so a
   section-sampled route holds its delivered value all section. Envelopes
@@ -509,6 +525,15 @@ per-note-natured params (velocity already banded; pan spread) which draw per not
 Sequencer step `prob` becomes rangeable too: the effective probability itself drifts
 between min and max.
 
+**This list is history, not the current source of truth.** D9
+(`docs/dial-control-plane-plan.md`) turned `rangeable` into a column on every
+patch-field row in `src/scripts/param-registry.js` — true by default, false
+only where `kind === 'enum'` — and `tests/engine-smoke.mjs` ("v0.0.165: the
+registry and the patch schema cannot drift") asserts that invariant for every
+row, so it cannot silently drift again. Check the registry row, not the
+paragraph below, for whether a field is rangeable today; what follows is the
+record of why each field first became rangeable.
+
 Rangeable + DEFAULT RANGE mode (ships as {min,max} in defaults where marked *):
 filter cutoff*, sends reverb/delay, sequencer step prob, track randomness macro.
 Rangeable + default SINGLE: mix, detune, Q, envAmount, ADSR (all four), vary aspects,
@@ -534,9 +559,18 @@ like filter type", and most of the v7 exclusions did not survive it:
   along. Same for the processor tier and the groove feel, which are named
   positions rather than points on a scale.
 
-The manifest compiler derives `rangeable` per field by ROUND TRIP against the
-schema (`patchFieldRange`), never from a hand-kept list — which is why it
-followed this change with no edit.
+`patchFieldRange()` (`ambient-engine.js`) still derives a field's rangeable-ness
+by ROUND TRIP against `PATCH_SCHEMA`, never from a hand-kept list, but it now
+serves a narrower job than it once did: it is the v23 user-instrument manifest
+compiler's OWN check, for a dial a manifest author names, not what any patch
+editor or the sanitiser's own gate consults. No PRODUCTION reader calls
+`isRangeable()` (the registry's accessor, `param-registry.js`) — its one
+caller is `tests/registry-contract.mjs`, which asserts the column against the
+sanitiser's real behaviour so a `rangeable` that stops being true fails a
+gate rather than waiting for a phase to adopt it. At a dial call site, every
+`addKnob`'s `allowRange` is still the hand-passed literal this section
+describes, so the registry's `rangeable` column is declared ahead of its
+adoption (`docs/dial-control-plane-plan.md` phase 2c).
 Sanitisers (engine + voices patch layer) accept both forms everywhere rangeable;
 `number` behaves exactly as today. getParams returns whatever form is stored.
 
