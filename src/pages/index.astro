@@ -2304,7 +2304,45 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * one-time and unavoidable; taking it now is the cheapest it will ever be.
      */
     const SHARE_SCHEMA = 1;
+    /**
+     * v0.0.171 — the newest wire this build can mint AND read. v0.0.167 and
+     * v0.0.168 put four new keys on the wire (`sampling`, `routing`, `lfo1`,
+     * `macro1`) without touching the version, so a link carrying a cable met
+     * an older build as a link it silently dropped keys from — exactly the
+     * quiet mangling this mechanism exists to announce.
+     *
+     * The stamp is per-payload, not per-build: a link that carries none of the
+     * new keys is still a schema-1 link and every older build reads it in
+     * full, which is why bumping the constant outright would have been the
+     * wrong fix — it would warn on every link minted from here on, including
+     * the ones nothing was added to.
+     */
+    const SHARE_SCHEMA_LATEST = 2;
     const SHARE_VERSION_KEY = 'v';
+
+    /**
+     * The lowest schema that can carry these settings without losing anything.
+     *
+     * Read from the EFFECTIVE params, never from the payload's own shape: all
+     * four keys are always present at their defaults (the sanitiser emits
+     * them), and a compact link carries only a diff, so presence says nothing
+     * either way. What matters is whether a value an older build would drop is
+     * actually set.
+     */
+    function shareSchemaFor(params, engineDefaults) {
+      // The defaults are handed IN: this scope is outside the block that holds
+      // engineModule, and reaching for it here threw at click time — which the
+      // share handler's own catch turned into a link that silently never
+      // arrived on the clipboard. page-boot caught it.
+      const defaults = engineDefaults || null;
+      const routed = Array.isArray(params.routing) && params.routing.length > 0;
+      const sampled = isPlainObject(params.sampling) && Object.keys(params.sampling).length > 0;
+      const lfoSet = !!(defaults && defaults.lfo1 && isPlainObject(params.lfo1)
+        && params.lfo1.bars !== defaults.lfo1.bars);
+      const macroSet = !!(defaults && params.macro1 !== undefined
+        && params.macro1 !== defaults.macro1);
+      return routed || sampled || lfoSet || macroSet ? SHARE_SCHEMA_LATEST : SHARE_SCHEMA;
+    }
 
     /** True when the link this visit arrived on was minted by a newer build. */
     let arrivedFromNewerBuild = false;
@@ -2331,8 +2369,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     const isCompactShare = (parsed) =>
       isPlainObject(parsed) && isPlainObject(parsed[SHARE_ORIGIN_KEY]) && SHARE_DIFF_KEY in parsed;
 
-    function encodeShareParams(params) {
-      const payload = { ...params, [SHARE_VERSION_KEY]: SHARE_SCHEMA };
+    function encodeShareParams(params, schema = SHARE_SCHEMA) {
+      const payload = { ...params, [SHARE_VERSION_KEY]: schema };
       const bytes = new TextEncoder().encode(JSON.stringify(payload));
       let binary = '';
       for (const b of bytes) binary += String.fromCharCode(b);
@@ -2350,7 +2388,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const raw = parsed[SHARE_VERSION_KEY];
       const version = Number.isFinite(Number(raw)) ? Number(raw) : 0;
       delete parsed[SHARE_VERSION_KEY];
-      arrivedFromNewerBuild = version > SHARE_SCHEMA;
+      arrivedFromNewerBuild = version > SHARE_SCHEMA_LATEST;
       return parsed;
     }
 
@@ -2457,6 +2495,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // thirty decibels below every other thing a listener plays without
       // anyone noticing. tests/loudness-drive.mjs is the reason it exists.
       if (typeof window !== 'undefined') window.__ambi4Engine = engine;
+      // v0.0.171: the registry beside it, for the same reason and on the same
+      // terms. Phases 2a and 2b moved every dial's bounds here, and a claim
+      // that a rendered dial draws its row cannot be checked from outside
+      // unless both halves are reachable — the DOM's bounds and the table they
+      // are meant to come from. tests/registry-dial-drive.mjs is the reason.
+      if (typeof window !== 'undefined' && engineModule) {
+        window.__ambi4Registry = engineModule.PARAM_REGISTRY;
+      }
 
       // ---- v21 track registry -------------------------------------------
       // Probed like every other capability, and for the same reason: an
@@ -9160,18 +9206,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return select;
       }
 
-      const OSC_TYPES = [
-        ['sine', 'Sine'],
-        ['triangle', 'Triangle'],
-        ['sawtooth', 'Sawtooth'],
-        ['square', 'Square'],
-      ];
-      const FILTER_TYPES = [
-        ['lowpass', 'Low-pass'],
-        ['highpass', 'High-pass'],
-        ['bandpass', 'Band-pass'],
-        ['notch', 'Notch'],
-      ];
+      // v0.0.171: the option LISTS come from the registry rows the sanitiser
+      // is built from, so a type the engine would refuse can never be offered
+      // and a type it accepts can never be missing from the menu. Only the
+      // display names live here — a label is a page fact, an id is a wire
+      // fact, and the wire fact is stated once. The literal keys are the
+      // fallback an engine without a registry would boot on, and an id with
+      // no label shows as its own id rather than as a blank row.
+      const OSC_LABELS = {
+        sine: 'Sine', triangle: 'Triangle', sawtooth: 'Sawtooth', square: 'Square',
+      };
+      const FILTER_LABELS = {
+        lowpass: 'Low-pass', highpass: 'High-pass', bandpass: 'Band-pass', notch: 'Notch',
+      };
+      const labelledTypes = (ids, labels) => (Array.isArray(ids) && ids.length ? ids : Object.keys(labels))
+        .map((id) => [id, labels[id] ?? id]);
+      const OSC_TYPES = labelledTypes(engineModule && engineModule.PATCH_OSC_TYPES, OSC_LABELS);
+      const FILTER_TYPES = labelledTypes(engineModule && engineModule.PATCH_FILTER_TYPES, FILTER_LABELS);
 
       const hzFormat = (v) => `${Math.round(v)} Hz`;
       const secFormat = (v) => (v < 0.1 ? `${Math.round(v * 1000)} ms` : `${Math.round(v * 100) / 100} s`);
@@ -9370,17 +9421,32 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * engine-smoke's drift test makes that impossible to ship.
        */
       function overlayRegistryDomains(groups) {
-        return groups.map(([heading, specs]) => [heading, specs.map((spec) => {
-          const row = engineModule && engineModule.PARAM_REGISTRY
-            ? engineModule.PARAM_REGISTRY[`patch.source.${spec.field}`]
-            : null;
-          if (!row || row.kind !== 'number') return spec;
-          return {
-            ...spec,
-            min: row.domain[0],
-            max: row.domain[1],
-            ...(row.curve === 'log' ? { log: true } : {}),
-          };
+        const table = engineModule && engineModule.PARAM_REGISTRY;
+        return groups.map(([heading, specs]) => [heading, specs.flatMap((spec) => {
+          const row = table ? table[`patch.source.${spec.field}`] : null;
+          if (row && row.kind === 'number') {
+            return [{
+              ...spec,
+              min: row.domain[0],
+              max: row.domain[1],
+              ...(row.curve === 'log' ? { log: true } : {}),
+            }];
+          }
+          // v0.0.171: these specs carry no min/max of their own any more —
+          // phase 2a deleted the literals so a dial's domain would be stated
+          // exactly once. That makes a MISSING row a dial with undefined
+          // bounds, whose write clamp is clamp(x, undefined, undefined) —
+          // NaN, into the patch, silently. A dial that cannot say what it
+          // does is not shipped at all: drop it, and say why in the console
+          // so the next reader is not hunting a NaN. tests/registry-contract
+          // holds the same law at the gate, which is what stops it shipping.
+          if (spec.min === undefined || spec.max === undefined) {
+            if (table) {
+              console.error(`ambi4: no registry row for patch.source.${spec.field} — dial omitted`);
+            }
+            return [];
+          }
+          return [spec];
         })]);
       }
 
@@ -9587,7 +9653,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             format: pctFormat,
             parse: pctParse,
             onChange: (v) => {
-              patch.source.noise = clamp(v, 0, 1);
+              // Clamped against the pair the control draws, as Pitch above
+              // already is — the fallback editor and the knob editor must not
+              // disagree about a field's bounds, which is the whole point of
+              // both of them asking the registry.
+              patch.source.noise = clamp(v, sNzLo, sNzHi);
               commit();
             },
           });
@@ -9612,7 +9682,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             format: pctFormat,
             parse: pctParse,
             onChange: (v) => {
-              patch.source.fold = clamp(v, 0, 1);
+              patch.source.fold = clamp(v, sFdLo, sFdHi);
               commit();
             },
           });
@@ -9827,6 +9897,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           cell.className = 'knob-cell';
           row.append(cell);
           const { field, ghostMap, ...knobOptions } = options;
+          // v0.0.171: the dial says which parameter it edits, in the DOM.
+          // A deliberate test seam, like window.__ambi4Engine — a dial's
+          // bounds are only checkable against the registry row they are meant
+          // to come from if something can pair the two up, and the label is a
+          // display fact ('OSC 1'), not the parameter's name.
+          if (field) cell.dataset.field = field;
           // The kit editor's "common" value, in this dial's own domain (a log
           // dial's ghost has to be mapped exactly as its live value was).
           // Handed to createKnob up front so a ghost-capable knob.js draws the
@@ -9931,6 +10007,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // -- source --
         const source = controlsSectionVisible(sourceSpec) ? knobSection('Source') : null;
         if (source && allowed(sourceSpec, 'shape1')) {
+          const [sh1Lo, sh1Hi] = regDomain('source.shape1', 0, 3);
           addKnob(source, {
             label: 'OSC 1',
             field: 'source.shape1',
@@ -9938,8 +10015,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // v0.0.74: the morph spreads. It was always CONTINUOUS — fractional
             // positions between sine, triangle, saw and square have been legal
             // since v5 — so calling it discrete was simply wrong.
-            min: 0,
-            max: 3,
+            // v0.0.171: and its ends come from the registry row like every
+            // other numeric dial. These two morphs were the pair phase 2a's
+            // own summary claimed to have converted and had not.
+            min: sh1Lo,
+            max: sh1Hi,
             value: readShape(patch.source, 1) ?? 0,
             marks: SHAPE_MARKS,
             markGlyphs: SHAPE_MARK_GLYPHS,
@@ -9976,6 +10056,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           source.append(osc2Cell);
           describe(osc2Toggle, 'Adds a second oscillator; Mix balances the two.');
 
+          const [sh2Lo, sh2Hi] = regDomain('source.shape2', 0, 3);
           const shape2Knob = addKnob(source, {
             label: 'OSC 2',
             // v0.0.74: the morph spreads. It was always CONTINUOUS — fractional
@@ -9983,8 +10064,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // since v5 — so calling it discrete was simply wrong.
             field: 'source.shape2',
             glyphOnly: true,
-            min: 0,
-            max: 3,
+            min: sh2Lo,
+            max: sh2Hi,
             value: lastShape2 ?? 0,
             marks: SHAPE_MARKS,
             markGlyphs: SHAPE_MARK_GLYPHS,
@@ -9996,7 +10077,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // (0) while the cell is reachable at all (i.e. toggled on).
             ...(shape2Default != null ? { defaultValue: shape2Default } : {}),
             onInput: (v) => {
-              lastShape2 = mapRV(v, (x) => clamp(x, 0, 3));
+              lastShape2 = mapRV(v, (x) => clamp(x, sh2Lo, sh2Hi));
               writeShape(patch.source, 2, lastShape2);
               commit();
             },
@@ -10119,11 +10200,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const sourceEditable = (field) =>
           allowed(sourceSpec, field) || allowed(sourceSpec, 'octave');
 
-        // v12: octave ships ±1, not the addendum's sketched ±2 — both the
-        // engine sanitiser (patchNumber(v, -1, 1)) and every voice's own
-        // OCTAVES = [-1, 0, 1] (engine-voices.js) clamp there; a ±2 dial
-        // would silently round-trip through Math.round(clamp(v,-1,1)) and
-        // never actually reach ±2.
+        // v12: the octave DIAL ships ±1 — and it is the only thing that
+        // does. v0.0.171 corrected the reason written here, which had been
+        // false since long before it was written: the registry row and the
+        // sanitiser derived from it both take ±2, and every voice's own
+        // OCTAVES table (engine-voices.js, "v12: two octaves either way") is
+        // [-2, -1, 0, 1, 2]. So a ±2 dial WOULD reach ±2, and a hand-edited
+        // link carrying octave 2 sounds today while this dial draws +1. The
+        // narrow dial is a deliberate but UNEXPLAINED cap: no reason for it
+        // survives in the code or the plan, so it is documented as what it is
+        // rather than justified by a clamp that does not exist. See
+        // docs/engine-v2-contract.md, which states all three bounds.
         if (source && !pitchInPlaceOfOctave && allowed(sourceSpec, 'octave')) {
           addKnob(source, {
             label: 'Octave',
@@ -10448,35 +10535,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // above) — rangeDefault starts a plain-number patch pre-split.
         const sends = controlsSectionVisible(sendsSpec) ? knobSection('Sends') : null;
         if (sends && allowed(sendsSpec, 'reverb')) {
+          // v0.0.171: the WRITE clamps against the same pair the dial draws.
+          // Reading the bounds from the registry and then clamping to a
+          // literal is the shape of fault this phase exists to end — the dial
+          // would report a value the patch never stored the day the row moved.
+          const [rvLo, rvHi] = regDomain('sends.reverb', 0, 1);
           addKnob(sends, {
             label: 'Reverb',
             field: 'sends.reverb',
-            min: regDomain('sends.reverb', 0, 1)[0],
-            max: regDomain('sends.reverb', 0, 1)[1],
-            value: sanitiseRangeValueIn(patch.sends.reverb, ...regDomain('sends.reverb', 0, 1), 0.3),
+            min: rvLo,
+            max: rvHi,
+            value: sanitiseRangeValueIn(patch.sends.reverb, rvLo, rvHi, 0.3),
             format: plainFormat,
             allowRange: true,
             rangeDefault: true,
             defaultValue: defaults.sends.reverb,
             onInput: (v) => {
-              patch.sends.reverb = mapRV(v, (x) => clamp(x, 0, 1));
+              patch.sends.reverb = mapRV(v, (x) => clamp(x, rvLo, rvHi));
               commit();
             },
           });
         }
         if (sends && allowed(sendsSpec, 'delay')) {
+          const [dlLo, dlHi] = regDomain('sends.delay', 0, 1);
           addKnob(sends, {
             label: 'Delay',
             field: 'sends.delay',
-            min: regDomain('sends.delay', 0, 1)[0],
-            max: regDomain('sends.delay', 0, 1)[1],
-            value: sanitiseRangeValueIn(patch.sends.delay, ...regDomain('sends.delay', 0, 1), 0.15),
+            min: dlLo,
+            max: dlHi,
+            value: sanitiseRangeValueIn(patch.sends.delay, dlLo, dlHi, 0.15),
             format: plainFormat,
             allowRange: true,
             rangeDefault: true,
             defaultValue: defaults.sends.delay,
             onInput: (v) => {
-              patch.sends.delay = mapRV(v, (x) => clamp(x, 0, 1));
+              patch.sends.delay = mapRV(v, (x) => clamp(x, dlLo, dlHi));
               commit();
             },
           });
@@ -16687,7 +16780,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         let url = '';
         let name = '';
         try {
-          const fragment = `${SHARE_PARAM}=${encodeShareParams(sharePayload())}`;
+          const fragment = `${SHARE_PARAM}=${encodeShareParams(sharePayload(), shareSchemaFor(paramsSnapshot(), engineModule && engineModule.DEFAULT_PARAMS))}`;
           url = `${SHARE_BASE}#${fragment}`;
           // The same fragment the receiver's browser will hash on arrival, so
           // both ends read the same three words off the same link.

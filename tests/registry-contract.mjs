@@ -17,6 +17,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   sanitiseParams,
   TRACK_ORDER,
@@ -220,6 +221,57 @@ test('a routing source outside the reserved namespaces is refused', () => {
 });
 
 // --------------------------------------------------------------------------
+// The page's side of the same contract. Phase 2a deleted the min/max literals
+// from the sculpt and call spec tables so a dial's domain would be stated
+// exactly once — which means a spec whose field has NO registry row is a dial
+// with undefined bounds, and its write clamp is clamp(x, undefined, undefined):
+// NaN, into the patch, with nothing to catch it. The page now drops such a
+// dial rather than draw it, and this is the gate that stops one shipping.
+// Source-scanned rather than executed, the way tutorial-smoke reads the page.
+
+test('every sculpt and call dial has the registry row its domain now comes from', () => {
+  const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8');
+  for (const table of ['SCULPT_GROUPS', 'CALL_GROUPS']) {
+    const start = page.indexOf(`const ${table} = [`);
+    assert.ok(start > 0, `${table} is not in the page any more — this gate is watching the wrong name`);
+    // The table ends at the first line that closes it at column zero-plus-six,
+    // the indentation every top-level const in this file's script block has.
+    const end = page.indexOf('\n      ];', start);
+    assert.ok(end > start, `${table} does not close where this scan expects`);
+    const body = page.slice(start, end);
+    const fields = [...body.matchAll(/field:\s*'([A-Za-z0-9_.]+)'/g)].map((m) => m[1]);
+    assert.ok(fields.length > 0, `${table} names no fields — the scan found nothing to check`);
+    for (const field of fields) {
+      const row = PARAM_REGISTRY[`patch.source.${field}`];
+      assert.ok(row, `${table} draws a dial for patch.source.${field}, which has no registry row: since v0.0.166 the spec carries no min/max of its own, so that dial would render with undefined bounds and write NaN into the patch`);
+      assert.equal(row.kind, 'number',
+        `${table}'s ${field} is drawn as a numeric dial but its registry row is ${row.kind}`);
+    }
+  }
+});
+
+test('the page offers exactly the oscillator and filter types the engine accepts', () => {
+  const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8');
+  const labelBlock = (name) => {
+    const start = page.indexOf(`const ${name} = {`);
+    assert.ok(start > 0, `${name} is not in the page — this gate is watching the wrong name`);
+    const end = page.indexOf('};', start);
+    return [...page.slice(start, end).matchAll(/([A-Za-z0-9_]+):\s*'/g)].map((m) => m[1]);
+  };
+  // The menus are BUILT from the registry rows now, so the only thing that can
+  // drift is a type with no display name — it would show as its own wire id.
+  for (const [name, path] of [['OSC_LABELS', 'patch.source.osc1'], ['FILTER_LABELS', 'patch.filter.type']]) {
+    const labelled = labelBlock(name);
+    for (const id of PARAM_REGISTRY[path].domain) {
+      assert.ok(labelled.includes(id),
+        `${path} accepts '${id}' but ${name} has no display name for it, so the menu would offer the raw wire id`);
+    }
+    for (const id of labelled) {
+      assert.ok(PARAM_REGISTRY[path].domain.includes(id),
+        `${name} names '${id}', which ${path} would refuse — a menu entry the engine drops on selection`);
+    }
+  }
+});
 
 let failures = 0;
 for (const [name, fn] of tests) {

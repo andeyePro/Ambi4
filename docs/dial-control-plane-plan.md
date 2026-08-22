@@ -289,33 +289,57 @@ Premium, and no paid feature is visible before its tier can be bought.
 Six phases. Phases 1-2 are the foundation and ship no visible change.
 
 1. **Parameter registry.** One declarative table keyed by dotted path, carrying
-   domain, curve, unit, format, default, rangeable, scope (dial / voice /
-   instrument / track / bus / master) and *sampling* (note / bar / chord /
-   section). Both the engine
-   sanitiser and the UI read it. This deletes the boot-time capability probes
-   (`probePatchSource`, `index.astro:2225`) and turns `allowRange` from a
-   call-site opinion into a derived property. No user-visible change.
+   domain, curve, unit, rangeable, scope (dial / voice / instrument / track /
+   bus / master) and *sampling* (note / bar / chord / section) — there is no
+   `format` or `default` column; those were never built. The engine sanitiser
+   is derived from the domain, integer and nullable fields. `rangeable` and
+   `sampling` are declared on every row but not yet CONSULTED by anything
+   downstream of the registry itself: `walkSampling()` (`ambient-engine.js`)
+   reads `params.sampling`, the wire map, not the row, and `isRangeable()`
+   (the registry's own accessor) has no PRODUCTION caller — its one caller is
+   `tests/registry-contract.mjs`, which asserts the column against what the
+   sanitiser really does, so a `rangeable` that stops being true fails a gate
+   rather than waiting for a phase to adopt it. Every dial still takes
+   `allowRange` as a hand-passed literal. This deletes the boot-time
+   capability probes (`probePatchSource`) and states `allowRange` as a
+   registry property in principle; making anything actually read it that way
+   is later work. No user-visible change.
    **SHIPPED v0.0.165 (2026-08-14) for the PATCH namespace**:
    `src/scripts/param-registry.js` (rows + RESERVED_TOKENS as code), the
    engine's PATCH_SCHEMA is built from it, `PATCH_OSC_TYPES`/`PATCH_FILTER_TYPES`
    are registry rows, the page's eight patch-field probes became registry
-   lookups and `probePatchSource` is gone. engine-smoke pins registry↔schema
-   against drift and the derivation's corner laws. Track/bus/master rows and
-   `allowRange`-as-derived land with phase 2's renderer.
+   lookups and `probePatchSource` is gone. `tests/engine-smoke.mjs`
+   ("v0.0.165: the registry and the patch schema cannot drift") pins
+   registry↔schema against drift, including the invariant that `rangeable`
+   derives from `kind`. Every row's `scope` is `voice` today — track/bus/
+   master rows have no phase that has claimed them yet.
 2. **`buildKnobEditor` becomes a renderer over the registry.** The ~600 lines
    of hand-written `addKnob` literals collapse into a loop. Behaviour must be
    byte-identical; the existing smoke tests are the gate.
-   **Phase 2a SHIPPED v0.0.166 (2026-08-14)**: every dial DOMAIN in the knob
-   editor and the sculpt/call spec tables now reads the registry row
-   (`regDomain`/`overlayRegistryDomains`), `DETUNE_MAX` is the registry
-   ceiling, and the literals survive only as no-registry fallbacks. The one
-   deliberate exception is documented in place: the octave DIAL ships ±1
-   while the registry (and sanitiser) accept ±2, because every voice's own
-   OCTAVES table clamps at ±1. **Phase 2b SHIPPED v0.0.169 (2026-08-14)**: the slider fallback
-   editor's fourteen domain literals joined the registry reads through the
-   shared patchDomain() both editors now use. Still open for 2c: the full
-   literal→loop collapse (labels/formats/tooltips as registry UI metadata)
-   and allowRange as a derived property.
+   **Phase 2a SHIPPED v0.0.166 (2026-08-14)**: the sculpt/call spec tables
+   (`overlayRegistryDomains`) read their domain from the registry row for
+   every field that has one, and `DETUNE_MAX` is the registry ceiling.
+   `shape1`/`shape2` were the known gap — both had registry rows while the
+   knob editor kept its own literal `min: 0, max: 3` — and **v0.0.171 closed
+   it**: the two morph dials read their row like every other numeric dial, so
+   2a's own summary is true at last. A missing row is no longer a fallback to
+   a literal either: the sculpt/call specs' `min`/`max` were deleted outright
+   in 2a, which made a field the registry does not carry a dial with undefined
+   bounds writing NaN into the patch. **v0.0.171** made that a refusal instead
+   — `overlayRegistryDomains` drops the dial and says so in the console, and
+   `tests/registry-contract.mjs` scans both spec tables against the registry
+   so a rowless dial cannot reach a build at all. The octave DIAL is
+   a second, separate gap, already present before 2a: it still ships ±1 while
+   the registry, the sanitiser and every voice's own OCTAVES table
+   (`engine-voices.js`, "v12: two octaves either way" — `[-2, -1, 0, 1, 2]`)
+   all accept the full ±2. Whatever justified the ±1 cap when it was written
+   does not match what is in the voice table now, and nothing downstream
+   currently depends on the dial staying narrower. **Phase 2b SHIPPED
+   v0.0.169 (2026-08-14)**: the slider fallback editor's fourteen domain
+   literals joined the registry reads through the shared `patchDomain()`
+   both editors now use. Still open for 2c: the full literal→loop collapse
+   (labels/formats/tooltips as registry UI metadata) and `allowRange` as a
+   derived property.
 3. **Gesture rebuild (D1, D2, D9).** Base-and-spread drag model, axis lock,
    centre-tap default, muted-grey zeroed state, live-value pointer (reusing the
    `ghostValue` substrate), full-diameter indicator for enumerations. Deletes

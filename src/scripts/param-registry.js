@@ -25,7 +25,7 @@
  * - `rangeable`— a {min,max} span is legal here. Derived, not asserted, by
  *                everything downstream: enums are the only false today (D9)
  * - `curve`    — 'linear' | 'log', the UI's mapping hint
- * - `unit`     — display unit ('' | 'ct' | 'st' | 'Hz' | 's' | '%')
+ * - `unit`     — display unit ('' | 'ct' | 'st' | 'oct' | 'Hz' | 's')
  * - `scope`    — where in the D7 inheritance chain the parameter lives
  *                (every patch field is 'voice' today; track/bus/master rows
  *                join the table as their phases land)

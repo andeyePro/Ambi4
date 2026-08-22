@@ -168,6 +168,7 @@ const {
   metrePulses,
   metreComponents,
   metreAt,
+  normaliseMetre,
   randomnessIsHold,
   REVERB_TAIL_RANGE,
   quantiseToScale,
@@ -959,6 +960,7 @@ test('sanitiseParams validates structure and custom blocks', () => {
     [{ label: 'B', bars: 5, intensity: 0.6, tracks: {} }]);
 });
 
+
 test('sanitiseParams merges arp deeply and clamps every field', () => {
   const arp = sanitiseParams({}).arp;
   assert.deepEqual(arp, {
@@ -1204,6 +1206,23 @@ test('v0.0.165: the registry and the patch schema cannot drift', async () => {
   assert.deepEqual(reg.RESERVED_TOKENS.stepRules, ['absolute', 'walk', 'up', 'down', 'pingpong', 'cycle']);
 });
 
+test('v0.0.171 audit: the registry\'s `unit` docstring names exactly the units the table emits', () => {
+  // Not this repo's file to own (see param-registry.js's own header) — the
+  // point of a falsifiable comment guard is that the comment, not this test,
+  // is what has to move when the table does.
+  const source = readFileSync(new URL('../src/scripts/param-registry.js', import.meta.url), 'utf8');
+  const docLine = source.split('\n').find((line) => line.includes('`unit`'));
+  assert.ok(docLine, 'the `unit` row of the registry\'s field-list docstring must exist');
+  const named = new Set([...docLine.matchAll(/'([^']*)'/g)].map((m) => m[1]));
+  const emitted = new Set([...source.matchAll(/unit: '([^']*)'/g)].map((m) => m[1]));
+  for (const unit of emitted) {
+    assert.ok(named.has(unit), `the docstring omits '${unit}', which the table emits`);
+  }
+  for (const unit of named) {
+    assert.ok(emitted.has(unit), `the docstring names '${unit}', which nothing in the table emits`);
+  }
+});
+
 test('v0.0.167: sampling gates a spread\'s walk to chord and section starts', async () => {
   const run = async (sampling) => {
     const engine = createEngine({
@@ -1321,6 +1340,7 @@ test('v0.0.168: a routed dial follows its source - exactly, one slot, sampling c
   }
 });
 
+
 test('v0.0.170: a routed dial whose destination is no real track cannot stop the clock', async () => {
   // The sanitiser admits any grammatical walk key, '@global' included — the
   // pseudo-track every spread global dial already walks on — so a routing edge
@@ -1424,6 +1444,7 @@ test('v0.0.162: a voice blend draws per section, wander stands down, config stay
   const b = await run();
   assert.deepEqual(b.perSection, a.perSection, 'the section draws must be seed-deterministic');
 });
+
 
 test('engine emits bar, section and note events in sane time order', async () => {
   const engine = createEngine({
@@ -9582,6 +9603,7 @@ test('v28 quantiseCapture: a take becomes a whole lane — played slots on, the 
   ], grid);
   assert.equal(written, 3);
   assert.equal(steps.length, SEQUENCER_STEP_COUNT, 'a capture must write a FULL lane');
+  assert.ok(steps.every((s, i) => i in steps), 'a lane must have no holes — a hole reads as "absent" and inherits');
   assert.equal(laneMask(steps), '10100000100000000000');
   assert.equal(steps[0].vmin, 0.9);
   assert.equal(steps[0].vmax, 0.9, 'the slot must be struck at the velocity it was played at');
@@ -9617,6 +9639,7 @@ test('v28 quantiseCapture: a kit take lands lane by lane, and a lane the kit los
   assert.equal(laneMask(steps.mid), '00000000000000000000');
   assert.equal(laneMask(steps.high), '01000000000000000000');
 });
+
 
 test('v28 noteOn: a key sounds through the target track\'s own voice, patch and chain', async () => {
   const spy = keySpy();
@@ -10028,6 +10051,14 @@ test('v0.0.131 resolution: a track\'s grid is its own ×2/÷2 rung — lanes siz
     const back = nearestResolution(nearestResolution(rung, { triplet: false }), { triplet: true });
     assert.equal(back, rung, `${rung} must survive a there-and-back swap`);
   }
+  // v0.0.171: a rung on NEITHER ladder falls back to the default note value's
+  // OWN position (a sixteenth, STEP_RESOLUTIONS index 2), not to a lookup of
+  // that value on the destination ladder — which answers -1 on the triplet
+  // ladder (0.25 is not one of its members) and clamped to the coarsest rung.
+  assert.equal(nearestResolution(0.2, { triplet: true }), 1 / 6,
+    'an unmapped rung must fall back BY POSITION to the sixteenth-equivalent, not clamp to the coarsest triplet rung');
+  assert.equal(nearestResolution(0.2, { triplet: false }), 0.25,
+    'the already-correct direction must be unaffected');
 });
 
 test('audit: crafted metre names cannot ride in through the sanitiser', () => {

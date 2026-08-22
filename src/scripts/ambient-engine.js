@@ -900,7 +900,13 @@ export function nearestResolution(stepBeats, { triplet }) {
   const from = triplet ? STEP_RESOLUTIONS : STEP_RESOLUTIONS_TRIPLET;
   const to = triplet ? STEP_RESOLUTIONS_TRIPLET : STEP_RESOLUTIONS;
   const at = from.findIndex((rung) => Math.abs(rung - stepBeats) < 1e-9);
-  const index = at < 0 ? to.indexOf(SEQUENCER_STEP_BEATS) : at;
+  // v0.0.171: a rung on NEITHER ladder falls back to the DEFAULT note value's
+  // POSITION — the mapping is positional, so the answer must be an index, not
+  // a value looked up in the destination. The sixteenth is not on the triplet
+  // ladder at all, so to.indexOf answered -1 there and the clamp below turned
+  // it into the coarsest rung: crotchet triplets, four note values from the
+  // one implied. The page's own fallback branch has always used this index.
+  const index = at < 0 ? STEP_RESOLUTIONS.indexOf(SEQUENCER_STEP_BEATS) : at;
   return to[Math.max(0, Math.min(index, to.length - 1))];
 }
 
