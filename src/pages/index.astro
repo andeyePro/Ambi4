@@ -321,7 +321,7 @@ const VOICES: Record<string, [string, string][]> = {
               autocomplete="off"
               spellcheck="false"
             />
-            <label class="visually-hidden" for="compose-melody-track">Write onto which instrument</label>
+            <label class="create-picker-label" for="compose-melody-track">onto</label>
             <select id="compose-melody-track" class="genre-select create-midi-track"></select>
             <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
           </div>
@@ -4247,6 +4247,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // Hoisted above the first describe() caller — `let` after the call
       // site is a temporal-dead-zone crash (shipped blank-page bug, 6105e0d).
       let tipSeq = 0;
+      // v0.0.194: the text each described element currently carries — hoisted
+      // beside tipSeq for the same reason (describe() is called above here).
+      const describedText = new WeakMap();
 
       const VOICE_HINTS = {
         pad: 'The sustained chord bed. Warm is the default; Glass is brighter, Choir the most vocal.',
@@ -4602,8 +4605,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /** Attach a hover/focus tooltip + an AT description. Returns `el`. */
-      function describe(el, text) {
+      // v0.0.194: describe() may be called AGAIN on the same element with new
+      // text — the tooltip follows (as it always did, the last text winning),
+      // the listeners are attached once, and with `replace` the accessible
+      // description follows too. Write it needed this: its tooltip names
+      // whichever instrument the picker beside it points at. Without
+      // `replace` the description keeps its FIRST text, which is what the
+      // fallback editor relies on (a control's registry hint, then a note).
+      function describe(el, text, { replace = false } = {}) {
         if (!el || !text) return el;
+        describedText.set(el, text);
         let descId = el.getAttribute('aria-describedby');
         if (!descId && el.parentNode) {
           const desc = document.createElement('span');
@@ -4613,10 +4624,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           el.parentNode.insertBefore(desc, el.nextSibling);
           descId = desc.id;
           el.setAttribute('aria-describedby', descId);
+        } else if (descId && replace) {
+          const desc = document.getElementById(descId);
+          if (desc && desc.classList.contains('visually-hidden')) desc.textContent = text;
         }
-        el.addEventListener('pointerenter', () => showTooltip(el, text));
+        if (el.dataset.described === '1') return el;
+        el.dataset.described = '1';
+        el.addEventListener('pointerenter', () => showTooltip(el, describedText.get(el) || text));
         el.addEventListener('pointerleave', hideTooltip);
-        el.addEventListener('focus', () => showTooltip(el, text));
+        el.addEventListener('focus', () => showTooltip(el, describedText.get(el) || text));
         el.addEventListener('blur', hideTooltip);
         return el;
       }
@@ -7196,12 +7212,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * along so a pre-v14 sanitiser still honours the first pattern. An
        * engine that understands neither simply drops both keys.
        */
+      /** v0.0.194: does any step in any of this track's sequencers sound? */
+      function sequencersHaveSteps(list) {
+        return (list || []).some((seq) => {
+          if (!seq || !seq.steps) return false;
+          const lanes = Array.isArray(seq.steps) ? [seq.steps] : Object.values(seq.steps);
+          return lanes.some((lane) => Array.isArray(lane) && lane.some((step) => step && step.on));
+        });
+      }
+
       function commitSequencer(track) {
         const t = settings.tracks[track];
         t.sequencer = t.sequencers[0];
+        // v0.0.194 (the Blank slate first minute): a step tapped on the grid of
+        // a SILENT track switches the track on — in the same payload as the
+        // step, so the engine never holds a grid it will not play — and marks
+        // the sequencers hand-written, so the line sounds from the next bar
+        // rather than waiting a staged intro nobody asked for. Before this,
+        // Blank slate then tapping steps was silence forever: the lit cells
+        // reached the engine and the Off state stopped them at the door.
+        let switchedOn = false;
+        if (t.state === 'off' && sequencersHaveSteps(t.sequencers)) {
+          t.state = 'on';
+          for (const seq of t.sequencers) if (seq && seq.mode === 'manual') seq.hand = true;
+          switchedOn = true;
+        }
         const partial = {
           tracks: {
             [track]: {
+              ...(switchedOn ? { state: 'on' } : {}),
               sequencers: structuredClone(t.sequencers),
               sequencer: structuredClone(t.sequencers[0]),
               // v21: the lane list travels WITH the patterns it keys, so a
@@ -7226,6 +7265,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         engine.setParams(partial);
         persistSettings();
+        if (switchedOn) {
+          setTrackState(track, 'on');
+          const tip = document.getElementById('guided-tip');
+          if (tip) tip.textContent = `${TRACK_LABELS[track] || track} switched on: a step you tap plays.`;
+        }
       }
 
       // ---- block editor: REMOVED FROM THIS REPOSITORY (2026-07-29) --------
@@ -13502,6 +13546,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       let finishing = false;
       let playNotice = '';
+      let stageNotice = ''; // v0.0.194: "Bass enters in 2 bars" while a track waits its staged turn
 
       // v26 pause. `engine.pause()` holds the piece where it stands and
       // `engine.resume()` picks it up at that exact position; without it the
@@ -15913,11 +15958,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               playNotice = '';
               updateTimerUI();
             }
+          } else if (stageNotice) {
+            stageNotice = '';
+            updateTimerUI();
           }
           setTransportUI();
         });
-        engine.on('bar', ({ time, beatsPerBar }) => {
+        engine.on('bar', ({ time, beatsPerBar, bar }) => {
           schedulePlayhead(time, beatsPerBar);
+          updateStageNotice(bar);
         });
 
         // v0.0.67: every scheduled note lands in its track's grid as a CHOSEN
@@ -16200,7 +16249,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours: start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. And the derivation runs the other way too: Fit chords to the tune reads whatever tune an instrument already carries \u2014 typed, sung, imported or drawn \u2014 and writes the chord loop that fits it, notes on the beat deciding each bar\u2019s chord and notes between passing.'
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line you type starts playing at once): start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. And the derivation runs the other way too: Fit chords to the tune reads whatever tune an instrument already carries \u2014 typed, sung, imported or drawn \u2014 and writes the chord loop that fits it, notes on the beat deciding each bar\u2019s chord and notes between passing.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -16600,6 +16649,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             mode: 'manual',
             weights: bars.map(() => 1),
             steps,
+            hand: true, // v0.0.194: a person wrote this — it enters at once
           }));
           track.sequencers = list;
           track.sequencer = list[0];
@@ -16618,12 +16668,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const editor = document.getElementById(`voice-editor-${target}`);
           if (editor && !editor.hidden) renderVoiceEditor(target);
           persistSettings();
+          // v0.0.194: a typed line starts the piece if nothing is playing —
+          // "Write it" then silence, with Play three controls away, was the
+          // first thing he reported. A paused piece is left paused: Resume is
+          // the person's own decision.
+          const startedNow = !engine.running && !paused;
+          if (startedNow) startPlayback().catch(() => {});
           if (guidedTip) {
             guidedTip.textContent =
               `${TRACK_LABELS[target] || target} written: ${written} note${written === 1 ? '' : 's'} across ` +
               `${bars.length} bar${bars.length === 1 ? '' : 's'}` +
               (bars.length > 1 ? ' (played in order)' : '') +
-              (dropped.length ? ` — dropped: ${dropped.join(' ')} (eight bars is the cap).` : '.');
+              (dropped.length ? ` — dropped: ${dropped.join(' ')} (eight bars is the cap)` : '') +
+              (startedNow ? ' — playing now.' : ' — it plays from the next bar.');
           }
         }
 
@@ -16763,7 +16820,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
 
           const track = settings.tracks[target];
-          const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps }));
+          const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps, hand: true }));
           track.sequencers = list;
           track.sequencer = list[0];
           if (bars.length > 1) track.sequencerAdvance = 'chain';
@@ -16956,7 +17013,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             return;
           }
           const track = settings.tracks[target];
-          const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps }));
+          const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps, hand: true }));
           track.sequencers = list;
           track.sequencer = list[0];
           if (bars.length > 1) track.sequencerAdvance = 'chain';
@@ -16999,7 +17056,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             writeTypedMelody();
           }
         });
-        describe(melodyWrite, 'Writes the typed notes onto the melody grid as PINNED steps — each plays exactly the note you named. One token per beat: C4, then - to hold it, . to rest.');
+        // v0.0.194: the tooltip names the instrument the picker points at.
+        const melodyWriteHint = () => {
+          const target = composeTarget(melodyTrackSelect);
+          return `Writes the typed notes onto the ${(TRACK_LABELS[target] || target).toLowerCase()} grid as PINNED steps — each plays exactly the note you named — and starts the piece if nothing is playing. One token per beat: C4, then - to hold it, . to rest.`;
+        };
+        describe(melodyWrite, melodyWriteHint());
+        melodyTrackSelect?.addEventListener('change', () => describe(melodyWrite, melodyWriteHint(), { replace: true }));
 
                 composeChords?.addEventListener('click', () => {
           activateTab('advanced', { focus: false });
@@ -17118,6 +17181,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+      /**
+       * v0.0.194: while a track is still to enter (ruling 7's staged intro),
+       * the transport line says so — "Bass enters in 1 bar · Melody enters in
+       * 2 bars" — instead of leaving a switched-on track's silence unexplained.
+       * A hand-written track enters at once and is never listed.
+       */
+      function updateStageNotice(bar) {
+        if (typeof engine.entryBar !== 'function' || !Number.isFinite(bar)) return;
+        const bits = [];
+        for (const id of TRACK_IDS) {
+          const at = engine.entryBar(id);
+          if (at === null || !(bar < at)) continue;
+          const left = at - bar;
+          bits.push(`${TRACK_LABELS[id] || id} enters in ${left} bar${left === 1 ? '' : 's'}`);
+        }
+        const text = bits.join(' · ');
+        if (text === stageNotice) return;
+        stageNotice = text;
+        updateTimerUI();
+      }
+
       function updateTimerUI() {
         const now = Date.now();
         swapTimerRow(sleepIdle, sleepActive, sleepTarget !== null);
@@ -17141,6 +17225,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         if (alarmNotice) bits.push(alarmNotice);
         if (playNotice) bits.push(playNotice);
+        if (stageNotice) bits.push(stageNotice);
         transportStatus.textContent = bits.join(' · ');
       }
 
@@ -17596,9 +17681,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (typeof t.voice === 'string') {
             // The kit keeps its authored sound and loses only its sends; every
             // tuned track opens on the init patch above.
+            // v0.0.194: the bass carries one harmonic above its fundamental —
+            // a saw under the sine, low-passed — because a bare 65 Hz sine is
+            // below what a laptop or phone speaker can reproduce, so a blank
+            // bass line "did nothing" on exactly the machines he tries it on.
             const init = track === 'percussion'
               ? { sends: { reverb: 0, delay: 0 } }
-              : structuredClone(INIT_PATCH);
+              : track === 'bass'
+                ? {
+                  ...structuredClone(INIT_PATCH),
+                  source: { ...INIT_PATCH.source, shape2: 2, mix: 0.35 },
+                  filter: { ...INIT_PATCH.filter, cutoff: 1200 },
+                }
+                : structuredClone(INIT_PATCH);
             blank.patches[track] = {
               ...(blank.patches[track] || {}),
               [t.voice]: {
@@ -18086,7 +18181,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#play-along',
-          text: 'The orange piano icon — Create — is the app\'s second main door. Blank slate empties everything, FX included, so what follows is entirely yours; the Zero buttons strip one layer at a time; Tap a rhythm turns the Space bar into a drum; and Musical typing hands your computer keyboard, or a MIDI one, to a track, with Capture recording what you play into its grid. The panel\'s two ⓘs hold the detail.',
+          text: 'The orange piano icon — Create — is the app\'s second main door. Blank slate empties everything, FX included, so what follows is yours (a tapped step switches a silent instrument on; a typed line plays); the Zero buttons strip one layer at a time; Tap a rhythm turns the Space bar into a drum; and Musical typing hands your computer keyboard, or a MIDI one, to a track, with Capture recording what you play into its grid. The panel\'s two ⓘs hold the detail.',
         },
         {
           target: '#front-scope-module',
@@ -19274,6 +19369,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        could not land. Two classes deep so it beats `.genre-select`, which is
        declared after it. 16px on the font is deliberate: anything smaller makes
        iOS Safari zoom the page when the select is focused. */
+    /* v0.0.194: the typed-melody picker's label is visible — "onto" between
+       the box and the instrument — because a picker with a hidden label read
+       as decoration and the melody was the only place the notes ever went. */
+    .create-picker-label {
+      align-self: center;
+      font-size: 0.85rem;
+      opacity: 0.8;
+      flex: 0 0 auto;
+    }
+
     .create-row .create-midi-track {
       min-height: 34px;
       padding: 4px 6px;

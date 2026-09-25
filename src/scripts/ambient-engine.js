@@ -1718,8 +1718,13 @@ function sanitiseSequencer(percussive, value, base, laneIds = PERCUSSION_LANES, 
   const mode = oneOf(at('mode'), SEQUENCER_MODES,
     oneOf(from && from.mode, SEQUENCER_MODES, 'auto'));
   const weights = sanitiseWeights(at('weights'), from ? from.weights : undefined);
+  // v0.0.194: `hand` marks a sequencer a PERSON wrote — the page's typed
+  // writers and a grid tapped on a silent track set it; a compiled genre never
+  // does. Emitted only when true, so every stored piece reads back byte-equal.
+  const hand = at('hand') === undefined ? Boolean(from && from.hand === true) : at('hand') === true;
+  const handKey = hand ? { hand: true } : {};
   if (!percussive) {
-    return { mode, weights, steps: sanitiseStepLane(at('steps'), from ? from.steps : undefined, stepBeats) };
+    return { mode, weights, steps: sanitiseStepLane(at('steps'), from ? from.steps : undefined, stepBeats), ...handKey };
   }
   const rawLanes = at('steps');
   const baseLanes = from && from.steps && typeof from.steps === 'object' ? from.steps : null;
@@ -1735,7 +1740,7 @@ function sanitiseSequencer(percussive, value, base, laneIds = PERCUSSION_LANES, 
       stepBeats,
     );
   }
-  return { mode, weights, steps };
+  return { mode, weights, steps, ...handKey };
 }
 
 /** A lane id: a non-empty trimmed string, capped so a UI cannot mint an essay. */
@@ -5166,6 +5171,24 @@ export function createEngine(initialParams, options = {}) {
     return Boolean(sequencer && sequencer.mode === 'manual');
   }
 
+  /** v0.0.194: a manual sequencer a person wrote (see sanitiseSequencer's `hand`). */
+  function isHandWritten(track) {
+    const sequencer = sequencerFor(track);
+    return Boolean(sequencer && sequencer.mode === 'manual' && sequencer.hand === true);
+  }
+
+  /**
+   * v0.0.194: the first bar this track may sound in, as the transport can show
+   * it — null for a track that is off. A hand-written track switched on enters
+   * at bar 0; everything else keeps its staged turn (ruling 7).
+   */
+  function entryBar(track) {
+    const config = params.tracks[track];
+    if (!config || config.state === 'off') return null;
+    if (config.state === 'on' && isHandWritten(track)) return 0;
+    return Math.max(0, stageIndexOf(track));
+  }
+
   // -- repeat brackets -------------------------------------------------------
 
   /** The longest span a pair of brackets may enclose (v15). */
@@ -5374,6 +5397,13 @@ export function createEngine(initialParams, options = {}) {
     // never restarts when the structure changes mid-piece. Bar 0 is pad alone
     // under every preset (drone included) and every track state — a track
     // forced 'on' still waits its turn — with all six eligible by bar 5.
+    // v0.0.194: EXCEPT a line a person wrote by hand and switched on (the
+    // sequencer carries `hand`): there is no intro to stage for a bass line
+    // somebody just typed after Blank slate, and two silent bars read as "it
+    // does not work". Every generated track — and every stored piece, whose
+    // sequencers carry no `hand` — waits exactly as before. Whether this
+    // should also hold inside a genre is asked in fromClaude (his ruling 7).
+    if (state === 'on' && isHandWritten(name)) return true;
     if (currentBarNumber < stageIndexOf(name)) return false;
     if (state === 'on') return true;
     // v0.0.73: what this SECTION says about this track, if it says anything.
@@ -9343,6 +9373,9 @@ export function createEngine(initialParams, options = {}) {
     setParams,
     getParams,
     getResolved,
+    // v0.0.194: the bar a track first may sound in (null when off), so the
+    // transport can say "Bass enters in 2 bars" instead of playing silence.
+    entryBar,
     getTracks: trackViews,
     canAddTrack,
     addTrack,

@@ -969,3 +969,28 @@ Automated
       the FM, additive and modal render proofs, the genre-essence and lesson
       gestures, the user-genre and user-voice reloads, the finder's claims by
       measurement (one row broken on purpose must go red).
+
+## v0.0.194 delta — the Blank slate first minute (2026-09-25)
+
+He tried Blank slate, typed a melody, and got nothing. The bass-walk harness
+found four reasons, all of them now closed on the Node gate
+(`tests/blank-slate-sounds.mjs`); the browser drive is owed to the bridge key
+(fromClaude 13).
+
+- [ ] Create → Blank slate. Every track reads Off. Edit the Bass row and tap
+      four steps: the row flips to On by itself, the tip says "Bass switched
+      on: a step you tap plays", and — once Play is pressed — the bass sounds
+      from the first bar, not after a silent one.
+- [ ] Blank slate again. In "Type a melody" the picker beside the box now has
+      a visible "onto" label. Point it at Bass, type C2 - G2 A2, press Write
+      it: the piece STARTS (no separate Play) and the bass plays those notes
+      from the first bar. Hover Write it: its tooltip names the bass grid, not
+      the melody grid.
+- [ ] On laptop speakers the blank bass is audible: it is a sine with a
+      low-passed saw under it now, not a bare 65 Hz sine.
+- [ ] Pick Synthwave and press Play: the transport line reads "Bass enters in
+      1 bar · Melody enters in 2 bars …" and the entries drop off as each track
+      comes in. A hand-written track is never listed.
+- [ ] Automated: `npm run build && node tests/all.mjs` — 25 suites, including
+      blank-slate-sounds. Stock genres and every stored piece are unchanged:
+      a sequencer only carries `hand` when a person wrote it.

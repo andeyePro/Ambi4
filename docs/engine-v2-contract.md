@@ -2304,3 +2304,19 @@ through the fallback with the seam set, its control layout pinned in
 select carrying its registry hint as its accessible description). The
 fallback is the path the page takes when knob.js is missing or throws; until
 now nothing could boot it on purpose.
+
+## A hand-written line enters at once (v0.0.194)
+
+Module ownership: **the engine** (`sanitiseSequencer` accepts a boolean `hand`
+on any sequencer, emitted only when true so every stored piece reads back
+byte-equal; `isActive` lets a track whose state is `on` and whose current
+sequencer is manual and hand-written sound from bar 0; `entryBar(track)` on
+the engine object says the first bar a track may sound in, null when off) and
+**the page** (the typed writers and a grid tapped on a silent track set
+`hand`; a compiled genre never does). Gated by `tests/blank-slate-sounds.mjs`
+(the built page in jsdom, real DOM events, every `setParams` payload and every
+scheduled note recorded: the grid path and the typed path each schedule a bass
+and a melody note within one bar of the transport starting, with the pitches
+entered). Ruling 7 (bar 0 is pad alone, a forced-on track waits its turn)
+still governs every generated track and every stored piece; whether it should
+also hold for a hand-written line inside a genre is asked in fromClaude.
