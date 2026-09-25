@@ -410,14 +410,16 @@ this programme, not a parallel one.
   rebuild starts — the harness already drives pointer sequences, so axis lock,
   re-arm, nearest-end grab and push-through are all unit-testable. "Feels right
   on a phone" is not a gate.
-- **The keyboard path is not adequate and gets worse.** Today arrows move min,
-  Shift+arrows move max — but only inside an existing range, and mode entry is
-  click-only, so a keyboard user cannot create a span at all. After the rebuild
-  deletes the click gesture there is still no keyboard way to open, close or
-  collapse a spread, and deleting double-click removes the only reset. Phase 3
-  must specify a keyboard spread gesture, a reset key, and a dual-thumb aria
-  contract — `role="slider"` with one `aria-valuenow` is already wrong for two
-  thumbs.
+- **The keyboard path** — *resolved in part, v0.0.56 (noted 2026-09-25).* The
+  risk as first written: arrows moved only the ends of an existing range and
+  mode entry was click-only, so a keyboard user could not create a span, and
+  deleting double-click would remove the only reset. Shipped since: Shift+Left
+  and Shift+Right narrow and widen the spread and open one from a single value,
+  and Backspace/Delete resets to the default (`knob.js` `onKeyDown`, held by
+  `tests/knob-gesture.mjs`). Still open, and filed in TODO as a decision: a
+  dual-thumb aria contract — `role="slider"` with one `aria-valuenow` is wrong
+  for two thumbs, and the fix (two focusable elements) changes every panel's
+  tab order.
 - **The `vary.*` migration needs a decode shim that lives forever.** Old share
   links carrying `vary.*` never expire, so only the *write* path may retire
   after a release; the read path cannot.
