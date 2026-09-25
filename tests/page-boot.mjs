@@ -1768,6 +1768,32 @@ try {
               const pad = engine.getParams().tracks && engine.getParams().tracks.pad;
               if (!pad || pad.state !== 'off') failures.push(`a fresh draw from the saved genre has the pad ${JSON.stringify(pad && pad.state)}, not Off — the rule did not live in the genre`);
               if (engine.getParams().bpm !== 200) failures.push(`a fresh draw from the saved genre is at ${engine.getParams().bpm} bpm, not the ruled 200`);
+              // v0.0.181 (unit 13): Share carries the genre as data. The link on
+              // the clipboard decodes to a compact payload whose origin names
+              // the saved genre and whose 'g' key IS the genre, stamped latest.
+              const shareButton = doc.getElementById('preset-share');
+              if (shareButton) {
+                clipboard.text = '';
+                shareButton.click();
+                const copied = await waitUntil(() => clipboard.text.includes('#p='));
+                if (!copied) {
+                  failures.push('Share on a genre of the person\'s own copied nothing');
+                } else {
+                  const value = clipboard.text.slice(clipboard.text.indexOf('#p=') + 3);
+                  let decoded = null;
+                  try {
+                    decoded = JSON.parse(Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+                  } catch (err) {
+                    failures.push(`the shared link did not decode: ${err && err.message}`);
+                  }
+                  if (decoded) {
+                    if (!decoded.o || decoded.o.id !== slug) failures.push(`the shared link's origin names ${JSON.stringify(decoded.o && decoded.o.id)}, not the saved genre`);
+                    if (!decoded.g || decoded.g.slug !== slug || decoded.g.name !== 'Night pads') failures.push('the shared link does not carry the genre as data');
+                    if (decoded.g && decoded.g.essence && decoded.g.essence.instrumentation && decoded.g.essence.instrumentation.perTrack && decoded.g.essence.instrumentation.perTrack.pad && decoded.g.essence.instrumentation.perTrack.pad.state !== 'off') failures.push('the carried genre lost its ruled pad');
+                    if (decoded.v !== 2) failures.push(`a link carrying a genre is stamped ${JSON.stringify(decoded.v)}, not the latest schema`);
+                  }
+                }
+              }
               if (forget) {
                 forget.click();
                 const gone = await waitUntil(() => !mineGroup() && genreSelect.value === 'g:synthwave');
@@ -2309,6 +2335,73 @@ try {
       }
     } catch (err) {
       failures.push(`booting on a #p= share link threw: ${err && err.stack ? err.stack : err}`);
+    }
+  }
+
+  // v0.0.181 (unit 13): a link CARRYING a genre of someone's own arrives on a
+  // device that has never seen it. The base rebuilds from the carried genre
+  // (tempo 200, pad Off are its rules), the engine is tagged with it, and it
+  // sits under My genres for this visit.
+  {
+    const synthwave = JSON.parse(readFileSync(join(repoRoot, 'src/data/genres/synthwave.json'), 'utf8'));
+    const carried = structuredClone(synthwave);
+    carried.slug = 'u-carriedtest';
+    carried.name = 'Carried';
+    carried.madeFrom = 'synthwave';
+    carried.essence.bpm = [200, 200];
+    carried.essence.instrumentation.perTrack.pad.state = 'off';
+    const payload = Buffer.from(JSON.stringify({
+      o: { kind: 'genre', id: 'u-carriedtest', seed: 11 },
+      d: {},
+      g: carried,
+      v: 2,
+    }), 'utf8').toString('base64url');
+    const carryDom = new JSDOM(html, {
+      url: `https://ambi4.work/#p=${payload}`,
+      pretendToBeVisual: true,
+      runScripts: 'outside-only',
+    });
+    const carryWindow = carryDom.window;
+    const carryContexts = new WeakMap();
+    carryWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
+      let ctx = carryContexts.get(this);
+      if (!ctx) {
+        ctx = stubCanvasContext();
+        ctx.canvas = this;
+        carryContexts.set(this, ctx);
+      }
+      return ctx;
+    };
+    carryWindow.HTMLCanvasElement.prototype.toDataURL = () => 'data:,';
+    carryWindow.AudioContext = StubAudioContext;
+    carryWindow.OfflineAudioContext = undefined;
+    carryWindow.devicePixelRatio = 1;
+    installClipboard(carryWindow);
+    for (const key of passthrough) {
+      if (carryWindow[key] !== undefined) globalThis[key] = carryWindow[key];
+    }
+    globalThis.self = carryWindow;
+    try {
+      await import(`${pathToFileURL(bundlePath).href}?carried-genre`);
+      const carryDoc = carryWindow.document;
+      const booted = await waitUntil(() => {
+        const el = carryDoc.getElementById('generator-app');
+        return Boolean(el) && !el.hidden;
+      }, 8000);
+      if (!booted) {
+        failures.push('the page did not boot on a link carrying a genre');
+      } else {
+        const carryEngine = carryWindow.__ambi4Engine;
+        const params = carryEngine && carryEngine.getParams();
+        if (!params || params.genre !== 'u-carriedtest') failures.push(`a carried genre did not tag the setup (genre ${JSON.stringify(params && params.genre)})`);
+        if (!params || params.bpm !== 200) failures.push(`a carried genre's ruled tempo did not rebuild the base (bpm ${params && params.bpm})`);
+        if (!params || !params.tracks || !params.tracks.pad || params.tracks.pad.state !== 'off') failures.push('a carried genre\'s ruled pad Off did not rebuild the base');
+        const group = Array.from(carryDoc.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'My genres');
+        const entry = group && group.querySelector('option[value="g:u-carriedtest"]');
+        if (!entry || entry.textContent !== 'Carried') failures.push('a carried genre is not listed under My genres for this visit');
+      }
+    } catch (err) {
+      failures.push(`booting on a link carrying a genre threw: ${err && err.stack ? err.stack : err}`);
     }
   }
 

@@ -2220,6 +2220,12 @@ file may use), `name`, `madeFrom` (the stock slug it grew from), `cluster`
 copied so it has a mood, and the current patches captured into
 `essence.instrumentation.patches`. Saving bakes the panel's overrides in and
 clears `settings.genreRules`; the setup playing is a draw of the new genre and
-does not change. A share link naming a user genre is NOT rebuildable on another
-device until unit 13 carries the genre as data; the share base falls back to
-the whole setup exactly as it does for a hidden genre, so the link still plays.
+does not change. A share link whose origin names a user genre carries the genre itself under
+the compact payload's `g` key (v0.0.181, unit 13): the genre JSON, never code,
+accepted on arrival only if it is a user genre whose slug the origin names, of
+the compiler's shape, and not a slug the stock set holds. The base rebuilds
+from it exactly as from a stock file; the genre joins that visit's My genres
+(not persisted by arriving — Save as my genre keeps it); the link takes the
+latest schema stamp, and a pre-181 build plays the diff on the defaults, as it
+does for any genre it lacks. The size race still picks the whole setup when
+that is shorter.

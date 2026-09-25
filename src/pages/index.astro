@@ -2468,6 +2468,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      */
     const SHARE_ORIGIN_KEY = 'o';
     const SHARE_DIFF_KEY = 'd';
+    // v0.0.181 (unit 13 of docs/synthesis-programme.md): a genre of the
+    // person's own, carried INSIDE the link as data — the genre JSON itself,
+    // never code — so a link minted on one device rebuilds on another. Only
+    // a compact link whose origin names a user genre carries one; the size
+    // race below still picks the whole setup when that is shorter.
+    const SHARE_GENRE_KEY = 'g';
 
     const isCompactShare = (parsed) =>
       isPlainObject(parsed) && isPlainObject(parsed[SHARE_ORIGIN_KEY]) && SHARE_DIFF_KEY in parsed;
@@ -3144,7 +3150,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function expandSharedParams(payload) {
         if (!isCompactShare(payload)) return payload;
         let base = null;
-        try { base = baseFromOrigin(payload[SHARE_ORIGIN_KEY]); } catch { base = null; }
+        // v0.0.181: a carried genre rebuilds the base as if the stock set had
+        // it — and joins this visit's My genres so Next draws from it and Save
+        // as my genre keeps it. Not persisted by arriving: that is the
+        // person's Save, as it is for any setup a link brings.
+        const carried = carriedGenreFor(payload[SHARE_ORIGIN_KEY]?.id, payload[SHARE_GENRE_KEY]);
+        try { base = baseFromOrigin(payload[SHARE_ORIGIN_KEY], carried); } catch { base = null; }
+        if (base && carried && !USER_GENRES.some((genre) => genre.slug === carried.slug) && USER_GENRES.length < USER_GENRE_CAP) {
+          USER_GENRES.push(structuredClone(carried));
+        }
         if (!base) {
           shareBaseMissing = true;
           base = deepMerge(DEFAULTS, {});
@@ -17162,6 +17176,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           [SHARE_ORIGIN_KEY]: originSnapshot(),
           [SHARE_DIFF_KEY]: diffTree(base, paramsSnapshot()),
         };
+        // v0.0.181: a genre of the person's own rides along as data.
+        const carried = currentCarriedGenre();
+        if (carried) compact[SHARE_GENRE_KEY] = structuredClone(carried);
         // A safety net rather than an optimisation: if the diff somehow came
         // out bigger than the tree it was diffed against, send the tree. The
         // whole point of this change is that a link stays paste-able.
@@ -17447,7 +17464,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       /** The settings tree the current origin reproduces, or null if it cannot. */
       function originBase() {
-        return baseFromOrigin(originSnapshot());
+        return baseFromOrigin(originSnapshot(), currentCarriedGenre());
       }
 
       /**
@@ -17456,12 +17473,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * arrives long before the submission code exists, and it needs the same
        * rebuild rather than a second copy of it.
        */
-      function baseFromOrigin(origin) {
+      /**
+       * v0.0.181: a genre a link carried, accepted only if it is a user genre
+       * whose slug the origin names, of the shape the compiler reads — and
+       * never one the stock set already has, so a link cannot shadow a stock
+       * genre with a body of its own.
+       */
+      function carriedGenreFor(id, carried) {
+        if (!isPlainObject(carried) || !isUserGenreSlug(id) || carried.slug !== id) return null;
+        if (GENRE_BY_SLUG.has(id) || !isPlainObject(carried.essence) || typeof carried.name !== 'string') return null;
+        return carried;
+      }
+
+      /** The current origin's genre when it is one of the person's own, else null. */
+      function currentCarriedGenre() {
+        const o = originSnapshot();
+        return o.kind === 'genre' && isUserGenreSlug(o.id) ? genreBySlug(o.id) : null;
+      }
+
+      function baseFromOrigin(origin, carried = null) {
         const o = isPlainObject(origin) && typeof origin.kind === 'string'
           ? { ...origin }
           : { kind: 'unknown' };
         if (o.kind === 'genre' && typeof o.id === 'string' && Number.isFinite(o.seed)) {
-          const genre = GENRE_BY_SLUG.get(o.id);
+          const genre = GENRE_BY_SLUG.get(o.id) || carriedGenreFor(o.id, carried);
           // Origins stamped `kit: 1` were compiled with the genre's own
           // Energy shaping the kit (compileGenreShaped); rebuilding them any
           // other way would put the whole kit into every diff. Links minted
@@ -17700,7 +17735,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         let url = '';
         let name = '';
         try {
-          const fragment = `${SHARE_PARAM}=${encodeShareParams(sharePayload(), shareSchemaFor(paramsSnapshot(), engineModule && engineModule.DEFAULT_PARAMS))}`;
+          const payload = sharePayload();
+          // v0.0.181: a link carrying a genre takes the latest stamp — a
+          // pre-181 build reads past the genre and plays the diff on defaults.
+          const schema = payload[SHARE_GENRE_KEY]
+            ? SHARE_SCHEMA_LATEST
+            : shareSchemaFor(paramsSnapshot(), engineModule && engineModule.DEFAULT_PARAMS);
+          const fragment = `${SHARE_PARAM}=${encodeShareParams(payload, schema)}`;
           url = `${SHARE_BASE}#${fragment}`;
           // The same fragment the receiver's browser will hash on arrival, so
           // both ends read the same three words off the same link.
