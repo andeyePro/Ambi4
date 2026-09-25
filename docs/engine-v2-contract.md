@@ -2391,3 +2391,15 @@ discipline, a same-seed rebuild of every stock genre (byte-identical), and the
 secret-layers table — per layer, does the recipe carry the realised choice —
 pinned in `tests/fixtures/recipe-secret-layers.json`, which a layer may enter
 and never leave. Every later rule flips its row there in the same commit.
+
+## The auto ladder per track (v0.0.200)
+
+Module ownership: **the engine** (`tracks[t].autoThreshold`, 0..1, sparse —
+unset means the registry's constant, so nothing stored moves;
+`autoThresholdFor` reads the param first; `getResolved` reports the
+effective value; `AUTO_THRESHOLDS` exported), **the compiler** (perTrack
+pass-through, like voiceRule), **the page** (the Line-up's "Joins at" dial
+through buildRulesModel → readGenreRulesForm → diffRuleOverrides → Apply;
+"joins at N %" in a track's live row while on Auto) and **the recipe**
+(`tracks.<t>.autoThreshold`, so the secret-layers table names the ladder).
+Gated by `tests/auto-ladder-smoke.mjs` and page-boot.

@@ -13240,6 +13240,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // tuned ones), exactly like `dissonance` above already does.
           if (typeof entry.swing === 'number') bits.push(`swing ${pctFormat(entry.swing)}`);
           if (typeof entry.density === 'number') bits.push(`density ${plainFormat(entry.density)}×`);
+          // v0.0.198: the auto ladder, read-only here — while a track is on
+          // Auto, this is the energy it joins at (its own override, or the
+          // registry floor). Off/On tracks have no "joins" to report.
+          if (entry.state === 'auto' && typeof entry.autoThreshold === 'number') {
+            bits.push(`joins at ${pctFormat(entry.autoThreshold)}`);
+          }
           readout.textContent = bits.join(' · ');
         }
         // v18: the row's <select> follows the SOUNDING voice too (through its
@@ -14324,6 +14330,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               randomness: spanOf(spec.randomness),
               // v0.0.195: a filed voice rule rides through the form untouched.
               voiceRule: isPlainObject(spec.voiceRule) ? structuredClone(spec.voiceRule) : null,
+              // v0.0.198: the auto ladder. null means no override — the row
+              // shows the registry's own floor value and edits FROM it.
+              autoThreshold: Number.isFinite(spec.autoThreshold) ? spec.autoThreshold : null,
             }];
           })),
         };
@@ -14560,9 +14569,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               label: 'Variation', min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}%`,
               hint: 'How much this track re-rolls its own material, drawn from inside the span.',
             });
+            // v0.0.198: the auto ladder (owner ruling 2026-09-25 — every such
+            // decision is a visible, editable rule). No override shows the
+            // registry's own floor value, so the dial always reads the
+            // EFFECTIVE threshold; editing it writes the perTrack override.
+            rulesSpanDial(row, `essence.perTrack.${id}.autoThreshold`, spanOf(spec.autoThreshold ?? autoThresholdFloor(id)), (pair) => { spec.autoThreshold = pair[0]; }, {
+              label: 'Joins at', min: 0, max: 1, step: 0.01, span: false, format: (v) => `${Math.round(v * 100)}%`,
+              hint: 'The energy at which this track joins when it is on Auto: 0 is always, 1 is only at full energy.',
+            });
             lineup.append(row);
           }
         }
+      }
+      /** This track's floor default on the auto ladder, from the engine's own table. */
+      function autoThresholdFloor(id) {
+        const table = engineModule && engineModule.AUTO_THRESHOLDS;
+        return table && Number.isFinite(table[id]) ? table[id] : 0;
       }
       /** The longest tail the engine's own gate keeps: the Hall dial's top. */
       function reverbTailMax() {
@@ -14893,6 +14915,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (spec.level) out.level = spanBack(spec.level);
             if (spec.randomness) out.randomness = spanBack(spec.randomness);
             if (isPlainObject(spec.voiceRule)) out.voiceRule = structuredClone(spec.voiceRule);
+            if (Number.isFinite(spec.autoThreshold)) out.autoThreshold = spec.autoThreshold;
             return [id, out];
           })),
           progressionGrammar: m.progressionGrammar
@@ -15184,6 +15207,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (!sets('state') && typeof mine.state === 'string') track.state = mine.state;
           if (!sets('level') && mine.level !== undefined) track.level = structuredClone(mine.level);
           if (!sets('randomness') && mine.randomness !== undefined) track.randomness = structuredClone(mine.randomness);
+          // v0.0.198: the auto ladder rides the same "a fresh row wins,
+          // otherwise the sound already built survives" rule as level/randomness.
+          if (!sets('autoThreshold') && mine.autoThreshold !== undefined) track.autoThreshold = mine.autoThreshold;
           if (mine.mono !== undefined) track.mono = mine.mono;
         }
         // Patches are the sound outright: carried over whole, and a patch for a

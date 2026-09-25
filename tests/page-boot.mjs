@@ -2180,6 +2180,38 @@ try {
             await new Promise((r) => setTimeout(r, 120));
             if (engine.getParams().tracks.pad.voice !== 'strings') failures.push(`a second Apply with no rule changed re-landed the pad's ruled voice over the hand-picked one (${engine.getParams().tracks.pad.voice})`);
           }
+          // v0.0.198: the auto ladder (owner ruling 2026-09-25) — the Joins
+          // at dial on the melody's line-up row. Unruled, it must show the
+          // EFFECTIVE threshold (the registry floor), not a blank/zero dial;
+          // editing it and pressing Apply must reach the engine's params
+          // through the same path as every other line-up field.
+          const melodyRow = doc.querySelector('#genre-rules-lineup-ui .rules-lineup-row[data-track="melody"]');
+          const joinsCell = melodyRow && melodyRow.querySelector('.rules-dial[data-field="essence.perTrack.melody.autoThreshold"]');
+          if (!joinsCell) {
+            failures.push('the melody line-up row has no Joins at dial');
+          } else {
+            const floorPct = Math.round(engineModule.AUTO_THRESHOLDS.melody * 100);
+            const readoutEl = joinsCell.querySelector('.knob-value');
+            if (readoutEl && !readoutEl.textContent.includes(`${floorPct}%`)) {
+              failures.push(`the unruled Joins at dial reads ${JSON.stringify(readoutEl.textContent)}, expected the floor ${floorPct}%`);
+            }
+            if (readoutEl) {
+              readoutEl.click();
+              const edit = joinsCell.querySelector('.knob-value-edit');
+              if (!edit) {
+                failures.push('clicking the Joins at readout did not open its typed editor');
+              } else {
+                edit.value = '0.9';
+                edit.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                doc.getElementById('genre-rules-apply').click();
+                const landed = await waitUntil(() => engine.getParams().tracks.melody
+                  && engine.getParams().tracks.melody.autoThreshold === 0.9);
+                if (!landed) {
+                  failures.push(`Apply with Joins at 90% left the engine at ${JSON.stringify(engine.getParams().tracks.melody && engine.getParams().tracks.melody.autoThreshold)}`);
+                }
+              }
+            }
+          }
           // v0.0.180 (unit 12): Save as my genre. The rules above (pad Off, tempo
           // 200) become a genre of the person's own: it appears under My genres,
           // is the current genre at the engine, and NEXT draws a fresh piece
@@ -2254,6 +2286,10 @@ try {
                     if (!decoded.o || decoded.o.id !== slug) failures.push(`the shared link's origin names ${JSON.stringify(decoded.o && decoded.o.id)}, not the saved genre`);
                     if (!decoded.g || decoded.g.slug !== slug || decoded.g.name !== 'Night pads') failures.push('the shared link does not carry the genre as data');
                     if (decoded.g && decoded.g.essence && decoded.g.essence.instrumentation && decoded.g.essence.instrumentation.perTrack && decoded.g.essence.instrumentation.perTrack.pad && decoded.g.essence.instrumentation.perTrack.pad.state !== 'off') failures.push('the carried genre lost its ruled pad');
+                    // v0.0.198: Save as my genre carries the ruled auto-ladder threshold too.
+                    const carriedMelody = decoded.g && decoded.g.essence && decoded.g.essence.instrumentation
+                      && decoded.g.essence.instrumentation.perTrack && decoded.g.essence.instrumentation.perTrack.melody;
+                    if (!carriedMelody || carriedMelody.autoThreshold !== 0.9) failures.push(`the carried genre lost its ruled Joins at threshold (${JSON.stringify(carriedMelody && carriedMelody.autoThreshold)})`);
                     if (decoded.v !== 2) failures.push(`a link carrying a genre is stamped ${JSON.stringify(decoded.v)}, not the latest schema`);
                   }
                 }

@@ -48,6 +48,8 @@ function trackFields(track) {
     { path: `tracks.${track}.voiceRule`, label: `${label} voice rule`, kind: 'voiceRule' },
     { path: `tracks.${track}.level`, label: `${label} level`, kind: 'range' },
     { path: `tracks.${track}.randomness`, label: `${label} randomness`, kind: 'range' },
+    // v0.0.200: the auto ladder is a rule — the energy at which the track joins on Auto.
+    { path: `tracks.${track}.autoThreshold`, label: `${label} joins at`, kind: 'number' },
   ];
   if (TUNED_TRACKS.includes(track)) {
     rows.push({ path: `tracks.${track}.dissonance`, label: `${label} dissonance`, kind: 'range' });

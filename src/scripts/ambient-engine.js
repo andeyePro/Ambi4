@@ -2014,6 +2014,15 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
       partial && 'voiceRule' in partial ? partial.voiceRule : undefined, baseTrack.voiceRule
     );
     if (rule) track.voiceRule = rule;
+    // v0.0.198: the auto ladder — owner ruling 2026-09-25, every such
+    // decision is a visible, editable rule. Sparse: the KEY is omitted
+    // (not stored as null) when there is no override, so a piece that
+    // never touched this field reads back byte-identical; nullableNumber's
+    // own null-means-"follow" three-way answer (explicit null clears an
+    // override back to the registry, a sent number replaces, absence
+    // inherits the stored value) decides what that number is.
+    const autoThreshold = nullableNumber(partial, baseTrack, 'autoThreshold', [0, 1]);
+    if (autoThreshold !== null) track.autoThreshold = autoThreshold;
     if (shape.tuned) {
       track.dissonance = sanitiseRangeValue(partial && partial.dissonance, 0, 1)
         ?? sanitiseRangeValue(baseTrack.dissonance, 0, 1)
@@ -3862,7 +3871,9 @@ export function sectionAtBar(preset, bar, customStructure = []) {
  * defaults actually cover, and the rest is spread evenly beneath it. The order
  * is unchanged: pad first, percussion still last in.
  */
-const AUTO_THRESHOLDS = Object.freeze(Object.fromEntries(
+// v0.0.198: exported so a UI can show a track's floor default — the value an
+// unset per-track override falls back to (see sanitiseTracks, autoThresholdFor).
+export const AUTO_THRESHOLDS = Object.freeze(Object.fromEntries(
   TRACK_REGISTRY.map((track) => [track.id, track.autoThreshold]),
 ));
 
@@ -4540,11 +4551,22 @@ export function createEngine(initialParams, options = {}) {
   const layer = createTrackLayer();
   const {
     trackOrder, sequencedTracks, trackViews, userTrackIds, trackById,
-    mixFor, autoThresholdFor, voiceSetFor, stageIndexOf, stageBars,
+    mixFor, autoThresholdFor: layerAutoThresholdFor, voiceSetFor, stageIndexOf, stageBars,
   } = layer;
 
   let params = sanitiseParams(initialParams, DEFAULT_PARAMS, trackOrder());
   layer.setUserTracks(params.userTracks);
+
+  /**
+   * v0.0.198: the per-track OVERRIDE, when this piece set one, else the
+   * registry's own ladder position (`layerAutoThresholdFor`, unchanged for a
+   * piece that never touched the field — the byte-identity guarantee).
+   */
+  const autoThresholdFor = (name) => {
+    const track = params.tracks && params.tracks[name];
+    const override = track && Number.isFinite(track.autoThreshold) ? track.autoThreshold : null;
+    return override !== null ? override : layerAutoThresholdFor(name);
+  };
   const rng = options && typeof options.rng === 'function' ? options.rng : Math.random;
 
   let ctx = null;
@@ -9323,7 +9345,15 @@ export function createEngine(initialParams, options = {}) {
    * never see anything setParams itself would not have sanitised.
    */
   function getRecipe() {
-    return recipeFromParams(getParams());
+    const recipe = recipeFromParams(getParams());
+    // v0.0.200: a rule the engine resolves from a default is still a rule the
+    // recipe must NAME — an unset autoThreshold is the registry's constant,
+    // and that constant is what a person copying the recipe needs to see.
+    for (const name of trackOrder()) {
+      if (!recipe.tracks || !recipe.tracks[name]) continue;
+      if (recipe.tracks[name].autoThreshold === undefined) recipe.tracks[name].autoThreshold = autoThresholdFor(name);
+    }
+    return recipe;
   }
 
   /**
@@ -9351,6 +9381,10 @@ export function createEngine(initialParams, options = {}) {
       const resolved = {
         state: config.state,
         active: isActive(name),
+        // v0.0.198: the EFFECTIVE ladder position — this track's own override
+        // when it has one, else the registry's, exactly what isActive's own
+        // autoActiveTracks() call decides "joins" from.
+        autoThreshold: autoThresholdFor(name),
         voice: effectiveVoice(name),
         level: resolveRange(name, 'level', config.level),
         randomness: trackRandomness(name),
