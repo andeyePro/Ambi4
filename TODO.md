@@ -30,6 +30,31 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Reconstructible Ambi4 — the deferred programme (owner brief, 2026-09-25)
+
+The owner's brief, verbatim in the archive: "I should be able to see an interface that if I copied in a blank slate could generate a very similar sounding track… I don't want to dumb down synth wave but I want to be able to learn exactly how it is built and then reconstruct it – or my own variations of it in a new blank slate." Plus: "recursive controls… it moves from one voice to another with no apparent control, that should be a dial like any other that lets you set the randomness or maintain a single voice/instrument… select a range of instruments to add to the dial, and order them – in a nice UI that gradually reveals complexity."
+
+**Owner rulings taken 2026-09-25 (interview, in-chat):** (1) ONE logic for every rule the engine obeys: NOW (the value playing, editable) / CHANCE (0 holds it forever; a When of bar, section or piece) / POOL (ordered, weighted list, By weight or In turn). (2) Disclosure: a global level (Simple = Now, Advanced = + Chance, Expert = + Pool) plus in-place expand on any control. (3) Chance 0 means yours: Next keeps held rules and redraws the rest. (4) Blank slate is every rule at Now zeroed, Chance 0, Pool empty (his item 96).
+
+**Diagnosis on record (bass-walk harness, 2026-09-25):** the step grid on an Off track never turns the track on, so Blank slate + grid is permanently silent; grid steps carry no pitch of their own (chord root or fifth), so the grid cannot hold a bass line or melody at all; the typed tool is the only pitched entry, aimed at melody by default with a hidden picker label and a tooltip naming the melody grid; staged entry delays a hand-written track one bar (bass) or two (melody) with no indicator; Blank slate's Sub bass is a near-pure 65 Hz sine, likely inaudible on laptop speakers. The Synthwave melody switching to Organ stab is `wanderVoices` at p = 0.25 × randomness per bar over every other bank voice, ephemeral, never in params; the Randomise → Voice mini-knob, Blend voices (his 128a) and the Randomness macro all touch it and none says so.
+
+The 2026-09-25 session (4 h, 8 % of the week) took the two smallest slices with the most audible return: the Blank slate first minute, and the voice rule as the FIRST instance of Now / Chance / Pool. Everything below is the rest, in merge order, each a bounded unit:
+
+- [ ] **The rule primitive as a shared module** — `src/scripts/rule-control.js`: Now, Chance with When, Pool with By weight / In turn, the global level and in-place expand, hints from the registry, `data-field` seams, its layout pinned in a page-boot fixture. The voice rule shipped first as a one-off inside index.astro; this item extracts it so every later rule is the same component by construction, not by review.
+- [ ] **Grid steps carry a pitch of their own** — a note picker or typed pitch per step; the typed-melody writer and the grid write the same fields; a typed note fills a beat unless shortened. Until then a bass line drawn on the grid is the chord root forever.
+- [ ] **Recipe schema and round-trip gate** — `src/scripts/recipe.js` (fields, defaults, registry rows, canonical order, toText / fromText), `engine.getRecipe()` / `engine.applyRecipe()` seams, and `tests/recipe-roundtrip.mjs`: for every stock genre and three seeds, compile, play 32 bars, take the recipe, Blank slate, apply it, play 32 bars, assert identical onsets, pitches, velocities, voices per note and kit hits. RED until every layer below lands; that red is the point — it lists what the engine still decides in secret.
+- [ ] **Chord loop as voiced** — per hook slot the inversion and extension as Now, `mutateHook` / `hookMutationChance` as Chance, the alternatives as Pool (`bankHook`).
+- [ ] **Melody motif and development as rules** — `buildMotif` shape, rhythm, leap and `developMotif` ops as Now / Chance / Pool; the typed melody is a special case of the same fields.
+- [ ] **Bass groove as rules** — `buildBassGroove` feel, articulation, anchor lock and the syncopation cell drawn.
+- [ ] **Arp under auto writes its choice** — `autoArpSettings(complexity)` writes pattern, rate and octaves into Now with the mode shown as auto-resolved; the manual controls are the same fields.
+- [ ] **Kit variant schedule and fills as rules** — `kitFillVariant` and the weighted bank switching as Chance / Pool over the grid's tabs.
+- [ ] **Walks show their live Now** — every ranged field prints its instantaneous value as a number; the spread is its Pool, the walk seed its Chance, so two identical configs align.
+- [ ] **The auto ladder per track** — `AUTO_THRESHOLDS` become a visible line-up rule per track instead of a hardcoded constant.
+- [ ] **Preset blocks editable for every preset** — `PRESET_BLOCKS` (abab, journey, waves) shown and editable bar by bar, not only under `custom`; section voice draws become the voice rule's per-section When.
+- [ ] **The Recipe sheet** — a read-only view of the playing piece's full rules in canonical order at every level, each line a link to its control, Copy as text. No Create entry, no capture button (his 96). **[decide]** whether a read-only sheet with Copy as text sits inside item 96 — ask in fromClaude when it is next in line.
+- [ ] **Two tour chapters** — Hold the melody's voice (Synthwave, open the voice rule, Chance to 0, remove Organ stab from the Pool) and Rebuild Synthwave (Synthwave to the Recipe sheet to a Blank slate rebuild), with `docs/dial-control-plane-plan.md` rewritten to the three-layer logic.
+- [ ] **Browser drives for all of the above** — parked in `tests/pending/` until the bridge key is restored (fromClaude 13).
+
 ## The 10 Dependabot alerts — CLOSED END TO END (was the owner's FIRST item)
 
 Investigated 2026-07-29 (`docs/dependabot-2026-07-29.md`), root-fixed 2026-07-30:
