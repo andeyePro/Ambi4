@@ -1466,6 +1466,53 @@ try {
       doc.getElementById('tutorial-close').click();
     }
 
+    // v0.0.185 — unit 16: the finder. On the melody, press "bright" and
+    // "glassy": the answer names Bell (FM) and two moves; Set it up puts Bell
+    // on the track at the ENGINE with its FM depth moved up from the default.
+    // On the kit, every word is refused with a plain sentence.
+    {
+      const engine = window.__ambi4Engine;
+      const select = doc.getElementById('track-voice-melody');
+      select.value = 'pluck';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const editor = await openEditor('melody');
+      await waitUntil(() => editor.querySelector('.ve-finder-word[data-word="bright"]'));
+      const finder = editor.querySelector('.ve-finder');
+      if (!finder) {
+        failures.push('the melody editor has no finder row');
+      } else {
+        finder.querySelector('.ve-finder-word[data-word="bright"]').click();
+        finder.querySelector('.ve-finder-word[data-word="glassy"]').click();
+        const answer = finder.querySelector('.ve-finder-answer').textContent;
+        if (!/^Try Bell \(FM\)/.test(answer)) failures.push(`bright and glassy on the melody answered ${JSON.stringify(answer)}, not Bell (FM)`);
+        const go = finder.querySelector('.ve-finder-go');
+        if (!go || go.hidden) {
+          failures.push('the finder has an answer but no Set it up button');
+        } else {
+          const depthBefore = 1;
+          go.click();
+          const landed = await waitUntil(() => {
+            const params = engine.getParams();
+            const fm = params.patches && params.patches.melody && params.patches.melody.bell && params.patches.melody.bell.fm;
+            return params.tracks.melody.voice === 'bell' && fm && Number(fm.depth) > depthBefore;
+          });
+          if (!landed) failures.push(`Set it up did not put Bell with a raised FM depth at the engine (${JSON.stringify(engine.getParams().tracks.melody.voice)})`);
+        }
+        // Pressing the opposite un-presses its pair.
+        const rebuilt = await openEditor('melody');
+        await waitUntil(() => rebuilt.querySelector('.ve-finder-word[data-word="dark"]'));
+        rebuilt.querySelector('.ve-finder-word[data-word="bright"]').click();
+        rebuilt.querySelector('.ve-finder-word[data-word="dark"]').click();
+        if (rebuilt.querySelector('.ve-finder-word[data-word="bright"]').getAttribute('aria-pressed') !== 'false') failures.push('pressing dark left bright pressed');
+      }
+      const kit = await openEditor('percussion');
+      await waitUntil(() => kit.querySelector('.ve-finder-word[data-word="bright"]'));
+      kit.querySelector('.ve-finder-word[data-word="bright"]').click();
+      const kitAnswer = kit.querySelector('.ve-finder-answer').textContent;
+      if (!/Nothing here is honestly bright on this track/.test(kitAnswer)) failures.push(`the kit's finder answered ${JSON.stringify(kitAnswer)} rather than refusing honestly`);
+      if (!kit.querySelector('.ve-finder-go').hidden) failures.push('the kit offers Set it up with nothing to set up');
+    }
+
     // v0.0.174 — "what makes this sound": the words line under the dials is
     // exactly what the pure module says for the sounding voice's patch, so the
     // page's wiring (voice, controls, detune mode, the live patch object) is

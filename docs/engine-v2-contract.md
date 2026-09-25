@@ -2271,3 +2271,25 @@ its `data-field`, prefixed with the editor at run time. A hybrid voice opens
 the chapter of the section it publishes (additive before fm). A voice lacking
 a chapter's dials refuses the lesson with a line under the dials rather than
 a highlight of nothing. The tour's own fourteen steps are untouched.
+
+## The sound-in-mind finder (v0.0.185)
+
+Module ownership: **`src/scripts/sound-finder.js`** (pure; `SOUND_WORDS`,
+`wordPairs`, `findSound`, `moveValue`), wired by `index.astro` as the
+`.ve-finder` row under every editor's save row; gated by
+`tests/sound-finder-smoke.mjs` (the table's referential integrity: every
+voice named exists and exposes every dial named, every word has its opposite,
+every tuned set is spoken for and the kit by none; the lookup's laws; a
+mutation check) and `tests/page-boot.mjs` (bright + glassy on the melody
+answers Bell (FM), Set it up puts Bell with a raised FM depth at the engine;
+the kit refuses honestly). The CLAIMS — that bright is brighter, plucky
+shorter to peak, sustained louder at one second, moving more modulated — are
+measured in `tests/pending/sound-finder-render-drive.mjs`, parked until the
+bridge key returns.
+
+Contract: `findSound(words, voiceSet, { exposes })` answers `{ voice, moves,
+why, words }`; the voice is the one most words agree on (ties to the first
+word), the moves every chosen word's moves on it that the voice exposes, one
+per dial. `moveValue(value, direction, domain)` goes a third of the way to the
+end named and never past it, both ends of a span. A word with nothing honest
+to say for a set answers no voice and a plain sentence.

@@ -1,7 +1,11 @@
 # Synthesis and authoring programme – the decisions
 
 Status: **decided 2026-09-25 by the build (chair + planner), open to the owner's
-veto; first slice shipped in the same commit as this file.** The brief, in the
+veto. Built the same day, v0.0.172 to v0.0.185: units 1 to 6, 8 to 13, 15 and
+16 of § 5 shipped; unit 7 deferred with reasons in TODO; unit 14 blocked on
+fromClaude 12 (the dial address grammar). The browser gate on every one of
+those versions is owed to fromClaude 13 (the Mac test bridge key); every
+unit's browser proof is written and parked in tests/pending.** The brief, in the
 owner's words: everything the author could do in code when writing the stock
 genres and their voices must be doable by a human, intuitively, accessibly and
 expressively; decide which methods of synthesis the app should have, such that
@@ -198,22 +202,22 @@ waits.
 
 | # | Unit | Proves it | Waits on |
 |---|---|---|---|
-| 1 | this document; a hint on every registry row and so on every dial in both editors; the engine chip in the editor header; Organ stab reclassified additive (v0.0.172) | registry-contract: every row has a hint; page-boot: every dial in every editor carries its hint as its accessible description, and the chip matches the voice table | – |
-| 2 | the four parked engine faults (`tests/pending/engine-fixes-v0.0.171.mjs.txt`; `quantiseCapture` first, it is user-visible) | the parked tests are red on v0.0.171 and go green; a drive records a take finer than a sixteenth and finds no holes | – |
-| 3 | "what makes this sound", a pure describer over (engine, patch), under the dials of every editor | a Node suite: every stock voice yields a sentence and every number in it equals the patch value; page-boot: the line changes after a dial commit | – |
-| 4 | FM section: `patch.fm.ratio`, `.depth`, `.bite`; `fm()` reads the patch; bell, keys, tines, sparkle, crystal defaults are their literals | voices-smoke graph snapshot of the five voices unchanged at defaults; a render suite: depth 2 raises bell's spectral centroid, a ratio change moves the first sideband to f·ratio; red on old code because the sanitiser drops the fields | – |
-| 5 | Additive section: `patch.additive.p1..p8` (multipliers), `.stretch` (offset); glass and stab read them | FFT partial amplitudes track the levels; frozen reference unchanged | – |
-| 6 | Modal section: `patch.modal.material` (enum), `.hardness`, `.damping`; chimes and marimba read them. The membrane kits do NOT: a drum's skin is a pitched bend over noise with a per-sound envelope the kit editor already owns, and a material table has nothing to select there; a kit-material unit, if ever, is its own row | the overtone table swaps with the material; hardness tilts the upper partials and scales the click; damping shortens every ring; the defaults rebuild the shipped stack exactly | – |
-| 7 | Ring/AM as a Source option; Vowel as a filter type | sidebands at f±m; vowel peaks land on the formant table | – |
-| 8 | "New voice" from a template (Subtractive, FM, Additive, Modal, Noise, each backed by a stock voice), named, per device through prefs, in the picker, compiled through the contract's instrument manifest | the manifest sanitiser cases in the contract (unknown field dropped, out-of-range clamped, code-shaped string rejected); a drive makes a voice, reloads through about:blank, and finds it in the picker with its patch | – |
-| 9 | a user voice travels in a link as a manifest (schema stamp, size cap) | sharelink-drive round trip; a link carrying code is refused | – |
-| 10 | Rules panel, essence I: bpm and swing as spread dials, time signatures, modes, harmonic rhythm | genre-rules-drive asserts the compiled values the engine stores; genre-smoke: the compile stays deterministic with edited fields | – |
-| 11 | Rules panel, essence II: energy arc, extension bias, dissonance, density, per-track instrumentation and the current patches captured into the genre | as 10 | – |
-| 12 | "Save as my genre": named, per device, in the picker, favourites-aware | a drive saves, reloads, picks it, and the same seed compiles to the same setup | – |
-| 13 | a user genre travels in a link as a diff against its origin (schema stamp) | sharelink-drive round trip; a size assertion | – |
-| 14 | defiance dial authoring (param, label, range) | the drive asserts the dial moves the engine's stored param inside the authored range | fromClaude 11/12 only if the dial needs a routing address; the executor checks first |
-| 15 | engine lesson chapters, five of them | tutorial-smoke extended to chapters; a drive checks every "turn this" step moves the stored value | 4, 5, 6 |
-| 16 | the sound-in-mind finder | the render suite proves every row by measurement; one row is broken on purpose to prove the suite bites | 4, 5, 6 |
+| 1 ✓ v0.0.172 | this document; a hint on every registry row and so on every dial in both editors; the engine chip in the editor header; Organ stab reclassified additive (v0.0.172) | registry-contract: every row has a hint; page-boot: every dial in every editor carries its hint as its accessible description, and the chip matches the voice table | – |
+| 2 ✓ v0.0.174 | the four parked engine faults (`tests/pending/engine-fixes-v0.0.171.mjs.txt`; `quantiseCapture` first, it is user-visible) | the parked tests are red on v0.0.171 and go green; a drive records a take finer than a sixteenth and finds no holes | – |
+| 3 ✓ v0.0.173 | "what makes this sound", a pure describer over (engine, patch), under the dials of every editor | a Node suite: every stock voice yields a sentence and every number in it equals the patch value; page-boot: the line changes after a dial commit | – |
+| 4 ✓ v0.0.175 | FM section: `patch.fm.ratio`, `.depth`, `.bite`; `fm()` reads the patch; bell, keys, tines, sparkle, crystal defaults are their literals | voices-smoke graph snapshot of the five voices unchanged at defaults; a render suite: depth 2 raises bell's spectral centroid, a ratio change moves the first sideband to f·ratio; red on old code because the sanitiser drops the fields | – |
+| 5 ✓ v0.0.176 | Additive section: `patch.additive.p1..p8` (multipliers), `.stretch` (offset); glass and stab read them | FFT partial amplitudes track the levels; frozen reference unchanged | – |
+| 6 ✓ v0.0.177 | Modal section: `patch.modal.material` (enum), `.hardness`, `.damping`; chimes and marimba read them. The membrane kits do NOT: a drum's skin is a pitched bend over noise with a per-sound envelope the kit editor already owns, and a material table has nothing to select there; a kit-material unit, if ever, is its own row | the overtone table swaps with the material; hardness tilts the upper partials and scales the click; damping shortens every ring; the defaults rebuild the shipped stack exactly | – |
+| 7 deferred | Ring/AM as a Source option; Vowel as a filter type (TODO says why) | sidebands at f±m; vowel peaks land on the formant table | – |
+| 8 ✓ v0.0.182 | "New voice" from a template (Subtractive, FM, Additive, Modal, Noise, each backed by a stock voice), named, per device through prefs, in the picker, compiled through the contract's instrument manifest | the manifest sanitiser cases in the contract (unknown field dropped, out-of-range clamped, code-shaped string rejected); a drive makes a voice, reloads through about:blank, and finds it in the picker with its patch | – |
+| 9 ✓ v0.0.183 | a user voice travels in a link as a manifest (schema stamp, size cap) | sharelink-drive round trip; a link carrying code is refused | – |
+| 10 ✓ v0.0.178 | Rules panel, essence I: bpm and swing as spread dials, time signatures, modes, harmonic rhythm | genre-rules-drive asserts the compiled values the engine stores; genre-smoke: the compile stays deterministic with edited fields | – |
+| 11 ✓ v0.0.179 | Rules panel, essence II: energy arc, extension bias, dissonance, density, per-track instrumentation and the current patches captured into the genre | as 10 | – |
+| 12 ✓ v0.0.180 | "Save as my genre": named, per device, in the picker, favourites-aware | a drive saves, reloads, picks it, and the same seed compiles to the same setup | – |
+| 13 ✓ v0.0.181 | a user genre travels in a link as a diff against its origin (schema stamp) | sharelink-drive round trip; a size assertion | – |
+| 14 blocked | defiance dial authoring (param, label, range) | the drive asserts the dial moves the engine's stored param inside the authored range | fromClaude 11/12 only if the dial needs a routing address; the executor checks first |
+| 15 ✓ v0.0.184 | engine lesson chapters, five of them | tutorial-smoke extended to chapters; a drive checks every "turn this" step moves the stored value | 4, 5, 6 |
+| 16 ✓ v0.0.185 | the sound-in-mind finder | the render suite proves every row by measurement; one row is broken on purpose to prove the suite bites | 4, 5, 6 |
 | later | saturation on track and master (the FX backlog); plucked string, PWM and hard sync on an AudioWorklet | onset-render; a pitch test above F4 | a worklet |
 
 Standing rules for every unit: docs in the same commit; every engine unit

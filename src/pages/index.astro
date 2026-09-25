@@ -4530,6 +4530,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const m = await import('../scripts/patch-words.js');
         if (m && typeof m.describePatch === 'function') wordsApi = m;
       } catch {}
+      // v0.0.185 (docs/synthesis-programme.md § 4, layer 4): the sound-in-mind
+      // finder — words in, a starting voice and two moves out. Pure module;
+      // absent, the editor simply has no finder row.
+      let finderApi = null;
+      try {
+        const m = await import('../scripts/sound-finder.js');
+        if (m && typeof m.findSound === 'function') finderApi = m;
+      } catch {}
 
       // Representative pitch for the static scope trace, per track register.
       const SCOPE_FREQ = { pad: 220, bass: 55, melody: 330, texture: 440, arp: 330, percussion: 220 };
@@ -11503,6 +11511,111 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
         saveRow.append(voiceName, saveVoice, forgetVoice);
         container.append(saveRow);
+
+        // v0.0.185 (unit 16): "What sound do you have in mind?" — pick words,
+        // read what the table says for THIS track, set it up in one press.
+        // A kit gets the row too, and the honest answer that no word fits.
+        if (finderApi) {
+          const finder = document.createElement('div');
+          finder.className = 've-finder';
+          const finderLabel = document.createElement('span');
+          finderLabel.className = 'panel-label';
+          finderLabel.textContent = 'A sound in mind?';
+          const chips = document.createElement('div');
+          chips.className = 've-finder-words';
+          const picked = new Set();
+          const answer = document.createElement('p');
+          answer.className = 'hint ve-finder-answer';
+          const setUp = document.createElement('button');
+          setUp.type = 'button';
+          setUp.className = 'secondary-button ve-finder-go';
+          setUp.textContent = 'Set it up';
+          setUp.hidden = true;
+          let found = null;
+          const exposes = (voice, field) => {
+            const entry = voicesTable && voicesTable[voiceSetOf(track)] && voicesTable[voiceSetOf(track)][voice];
+            if (!entry) return false;
+            const [section, key] = field.split('.');
+            const spec = entry.controls ? entry.controls[section] : undefined;
+            if (spec === false) return false;
+            if (Array.isArray(spec) && !spec.includes(key)) return false;
+            if (['fm', 'additive', 'modal'].includes(section)) return !!(entry.defaults && entry.defaults[section] && key in entry.defaults[section]);
+            if (section === 'source' && !['osc1', 'osc2', 'shape1', 'shape2', 'mix', 'detune', 'octave'].includes(key)) {
+              return !!(entry.defaults && entry.defaults.source && key in entry.defaults.source);
+            }
+            return true;
+          };
+          const refreshAnswer = () => {
+            found = finderApi.findSound([...picked], voiceSetOf(track), { exposes });
+            if (!picked.size) {
+              answer.textContent = 'Pick a word or two, and the table says where to start.';
+              setUp.hidden = true;
+              return;
+            }
+            if (!found.voice) {
+              answer.textContent = found.why;
+              setUp.hidden = true;
+              return;
+            }
+            const engine = voiceEngineType(track, found.voice);
+            const moves = found.moves.map((m) => `${m.direction === 'up' ? '↑' : '↓'} ${m.note}`).join(', ');
+            answer.textContent = `Try ${voiceLabel(track, found.voice)}${engine ? ` (${engine})` : ''}: ${moves}. ${found.why}`;
+            setUp.hidden = false;
+          };
+          for (const [a, b] of finderApi.wordPairs()) {
+            for (const word of [a, b]) {
+              const chip = document.createElement('button');
+              chip.type = 'button';
+              chip.className = 'rules-mini-button ve-finder-word';
+              chip.dataset.word = word;
+              chip.textContent = word;
+              chip.setAttribute('aria-pressed', 'false');
+              chip.addEventListener('click', () => {
+                const opposite = word === a ? b : a;
+                if (picked.has(word)) picked.delete(word);
+                else {
+                  picked.add(word);
+                  picked.delete(opposite);
+                }
+                for (const el of chips.querySelectorAll('.ve-finder-word')) {
+                  el.setAttribute('aria-pressed', String(picked.has(el.dataset.word)));
+                }
+                refreshAnswer();
+              });
+              chips.append(chip);
+            }
+          }
+          describe(setUp, 'Puts that voice on this track and moves the dials it names a third of the way, so you hear the words become a sound. Undo takes it back.');
+          setUp.addEventListener('click', () => {
+            if (!found || !found.voice || !engineModule) return;
+            const registry = engineModule.PARAM_REGISTRY || {};
+            // The voice first, exactly as the picker would pick it.
+            const select = document.getElementById(`track-voice-${track}`);
+            if (select && select.value !== found.voice) {
+              select.value = found.voice;
+              select.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            // Then the moves, on the resolved patch, a third of the way each.
+            const live = resolveTrackPatch(track, found.voice);
+            for (const move of found.moves) {
+              const row = registry[`patch.${move.field}`];
+              if (!row || row.kind !== 'number') continue;
+              const [section, key] = move.field.split('.');
+              if (!isPlainObject(live[section])) live[section] = {};
+              live[section][key] = finderApi.moveValue(live[section][key], move.direction, row.domain);
+            }
+            if (!settings.patches[track]) settings.patches[track] = {};
+            settings.patches[track][found.voice] = live;
+            sendPatch(track, found.voice, live);
+            persistSettings();
+            refreshVoiceSelect(track);
+            renderVoiceEditor(track);
+            sayUnderDials(`${voiceLabel(track, found.voice)}, moved towards ${found.words.join(' and ')}. ⌘Z takes it back.`);
+          });
+          finder.append(finderLabel, chips, answer, setUp);
+          container.append(finder);
+          refreshAnswer();
+        }
 
         function renderWords() {
           if (!wordsApi) return;
@@ -18893,6 +19006,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .rules-weight {
       width: 64px;
+    }
+
+    /* v0.0.185: the finder row of a voice editor. */
+    .ve-finder {
+      margin: 0 0 12px;
+    }
+
+    .ve-finder > .panel-label {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .ve-finder-words {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .ve-finder-word[aria-pressed='true'] {
+      background: var(--accent, #6c8cff);
+      color: var(--bg, #fff);
+      border-color: var(--accent, #6c8cff);
+    }
+
+    .ve-finder-answer {
+      margin: 0 0 6px;
     }
 
     /* v0.0.182: the save row of a voice editor. */
