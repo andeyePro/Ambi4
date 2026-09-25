@@ -9,49 +9,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Spread",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -63,28 +77,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -96,28 +118,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -129,14 +159,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -150,14 +184,18 @@
       "label": "Spread",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -169,42 +207,54 @@
       "label": "P1",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p2",
       "label": "P2",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p3",
       "label": "P3",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p4",
       "label": "P4",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p5",
       "label": "P5",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.stretch",
       "label": "Stretch",
       "hidden": false,
       "min": "-0.1",
-      "max": "0.1"
+      "max": "0.1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -216,21 +266,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -242,28 +298,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -275,14 +339,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -296,49 +364,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Spread",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -350,21 +432,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -376,28 +464,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -409,14 +505,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -430,49 +530,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -484,28 +598,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -517,28 +639,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -550,14 +680,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -571,49 +705,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Spread",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -625,28 +773,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -658,28 +814,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -691,14 +855,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -714,49 +882,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -768,28 +950,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -801,28 +991,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -834,14 +1032,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -855,7 +1057,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -867,21 +1071,27 @@
       "label": "Ratio",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.depth",
       "label": "Depth",
       "hidden": false,
       "min": "0",
-      "max": "4"
+      "max": "4",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.bite",
       "label": "Bite",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -893,21 +1103,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -919,28 +1135,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -952,14 +1176,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -973,7 +1201,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -985,21 +1215,27 @@
       "label": "Material",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "modal.hardness",
       "label": "Hardness",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "modal.damping",
       "label": "Damping",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "×"
      }
     ]
    },
@@ -1011,21 +1247,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1037,28 +1279,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1070,14 +1320,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -1091,49 +1345,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -1145,28 +1413,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1178,28 +1454,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1211,14 +1495,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -1234,49 +1522,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -1288,28 +1590,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1321,28 +1631,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1354,14 +1672,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -1375,14 +1697,18 @@
       "label": "Spread",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1394,21 +1720,27 @@
       "label": "Ratio",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.depth",
       "label": "Depth",
       "hidden": false,
       "min": "0",
-      "max": "4"
+      "max": "4",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.bite",
       "label": "Bite",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1420,21 +1752,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1446,28 +1784,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1479,14 +1825,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -1500,7 +1850,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1512,21 +1864,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1538,28 +1896,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1571,14 +1937,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -1592,7 +1962,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1604,21 +1976,27 @@
       "label": "Ratio",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.depth",
       "label": "Depth",
       "hidden": false,
       "min": "0",
-      "max": "4"
+      "max": "4",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.bite",
       "label": "Bite",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1630,21 +2008,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1656,28 +2040,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1689,14 +2081,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -1710,14 +2106,18 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1729,14 +2129,18 @@
       "label": "Sweep",
       "hidden": false,
       "min": "-24",
-      "max": "24"
+      "max": "24",
+      "spread": "yes",
+      "unit": "st"
      },
      {
       "field": "source.glideCurve",
       "label": "Curve",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -1748,14 +2152,18 @@
       "label": "Formant 1",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "source.formant2",
       "label": "Formant 2",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      }
     ]
    },
@@ -1767,14 +2175,18 @@
       "label": "Cadence",
       "hidden": false,
       "min": "0.5",
-      "max": "8"
+      "max": "8",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.irregular",
       "label": "Irregular",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -1786,21 +2198,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1812,28 +2230,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1845,14 +2271,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -1866,7 +2296,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1878,21 +2310,27 @@
       "label": "Ratio",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.depth",
       "label": "Depth",
       "hidden": false,
       "min": "0",
-      "max": "4"
+      "max": "4",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.bite",
       "label": "Bite",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1904,21 +2342,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -1930,28 +2374,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -1963,14 +2415,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -1984,49 +2440,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -2038,28 +2508,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -2071,28 +2549,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -2104,14 +2590,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -2125,49 +2615,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -2179,21 +2683,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -2205,28 +2715,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -2238,14 +2756,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -2259,7 +2781,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -2271,49 +2795,63 @@
       "label": "P1",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p2",
       "label": "P2",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p3",
       "label": "P3",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p4",
       "label": "P4",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p5",
       "label": "P5",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.p6",
       "label": "P6",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "additive.stretch",
       "label": "Stretch",
       "hidden": false,
       "min": "-0.1",
-      "max": "0.1"
+      "max": "0.1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -2325,21 +2863,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -2351,28 +2895,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -2384,14 +2936,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -2407,49 +2963,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -2461,21 +3031,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -2487,28 +3063,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -2520,14 +3104,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -2541,49 +3129,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -2595,28 +3197,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -2628,28 +3238,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -2661,14 +3279,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -2682,21 +3304,27 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -2708,21 +3336,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -2734,28 +3368,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -2767,14 +3409,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -2788,49 +3434,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -2842,28 +3502,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -2875,28 +3543,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -2908,14 +3584,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -2929,49 +3609,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -2983,28 +3677,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3016,28 +3718,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3049,14 +3759,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -3070,21 +3784,27 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -3096,28 +3816,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3129,28 +3857,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3162,14 +3898,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -3183,49 +3923,63 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": null,
       "label": "Osc 2",
       "hidden": false,
       "min": null,
-      "max": null
+      "max": null,
+      "spread": null,
+      "unit": null
      },
      {
       "field": "source.shape2",
       "label": "OSC 2",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.mix",
       "label": "Mix",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.detune",
       "label": "Detune",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.fold",
       "label": "Fold",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -3237,28 +3991,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3270,28 +4032,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3303,14 +4073,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -3326,7 +4100,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3338,21 +4114,27 @@
       "label": "Ratio",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.depth",
       "label": "Depth",
       "hidden": false,
       "min": "0",
-      "max": "4"
+      "max": "4",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "fm.bite",
       "label": "Bite",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3364,21 +4146,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3390,28 +4178,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3423,14 +4219,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -3444,7 +4244,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3456,21 +4258,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3482,28 +4290,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3515,14 +4331,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -3536,14 +4356,18 @@
       "label": "Spread",
       "hidden": false,
       "min": "-50",
-      "max": "50"
+      "max": "50",
+      "spread": "yes",
+      "unit": "ct"
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3555,21 +4379,27 @@
       "label": "Material",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "modal.hardness",
       "label": "Hardness",
       "hidden": false,
       "min": "0",
-      "max": "2"
+      "max": "2",
+      "spread": "yes",
+      "unit": "×"
      },
      {
       "field": "modal.damping",
       "label": "Damping",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "×"
      }
     ]
    },
@@ -3581,21 +4411,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3607,28 +4443,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3640,14 +4484,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -3661,14 +4509,18 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3680,28 +4532,36 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "filter.envAmount",
       "label": "Env amount",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3713,28 +4573,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3746,14 +4614,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -3767,7 +4639,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3779,21 +4653,27 @@
       "label": "Tilt",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.bandCentre",
       "label": "Band",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "source.bandWidth",
       "label": "Width",
       "hidden": false,
       "min": "0.1",
-      "max": "4"
+      "max": "4",
+      "spread": "yes",
+      "unit": "oct"
      }
     ]
    },
@@ -3805,35 +4685,45 @@
       "label": "Sweep",
       "hidden": false,
       "min": "0",
-      "max": "0.5"
+      "max": "0.5",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "source.sweepDepth",
       "label": "Depth",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      },
      {
       "field": "source.gust",
       "label": "Gust",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      },
      {
       "field": "source.gustRate",
       "label": "Gust rate",
       "hidden": false,
       "min": "0.02",
-      "max": "0.5"
+      "max": "0.5",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "source.swell",
       "label": "Swell",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -3845,14 +4735,18 @@
       "label": "Density",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      },
      {
       "field": "source.burstSharp",
       "label": "Sharpness",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -3864,21 +4758,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3890,28 +4790,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -3923,14 +4831,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -3944,7 +4856,9 @@
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -3956,21 +4870,27 @@
       "label": "Tilt",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.bandCentre",
       "label": "Band",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "source.bandWidth",
       "label": "Width",
       "hidden": false,
       "min": "0.1",
-      "max": "4"
+      "max": "4",
+      "spread": "yes",
+      "unit": "oct"
      }
     ]
    },
@@ -3982,35 +4902,45 @@
       "label": "Sweep",
       "hidden": false,
       "min": "0",
-      "max": "0.5"
+      "max": "0.5",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "source.sweepDepth",
       "label": "Depth",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      },
      {
       "field": "source.gust",
       "label": "Gust",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      },
      {
       "field": "source.gustRate",
       "label": "Gust rate",
       "hidden": false,
       "min": "0.02",
-      "max": "0.5"
+      "max": "0.5",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "source.swell",
       "label": "Swell",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -4022,14 +4952,18 @@
       "label": "Density",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      },
      {
       "field": "source.burstSharp",
       "label": "Sharpness",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -4041,21 +4975,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -4067,28 +5007,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -4100,14 +5048,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -4121,14 +5073,18 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.octave",
       "label": "Octave",
       "hidden": false,
       "min": "-1",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -4140,14 +5096,18 @@
       "label": "Sweep",
       "hidden": false,
       "min": "-24",
-      "max": "24"
+      "max": "24",
+      "spread": "yes",
+      "unit": "st"
      },
      {
       "field": "source.glideCurve",
       "label": "Curve",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -4159,14 +5119,18 @@
       "label": "Formant 1",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "source.formant2",
       "label": "Formant 2",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      }
     ]
    },
@@ -4178,14 +5142,18 @@
       "label": "Cadence",
       "hidden": false,
       "min": "0.5",
-      "max": "8"
+      "max": "8",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.irregular",
       "label": "Irregular",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -4197,21 +5165,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -4223,28 +5197,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -4256,14 +5238,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -4279,21 +5265,27 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.pitch",
       "label": "Pitch",
       "hidden": false,
       "min": "-24",
-      "max": "24"
+      "max": "24",
+      "spread": "yes",
+      "unit": "st"
      },
      {
       "field": "source.noise",
       "label": "Noise",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -4305,21 +5297,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -4331,28 +5329,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -4364,14 +5370,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -4385,21 +5395,27 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.pitch",
       "label": "Pitch",
       "hidden": false,
       "min": "-24",
-      "max": "24"
+      "max": "24",
+      "spread": "yes",
+      "unit": "st"
      },
      {
       "field": "source.noise",
       "label": "Noise",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -4411,21 +5427,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -4437,28 +5459,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -4470,14 +5500,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -4491,21 +5525,27 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.pitch",
       "label": "Pitch",
       "hidden": false,
       "min": "-24",
-      "max": "24"
+      "max": "24",
+      "spread": "yes",
+      "unit": "st"
      },
      {
       "field": "source.noise",
       "label": "Noise",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -4517,21 +5557,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -4543,28 +5589,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -4576,14 +5630,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }
@@ -4597,21 +5655,27 @@
       "label": "OSC 1",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "source.pitch",
       "label": "Pitch",
       "hidden": false,
       "min": "-24",
-      "max": "24"
+      "max": "24",
+      "spread": "yes",
+      "unit": "st"
      },
      {
       "field": "source.noise",
       "label": "Noise",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "%"
      }
     ]
    },
@@ -4623,21 +5687,27 @@
       "label": "Type",
       "hidden": false,
       "min": "0",
-      "max": "3"
+      "max": "3",
+      "spread": "no",
+      "unit": ""
      },
      {
       "field": "filter.cutoff",
       "label": "Cutoff",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "Hz"
      },
      {
       "field": "filter.q",
       "label": "Resonance",
       "hidden": false,
       "min": "0.1",
-      "max": "20"
+      "max": "20",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    },
@@ -4649,28 +5719,36 @@
       "label": "Attack",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.decay",
       "label": "Decay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      },
      {
       "field": "adsr.sustain",
       "label": "Sustain",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "adsr.release",
       "label": "Release",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": "s"
      }
     ]
    },
@@ -4682,14 +5760,18 @@
       "label": "Reverb",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      },
      {
       "field": "sends.delay",
       "label": "Delay",
       "hidden": false,
       "min": "0",
-      "max": "1"
+      "max": "1",
+      "spread": "yes",
+      "unit": ""
      }
     ]
    }

@@ -334,6 +334,19 @@ function decodeCopiedLink() {
   }
 }
 
+/**
+ * v0.0.193: the UNIT a readout is printed in — the format a loop derives —
+ * without the value, which is state (the genre a fresh boot draws sets the
+ * patches). Milliseconds fold into seconds because the seconds format picks
+ * between them by value.
+ */
+function readoutUnit(text) {
+  if (typeof text !== 'string') return null;
+  const m = /(Hz|oct|ct|st|ms|s|%|×)(?=[\s,)]|$)/.exec(text);
+  if (!m) return '';
+  return m[1] === 'ms' ? 's' : m[1];
+}
+
 function installClipboard(win) {
   const stub = {
     writeText: (text) => {
@@ -1578,6 +1591,11 @@ try {
               // linear dial turning log, or a domain moving, changes the pin.
               min: cell.querySelector('.knob') ? cell.querySelector('.knob').getAttribute('aria-valuemin') : null,
               max: cell.querySelector('.knob') ? cell.querySelector('.knob').getAttribute('aria-valuemax') : null,
+              // v0.0.193: may it spread, and the unit its readout is printed in
+              // — the format a loop derives. (Whether it OPENS as a span is
+              // state a genre sets, so it is not pinned here.)
+              spread: cell.querySelector('.knob') ? cell.querySelector('.knob').getAttribute('data-spread') : null,
+              unit: cell.querySelector('.knob') ? readoutUnit(cell.querySelector('.knob').getAttribute('aria-valuetext')) : null,
             })),
           }));
         }
@@ -1636,6 +1654,8 @@ try {
             range: wrap.querySelector('input[type="range"]')
               ? ['min', 'max', 'step'].map((a) => wrap.querySelector('input[type="range"]').getAttribute(a))
               : null,
+            // v0.0.193: the unit the slider's readout is printed in.
+            unit: wrap.querySelector('.value-readout') ? readoutUnit(wrap.querySelector('.value-readout').textContent) : null,
           }));
           for (const wrap of editor.querySelectorAll('.patch-controls .ve-control[data-field]')) {
             const row = registry[`patch.${wrap.dataset.field}`];

@@ -351,6 +351,10 @@ export function createKnob(container, options) {
   if (label) root.setAttribute('aria-label', label);
   root.setAttribute('aria-valuemin', String(min));
   root.setAttribute('aria-valuemax', String(max));
+  // v0.0.193: whether this dial may spread, stated in the DOM. A test seam in
+  // the spirit of the page's data-field: a refactor that turned a spreadable
+  // dial single (or the reverse) was invisible to every layout witness.
+  root.setAttribute('data-spread', allowRange ? 'yes' : 'no');
   root.style.display = 'inline-flex';
   root.style.flexDirection = 'column';
   root.style.alignItems = 'center';

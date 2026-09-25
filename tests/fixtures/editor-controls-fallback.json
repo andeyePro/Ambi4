@@ -5,13 +5,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -21,7 +23,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -31,13 +34,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -47,13 +52,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -63,7 +70,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -73,7 +81,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -83,7 +92,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -93,7 +103,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -103,7 +114,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -113,7 +125,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -123,7 +136,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -133,7 +147,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -143,7 +158,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "glass": [
@@ -155,13 +171,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "additive.p1",
@@ -171,7 +189,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p2",
@@ -181,7 +200,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p3",
@@ -191,7 +211,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p4",
@@ -201,7 +222,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p5",
@@ -211,7 +233,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.stretch",
@@ -221,13 +244,15 @@
      "-0.1",
      "0.1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -237,7 +262,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -247,7 +273,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -257,7 +284,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -267,7 +295,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -277,7 +306,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -287,7 +317,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -297,7 +328,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -307,7 +339,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "strings": [
@@ -315,13 +348,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -331,7 +366,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -341,13 +377,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -357,13 +395,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -373,7 +413,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -383,7 +424,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -393,7 +435,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -403,7 +446,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -413,7 +457,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -423,7 +468,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -433,7 +479,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -443,7 +490,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "choir": [
@@ -451,13 +499,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -467,7 +517,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -477,13 +528,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -493,13 +546,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -509,7 +564,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -519,7 +575,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -529,7 +586,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -539,7 +597,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -549,7 +608,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -559,7 +619,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -569,7 +630,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -579,7 +641,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -589,7 +652,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "polysaw": [
@@ -597,13 +661,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -613,7 +679,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -623,13 +690,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -639,13 +708,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -655,7 +726,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -665,7 +737,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -675,7 +748,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -685,7 +759,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -695,7 +770,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -705,7 +781,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -715,7 +792,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -725,7 +803,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -735,7 +814,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ]
  },
@@ -745,13 +825,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -761,7 +843,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -771,13 +854,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -787,13 +872,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -803,7 +890,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -813,7 +901,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -823,7 +912,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -833,7 +923,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -843,7 +934,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -853,7 +945,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -863,7 +956,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -873,7 +967,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -883,7 +978,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "crystal": [
@@ -891,7 +987,8 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "fm.ratio",
@@ -901,7 +998,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.depth",
@@ -911,7 +1009,8 @@
      "0",
      "4",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.bite",
@@ -921,13 +1020,15 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -937,7 +1038,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -947,7 +1049,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -957,7 +1060,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -967,7 +1071,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -977,7 +1082,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -987,7 +1093,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -997,7 +1104,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -1007,7 +1115,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "marimba": [
@@ -1015,13 +1124,15 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "modal.material",
     "label": "Material",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "modal.hardness",
@@ -1031,7 +1142,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "modal.damping",
@@ -1041,13 +1153,15 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -1057,7 +1171,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -1067,7 +1182,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -1077,7 +1193,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -1087,7 +1204,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -1097,7 +1215,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -1107,7 +1226,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -1117,7 +1237,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -1127,7 +1248,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "muted": [
@@ -1135,13 +1257,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -1151,7 +1275,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -1161,13 +1286,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -1177,13 +1304,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -1193,7 +1322,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -1203,7 +1333,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -1213,7 +1344,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -1223,7 +1355,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -1233,7 +1366,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -1243,7 +1377,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -1253,7 +1388,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -1263,7 +1399,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -1273,7 +1410,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ]
  },
@@ -1283,13 +1421,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -1299,7 +1439,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -1309,13 +1450,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -1325,13 +1468,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -1341,7 +1486,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -1351,7 +1497,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -1361,7 +1508,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -1371,7 +1519,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -1381,7 +1530,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -1391,7 +1541,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -1401,7 +1552,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -1411,7 +1563,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -1421,7 +1574,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "bell": [
@@ -1433,13 +1587,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "fm.ratio",
@@ -1449,7 +1605,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.depth",
@@ -1459,7 +1616,8 @@
      "0",
      "4",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.bite",
@@ -1469,13 +1627,15 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -1485,7 +1645,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -1495,7 +1656,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -1505,7 +1667,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -1515,7 +1678,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -1525,7 +1689,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -1535,7 +1700,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -1545,7 +1711,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -1555,7 +1722,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "flute": [
@@ -1563,13 +1731,15 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -1579,7 +1749,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -1589,7 +1760,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -1599,7 +1771,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -1609,7 +1782,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -1619,7 +1793,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -1629,7 +1804,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -1639,7 +1815,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -1649,7 +1826,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "keys": [
@@ -1657,7 +1835,8 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "fm.ratio",
@@ -1667,7 +1846,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.depth",
@@ -1677,7 +1857,8 @@
      "0",
      "4",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.bite",
@@ -1687,13 +1868,15 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -1703,7 +1886,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -1713,7 +1897,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -1723,7 +1908,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -1733,7 +1919,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -1743,7 +1930,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -1753,7 +1941,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -1763,7 +1952,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -1773,7 +1963,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "call": [
@@ -1781,13 +1972,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.glide",
@@ -1797,7 +1990,8 @@
      "-24",
      "24",
      "1"
-    ]
+    ],
+    "unit": "st"
    },
    {
     "field": "source.glideCurve",
@@ -1807,7 +2001,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.formant1",
@@ -1817,7 +2012,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.formant2",
@@ -1827,7 +2023,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.cadence",
@@ -1837,7 +2034,8 @@
      "0.5",
      "8",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.irregular",
@@ -1847,13 +2045,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -1863,7 +2063,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -1873,7 +2074,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -1883,7 +2085,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -1893,7 +2096,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -1903,7 +2107,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -1913,7 +2118,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -1923,7 +2129,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -1933,7 +2140,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "tines": [
@@ -1941,7 +2149,8 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "fm.ratio",
@@ -1951,7 +2160,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.depth",
@@ -1961,7 +2171,8 @@
      "0",
      "4",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.bite",
@@ -1971,13 +2182,15 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -1987,7 +2200,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -1997,7 +2211,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -2007,7 +2222,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -2017,7 +2233,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -2027,7 +2244,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -2037,7 +2255,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -2047,7 +2266,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -2057,7 +2277,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "nylon": [
@@ -2065,13 +2286,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -2081,7 +2304,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -2091,13 +2315,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -2107,13 +2333,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -2123,7 +2351,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -2133,7 +2362,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -2143,7 +2373,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -2153,7 +2384,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -2163,7 +2395,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -2173,7 +2406,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -2183,7 +2417,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -2193,7 +2428,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -2203,7 +2439,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "tape": [
@@ -2211,13 +2448,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -2227,7 +2466,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -2237,13 +2477,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -2253,13 +2495,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -2269,7 +2513,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -2279,7 +2524,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -2289,7 +2535,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -2299,7 +2546,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -2309,7 +2557,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -2319,7 +2568,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -2329,7 +2579,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -2339,7 +2590,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "stab": [
@@ -2347,7 +2599,8 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "additive.p1",
@@ -2357,7 +2610,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p2",
@@ -2367,7 +2621,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p3",
@@ -2377,7 +2632,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p4",
@@ -2387,7 +2643,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p5",
@@ -2397,7 +2654,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.p6",
@@ -2407,7 +2665,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "additive.stretch",
@@ -2417,13 +2676,15 @@
      "-0.1",
      "0.1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -2433,7 +2694,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -2443,7 +2705,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -2453,7 +2716,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -2463,7 +2727,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -2473,7 +2738,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -2483,7 +2749,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -2493,7 +2760,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -2503,7 +2771,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ]
  },
@@ -2513,13 +2782,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -2529,7 +2800,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -2539,13 +2811,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -2555,13 +2829,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -2571,7 +2847,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -2581,7 +2858,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -2591,7 +2869,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -2601,7 +2880,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -2611,7 +2891,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -2621,7 +2902,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -2631,7 +2913,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -2641,7 +2924,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "round": [
@@ -2649,13 +2933,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -2665,7 +2951,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -2675,13 +2962,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -2691,13 +2980,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -2707,7 +2998,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -2717,7 +3009,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -2727,7 +3020,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -2737,7 +3031,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -2747,7 +3042,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -2757,7 +3053,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -2767,7 +3064,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -2777,7 +3075,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -2787,7 +3086,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "breath": [
@@ -2795,13 +3095,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -2811,13 +3113,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -2827,7 +3131,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -2837,7 +3142,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -2847,7 +3153,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -2857,7 +3164,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -2867,7 +3175,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -2877,7 +3186,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -2887,7 +3197,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -2897,7 +3208,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "fingered": [
@@ -2905,13 +3217,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -2921,7 +3235,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -2931,13 +3246,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -2947,13 +3264,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -2963,7 +3282,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -2973,7 +3293,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -2983,7 +3304,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -2993,7 +3315,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -3003,7 +3326,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -3013,7 +3337,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -3023,7 +3348,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -3033,7 +3359,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -3043,7 +3370,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "sawbass": [
@@ -3051,13 +3379,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -3067,7 +3397,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -3077,13 +3408,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -3093,13 +3426,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -3109,7 +3444,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -3119,7 +3455,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -3129,7 +3466,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -3139,7 +3477,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -3149,7 +3488,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -3159,7 +3499,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -3169,7 +3510,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -3179,7 +3521,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -3189,7 +3532,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "acid": [
@@ -3197,13 +3541,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -3213,13 +3559,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -3229,7 +3577,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -3239,7 +3588,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -3249,7 +3599,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -3259,7 +3610,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -3269,7 +3621,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -3279,7 +3632,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -3289,7 +3643,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -3299,7 +3654,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -3309,7 +3665,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "upright": [
@@ -3317,13 +3674,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.mix",
@@ -3333,7 +3692,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.detune",
@@ -3343,13 +3703,15 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.fold",
@@ -3359,13 +3721,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -3375,7 +3739,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -3385,7 +3750,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -3395,7 +3761,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -3405,7 +3772,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -3415,7 +3783,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -3425,7 +3794,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -3435,7 +3805,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -3445,7 +3816,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -3455,7 +3827,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ]
  },
@@ -3465,7 +3838,8 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "fm.ratio",
@@ -3475,7 +3849,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.depth",
@@ -3485,7 +3860,8 @@
      "0",
      "4",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "fm.bite",
@@ -3495,13 +3871,15 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -3511,7 +3889,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -3521,7 +3900,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -3531,7 +3911,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -3541,7 +3922,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -3551,7 +3933,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -3561,7 +3944,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -3571,7 +3955,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -3581,7 +3966,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "grains": [
@@ -3589,13 +3975,15 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -3605,7 +3993,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -3615,7 +4004,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -3625,7 +4015,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -3635,7 +4026,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -3645,7 +4037,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -3655,7 +4048,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -3665,7 +4059,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -3675,7 +4070,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "chimes": [
@@ -3687,19 +4083,22 @@
      "-50",
      "50",
      "1"
-    ]
+    ],
+    "unit": "ct"
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "modal.material",
     "label": "Material",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "modal.hardness",
@@ -3709,7 +4108,8 @@
      "0",
      "2",
      "0.01"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "modal.damping",
@@ -3719,13 +4119,15 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "×"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -3735,7 +4137,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -3745,7 +4148,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -3755,7 +4159,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -3765,7 +4170,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -3775,7 +4181,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -3785,7 +4192,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -3795,7 +4203,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -3805,7 +4214,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "wash": [
@@ -3813,19 +4223,22 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -3835,7 +4248,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -3845,7 +4259,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "filter.envAmount",
@@ -3855,7 +4270,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -3865,7 +4281,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -3875,7 +4292,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -3885,7 +4303,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -3895,7 +4314,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -3905,7 +4325,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -3915,7 +4336,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "colour": [
@@ -3923,7 +4345,8 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.tilt",
@@ -3933,7 +4356,8 @@
      "-1",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.bandCentre",
@@ -3943,7 +4367,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.bandWidth",
@@ -3953,7 +4378,8 @@
      "0.1",
      "4",
      "0.05"
-    ]
+    ],
+    "unit": "oct"
    },
    {
     "field": "source.sweepRate",
@@ -3963,7 +4389,8 @@
      "0",
      "0.5",
      "0.005"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.sweepDepth",
@@ -3973,7 +4400,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.gust",
@@ -3983,7 +4411,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.gustRate",
@@ -3993,7 +4422,8 @@
      "0.02",
      "0.5",
      "0.005"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.swell",
@@ -4003,7 +4433,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.burst",
@@ -4013,7 +4444,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.burstSharp",
@@ -4023,13 +4455,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -4039,7 +4473,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -4049,7 +4484,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -4059,7 +4495,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -4069,7 +4506,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -4079,7 +4517,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -4089,7 +4528,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -4099,7 +4539,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -4109,7 +4550,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "cloud": [
@@ -4117,7 +4559,8 @@
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.tilt",
@@ -4127,7 +4570,8 @@
      "-1",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.bandCentre",
@@ -4137,7 +4581,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.bandWidth",
@@ -4147,7 +4592,8 @@
      "0.1",
      "4",
      "0.05"
-    ]
+    ],
+    "unit": "oct"
    },
    {
     "field": "source.sweepRate",
@@ -4157,7 +4603,8 @@
      "0",
      "0.5",
      "0.005"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.sweepDepth",
@@ -4167,7 +4614,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.gust",
@@ -4177,7 +4625,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.gustRate",
@@ -4187,7 +4636,8 @@
      "0.02",
      "0.5",
      "0.005"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.swell",
@@ -4197,7 +4647,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.burst",
@@ -4207,7 +4658,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.burstSharp",
@@ -4217,13 +4669,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -4233,7 +4687,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -4243,7 +4698,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -4253,7 +4709,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -4263,7 +4720,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -4273,7 +4731,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -4283,7 +4742,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -4293,7 +4753,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -4303,7 +4764,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "call": [
@@ -4311,13 +4773,15 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.glide",
@@ -4327,7 +4791,8 @@
      "-24",
      "24",
      "1"
-    ]
+    ],
+    "unit": "st"
    },
    {
     "field": "source.glideCurve",
@@ -4337,7 +4802,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "source.formant1",
@@ -4347,7 +4813,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.formant2",
@@ -4357,7 +4824,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "source.cadence",
@@ -4367,7 +4835,8 @@
      "0.5",
      "8",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "source.irregular",
@@ -4377,13 +4846,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -4393,7 +4864,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -4403,7 +4875,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -4413,7 +4886,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -4423,7 +4897,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -4433,7 +4908,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -4443,7 +4919,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -4453,7 +4930,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -4463,7 +4941,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ]
  },
@@ -4473,7 +4952,8 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.pitch",
@@ -4483,7 +4963,8 @@
      "-24",
      "24",
      "1"
-    ]
+    ],
+    "unit": "st"
    },
    {
     "field": "source.noise",
@@ -4493,13 +4974,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -4509,7 +4992,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -4519,7 +5003,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -4529,7 +5014,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -4539,7 +5025,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -4549,7 +5036,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -4559,7 +5047,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -4569,7 +5058,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -4579,7 +5069,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "hand": [
@@ -4587,7 +5078,8 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.pitch",
@@ -4597,7 +5089,8 @@
      "-24",
      "24",
      "1"
-    ]
+    ],
+    "unit": "st"
    },
    {
     "field": "source.noise",
@@ -4607,13 +5100,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -4623,7 +5118,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -4633,7 +5129,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -4643,7 +5140,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -4653,7 +5151,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -4663,7 +5162,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -4673,7 +5173,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -4683,7 +5184,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -4693,7 +5195,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "tick": [
@@ -4701,7 +5204,8 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.pitch",
@@ -4711,7 +5215,8 @@
      "-24",
      "24",
      "1"
-    ]
+    ],
+    "unit": "st"
    },
    {
     "field": "source.noise",
@@ -4721,13 +5226,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -4737,7 +5244,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -4747,7 +5255,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -4757,7 +5266,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -4767,7 +5277,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -4777,7 +5288,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -4787,7 +5299,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -4797,7 +5310,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -4807,7 +5321,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ],
   "dust": [
@@ -4815,7 +5330,8 @@
     "field": "source.shape1",
     "label": "Osc 1",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "source.pitch",
@@ -4825,7 +5341,8 @@
      "-24",
      "24",
      "1"
-    ]
+    ],
+    "unit": "st"
    },
    {
     "field": "source.noise",
@@ -4835,13 +5352,15 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": "%"
    },
    {
     "field": "filter.type",
     "label": "Type",
     "kind": "select",
-    "range": null
+    "range": null,
+    "unit": null
    },
    {
     "field": "filter.cutoff",
@@ -4851,7 +5370,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "Hz"
    },
    {
     "field": "filter.q",
@@ -4861,7 +5381,8 @@
      "0.1",
      "20",
      "0.1"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.attack",
@@ -4871,7 +5392,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.decay",
@@ -4881,7 +5403,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "adsr.sustain",
@@ -4891,7 +5414,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "adsr.release",
@@ -4901,7 +5425,8 @@
      "0",
      "1",
      "0.001"
-    ]
+    ],
+    "unit": "s"
    },
    {
     "field": "sends.reverb",
@@ -4911,7 +5436,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    },
    {
     "field": "sends.delay",
@@ -4921,7 +5447,8 @@
      "0",
      "1",
      "0.01"
-    ]
+    ],
+    "unit": ""
    }
   ]
  }
