@@ -551,6 +551,16 @@ const VOICES: Record<string, [string, string][]> = {
           <div id="genre-rules-modes-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-modes-label"></div>
           <span class="genre-rules-label" id="genre-rules-rhythm-label">Chord changes — bars per chord, and how often each rate is drawn</span>
           <div id="genre-rules-rhythm-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-rhythm-label"></div>
+          <!-- v0.0.179 (unit 11): the rest of the essence — the shape of a
+               piece, the chord colour, how far from consonance the tuned
+               tracks may drift, how busy, how long the hall rings, and each
+               track's part in the line-up. -->
+          <span class="genre-rules-label" id="genre-rules-arc-label">Shape — the structures a piece may take, and how often</span>
+          <div id="genre-rules-arc-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-arc-label"></div>
+          <span class="genre-rules-label" id="genre-rules-colour-label">Colour, dissonance, density, hall</span>
+          <div id="genre-rules-colour-ui" class="rules-dials" role="group" aria-labelledby="genre-rules-colour-label"></div>
+          <span class="genre-rules-label" id="genre-rules-lineup-label">Line-up — each track's part: whether it plays, which voice, how loud, how much it varies</span>
+          <div id="genre-rules-lineup-ui" class="rules-rows rules-lineup" role="group" aria-labelledby="genre-rules-lineup-label"></div>
           <span class="genre-rules-label" id="genre-rules-progressions-label">Chord progressions — the loop seeds from one row; click a chord to change it</span>
           <div id="genre-rules-progressions-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-progressions-label"></div>
           <span class="genre-rules-label" id="genre-rules-subs-label">Substitutions — sometimes swap one chord for another, at the odds you set</span>
@@ -2391,7 +2401,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // change rates) is a genreRules key a pre-178 build reads past — the
       // link would play with only the chord rules — so it carries the stamp.
       const essenceRuled = isPlainObject(params.genreRules)
-        && ['bpm', 'swing', 'timeSignatures', 'modes', 'harmonicRhythm'].some((k) => params.genreRules[k] !== undefined);
+        && ['bpm', 'swing', 'timeSignatures', 'modes', 'harmonicRhythm', 'energyArc', 'extensionBias', 'dissonanceRange', 'densityBias', 'reverbTail', 'perTrack'].some((k) => params.genreRules[k] !== undefined);
       return routed || sampled || lfoSet || macroSet || essenceRuled ? SHARE_SCHEMA_LATEST : SHARE_SCHEMA;
     }
 
@@ -13553,8 +13563,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           timeSignatures: pick(rules.timeSignatures, essence.timeSignatures),
           modes: pick(rules.modes, essence.modes),
           harmonicRhythm: pick(rules.harmonicRhythm, essence.chordLanguage?.harmonicRhythm),
+          // v0.0.179 (unit 11): essence II. A number override wins by being
+          // finite; the line-up is per track, the file's row under the person's.
+          energyArc: pick(rules.energyArc, essence.energyArc),
+          extensionBias: Number.isFinite(rules.extensionBias) ? rules.extensionBias : numberOrNull(essence.chordLanguage?.extensionBias),
+          dissonanceRange: range(rules.dissonanceRange, essence.dissonanceRange),
+          densityBias: Number.isFinite(rules.densityBias) ? rules.densityBias : numberOrNull(essence.densityBias),
+          reverbTail: Number.isFinite(rules.reverbTail) ? rules.reverbTail : numberOrNull(essence.instrumentation?.reverbTail),
+          perTrack: Object.fromEntries(TRACK_IDS_BUILTIN.map((id) => {
+            const own = isPlainObject(essence.instrumentation?.perTrack?.[id]) ? essence.instrumentation.perTrack[id] : {};
+            const over = isPlainObject(rules.perTrack) && isPlainObject(rules.perTrack[id]) ? rules.perTrack[id] : null;
+            return [id, over || own];
+          })),
         };
       }
+      const numberOrNull = (v) => (Number.isFinite(Number(v)) && v !== null && v !== undefined ? Number(v) : null);
+      const TRACK_IDS_BUILTIN = ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion'];
+      /** A number or `{min,max}` as the model's `[lo, hi]`; null when absent. */
+      const spanOf = (v) => (isPlainObject(v) && Number.isFinite(Number(v.min)) && Number.isFinite(Number(v.max))
+        ? [Number(v.min), Number(v.max)]
+        : Number.isFinite(Number(v)) && v !== null && v !== undefined ? [Number(v), Number(v)] : null);
+      /** The model's `[lo, hi]` back to the file's shape: a number when equal, else a span. */
+      const spanBack = (pair) => (pair ? (pair[0] === pair[1] ? pair[0] : { min: pair[0], max: pair[1] }) : undefined);
 
       /** A weighted list as the model holds it: `{ value: string, weight }` rows. */
       function weightedRows(list) {
@@ -13627,6 +13657,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           timeSignatures: weightedRows(rules.timeSignatures),
           modes: weightedRows(rules.modes),
           harmonicRhythm: weightedRows(rules.harmonicRhythm),
+          // v0.0.179: essence II.
+          energyArc: weightedRows(rules.energyArc),
+          extensionBias: rules.extensionBias,
+          dissonanceRange: rules.dissonanceRange ? [...rules.dissonanceRange] : null,
+          densityBias: rules.densityBias,
+          reverbTail: rules.reverbTail,
+          perTrack: Object.fromEntries(TRACK_IDS_BUILTIN.map((id) => {
+            const spec = rules.perTrack[id] || {};
+            return [id, {
+              state: ['off', 'auto', 'on'].includes(spec.state) ? spec.state : null,
+              voice: typeof spec.voice === 'string' ? spec.voice : null,
+              level: spanOf(spec.level),
+              randomness: spanOf(spec.randomness),
+            }];
+          })),
         };
         rulesModelDirty = false;
       }
@@ -13637,17 +13682,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * everywhere opens one here. The typed readout takes "lo-hi". Without
        * knob.js the pair of number boxes below does the same job.
        */
-      function rulesRangeDial(parent, key, { label, min, max, format, hint, step }) {
+      function rulesRangeDial(parent, key, spec) {
         const m = rulesModel;
-        const current = m[key];
+        rulesSpanDial(parent, `essence.${key}`, m[key], (pair) => { m[key] = pair; }, spec);
+      }
+
+      /**
+       * v0.0.179: the same dial over any `[lo, hi]` the model holds — the
+       * essence ranges, and each line-up row's level and randomness. `span`
+       * false makes it a single-value dial (extension bias, density, hall).
+       */
+      function rulesSpanDial(parent, field, current, store, { label, min, max, format, hint, step, span = true }) {
         const cell = document.createElement('div');
         cell.className = 'knob-cell rules-dial';
-        cell.dataset.field = `essence.${key}`;
+        cell.dataset.field = field;
         parent.append(cell);
         const write = (v) => {
           const lo = isPlainObject(v) ? v.min : v;
           const hi = isPlainObject(v) ? v.max : v;
-          m[key] = [clamp(Math.min(lo, hi), min, max), clamp(Math.max(lo, hi), min, max)];
+          store([clamp(Math.min(lo, hi), min, max), clamp(Math.max(lo, hi), min, max)]);
           rulesModelDirty = true;
         };
         if (knobApi) {
@@ -13661,8 +13714,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               value,
               format,
               parse: (n) => Number(n),
-              allowRange: true,
-              rangeDefault: true,
+              allowRange: span,
+              rangeDefault: span,
               onInput: write,
             });
             describe(handle.el, hint);
@@ -13671,7 +13724,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             cell.innerHTML = '';
           }
         }
-        for (const [end, index] of [['from', 0], ['to', 1]]) {
+        for (const [end, index] of (span ? [['from', 0], ['to', 1]] : [['', 0]])) {
           const input = document.createElement('input');
           input.type = 'number';
           input.min = String(min);
@@ -13680,8 +13733,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           input.value = current ? String(current[index]) : String(min);
           input.setAttribute('aria-label', `${label} ${end}`);
           input.addEventListener('change', () => {
-            const pair = m[key] ? [...m[key]] : [min, min];
+            const pair = current ? [...current] : [min, min];
             pair[index] = clamp(Number(input.value) || min, min, max);
+            if (!span) pair[1] = pair[0];
             write({ min: pair[0], max: pair[1] });
           });
           describe(input, hint);
@@ -13756,6 +13810,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           ['genre-rules-modes-ui', 'modes', { choices: essenceChoices('modes'), labelOf: (v) => v, what: 'Mode', add: '+ mode', fresh: 'aeolian' }],
           ['genre-rules-rhythm-ui', 'harmonicRhythm', { choices: essenceChoices('harmonicRhythm'), labelOf: rhythmLabel, what: 'Chord change rate', add: '+ rate', fresh: '2' }],
         ];
+        lists.push(['genre-rules-arc-ui', 'energyArc', { choices: essenceChoices('energyArc'), labelOf: structureLabel, what: 'Structure', add: '+ structure', fresh: 'waves' }]);
         for (const [id, key, spec] of lists) {
           const box = document.getElementById(id);
           if (!box) continue;
@@ -13766,7 +13821,99 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             m[key].push({ value: unused || spec.fresh, weight: 1 });
           }, 'secondary-button rules-add'));
         }
+        // v0.0.179: colour, dissonance, density, hall — four dials.
+        const colour = document.getElementById('genre-rules-colour-ui');
+        if (colour) {
+          colour.innerHTML = '';
+          rulesSpanDial(colour, 'essence.extensionBias', spanOf(m.extensionBias), (pair) => { m.extensionBias = pair[0]; }, {
+            label: 'Colour', min: 0, max: 1, step: 0.01, span: false, format: (v) => `${Math.round(v * 100)}%`,
+            hint: 'How coloured the chords lean: plain triads at the left, sevenths and extensions at the right. It feeds the Complexity dial.',
+          });
+          rulesSpanDial(colour, 'essence.dissonanceRange', m.dissonanceRange, (pair) => { m.dissonanceRange = pair; }, {
+            label: 'Dissonance', min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}%`,
+            hint: 'How far the tuned tracks may wander from consonance, drawn from inside the span: none stays sweet, more lets rubs in.',
+          });
+          rulesSpanDial(colour, 'essence.densityBias', spanOf(m.densityBias), (pair) => { m.densityBias = pair[0]; }, {
+            label: 'Density', min: 0, max: 2, step: 0.01, span: false, format: (v) => `${Math.round(v * 100) / 100}×`,
+            hint: 'How busy every rhythmic track is, as a multiplier: 1 is as the grooves say, less is sparser, more is busier.',
+          });
+          rulesSpanDial(colour, 'essence.reverbTail', spanOf(m.reverbTail), (pair) => { m.reverbTail = pair[0]; }, {
+            label: 'Hall', min: 0, max: reverbTailMax(), step: 0.1, span: false, format: (v) => `${Math.round(v * 10) / 10} s`,
+            hint: 'How long the shared reverb rings: a dry room at the left, a cathedral at the right.',
+          });
+        }
+        // v0.0.179: the line-up, one row per built-in track.
+        const lineup = document.getElementById('genre-rules-lineup-ui');
+        if (lineup) {
+          lineup.innerHTML = '';
+          for (const id of TRACK_IDS_BUILTIN) {
+            const spec = m.perTrack[id];
+            const row = document.createElement('div');
+            row.className = 'rules-row rules-lineup-row';
+            row.dataset.track = id;
+            const name = document.createElement('span');
+            name.className = 'rules-lineup-name';
+            name.textContent = TRACK_LABELS[id] || id;
+            row.append(name);
+            const state = document.createElement('select');
+            state.className = 'rule-chip';
+            state.setAttribute('aria-label', `${TRACK_LABELS[id] || id}: plays`);
+            for (const [v, text] of [['', 'as the app decides'], ['off', 'Off'], ['auto', 'Auto'], ['on', 'On']]) {
+              const opt = document.createElement('option');
+              opt.value = v;
+              opt.textContent = text;
+              if ((spec.state || '') === v) opt.selected = true;
+              state.append(opt);
+            }
+            state.addEventListener('change', () => { rulesModelDirty = true; spec.state = state.value || null; });
+            describe(state, 'Whether this track plays in pieces drawn from these rules: Off never, Auto when the app wants it, On always.');
+            row.append(state);
+            const voice = document.createElement('select');
+            voice.className = 'rule-chip';
+            voice.setAttribute('aria-label', `${TRACK_LABELS[id] || id}: voice`);
+            const bank = VOICE_LABELS[voiceSetOf(id)] || {};
+            const none = document.createElement('option');
+            none.value = '';
+            none.textContent = 'any voice';
+            if (!spec.voice) none.selected = true;
+            voice.append(none);
+            for (const [vid, label] of Object.entries(bank)) {
+              const opt = document.createElement('option');
+              opt.value = vid;
+              opt.textContent = label;
+              if (spec.voice === vid) opt.selected = true;
+              voice.append(opt);
+            }
+            if (spec.voice && !bank[spec.voice]) {
+              const opt = document.createElement('option');
+              opt.value = spec.voice;
+              opt.textContent = spec.voice;
+              opt.selected = true;
+              voice.append(opt);
+            }
+            voice.addEventListener('change', () => { rulesModelDirty = true; spec.voice = voice.value || null; });
+            describe(voice, 'The voice this track plays in pieces drawn from these rules.');
+            row.append(voice);
+            rulesSpanDial(row, `essence.perTrack.${id}.level`, spec.level, (pair) => { spec.level = pair; }, {
+              label: 'Level', min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}%`,
+              hint: 'How loud this track sits in the mix, drawn from inside the span.',
+            });
+            rulesSpanDial(row, `essence.perTrack.${id}.randomness`, spec.randomness, (pair) => { spec.randomness = pair; }, {
+              label: 'Variation', min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}%`,
+              hint: 'How much this track re-rolls its own material, drawn from inside the span.',
+            });
+            lineup.append(row);
+          }
+        }
       }
+      /** The longest tail the engine's own gate keeps: the Hall dial's top. */
+      function reverbTailMax() {
+        const gate = engineModule && engineModule.sanitiseParams;
+        const top = gate ? gate({ reverbTail: 1e9 }).reverbTail : null;
+        return Number.isFinite(top) && top > 0 ? top : 6;
+      }
+      const STRUCTURE_WORDS = { auto: 'let the app decide', drone: 'drone', waves: 'waves', build: 'build', abab: 'A B A B', journey: 'journey' };
+      const structureLabel = (v) => STRUCTURE_WORDS[v] || v;
 
       function rulesButton(label, title, onClick, className = 'rules-mini-button') {
         const b = document.createElement('button');
@@ -14071,6 +14218,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           timeSignatures: (m.timeSignatures || []).map((r) => ({ value: r.value, weight: r.weight })),
           modes: (m.modes || []).map((r) => ({ value: r.value, weight: r.weight })),
           harmonicRhythm: (m.harmonicRhythm || []).map((r) => ({ value: r.value, weight: r.weight })),
+          // v0.0.179: essence II.
+          energyArc: (m.energyArc || []).map((r) => ({ value: r.value, weight: r.weight })),
+          extensionBias: Number.isFinite(m.extensionBias) ? m.extensionBias : null,
+          dissonanceRange: m.dissonanceRange ? [...m.dissonanceRange] : null,
+          densityBias: Number.isFinite(m.densityBias) ? m.densityBias : null,
+          reverbTail: Number.isFinite(m.reverbTail) ? m.reverbTail : null,
+          perTrack: Object.fromEntries(TRACK_IDS_BUILTIN.map((id) => {
+            const spec = (m.perTrack || {})[id] || {};
+            const out = {};
+            if (spec.state) out.state = spec.state;
+            if (spec.voice) out.voice = spec.voice;
+            if (spec.level) out.level = spanBack(spec.level);
+            if (spec.randomness) out.randomness = spanBack(spec.randomness);
+            return [id, out];
+          })),
           progressionGrammar: m.progressionGrammar
             .filter((line) => line.length)
             .map((line) => line.join(' ')),
@@ -14113,7 +14275,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
           }
         }
-        for (const [key, what] of [['timeSignatures', 'time signature'], ['modes', 'mode'], ['harmonicRhythm', 'chord change rate']]) {
+        for (const [key, what] of [['timeSignatures', 'time signature'], ['modes', 'mode'], ['harmonicRhythm', 'chord change rate'], ['energyArc', 'structure']]) {
           const choices = essenceChoices(key);
           for (const row of form[key] || []) {
             if (choices.length && !choices.includes(String(row.value))) {
@@ -14271,6 +14433,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (!sameWeighted(form.timeSignatures, own.timeSignatures)) overrides.timeSignatures = form.timeSignatures;
         if (!sameWeighted(form.modes, own.modes)) overrides.modes = form.modes;
         if (!sameWeighted(form.harmonicRhythm, own.chordLanguage?.harmonicRhythm)) overrides.harmonicRhythm = form.harmonicRhythm;
+        // v0.0.179: essence II, again only where it differs from the file.
+        if (!sameWeighted(form.energyArc, own.energyArc)) overrides.energyArc = form.energyArc;
+        const sameNumber = (a, b) => (a === null ? b === null || b === undefined : Number.isFinite(Number(b)) && Math.abs(a - Number(b)) < 1e-9);
+        if (form.extensionBias !== null && !sameNumber(form.extensionBias, own.chordLanguage?.extensionBias)) overrides.extensionBias = form.extensionBias;
+        if (form.dissonanceRange && !sameRange(form.dissonanceRange, ownRange(own.dissonanceRange))) overrides.dissonanceRange = form.dissonanceRange;
+        if (form.densityBias !== null && !sameNumber(form.densityBias, own.densityBias)) overrides.densityBias = form.densityBias;
+        if (form.reverbTail !== null && !sameNumber(form.reverbTail, own.instrumentation?.reverbTail)) overrides.reverbTail = form.reverbTail;
+        const ruledTracks = [];
+        for (const id of TRACK_IDS_BUILTIN) {
+          const mine = form.perTrack[id] || {};
+          const filed = isPlainObject(own.instrumentation?.perTrack?.[id]) ? own.instrumentation.perTrack[id] : {};
+          if (JSON.stringify(mine) !== JSON.stringify(filed)) {
+            overrides.perTrack = overrides.perTrack || {};
+            overrides.perTrack[id] = mine;
+            ruledTracks.push(id);
+          }
+        }
         if (differs(form.progressionGrammar, own.chordLanguage?.progressionGrammar)) {
           overrides.progressionGrammar = form.progressionGrammar;
         }
@@ -14308,9 +14487,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // recompile and leaves the second alone: the sound you built survives and
         // the notes redraw. Levels and states are the mixer, which is nobody's
         // idea of a chord rule, so they stay as well.
+        // v0.0.179: unless the LINE-UP itself was ruled — a person who set a
+        // track's state, voice, level or variation in Rules means those to
+        // land, and only for the tracks they ruled.
         for (const [id, track] of Object.entries(next.tracks || {})) {
           const mine = settings.tracks?.[id];
           if (!isPlainObject(mine)) continue;
+          if (ruledTracks.includes(id)) {
+            if (mine.mono !== undefined) track.mono = mine.mono;
+            continue;
+          }
           if (typeof mine.voice === 'string') track.voice = mine.voice;
           if (typeof mine.state === 'string') track.state = mine.state;
           if (mine.level !== undefined) track.level = structuredClone(mine.level);
@@ -18085,6 +18271,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .rules-weight {
       width: 64px;
+    }
+
+    /* v0.0.179: the line-up rows — a name, two chips, two dials. */
+    .rules-lineup-row {
+      align-items: center;
+    }
+
+    .rules-lineup-name {
+      min-width: 72px;
+      font-size: 13px;
     }
 
     .rules-row {

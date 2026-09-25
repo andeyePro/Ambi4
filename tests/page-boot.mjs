@@ -1710,10 +1710,33 @@ try {
           const landed = await waitUntil(() => engine.getParams().bpm === 200);
           if (!landed) failures.push(`Apply with Tempo 200–200 left the engine at ${engine.getParams().bpm} bpm (was ${before})`);
           if (toggle.textContent !== 'Rules · edited') failures.push(`the Rules button does not say edited after an essence change (says ${JSON.stringify(toggle.textContent)})`);
+          // v0.0.179 (unit 11): the rest of the essence is on screen, and a
+          // ruled LINE-UP lands at the engine — the one kind of rule Apply
+          // used to keep out, because the person asked for it here.
+          const arcs = doc.querySelectorAll('#genre-rules-arc-ui .rules-row').length;
+          if (arcs !== 3) failures.push(`synthwave's structure rows: ${arcs}, expected 3 (abab, journey, waves)`);
+          for (const field of ['essence.extensionBias', 'essence.dissonanceRange', 'essence.densityBias', 'essence.reverbTail']) {
+            if (!doc.querySelector(`#genre-rules-colour-ui .rules-dial[data-field="${field}"]`)) failures.push(`the rules panel has no ${field} dial`);
+          }
+          const lineupRows = doc.querySelectorAll('#genre-rules-lineup-ui .rules-lineup-row');
+          if (lineupRows.length !== 6) failures.push(`the line-up shows ${lineupRows.length} rows, expected six built-in tracks`);
+          const padRow = doc.querySelector('#genre-rules-lineup-ui .rules-lineup-row[data-track="pad"]');
+          const padVoice = padRow && padRow.querySelectorAll('select')[1];
+          if (!padVoice || padVoice.value !== 'polysaw') failures.push(`the pad line-up row does not show synthwave's polysaw (got ${padVoice && padVoice.value})`);
+          const padState = padRow && padRow.querySelectorAll('select')[0];
+          if (padState) {
+            padState.value = 'off';
+            padState.dispatchEvent(new window.Event('change', { bubbles: true }));
+            doc.getElementById('genre-rules-apply').click();
+            const padOff = await waitUntil(() => engine.getParams().tracks && engine.getParams().tracks.pad && engine.getParams().tracks.pad.state === 'off');
+            if (!padOff) failures.push(`ruling the pad Off in the line-up left the engine at ${JSON.stringify(engine.getParams().tracks && engine.getParams().tracks.pad && engine.getParams().tracks.pad.state)}`);
+          }
           // Back to the genre's rules: the same seed redraws the genre's own tempo.
           doc.getElementById('genre-rules-reset').click();
           const restored = await waitUntil(() => engine.getParams().bpm !== 200);
           if (!restored) failures.push('Back to the genre\'s rules left the essence override in place');
+          const padBack = await waitUntil(() => engine.getParams().tracks && engine.getParams().tracks.pad && engine.getParams().tracks.pad.state === 'on');
+          if (!padBack) failures.push('Back to the genre\'s rules did not restore the pad to On');
         }
       } else if (tempoCell) {
         failures.push('the Tempo dial has no typed readout');

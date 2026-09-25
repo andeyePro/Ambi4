@@ -31,9 +31,11 @@
  *   essence.bpm/swing            → params.bpm / params.swing (uniform draw)
  *   essence.timeSignatures       → params.timeSignature (weighted)
  *   essence.modes                → params.mode (weighted, SCALES-checked)
- *   (unit 10, v0.0.178: applyGenreOverrides lays a person's re-ruling of
+*   (unit 10, v0.0.178: applyGenreOverrides lays a person's re-ruling of
  *   bpm, swing, timeSignatures, modes and harmonicRhythm onto a genre
- *   before it is compiled; ESSENCE_CHOICES lists what each may hold)
+ *   before it is compiled; unit 11, v0.0.179, adds energyArc, extensionBias,
+ *   dissonanceRange, densityBias, reverbTail and perTrack instrumentation;
+ *   ESSENCE_CHOICES lists what each enumerated one may hold)
  *   essence.energyArc            → params.structure (weighted, STRUCTURES-checked)
  *   chordLanguage.harmonicRhythm → params.harmony.rhythm (weighted)
  *   chordLanguage grammar + subs → params.harmony.seed (the expanded chord
@@ -631,7 +633,24 @@ export const ESSENCE_CHOICES = Object.freeze({
   timeSignatures: Object.freeze(Object.keys(TIME_SIGNATURES)),
   modes: Object.freeze(Object.keys(SCALES)),
   harmonicRhythm: Object.freeze(HARMONY_RHYTHMS.map((r) => String(r))),
+  // unit 11 (v0.0.179): the structure draw, and the track states a genre may set.
+  energyArc: Object.freeze(STRUCTURES.filter((s) => s !== 'custom')),
+  trackStates: Object.freeze([...TRACK_STATES]),
 });
+
+/** A number or a `{ min, max }` span, cleaned inside `[lo, hi]`; undefined when neither. */
+function cleanScalarOrSpan(v, lo, hi) {
+  if (isObject(v)) {
+    const a = numberOr(v.min, undefined);
+    const b = numberOr(v.max, undefined);
+    if (a === undefined || b === undefined) return undefined;
+    const min = clamp(Math.min(a, b), lo, hi);
+    const max = clamp(Math.max(a, b), lo, hi);
+    return min === max ? min : { min, max };
+  }
+  const n = numberOr(v, undefined);
+  return n === undefined ? undefined : clamp(n, lo, hi);
+}
 
 /** A weighted list cleaned to `{ value, weight }` rows the draw can use. */
 function cleanWeighted(list, allowed) {
@@ -721,6 +740,43 @@ export function applyGenreOverrides(genreJson, overrides = {}) {
   if (rhythm) {
     essence.chordLanguage = isObject(essence.chordLanguage) ? essence.chordLanguage : {};
     essence.chordLanguage.harmonicRhythm = rhythm;
+  }
+  // -- unit 11 (v0.0.179): essence II --
+  const arc = cleanWeighted(over.energyArc, ESSENCE_CHOICES.energyArc);
+  if (arc) essence.energyArc = arc;
+  const bias = numberOr(over.extensionBias, undefined);
+  if (bias !== undefined) {
+    essence.chordLanguage = isObject(essence.chordLanguage) ? essence.chordLanguage : {};
+    essence.chordLanguage.extensionBias = clamp(bias, 0, 1);
+  }
+  const dissonance = cleanRange(over.dissonanceRange);
+  if (dissonance) essence.dissonanceRange = [clamp(dissonance[0], 0, 1), clamp(dissonance[1], 0, 1)];
+  const density = numberOr(over.densityBias, undefined);
+  if (density !== undefined) essence.densityBias = clamp(density, 0, 2);
+  const tail = numberOr(over.reverbTail, undefined);
+  if (tail !== undefined) {
+    essence.instrumentation = isObject(essence.instrumentation) ? essence.instrumentation : {};
+    // The sanitiser bounds the tail (6 s today); the compiler only keeps it finite and non-negative.
+    essence.instrumentation.reverbTail = Math.max(0, tail);
+  }
+  // Per-track instrumentation: a sparse map, each entry replacing that
+  // track's whole spec — state, voice, level, randomness — so a person's row
+  // is the rule and nothing of the file's row leaks under it.
+  if (isObject(over.perTrack)) {
+    essence.instrumentation = isObject(essence.instrumentation) ? essence.instrumentation : {};
+    const per = isObject(essence.instrumentation.perTrack) ? essence.instrumentation.perTrack : {};
+    for (const [name, spec] of Object.entries(over.perTrack)) {
+      if (!TRACK_ORDER.includes(name) || !isObject(spec)) continue;
+      const clean = {};
+      if (ESSENCE_CHOICES.trackStates.includes(spec.state)) clean.state = spec.state;
+      if (typeof spec.voice === 'string' && spec.voice.trim()) clean.voice = spec.voice.trim();
+      const level = cleanScalarOrSpan(spec.level, 0, 1);
+      if (level !== undefined) clean.level = level;
+      const randomness = cleanScalarOrSpan(spec.randomness, 0, 1);
+      if (randomness !== undefined) clean.randomness = randomness;
+      per[name] = clean;
+    }
+    essence.instrumentation.perTrack = per;
   }
   return edited;
 }

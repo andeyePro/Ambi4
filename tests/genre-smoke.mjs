@@ -274,10 +274,51 @@ test('v0.0.178 the chord-rule overrides keep their v0.0.161 semantics after the 
   assert.deepEqual(edited.essence.grooveGrammar.anchorPatterns, genre.essence.grooveGrammar.anchorPatterns, 'untouched keys stay');
 });
 
+test('v0.0.179 essence II reaches the compile: structure, colour, dissonance, density, hall, line-up', () => {
+  const genre = GENRES.find((g) => g.slug === 'synthwave');
+  const edited = applyGenreOverrides(genre, {
+    energyArc: [{ value: 'drone', weight: 1 }],
+    extensionBias: 1,
+    dissonanceRange: [0.5, 0.6],
+    densityBias: 0.5,
+    reverbTail: 5,
+    perTrack: {
+      pad: { state: 'off', voice: 'glass', level: 0.25, randomness: { min: 0.1, max: 0.2 } },
+      bogus: { state: 'on' },
+      bass: { state: 'nonsense', voice: '  ', level: 5, randomness: -1 },
+    },
+  });
+  assert.deepEqual(edited.essence.instrumentation.perTrack.pad, { state: 'off', voice: 'glass', level: 0.25, randomness: { min: 0.1, max: 0.2 } });
+  assert.equal(edited.essence.instrumentation.perTrack.bogus, undefined, 'a track the engine does not have is dropped');
+  assert.deepEqual(edited.essence.instrumentation.perTrack.bass, { level: 1, randomness: 0 }, 'bad values are clamped or dropped, and the row REPLACES the file\'s');
+  const out = compileGenre(edited, { rng: seededRng(3) });
+  assert.equal(out.structure, 'drone');
+  assert.ok(out.complexity > compileGenre(genre, { rng: seededRng(3) }).complexity, 'colour 1 raises complexity');
+  assert.deepEqual(out.tracks.pad.dissonance, { min: 0.5, max: 0.6 });
+  assert.ok(Math.abs(out.tracks.melody.density - 0.5) < 1e-6, `density 0.5 halves melody's density (${out.tracks.melody.density})`);
+  assert.equal(out.reverbTail, 5);
+  assert.equal(out.tracks.pad.state, 'off');
+  assert.equal(out.tracks.pad.voice, 'glass');
+  assert.equal(out.tracks.pad.level, 0.25);
+  // The ruled bass row carries no voice, so the compile names none and the sanitiser's default stands.
+  assert.equal(out.tracks.bass.voice, engineSanitise({}).tracks.bass.voice);
+});
+
+test('v0.0.179 essence II: a malformed number is ignored, and untouched tracks keep the file\'s row', () => {
+  const genre = GENRES.find((g) => g.slug === 'synthwave');
+  const edited = applyGenreOverrides(genre, { extensionBias: 'lots', densityBias: null, perTrack: { arp: { state: 'on' } } });
+  assert.equal(edited.essence.chordLanguage.extensionBias, genre.essence.chordLanguage.extensionBias);
+  assert.equal(edited.essence.densityBias, genre.essence.densityBias);
+  assert.deepEqual(edited.essence.instrumentation.perTrack.melody, genre.essence.instrumentation.perTrack.melody);
+  assert.deepEqual(edited.essence.instrumentation.perTrack.arp, { state: 'on' });
+});
+
 test('v0.0.178 ESSENCE_CHOICES is the engine\'s own vocabulary', () => {
   assert.deepEqual([...ESSENCE_CHOICES.timeSignatures], Object.keys(TIME_SIGNATURES));
   assert.deepEqual([...ESSENCE_CHOICES.modes], Object.keys(ENGINE_SCALES));
   assert.deepEqual([...ESSENCE_CHOICES.harmonicRhythm], ENGINE_RHYTHMS.map(String));
+  assert.deepEqual([...ESSENCE_CHOICES.energyArc], engineModule.STRUCTURES.filter((s) => s !== 'custom'));
+  assert.deepEqual([...ESSENCE_CHOICES.trackStates], [...engineModule.TRACK_STATES]);
 });
 
 test('every genre file compiles, and carries its own slug', () => {
