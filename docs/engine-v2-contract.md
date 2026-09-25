@@ -2101,3 +2101,31 @@ Two factory presets (deep-focus, push) moved deliberately with this and the
 frozen reference was re-taken at 0.0.144 in the same commit; the audible change
 is exactly the one asked for — a drawn bass note of 0.362 beats became the 0.134
 beats it was drawn as.
+
+## Every dial says what you will hear; the editor names its engine (v0.0.172)
+
+Module ownership: **the registry** (`hint` column, `param-registry.js`), read by
+both editors in `index.astro`; gated by `tests/registry-contract.mjs` (every row
+carries one; the page holds no hint literal of its own) and `tests/page-boot.mjs`
+(every dial in every built-in editor carries its row's hint as its accessible
+description; the header chip's class is the one the voice table declares).
+
+The decisions this serves are in `docs/synthesis-programme.md`. Two rules of it
+are now contract:
+
+- **A registry row carries `hint`**: one or two plain sentences, present tense,
+  saying what changes when the dial is turned. A row without one fails the
+  contract, so a dial with no words cannot ship. The sculpt and call hints the
+  v19 spec tables carried on the page moved into their rows word for word.
+- **`engineType` has six classes**: `subtractive`, `fm`, `additive`, `noise`,
+  `physical`, `hybrid`. `additive` is new — Organ stab moved there from
+  `physical`, because drawbars are the one engine a listener reads at a glance
+  and the chip would otherwise teach the wrong word. The page's `ENGINE_WORDS`
+  gives each class its chip label (physical shows as **Modal**) and one
+  sentence, rendered under every editor's header. The picker's "Custom (…)"
+  label uses the same word.
+
+The engine sections the programme adds (FM, Additive, Modal) will each land as
+registry rows with hints and as a section a voice shows only when its defaults
+carry the group — the disclosure rule the Spectral, Motion and Burst rows
+already follow.

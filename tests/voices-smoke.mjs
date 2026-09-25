@@ -2055,6 +2055,8 @@ test('v19: the new voices are noise and hybrid, and the mix defaults are unobtru
   // v0.0.88 (his ruling) deleted the breath: one engine, formant-filtered.
   assert.equal(VOICES.melody.call.engineType, 'subtractive');
   assert.equal(VOICES.texture.call.engineType, 'subtractive');
+  // v0.0.172: drawbars are additive, and the chip says so.
+  assert.equal(VOICES.melody.stab.engineType, 'additive');
   // Unobtrusive means: at its own defaults, a new voice reaches the bus no
   // harder than the LOUDEST voice already on its track, so a listener trying
   // one out never gets a jump in the mix for their trouble.
@@ -2446,9 +2448,11 @@ test('v19: every new voice survives both ends of every new dial at once', () => 
 // v18 — engineType: the synthesis class the selector shows as "custom [engine]"
 // --------------------------------------------------------------------------
 
-const ENGINE_CLASSES = ['subtractive', 'fm', 'noise', 'physical', 'hybrid'];
+// v0.0.172: `additive` joined (docs/synthesis-programme.md § 2) — Organ stab
+// moved there from `physical`, and the page's ENGINE_WORDS chip names all six.
+const ENGINE_CLASSES = ['subtractive', 'fm', 'additive', 'noise', 'physical', 'hybrid'];
 
-test('v18: every voice declares an engineType from the contract\'s five classes', () => {
+test('v18: every voice declares an engineType from the contract\'s six classes', () => {
   let declared = 0;
   for (const [track, patches] of Object.entries(EXPECTED)) {
     for (const id of Object.keys(patches)) {

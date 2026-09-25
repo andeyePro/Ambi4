@@ -1131,6 +1131,38 @@ const VOICES: Record<string, [string, string][]> = {
       return `track-color-${name}`;
     }
 
+    // v0.0.172 (docs/synthesis-programme.md § 3): the six engine classes a
+    // voice can declare, each with the name the editor chip shows and one
+    // sentence of what that engine does — so the first time someone meets an
+    // FM section they have already been told what FM is. A class the voice
+    // table declares and this map lacks falls back to the capitalised id.
+    const ENGINE_WORDS = {
+      subtractive: {
+        label: 'Subtractive',
+        words: 'Oscillators make a bright wave and a filter takes away what you do not want; the envelope shapes how each note comes and goes.',
+      },
+      fm: {
+        label: 'FM',
+        words: 'One oscillator wobbles the pitch of another thousands of times a second, and the wobble adds partials: bells, tines and glassy tones from two sine waves.',
+      },
+      additive: {
+        label: 'Additive',
+        words: 'The sound is built up from partials, each a sine at its own level, the way an organ stacks drawbars.',
+      },
+      physical: {
+        label: 'Modal',
+        words: 'A model of a struck object: the overtones a real bar, tube or skin rings at, each dying away at its own rate.',
+      },
+      noise: {
+        label: 'Noise',
+        words: 'Noise is the source and the dials sculpt it: where its energy sits, how it moves, how it bursts.',
+      },
+      hybrid: {
+        label: 'Hybrid',
+        words: 'Two engines at once, each carrying a real share of the sound: a tone and its breath, or partials and an FM shimmer.',
+      },
+    };
+
     // Voice ids → display names, mirroring the frontmatter's <option> labels
     // (the page never imports engine-voices.js just for names).
     const VOICE_LABELS = {
@@ -9144,7 +9176,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return section;
       }
 
-      function veRange(parent, labelText, { min, max, step, value, log = false, format, onChange }) {
+      function veRange(parent, labelText, { min, max, step, value, log = false, format, onChange, hint = '' }) {
         const wrap = document.createElement('div');
         wrap.className = 'control ve-control';
         const id = `ve-control-${++veControlId}`;
@@ -9181,10 +9213,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
         wrap.append(row, input);
         parent.append(wrap);
+        describe(input, hint);
         return input;
       }
 
-      function veSelect(parent, labelText, { options, value, onChange }) {
+      function veSelect(parent, labelText, { options, value, onChange, hint = '' }) {
         const wrap = document.createElement('div');
         wrap.className = 'control ve-control';
         const id = `ve-control-${++veControlId}`;
@@ -9203,6 +9236,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         select.addEventListener('change', () => onChange(select.value));
         wrap.append(label, select);
         parent.append(wrap);
+        describe(select, hint);
         return select;
       }
 
@@ -9259,6 +9293,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       };
       const perBarFormat = (v) => `${plainFormat(v)}/bar`;
 
+      // v0.0.172: the hint each of these dials shows moved to its registry
+      // row (param-registry.js), where every other dial's words now live —
+      // one source for a dial's domain and its description.
       const SCULPT_GROUPS = [
         ['Spectral', [
           {
@@ -9267,14 +9304,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             marks: [-1, 0, 1],
             fallback: 0,
             format: (v) => (v <= -0.995 ? 'Brown' : v >= 0.995 ? 'White' : plainFormat(v)),
-            hint: 'The colour of the noise bed: brown and rumbling at the left, flat white at the right.',
           },
           {
             field: 'bandCentre',
             label: 'Band',
             fallback: 800,
             format: hzFormat,
-            hint: 'Where the resonant band sits — the pitch you hear in the bed. Low is a rumble, high is a hiss.',
           },
           {
             field: 'bandWidth',
@@ -9282,7 +9317,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             step: 0.05,
             fallback: 2,
             format: octaveSpanFormat,
-            hint: 'How wide that band is, in octaves. Narrow whistles at one pitch; wide is closer to open weather.',
           },
         ]],
         ['Motion', [
@@ -9292,7 +9326,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             step: 0.005,
             fallback: 0.05,
             format: rateHzFormat,
-            hint: 'How fast the band sweeps up and down. Off at the left; a slow breath a little way in.',
           },
           {
             field: 'sweepDepth',
@@ -9300,7 +9333,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             fallback: 0.15,
             format: pctFormat,
             parse: pctParse,
-            hint: 'How far that sweep travels. At zero the band holds still whatever the sweep rate says.',
           },
           {
             field: 'gust',
@@ -9308,7 +9340,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             fallback: 0.2,
             format: pctFormat,
             parse: pctParse,
-            hint: 'A slow random walk on level and brightness — the wind picking up and dying back.',
           },
           {
             field: 'gustRate',
@@ -9316,7 +9347,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             step: 0.005,
             fallback: 0.08,
             format: rateHzFormat,
-            hint: 'How quickly those gusts come and go.',
           },
           {
             field: 'swell',
@@ -9324,7 +9354,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             fallback: 0,
             format: pctFormat,
             parse: pctParse,
-            hint: 'Stretches the attack into a crescendo — small is a gentle rise, full is storm-scale.',
           },
         ]],
         ['Bursts', [
@@ -9334,7 +9363,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             fallback: 0.2,
             format: pctFormat,
             parse: pctParse,
-            hint: 'How many grains land per second: droplets at the bottom, a downpour at the top.',
           },
           {
             field: 'burstSharp',
@@ -9342,7 +9370,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             fallback: 0.5,
             format: pctFormat,
             parse: pctParse,
-            hint: 'The character of each grain — soft damp drops at the left, dry bright crackle at the right.',
           },
         ]],
       ];
@@ -9356,7 +9383,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             marks: [-24, -12, 0, 12, 24],
             fallback: 0,
             format: semitoneFormat,
-            hint: 'How far each call slides in pitch, in semitones. Negative falls, positive rises.',
           },
           {
             field: 'glideCurve',
@@ -9364,7 +9390,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             fallback: 0.5,
             format: pctFormat,
             parse: pctParse,
-            hint: 'The shape of that slide: even at the left, snapping to the target end at the right.',
           },
         ]],
         ['Formants', [
@@ -9373,14 +9398,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             label: 'Formant 1',
             fallback: 900,
             format: hzFormat,
-            hint: 'The lower of the two resonances that give the call its vowel — its body.',
           },
           {
             field: 'formant2',
             label: 'Formant 2',
             fallback: 2200,
             format: hzFormat,
-            hint: 'The upper resonance. Far above the first reads as a whistle; close to it, as a hoot.',
           },
         ]],
         ['Phrasing', [
@@ -9390,7 +9413,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             step: 0.1,
             fallback: 2,
             format: perBarFormat,
-            hint: 'Calls per bar — a single long note at the left, chattering at the right.',
           },
           {
             field: 'irregular',
@@ -9398,7 +9420,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             fallback: 0.25,
             format: pctFormat,
             parse: pctParse,
-            hint: 'How unevenly those calls are spaced. Zero is metronomic; higher sounds like a living thing.',
           },
         ]],
       ];
@@ -9413,8 +9434,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        */
       /**
        * Phase 2a of the routing programme (v0.0.166): the spec tables above
-       * keep only what is genuinely per-dial — label, format, hint, marks,
-       * step, fallback. Each dial's min/max and log-ness come from the
+       * keep only what is genuinely per-dial — label, format, marks, step,
+       * fallback (the hint joined the registry row in v0.0.172). Each dial's min/max and log-ness come from the
        * REGISTRY row for patch.source.<field>, the same table the engine's
        * sanitiser is built from, so a domain exists in exactly one place.
        * A row the registry lacked would leave that spec without a domain —
@@ -9509,6 +9530,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return row && row.kind === 'number' ? row.domain : [lo, hi];
       }
 
+      /**
+       * v0.0.172: what you will hear when you turn this dial, from the same
+       * registry row its domain comes from (docs/synthesis-programme.md § 3).
+       * Both editors call this for every dial, so no dial is a bare label;
+       * an engine bundle without a registry, or a row without words, gives
+       * '' and describe() then attaches nothing.
+       */
+      function registryHint(path) {
+        const table = engineModule && engineModule.PARAM_REGISTRY;
+        const row = table ? table[`patch.${path}`] : null;
+        return row && typeof row.hint === 'string' ? row.hint : '';
+      }
+
       // Fallback editor: the pre-v5 slider/select controls — the path when
       // knob.js is missing or its API throws. Writes the same
       // shape-normalised patch the knob editor writes.
@@ -9527,6 +9561,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const source = controlsSectionVisible(sourceSpec) ? veSection(container, 'Source') : null;
         if (source && controlsFieldAllowed(sourceSpec, 'shape1')) {
           veSelect(source, 'Osc 1', {
+            hint: registryHint('source.shape1'),
             options: OSC_TYPES,
             value: SHAPE_NAMES[Math.round(readShape(patch.source, 1) ?? 0)],
             onChange: (v) => {
@@ -9543,6 +9578,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const initialShape2 = readShape(patch.source, 2);
           osc2Enabled = initialShape2 !== null;
           const osc2Control = veSelect(source, 'Osc 2', {
+            hint: registryHint('source.shape2'),
             options: [['none', 'None'], ...OSC_TYPES],
             value: initialShape2 === null ? 'none' : SHAPE_NAMES[Math.round(initialShape2)],
             onChange: (v) => {
@@ -9557,6 +9593,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (source && controlsFieldAllowed(sourceSpec, 'mix')) {
           const [sMixLo, sMixHi] = patchDomain('source.mix', 0, 1);
           const mixControl = veRange(source, 'Mix', {
+            hint: registryHint('source.mix'),
             min: sMixLo,
             max: sMixHi,
             step: 0.01,
@@ -9582,6 +9619,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // follows the OSC 2 select; on a stack it stays Spread.
           const pairGap = detuneMode === 'pair';
           const detuneControl = veRange(source, pairGap ? 'Detune' : 'Spread', {
+            hint: registryHint('source.detune'),
             min: detuneMin,
             max: DETUNE_MAX,
             step: 1,
@@ -9611,6 +9649,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         if (source && !pitchInPlaceOfOctave && controlsFieldAllowed(sourceSpec, 'octave')) {
           veSelect(source, 'Octave', {
+            hint: registryHint('source.octave'),
             options: [
               ['-1', '-1'],
               ['0', '0'],
@@ -9626,6 +9665,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (source && pitchInPlaceOfOctave && sourceEditable('pitch')) {
           const [sPtLo, sPtHi] = patchDomain('source.pitch', -24, 24);
           veRange(source, 'Pitch', {
+            hint: registryHint('source.pitch'),
             min: sPtLo,
             max: sPtHi,
             step: 1,
@@ -9646,6 +9686,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (source && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
           const [sNzLo, sNzHi] = patchDomain('source.noise', 0, 1);
           veRange(source, 'Noise', {
+            hint: registryHint('source.noise'),
             min: sNzLo,
             max: sNzHi,
             step: 0.01,
@@ -9675,6 +9716,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         ) {
           const [sFdLo, sFdHi] = patchDomain('source.fold', 0, 1);
           veRange(source, 'Fold', {
+            hint: registryHint('source.fold'),
             min: sFdLo,
             max: sFdHi,
             step: 0.01,
@@ -9695,6 +9737,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const groupSection = veSection(container, heading);
           for (const spec of specs) {
             veRange(groupSection, spec.label, {
+              hint: registryHint(`source.${spec.field}`),
               min: spec.min,
               max: spec.max,
               step: spec.step || 0.01,
@@ -9712,6 +9755,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const filter = controlsSectionVisible(filterSpec) ? veSection(container, 'Filter') : null;
         if (filter && controlsFieldAllowed(filterSpec, 'type')) {
           veSelect(filter, 'Type', {
+            hint: registryHint('filter.type'),
             options: FILTER_TYPES,
             value: patch.filter.type,
             onChange: (v) => {
@@ -9723,6 +9767,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (filter && controlsFieldAllowed(filterSpec, 'cutoff')) {
           const [sCfLo, sCfHi] = patchDomain('filter.cutoff', 40, 12000);
           veRange(filter, 'Cutoff', {
+            hint: registryHint('filter.cutoff'),
             min: sCfLo,
             max: sCfHi,
             log: true,
@@ -9737,6 +9782,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (filter && controlsFieldAllowed(filterSpec, 'q')) {
           const [sQLo, sQHi] = patchDomain('filter.q', 0.1, 20);
           veRange(filter, 'Resonance', {
+            hint: registryHint('filter.q'),
             min: sQLo,
             max: sQHi,
             step: 0.1,
@@ -9750,6 +9796,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (filter && controlsFieldAllowed(filterSpec, 'envAmount')) {
           const [sEaLo, sEaHi] = patchDomain('filter.envAmount', 0, 1);
           veRange(filter, 'Env amount', {
+            hint: registryHint('filter.envAmount'),
             min: sEaLo,
             max: sEaHi,
             step: 0.01,
@@ -9765,6 +9812,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (adsr && controlsFieldAllowed(adsrSpec, 'attack')) {
           const [sAtLo, sAtHi] = patchDomain('adsr.attack', 0.001, 8);
           veRange(adsr, 'Attack', {
+            hint: registryHint('adsr.attack'),
             min: sAtLo,
             max: sAtHi,
             log: true,
@@ -9779,6 +9827,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (adsr && controlsFieldAllowed(adsrSpec, 'decay')) {
           const [sDcLo, sDcHi] = patchDomain('adsr.decay', 0.001, 8);
           veRange(adsr, 'Decay', {
+            hint: registryHint('adsr.decay'),
             min: sDcLo,
             max: sDcHi,
             log: true,
@@ -9793,6 +9842,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (adsr && controlsFieldAllowed(adsrSpec, 'sustain')) {
           const [sSuLo, sSuHi] = patchDomain('adsr.sustain', 0, 1);
           veRange(adsr, 'Sustain', {
+            hint: registryHint('adsr.sustain'),
             min: sSuLo,
             max: sSuHi,
             step: 0.01,
@@ -9806,6 +9856,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (adsr && controlsFieldAllowed(adsrSpec, 'release')) {
           const [sRlLo, sRlHi] = patchDomain('adsr.release', 0.01, 12);
           veRange(adsr, 'Release', {
+            hint: registryHint('adsr.release'),
             min: sRlLo,
             max: sRlHi,
             log: true,
@@ -9822,6 +9873,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (sends && controlsFieldAllowed(sendsSpec, 'reverb')) {
           const [sRvLo, sRvHi] = patchDomain('sends.reverb', 0, 1);
           veRange(sends, 'Reverb', {
+            hint: registryHint('sends.reverb'),
             min: sRvLo,
             max: sRvHi,
             step: 0.01,
@@ -9835,6 +9887,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (sends && controlsFieldAllowed(sendsSpec, 'delay')) {
           const [sDlLo, sDlHi] = patchDomain('sends.delay', 0, 1);
           veRange(sends, 'Delay', {
+            hint: registryHint('sends.delay'),
             min: sDlLo,
             max: sDlHi,
             step: 0.01,
@@ -9919,6 +9972,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ghostValue === null ? knobOptions : { ...knobOptions, ghostValue }
           );
           knobs.push(handle);
+          // v0.0.172: every dial says what you will hear, from its registry
+          // row — the same tooltip-and-description the sculpt dials have had
+          // since v19, now for the whole editor and from one source.
+          if (field) describe(handle.el, registryHint(field));
           if (ghostValue !== null) addGhost(cell, handle, field, knobOptions.format, ghostValue);
           return { cell, handle };
         }
@@ -10361,7 +10418,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                   onInput: write,
                   ...knobOpts,
                 });
-            describe(cell.handle.el, spec.hint);
+            void cell;
           }
         }
 
@@ -10715,8 +10772,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         sounding.hidden = true;
         const extrasBox = document.createElement('div');
         extrasBox.className = 'track-extras ve-extras';
-        header.append(headerTitle, sounding, extrasBox);
+        // v0.0.172 (docs/synthesis-programme.md § 3): the editor names the
+        // engine. A chip beside the track name says which synthesis class
+        // this voice is, and one sentence under the header says what that
+        // means — so the words are taught where the dials are, and a section
+        // that appears only on this engine's voices has already been
+        // introduced. The chip carries the class id in the DOM for the tests.
+        const engineId = voiceEntry && typeof voiceEntry.engineType === 'string'
+          ? voiceEntry.engineType.trim()
+          : '';
+        const engineWords = engineId
+          ? ENGINE_WORDS[engineId] || { label: engineId[0].toUpperCase() + engineId.slice(1), words: '' }
+          : null;
+        const engineChip = document.createElement('span');
+        engineChip.className = 've-engine';
+        if (engineWords) {
+          engineChip.dataset.engine = engineId;
+          engineChip.textContent = engineWords.label;
+          describe(engineChip, engineWords.words);
+        } else {
+          engineChip.hidden = true;
+        }
+        header.append(headerTitle, engineChip, sounding, extrasBox);
         container.append(header);
+        if (engineWords && engineWords.words) {
+          const words = document.createElement('p');
+          words.className = 'hint ve-engine-words';
+          words.textContent = engineWords.words;
+          container.append(words);
+        }
         buildStateControl(extrasBox, track);
         ed.extras = buildTrackExtras(extrasBox, track, { knobs: ed.knobs, withDice: true });
         ed.sounding = sounding;
@@ -12359,11 +12443,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return found || voiceId;
       }
 
-      /** A voice's synthesis class, when engine-voices exports one (v18). */
-      function voiceEngineType(track, voiceId) {
+      /** A voice's synthesis class id, when engine-voices exports one (v18). */
+      function voiceEngineId(track, voiceId) {
         const entry = voicesTable?.[voiceSetOf(track)]?.[voiceId];
         const type = entry && typeof entry.engineType === 'string' ? entry.engineType.trim() : '';
-        return type ? type[0].toUpperCase() + type.slice(1) : null;
+        return type || null;
+      }
+
+      /** That class's display name — the chip's word, so the picker and the editor agree. */
+      function voiceEngineType(track, voiceId) {
+        const type = voiceEngineId(track, voiceId);
+        if (!type) return null;
+        return ENGINE_WORDS[type] ? ENGINE_WORDS[type].label : type[0].toUpperCase() + type.slice(1);
       }
 
       /** Shape-normalised copy, so an osc1/shape1 spelling never reads as an edit. */
@@ -16895,7 +16986,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#voice-edit-toggle-texture',
-          text: 'Give Texture the Coloured noise or Grain cloud voice and its panel grows Spectral, Motion and Burst rows. Wind, rain and surf all live in there — you sculpt them with the dials rather than picking a sample. The Call voice does the same for birdsong: a pitch sweep, two formants and a cadence.',
+          text: 'Give Texture the Coloured noise or Grain cloud voice and its panel grows Spectral, Motion and Burst rows. Wind, rain and surf all live in there — you sculpt them with the dials rather than picking a sample. The Call voice does the same for birdsong: a pitch sweep, two formants and a cadence. Hover any dial to read what you will hear, and the chip by the track name says which kind of synthesis makes the sound.',
         },
         {
           tab: 'advanced',
@@ -19474,6 +19565,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .ve-extras {
       flex: 1 1 auto;
       justify-content: flex-end;
+    }
+
+    /* v0.0.172: the engine chip beside the track name, and its sentence. */
+    .ve-engine {
+      font-size: 11px;
+      line-height: 1;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 4px 7px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .ve-engine-words {
+      margin: -6px 0 12px;
     }
 
     /* -- v6: per-track randomisation-target mini knobs -- */

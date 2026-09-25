@@ -1159,6 +1159,69 @@ try {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // v0.0.172 — every dial says what you will hear, and the editor names its
+  // engine (docs/synthesis-programme.md § 3). Checked on EVERY built-in
+  // track's editor, against the registry row each dial says it edits
+  // (data-field, the v0.0.171 seam): the hint must reach the dial's
+  // ACCESSIBLE description, not just a hover title — keyboard and screen-
+  // reader users get the same words. And the chip's class must be the one
+  // the voice table declares for the sounding voice, not a page-side guess.
+  // --------------------------------------------------------------------------
+  {
+    const registry = engineModule.PARAM_REGISTRY || {};
+    const voicesModule = await import(
+      pathToFileURL(join(repoRoot, 'src/scripts/engine-voices.js')).href
+    );
+    const VOICE_TABLE = voicesModule.VOICES || {};
+    let dialsChecked = 0;
+    for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+      const editor = await openEditor(track);
+      await waitUntil(() => editor.querySelectorAll('.patch-controls .knob-cell[data-field]').length > 0);
+      const cells = editor.querySelectorAll('.patch-controls .knob-cell[data-field]');
+      if (!cells.length) {
+        failures.push(`${track}: the editor rendered no dial that names its field — nothing to describe`);
+        continue;
+      }
+      for (const cell of cells) {
+        const field = cell.dataset.field;
+        const row = registry[`patch.${field}`];
+        if (!row) continue; // v0.0.171: a field with no row does not render — its own gate holds that
+        const knob = cell.querySelector('.knob');
+        const descId = knob && knob.getAttribute('aria-describedby');
+        const desc = descId ? doc.getElementById(descId) : null;
+        if (!desc || desc.textContent !== row.hint) {
+          failures.push(
+            `${track}: the ${field} dial's accessible description is ` +
+              `${desc ? JSON.stringify(desc.textContent) : 'missing'}, not its registry hint`
+          );
+        }
+        dialsChecked += 1;
+      }
+      const chip = editor.querySelector('.ve-header .ve-engine');
+      const select = doc.getElementById(`track-voice-${track}`);
+      const voiceSet = track;
+      const chosen = select && VOICE_TABLE[voiceSet] && VOICE_TABLE[voiceSet][select.value]
+        ? select.value
+        : null;
+      if (!chip || chip.hidden) {
+        failures.push(`${track}: the editor header has no engine chip`);
+      } else if (chosen && chip.dataset.engine !== VOICE_TABLE[voiceSet][chosen].engineType) {
+        failures.push(
+          `${track}: the chip says ${JSON.stringify(chip.dataset.engine)} but the voice table says ` +
+            `${chosen} is ${JSON.stringify(VOICE_TABLE[voiceSet][chosen].engineType)}`
+        );
+      }
+      const words = editor.querySelector('.ve-engine-words');
+      if (!words || !words.textContent.trim()) {
+        failures.push(`${track}: the editor has no sentence saying what its engine does`);
+      }
+    }
+    if (dialsChecked < 40) {
+      failures.push(`only ${dialsChecked} dials were checked for a hint across six editors — the seam has moved`);
+    }
+  }
+
   if (scopeModule && !scopeModule.hidden) {
     const activeTracks = doc.querySelectorAll('.track-row:not([data-track-state="off"])').length;
     const frontCanvas = doc.getElementById('front-scope');

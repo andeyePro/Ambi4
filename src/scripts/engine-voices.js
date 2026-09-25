@@ -1984,11 +1984,14 @@ Object.freeze(CONTROLS);
 
 /**
  * The synthesis class each voice actually belongs to (v18), for the selector's
- * "custom [engine]" display. Five classes, and the honest one wins even when a
- * neighbour on the same track reads differently:
+ * "custom [engine]" display and, since v0.0.172, the chip at the top of every
+ * voice editor (docs/synthesis-programme.md § 2 rules on the classes). Six
+ * classes, and the honest one wins even when a neighbour on the same track
+ * reads differently:
  *
  *   subtractive  oscillators through a filter that shapes them
  *   fm           a carrier whose frequency a modulator drives
+ *   additive     partials summed at their own levels — drawbars
  *   noise        noise is the source; anything pitched is a garnish on it
  *   physical     a model of a struck object: a bending skin, or a modal stack
  *                of an instrument's real overtone ratios
@@ -2063,9 +2066,11 @@ const ENGINE_TYPES = {
     // own slow LFO: a filter shaping oscillators, wobble and all.
     tape: 'subtractive',
     // Six drawbar partials at the tonewheel ratios, struck by a key click —
-    // an additive model of a real machine, which is where the modal voices
-    // (chimes, marimba) already live.
-    stab: 'physical',
+    // an additive model of a real machine. Classed `physical` until v0.0.172,
+    // beside the modal voices; the synthesis programme gave additive its own
+    // class because drawbars are the one engine a listener can read at a
+    // glance, and the editor chip would otherwise teach the wrong word.
+    stab: 'additive',
   },
   texture: {
     // Two or three sine carriers, each with a ratio-7.1 modulator.

@@ -273,6 +273,48 @@ test('the page offers exactly the oscillator and filter types the engine accepts
   }
 });
 
+// --------------------------------------------------------------------------
+// v0.0.172 — every dial says what you will hear (docs/synthesis-programme.md
+// § 3). The hint is a column of the row, so a dial's domain and its words
+// have one source; a row without words would render a bare label, which the
+// programme forbids. The bounds are copy discipline: long enough to say what
+// changes, short enough to read as a tooltip, plain text, and a sentence.
+// --------------------------------------------------------------------------
+
+test('every registry row carries a hint that reads as one plain sentence', () => {
+  for (const [path, row] of Object.entries(PARAM_REGISTRY)) {
+    assert.equal(typeof row.hint, 'string', `${path}: hint is not a string`);
+    const hint = row.hint.trim();
+    assert.ok(hint.length >= 20 && hint.length <= 180,
+      `${path}: hint is ${hint.length} characters (20–180 reads as a tooltip): ${JSON.stringify(hint)}`);
+    assert.ok(/[.!?]$/.test(hint), `${path}: hint does not end as a sentence: ${JSON.stringify(hint)}`);
+    assert.ok(!/[<>`]/.test(hint), `${path}: hint carries markup: ${JSON.stringify(hint)}`);
+    assert.ok(!/\b(Claude|Anthropic|Ableton|Moog|Roland|Yamaha)\b/.test(hint),
+      `${path}: hint names a brand: ${JSON.stringify(hint)}`);
+    assert.ok(!/\b(color|synthesizer|analyze|favorite)\b/i.test(hint),
+      `${path}: hint is not UK-spelled: ${JSON.stringify(hint)}`);
+  }
+});
+
+test('the page reads every dial\'s hint from the registry, not from a literal of its own', () => {
+  const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8');
+  // The v19 sculpt and call tables were the one place a dial's words lived on
+  // the page; the words moved into the rows. A `hint:` literal back in either
+  // table is a second source that can drift from the first.
+  const start = page.indexOf('const SCULPT_GROUPS = [');
+  const end = page.indexOf('function overlayRegistryDomains(');
+  assert.ok(start > 0 && end > start, 'the sculpt/call spec tables are not where this gate expects them');
+  assert.ok(!/\n\s+hint: '/.test(page.slice(start, end)),
+    'a sculpt or call spec carries its own hint literal — the registry row is the one source');
+  // And both editors ask the registry: the knob editor once per dial, the
+  // slider editor once per control.
+  assert.ok(/if \(field\) describe\(handle\.el, registryHint\(field\)\);/.test(page),
+    'buildKnobEditor no longer describes every dial from its registry row');
+  const sliderCalls = (page.match(/hint: registryHint\(/g) || []).length;
+  assert.ok(sliderCalls >= 19,
+    `the slider editor passes registryHint on ${sliderCalls} controls; every one of its 19 must`);
+});
+
 let failures = 0;
 for (const [name, fn] of tests) {
   try {

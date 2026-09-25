@@ -443,6 +443,29 @@ so it waits.
 - [x] *(SHIPPED v0.0.73)* Make the differences between sections visible and editable per track — always plays / never plays / app decides, per block per instrument. Left open here by mistake; recorded in the fourth-round section above
 - [x] *(SHIPPED v0.0.57)* Label the Custom builder's controls — both now carry a visible name ("bars", "intensity") and the intensity slider a live percentage. They had an `aria-label` and nothing a sighted user could read, which is exactly why the unlabelled range control read as a second BPM slider
 
+## Backlog — synthesis and authoring programme *(decided 2026-09-25; docs/synthesis-programme.md is the ruling and the sequence)*
+
+The brief: everything the author could do in code when writing the stock genres and their voices, a human can do in the UI; the synthesis methods are decided (Subtractive, FM, Additive, Modal, Noise; sample-based and wavetable declined, plucked string and PWM deferred to a worklet); and the app teaches synthesis where the dials are. Unit 1 shipped v0.0.172. Each unit below is one commit, docs in the same commit, red on the old code first.
+
+- [x] *(SHIPPED v0.0.172)* **Unit 1 — the decision document; every dial says what you will hear; the editor names its engine.** `hint` is a registry column read by both editors; the chip and its sentence sit in every editor header; Organ stab reclassified additive.
+- [ ] **[BLOCKED — fromClaude 13] The browser gate on v0.0.172 (and the sweep owed since v0.0.171).** The Mac test account refuses `.vibe/id_ed25519_ambi4shot` (connection established, publickey denied), so `tests/sweep-drives.sh` and both `measure.sh overlaps` runs (desktop and 390×844 with an editor open — the new engine chip and sentence sit in the header) could not run. Run all three the moment the key is restored; nothing reaches main before they are green.
+- [ ] **Unit 2 — the four parked engine faults** in `tests/pending/engine-fixes-v0.0.171.mjs.txt`: `quantiseCapture`'s blank lane first (user-visible: a take finer than a sixteenth leaves half the old pattern sounding), then `forgetTrack`/`sectionVoice`, the partial `lfo1` patch losing `bars`, unnormalised metre strings. Each is already red; paste back, fix, add a recording drive for the first.
+- [ ] **Unit 3 — "what makes this sound".** A pure describer over (engine, patch) in `src/scripts/patch-words.js`, one line under every editor's dials, updating as dials move; a Node suite proves every stock voice yields a sentence whose numbers equal the patch; page-boot proves the line changes after a commit.
+- [ ] **Unit 4 — FM section.** Rows `patch.fm.ratio`, `.depth` (a multiplier over the voice's velocity-scaled index, default 1), `.bite`; `fm()` reads the patch; bell, keys, tines, sparkle, crystal literals become defaults. Proof: voices-smoke graph snapshot unchanged at defaults; a render suite where depth raises the centroid and ratio moves the first sideband; frozen reference green without `--update`.
+- [ ] **Unit 5 — Additive section.** `patch.additive.p1..p8` as multipliers over the voice's partial table, `.stretch` as an offset; glass and stab read them. FFT partial amplitudes track the levels.
+- [ ] **Unit 6 — Modal section.** `patch.modal.material` (enum of overtone tables), `.hardness`, `.damping` (multiplier); chimes, marimba, the membrane kits read them. T60 scales with damping; ratios match the table.
+- [ ] **Unit 7 — Ring/AM as a Source option; Vowel as a filter type.**
+- [ ] **Unit 8 — "New voice" from a template** (Subtractive, FM, Additive, Modal, Noise, each backed by a stock voice), named, per device through prefs, in the picker, compiled through the contract's instrument manifest. Manifest sanitiser cases from the contract; a drive that makes one, reloads through about:blank, finds it.
+- [ ] **Unit 9 — a user voice travels in a link** as a manifest (schema stamp, size cap; a link carrying code is refused).
+- [ ] **Unit 10 — Rules panel, essence I:** bpm and swing as spread dials, time signatures, modes, harmonic rhythm. genre-rules-drive asserts the compiled values the engine stores.
+- [ ] **Unit 11 — Rules panel, essence II:** energy arc, extension bias, dissonance, density, per-track instrumentation and the current patches captured into the genre.
+- [ ] **Unit 12 — "Save as my genre":** named, per device, in the picker, favourites-aware; a drive saves, reloads, picks it, same seed → same setup.
+- [ ] **Unit 13 — a user genre travels in a link** as a diff against its origin (schema stamp, size assertion).
+- [ ] **Unit 14 — defiance dial authoring** (param, label, range). Waits on fromClaude 11/12 only if the dial needs a routing address; check first.
+- [ ] **Unit 15 — engine lesson chapters** (five), opened from the editor chip, held by tutorial-smoke; a drive proves every "turn this" step moves the stored value. After units 4–6.
+- [ ] **Unit 16 — the sound-in-mind finder**, every row proven by measurement (centroid, attack-to-peak, RMS at 1 s, RMS modulation); one row broken on purpose to prove the suite bites. After units 4–6.
+- [ ] **Later — saturation on track and master; plucked string, PWM and hard sync on an AudioWorklet.**
+
 ## Backlog — modulation graph *(was v0.0.40; regrouped 2026-07-29, owner item 87)*
 
 - [ ] **Modulation graph** — serialisable `{source, destination}` edges, no depth field since spread is depth. Sources are per-voice envelopes, global LFOs and macros, and any parameter patched out. One slot per destination, so patching replaces the internal randomiser. Patch in/out sockets, ENV/LFO/MACRO panels
