@@ -2129,3 +2129,18 @@ The engine sections the programme adds (FM, Additive, Modal) will each land as
 registry rows with hints and as a section a voice shows only when its defaults
 carry the group — the disclosure rule the Spectral, Motion and Burst rows
 already follow.
+
+## What makes this sound (v0.0.173)
+
+Module ownership: **`src/scripts/patch-words.js`** (pure; `describePatch`,
+`printableNumbers`, `fmt`), wired by `index.astro`'s voice editor as the
+`.ve-words` line under `.patch-controls`, rewritten from the live patch on
+every store; gated by `tests/patch-words-smoke.mjs` and `tests/page-boot.mjs`.
+
+Contract: `describePatch({ engineType, patch, controls, detuneMode })` returns
+one to four short sentences or `''`. Every number it prints is a value of the
+patch, formatted by the unit's editor formatter (`fmt.hz`, `fmt.sec`, `fmt.pct`,
+`fmt.cents`, `fmt.semitones`, `fmt.octaves`, `fmt.plain`, `fmt.perBar`); a
+spread prints as `lo–hi` with the unit once. Fields the voice's `controls` hide
+are not described. The engine class opens the sentence. A unit that adds an
+engine section (FM, Additive, Modal) extends the describer in the same commit.

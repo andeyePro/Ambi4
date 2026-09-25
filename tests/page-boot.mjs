@@ -1220,6 +1220,41 @@ try {
     if (dialsChecked < 40) {
       failures.push(`only ${dialsChecked} dials were checked for a hint across six editors — the seam has moved`);
     }
+
+    // v0.0.174 — "what makes this sound": the words line under the dials is
+    // exactly what the pure module says for the sounding voice's patch, so the
+    // page's wiring (voice, controls, detune mode, the live patch object) is
+    // proven against the module the smoke test holds to its number law.
+    const wordsModule = await import(
+      pathToFileURL(join(repoRoot, 'src/scripts/patch-words.js')).href
+    );
+    for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+      const editor = await openEditor(track);
+      const line = editor.querySelector('.ve-words');
+      const select = doc.getElementById(`track-voice-${track}`);
+      const voice = select && VOICE_TABLE[track] && VOICE_TABLE[track][select.value]
+        ? VOICE_TABLE[track][select.value]
+        : null;
+      if (!line || line.hidden || !line.textContent.trim()) {
+        failures.push(`${track}: the editor has no "what makes this sound" line`);
+        continue;
+      }
+      if (!voice) continue;
+      // A fresh boot stores no patch, so the page describes the voice's own
+      // defaults; an edited patch is the smoke test's business.
+      const want = wordsModule.describePatch({
+        engineType: voice.engineType,
+        patch: voice.defaults,
+        controls: voice.controls,
+        detuneMode: voice.detuneMode || null,
+      });
+      // The page describes the RESOLVED patch (defaults merged over the
+      // fallback patch and shape-normalised), which prints the same words as
+      // the voice's own defaults for a stock voice — every number is the same.
+      if (line.textContent !== want) {
+        failures.push(`${track}: the words line says ${JSON.stringify(line.textContent)} but the module says ${JSON.stringify(want)}`);
+      }
+    }
   }
 
   if (scopeModule && !scopeModule.hidden) {

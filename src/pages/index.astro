@@ -4254,6 +4254,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const m = await import('../scripts/scope.js');
         if (m && typeof m.renderPatchWave === 'function') scopeApi = m;
       } catch {}
+      // v0.0.173 (docs/synthesis-programme.md § 4): "what makes this sound",
+      // the patch in words under every editor's dials. Pure module; absent or
+      // broken, the editor simply has no words line.
+      let wordsApi = null;
+      try {
+        const m = await import('../scripts/patch-words.js');
+        if (m && typeof m.describePatch === 'function') wordsApi = m;
+      } catch {}
 
       // Representative pitch for the static scope trace, per track register.
       const SCOPE_FREQ = { pad: 220, bass: 55, melody: 330, texture: 440, arp: 330, percussion: 220 };
@@ -10744,6 +10752,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           persistSettings();
           // The row's selector reads "Custom (…)" from this comparison.
           refreshVoiceSelect(track);
+          renderWords();
         }
 
         function commit() {
@@ -10926,6 +10935,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         patchBox.className = 'patch-controls';
         container.append(patchBox);
         let patchKnobs = [];
+        // v0.0.173: the patch in words, under the dials, from the SAME object
+        // the dials edit — so the words and the readouts cannot disagree. It
+        // is rewritten on every store (a dial moved, a kit tab's override,
+        // follow), and speaks of the Common patch on a kit whatever tab is
+        // open, because the sound a listener hears is the whole kit's.
+        const wordsLine = document.createElement('p');
+        wordsLine.className = 'hint ve-words';
+        wordsLine.hidden = !wordsApi;
+        container.append(wordsLine);
+        function renderWords() {
+          if (!wordsApi) return;
+          try {
+            wordsLine.textContent = wordsApi.describePatch({
+              engineType: voiceEntry && typeof voiceEntry.engineType === 'string' ? voiceEntry.engineType : '',
+              patch,
+              controls,
+              detuneMode: voiceEntry && voiceEntry.detuneMode ? voiceEntry.detuneMode : null,
+            });
+          } catch {
+            wordsLine.textContent = '';
+          }
+          wordsLine.hidden = !wordsLine.textContent;
+        }
+        renderWords();
 
         function buildPatchControls() {
           for (const knob of patchKnobs) {
