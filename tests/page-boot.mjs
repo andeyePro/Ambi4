@@ -1731,6 +1731,51 @@ try {
             const padOff = await waitUntil(() => engine.getParams().tracks && engine.getParams().tracks.pad && engine.getParams().tracks.pad.state === 'off');
             if (!padOff) failures.push(`ruling the pad Off in the line-up left the engine at ${JSON.stringify(engine.getParams().tracks && engine.getParams().tracks.pad && engine.getParams().tracks.pad.state)}`);
           }
+          // v0.0.180 (unit 12): Save as my genre. The rules above (pad Off, tempo
+          // 200) become a genre of the person's own: it appears under My genres,
+          // is the current genre at the engine, and NEXT draws a fresh piece
+          // from it with the pad still Off — the proof the rule lives in the
+          // genre, not in the setup. Forget returns to the genre it came from.
+          const nameInput = doc.getElementById('genre-rules-name');
+          const saveButton = doc.getElementById('genre-rules-save');
+          if (!nameInput || !saveButton) {
+            failures.push('the rules panel has no name box and Save as my genre button');
+          } else {
+            saveButton.click();
+            const errorEl = doc.getElementById('genre-rules-error');
+            if (!errorEl || errorEl.hidden) failures.push('Save with no name did not ask for one');
+            nameInput.value = 'Night pads';
+            saveButton.click();
+            const mineGroup = () => Array.from(doc.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'My genres');
+            const saved = await waitUntil(() => !!mineGroup() && mineGroup().querySelectorAll('option').length === 1);
+            if (!saved) {
+              failures.push('Save as my genre did not add a My genres entry to the picker');
+            } else {
+              const option = mineGroup().querySelector('option');
+              const slug = option.value.slice(2);
+              if (option.textContent !== 'Night pads') failures.push(`the saved genre is listed as ${JSON.stringify(option.textContent)}`);
+              if (genreSelect.value !== option.value) failures.push(`the picker did not move to the saved genre (reads ${genreSelect.value})`);
+              if (engine.getParams().genre !== slug) failures.push(`the engine's genre tag is ${JSON.stringify(engine.getParams().genre)}, not the saved genre`);
+              if (engine.getParams().bpm !== 200) failures.push('saving must not change what is playing');
+              if (toggle.textContent !== 'Rules') failures.push(`the rules are baked into the saved genre, yet the button says ${JSON.stringify(toggle.textContent)}`);
+              const forget = doc.getElementById('genre-rules-forget');
+              if (!forget || forget.hidden) failures.push('Forget this genre is hidden on a genre of the person\'s own');
+              // Next: a fresh draw from the saved genre keeps the ruled pad Off and the tempo 200.
+              const seedBefore = engine.getParams().harmony && JSON.stringify(engine.getParams().harmony.seed);
+              doc.getElementById('fast-forward').click();
+              const redrawn = await waitUntil(() => engine.getParams().genre === slug && JSON.stringify(engine.getParams().harmony && engine.getParams().harmony.seed) !== seedBefore);
+              if (!redrawn) failures.push('Next did not draw a fresh piece from the saved genre');
+              const pad = engine.getParams().tracks && engine.getParams().tracks.pad;
+              if (!pad || pad.state !== 'off') failures.push(`a fresh draw from the saved genre has the pad ${JSON.stringify(pad && pad.state)}, not Off — the rule did not live in the genre`);
+              if (engine.getParams().bpm !== 200) failures.push(`a fresh draw from the saved genre is at ${engine.getParams().bpm} bpm, not the ruled 200`);
+              if (forget) {
+                forget.click();
+                const gone = await waitUntil(() => !mineGroup() && genreSelect.value === 'g:synthwave');
+                if (!gone) failures.push(`Forget did not remove the genre and return the picker to Synthwave (reads ${genreSelect.value})`);
+                if (engine.getParams().genre !== 'synthwave') failures.push('Forget did not tag the setup with the genre it was made from');
+              }
+            }
+          }
           // Back to the genre's rules: the same seed redraws the genre's own tempo.
           doc.getElementById('genre-rules-reset').click();
           const restored = await waitUntil(() => engine.getParams().bpm !== 200);

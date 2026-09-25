@@ -2204,3 +2204,22 @@ voice's default material is the literal it always rang with; `glass` and
 `bell` are the two struck objects those did not cover. Hardness (0–2) and
 damping (0.25–4, log) default to 1. The membrane kits do not publish the
 section (docs/synthesis-programme.md § 5, unit 6, says why).
+
+## A genre of the person's own (v0.0.180)
+
+Module ownership: **the page** (`USER_GENRES`, `genreBySlug`, `saveAsMyGenre`,
+`forgetMyGenre`, the Rules panel's save row), storage under prefs `'genres'`
+(consent-gated, capped at 50); gated by `tests/page-boot.mjs` (save, the My
+genres group, the engine's tag, a fresh draw keeping the ruled pad Off and the
+ruled tempo, forget) and, parked, `tests/pending/user-genre-drive.mjs` (the
+reload).
+
+Contract: a user genre is a genre JSON of exactly the stock files' shape — the
+compiler cannot tell them apart — with `slug` starting `u-` (a prefix no stock
+file may use), `name`, `madeFrom` (the stock slug it grew from), `cluster`
+copied so it has a mood, and the current patches captured into
+`essence.instrumentation.patches`. Saving bakes the panel's overrides in and
+clears `settings.genreRules`; the setup playing is a draw of the new genre and
+does not change. A share link naming a user genre is NOT rebuildable on another
+device until unit 13 carries the genre as data; the share base falls back to
+the whole setup exactly as it does for a hidden genre, so the link still plays.

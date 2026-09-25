@@ -569,6 +569,14 @@ const VOICES: Record<string, [string, string][]> = {
           <div id="genre-rules-anchors-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-anchors-label"></div>
           <span class="genre-rules-label" id="genre-rules-cells-label">Syncopation cells — short figures the bass leans on</span>
           <div id="genre-rules-cells-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-cells-label"></div>
+          <!-- v0.0.180 (unit 12): keep these rules, and the sound built with
+               them, as a genre of your own — one that draws new pieces. -->
+          <div class="genre-fav-actions rules-save-row">
+            <input type="text" id="genre-rules-name" class="rules-name" maxlength="40" placeholder="Name this genre" aria-label="A name for your genre" />
+            <button type="button" id="genre-rules-save" class="secondary-button">Save as my genre</button>
+            <button type="button" id="genre-rules-forget" class="secondary-button" hidden>Forget this genre</button>
+          </div>
+          <p class="hint">Save as my genre keeps every rule above, plus the voices and dials you have set, as a genre of your own: it appears in the picker under My genres, and Next draws fresh pieces from it. It stays on this device.</p>
           <p id="genre-rules-error" class="hint genre-rules-error" role="alert" hidden></p>
           <div class="genre-fav-actions">
             <button type="button" id="genre-rules-apply" class="secondary-button">Apply</button>
@@ -1485,6 +1493,40 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     );
 
     const PUBLIC_GENRES = GENRES.filter((genre) => !HIDDEN_GENRES.has(genre.slug));
+
+    /**
+     * v0.0.180 (unit 12 of docs/synthesis-programme.md): a person's OWN
+     * genres — the rules they re-ruled in the panel plus the sound they built,
+     * kept as a genre that draws new pieces, per device, in the picker under
+     * "My genres". Each is a genre JSON exactly like the stock files (the
+     * compiler cannot tell them apart), with a slug the stock set can never
+     * use, the genre it was made from, and the current patches captured into
+     * its instrumentation. Stored under prefs 'genres', consent-gated like
+     * everything else. NOT yet carried by a share link — a link naming one
+     * falls back to the whole setup, exactly as a hidden genre does — until
+     * unit 13 carries the genre itself as data.
+     */
+    const USER_GENRE_PREFIX = 'u-';
+    const USER_GENRE_CAP = 50;
+    let USER_GENRES = [];
+    const isUserGenreSlug = (slug) => typeof slug === 'string' && slug.startsWith(USER_GENRE_PREFIX);
+    function genreBySlug(slug) {
+      return GENRE_BY_SLUG.get(slug) || USER_GENRES.find((genre) => genre.slug === slug) || null;
+    }
+    const hasGenre = (slug) => genreBySlug(slug) !== null;
+    /** A stored list cleaned to genres the compiler can draw from. */
+    function cleanUserGenres(list) {
+      if (!Array.isArray(list)) return [];
+      const out = [];
+      for (const entry of list) {
+        if (!isPlainObject(entry) || !isUserGenreSlug(entry.slug) || typeof entry.name !== 'string') continue;
+        if (!isPlainObject(entry.essence) || GENRE_BY_SLUG.has(entry.slug)) continue;
+        if (out.some((g) => g.slug === entry.slug)) continue;
+        out.push(entry);
+        if (out.length >= USER_GENRE_CAP) break;
+      }
+      return out;
+    }
 
     /**
      * Favourites group by MOOD, and the genre files' own `cluster` — the three
@@ -2999,13 +3041,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * into "Edit favourites…"). Persisted through prefs like the presets
        * list, so it survives a reload only where consent was granted.
        */
+      // v0.0.180: the person's own genres load first, so a favourite naming one survives.
+      try {
+        USER_GENRES = cleanUserGenres(prefs.get('genres'));
+      } catch {
+        USER_GENRES = [];
+      }
       let genrePrefs = { favourites: [], hideOthers: false, picked: false };
       try {
         const stored = prefs.get('genre');
         if (isPlainObject(stored)) {
           genrePrefs = {
             favourites: (Array.isArray(stored.favourites) ? stored.favourites : []).filter(
-              (slug) => GENRE_BY_SLUG.has(slug)
+              (slug) => hasGenre(slug)
             ),
             hideOthers: stored.hideOthers === true,
             picked: stored.picked === true,
@@ -3028,7 +3076,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const source = pool.length
           ? pool
           : genrePrefs.hideOthers && favourites.length
-            ? favourites.map((slug) => GENRE_BY_SLUG.get(slug)).filter(Boolean)
+            ? favourites.map((slug) => genreBySlug(slug)).filter(Boolean)
             : background;
         return source.map((genre) => ({
           value: genre,
@@ -13483,7 +13531,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       /** The genre the current params were compiled from, or null. */
       function currentGenre() {
         return typeof settings.genre === 'string'
-          ? GENRE_BY_SLUG.get(settings.genre) || null
+          ? genreBySlug(settings.genre) || null
           : null;
       }
 
@@ -14190,6 +14238,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         toggle.textContent = edited ? 'Rules · edited' : 'Rules';
         const reset = document.getElementById('genre-rules-reset');
         if (reset) reset.hidden = !edited;
+        // v0.0.180: Forget shows only on a genre of the person's own.
+        const forget = document.getElementById('genre-rules-forget');
+        if (forget) forget.hidden = !genre || !isUserGenreSlug(genre.slug);
         if (!genre) return;
         const kitLabel = document.getElementById('genre-rules-anchors-label');
         if (kitLabel) {
@@ -14402,22 +14453,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (editor && !editor.hidden) renderVoiceEditor('percussion');
       }
 
-      function applyGenreRules() {
-        const genre = currentGenre();
-        const errorEl = document.getElementById('genre-rules-error');
-        const say = (text) => {
-          if (!errorEl) return;
-          errorEl.textContent = text || '';
-          errorEl.hidden = !text;
-        };
-        if (!genre || !genreCompiler) return;
+      /**
+       * v0.0.180: the sparse overrides a form holds AGAINST a genre's own
+       * file — only what differs is stored — and the tracks whose line-up row
+       * was ruled. Shared by Apply and by Save as my genre.
+       */
+      function diffRuleOverrides(genre, form) {
         const kitPath = genreKitPath(genre);
-        const form = readGenreRulesForm(kitPath);
-        const error = validateGenreRules(form);
-        if (error) {
-          say(error);
-          return;
-        }
         const own = genre.essence || {};
         // No length guard (v0.0.161): deleting a section's every rule IS a
         // difference — the stored empty list is what "zeroed" means.
@@ -14465,6 +14507,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (differs(form.syncopationCells, own.grooveGrammar?.syncopationCells)) {
           overrides.syncopationCells = form.syncopationCells;
         }
+        return { overrides, ruledTracks };
+      }
+
+      function applyGenreRules() {
+        const genre = currentGenre();
+        const errorEl = document.getElementById('genre-rules-error');
+        const say = (text) => {
+          if (!errorEl) return;
+          errorEl.textContent = text || '';
+          errorEl.hidden = !text;
+        };
+        if (!genre || !genreCompiler) return;
+        const kitPath = genreKitPath(genre);
+        const form = readGenreRulesForm(kitPath);
+        const error = validateGenreRules(form);
+        if (error) {
+          say(error);
+          return;
+        }
+        const { overrides, ruledTracks } = diffRuleOverrides(genre, form);
         const edited = genreWithOverrides(genre, overrides);
         const seed = Number.isFinite(settings.origin?.seed) ? settings.origin.seed : randomSeed();
         const compiled = compileGenreParams(edited, seed);
@@ -14521,6 +14583,95 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         );
       }
 
+      /**
+       * v0.0.180 (unit 12): keep the panel's rules, and the sound built with
+       * them, as a genre of the person's own. The genre object is the stock
+       * file's shape with the overrides laid on (the compiler cannot tell the
+       * two apart), the current patches captured into its instrumentation,
+       * and the genre it was made from recorded. The setup playing now IS a
+       * draw of it — it was compiled from exactly these rules at this seed —
+       * so the picker moves to it without a recompile and nothing changes
+       * while it is sounding.
+       */
+      function saveAsMyGenre() {
+        const genre = currentGenre();
+        const errorEl = document.getElementById('genre-rules-error');
+        const say = (text) => {
+          if (!errorEl) return;
+          errorEl.textContent = text || '';
+          errorEl.hidden = !text;
+        };
+        if (!genre || !genreCompiler) return;
+        const nameInput = document.getElementById('genre-rules-name');
+        const name = nameInput ? nameInput.value.trim().replace(/\s+/g, ' ') : '';
+        if (!name) {
+          say('Give your genre a name first.');
+          nameInput?.focus();
+          return;
+        }
+        if (USER_GENRES.length >= USER_GENRE_CAP) {
+          say(`This device holds ${USER_GENRE_CAP} genres of your own already — forget one to make room.`);
+          return;
+        }
+        const form = readGenreRulesForm(genreKitPath(genre));
+        const error = validateGenreRules(form);
+        if (error) {
+          say(error);
+          return;
+        }
+        const { overrides } = diffRuleOverrides(genre, form);
+        const base = isUserGenreSlug(genre.slug) && typeof genre.madeFrom === 'string' && GENRE_BY_SLUG.has(genre.madeFrom)
+          ? genre.madeFrom
+          : genre.slug;
+        const mine = genreWithOverrides(genre, overrides);
+        mine.slug = `${USER_GENRE_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        mine.name = name;
+        mine.madeFrom = base;
+        mine.cluster = genre.cluster;
+        mine.oneLiner = `Your own, made from ${genreBySlug(base)?.name || base}.`;
+        // The sound: the patches set on this device are the genre's now.
+        if (isPlainObject(settings.patches) && Object.keys(settings.patches).length) {
+          mine.essence.instrumentation = isPlainObject(mine.essence.instrumentation) ? mine.essence.instrumentation : {};
+          mine.essence.instrumentation.patches = deepMerge(
+            structuredClone(mine.essence.instrumentation.patches || {}),
+            structuredClone(settings.patches)
+          );
+        }
+        USER_GENRES.push(mine);
+        persistKey('genres', USER_GENRES);
+        // The current setup is a draw of the new genre; its rules are baked in.
+        settings.genre = mine.slug;
+        delete settings.genreRules;
+        if (isPlainObject(settings.origin) && settings.origin.kind === 'genre') settings.origin.id = mine.slug;
+        engine.setParams({ genre: mine.slug });
+        persistSettings();
+        if (nameInput) nameInput.value = '';
+        say(null);
+        rulesModelDirty = false;
+        syncGenreUI();
+        sayUnderDials(`Saved: "${name}" is in the picker under My genres, and Next draws fresh pieces from it.`);
+      }
+
+      /** v0.0.180: drop a genre of the person's own; the setup keeps playing, tagged with what it was made from. */
+      function forgetMyGenre() {
+        const genre = currentGenre();
+        if (!genre || !isUserGenreSlug(genre.slug)) return;
+        USER_GENRES = USER_GENRES.filter((entry) => entry.slug !== genre.slug);
+        persistKey('genres', USER_GENRES);
+        genrePrefs.favourites = genrePrefs.favourites.filter((slug) => slug !== genre.slug);
+        const back = typeof genre.madeFrom === 'string' && GENRE_BY_SLUG.has(genre.madeFrom) ? genre.madeFrom : null;
+        settings.genre = back;
+        if (isPlainObject(settings.origin) && settings.origin.kind === 'genre') {
+          if (back) settings.origin.id = back;
+          else delete settings.origin;
+        }
+        engine.setParams({ genre: back });
+        persistSettings();
+        rulesModelDirty = false;
+        syncGenreUI();
+        sayUnderDials('Forgotten. What is playing keeps playing.');
+      }
+
       function resetGenreRules() {
         const genre = currentGenre();
         if (!genre) return;
@@ -14544,13 +14695,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const favourites = genrePrefs.favourites;
         // PUBLIC_GENRES, not GENRES: a hidden genre still exists and still
         // compiles, so an old link keeps working — it just is not offered.
-        const listable = PUBLIC_GENRES;
+        // v0.0.180: a person's own genres are listed like public ones.
+        const listable = [...PUBLIC_GENRES, ...USER_GENRES];
         const current = settings.genre;
         // A hidden genre that IS in play stays listed, because a select cannot
         // show a value it has no option for — the alternative is a picker that
         // silently reads as some other genre.
-        const withCurrent = HIDDEN_GENRES.has(current) && GENRE_BY_SLUG.has(current)
-          ? [...listable, GENRE_BY_SLUG.get(current)]
+        const withCurrent = HIDDEN_GENRES.has(current) && hasGenre(current)
+          ? [...listable, genreBySlug(current)]
           : listable;
         if (!genrePrefs.hideOthers || !favourites.length) return withCurrent;
         return withCurrent.filter(
@@ -14590,10 +14742,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         const genres = document.createElement('optgroup');
         genres.label = 'Genres';
+        const mine = document.createElement('optgroup');
+        mine.label = 'My genres';
         for (const genre of listedGenres()) {
-          genres.append(genreOption(`g:${genre.slug}`, genre.name));
+          (isUserGenreSlug(genre.slug) ? mine : genres).append(genreOption(`g:${genre.slug}`, genre.name));
         }
         genreSelect.append(genres);
+        // v0.0.180: the person's own, in their own group, only once one exists.
+        if (mine.childElementCount) genreSelect.append(mine);
 
         const groups = favouriteMoodGroups();
         if (groups.length) {
@@ -14656,7 +14812,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return;
         }
         if (value.startsWith('g:')) {
-          const genre = GENRE_BY_SLUG.get(value.slice(2));
+          const genre = genreBySlug(value.slice(2));
           if (!genre || !applyGenre(genre)) syncGenreUI();
           return;
         }
@@ -14690,6 +14846,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       });
       document.getElementById('genre-rules-apply')?.addEventListener('click', applyGenreRules);
+      document.getElementById('genre-rules-save')?.addEventListener('click', saveAsMyGenre);
+      document.getElementById('genre-rules-forget')?.addEventListener('click', forgetMyGenre);
+      document.getElementById('genre-rules-name')?.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          saveAsMyGenre();
+        }
+      });
       document.getElementById('genre-rules-reset')?.addEventListener('click', resetGenreRules);
       describe(
         document.getElementById('genre-rules-toggle'),
@@ -15786,7 +15950,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
         }
         createSeed?.addEventListener('change', () => {
-          const genre = GENRE_BY_SLUG.get(createSeed.value);
+          const genre = genreBySlug(createSeed.value);
           if (!genre) return;
           const compiled = compileGenreParams(genre, (Math.random() * 0x7fffffff) | 0);
           const tracks = {};
@@ -18271,6 +18435,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .rules-weight {
       width: 64px;
+    }
+
+    /* v0.0.180: the save row of the rules panel. */
+    .rules-save-row {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .rules-name {
+      flex: 1 1 160px;
+      min-width: 0;
     }
 
     /* v0.0.179: the line-up rows — a name, two chips, two dials. */
