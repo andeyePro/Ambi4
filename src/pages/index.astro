@@ -10156,161 +10156,67 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
 
-        const filter = controlsSectionVisible(filterSpec) ? veSection(container, 'Filter') : null;
-        if (filter && controlsFieldAllowed(filterSpec, 'type')) {
-          veSelect(filter, 'Type', {
-            hint: registryHint('filter.type'),
-            field: 'filter.type',
-            options: FILTER_TYPES,
-            value: patch.filter.type,
-            onChange: (v) => {
-              patch.filter.type = v;
-              commit();
-            },
-          });
-        }
-        if (filter && controlsFieldAllowed(filterSpec, 'cutoff')) {
-          const [sCfLo, sCfHi] = patchDomain('filter.cutoff', 40, 12000);
-          veRange(filter, 'Cutoff', {
-            hint: registryHint('filter.cutoff'),
-            field: 'filter.cutoff',
-            min: sCfLo,
-            max: sCfHi,
-            log: true,
-            value: rangeMid(sanitiseRangeValueIn(patch.filter.cutoff, sCfLo, sCfHi, 2000)),
-            format: hzFormat,
-            onChange: (v) => {
-              patch.filter.cutoff = Math.round(v);
-              commit();
-            },
-          });
-        }
-        if (filter && controlsFieldAllowed(filterSpec, 'q')) {
-          const [sQLo, sQHi] = patchDomain('filter.q', 0.1, 20);
-          veRange(filter, 'Resonance', {
-            hint: registryHint('filter.q'),
-            field: 'filter.q',
-            min: sQLo,
-            max: sQHi,
-            step: 0.1,
-            value: rangeMid(sanitiseRangeValueIn(patch.filter.q, sQLo, sQHi, 0.7)),
-            onChange: (v) => {
-              patch.filter.q = v;
-              commit();
-            },
-          });
-        }
-        if (filter && controlsFieldAllowed(filterSpec, 'envAmount')) {
-          const [sEaLo, sEaHi] = patchDomain('filter.envAmount', 0, 1);
-          veRange(filter, 'Env amount', {
-            hint: registryHint('filter.envAmount'),
-            field: 'filter.envAmount',
-            min: sEaLo,
-            max: sEaHi,
-            step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.filter.envAmount, sEaLo, sEaHi, 0.3)),
-            onChange: (v) => {
-              patch.filter.envAmount = v;
-              commit();
-            },
-          });
-        }
-
-        const adsr = controlsSectionVisible(adsrSpec) ? veSection(container, 'Envelope') : null;
-        if (adsr && controlsFieldAllowed(adsrSpec, 'attack')) {
-          const [sAtLo, sAtHi] = patchDomain('adsr.attack', 0.001, 8);
-          veRange(adsr, 'Attack', {
-            hint: registryHint('adsr.attack'),
-            field: 'adsr.attack',
-            min: sAtLo,
-            max: sAtHi,
-            log: true,
-            value: rangeMid(sanitiseRangeValueIn(patch.adsr.attack, sAtLo, sAtHi, 0.01)),
-            format: secFormat,
-            onChange: (v) => {
-              patch.adsr.attack = v;
-              commit();
-            },
-          });
-        }
-        if (adsr && controlsFieldAllowed(adsrSpec, 'decay')) {
-          const [sDcLo, sDcHi] = patchDomain('adsr.decay', 0.001, 8);
-          veRange(adsr, 'Decay', {
-            hint: registryHint('adsr.decay'),
-            field: 'adsr.decay',
-            min: sDcLo,
-            max: sDcHi,
-            log: true,
-            value: rangeMid(sanitiseRangeValueIn(patch.adsr.decay, sDcLo, sDcHi, 0.2)),
-            format: secFormat,
-            onChange: (v) => {
-              patch.adsr.decay = v;
-              commit();
-            },
-          });
-        }
-        if (adsr && controlsFieldAllowed(adsrSpec, 'sustain')) {
-          const [sSuLo, sSuHi] = patchDomain('adsr.sustain', 0, 1);
-          veRange(adsr, 'Sustain', {
-            hint: registryHint('adsr.sustain'),
-            field: 'adsr.sustain',
-            min: sSuLo,
-            max: sSuHi,
-            step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.adsr.sustain, sSuLo, sSuHi, 0.7)),
-            onChange: (v) => {
-              patch.adsr.sustain = v;
-              commit();
-            },
-          });
-        }
-        if (adsr && controlsFieldAllowed(adsrSpec, 'release')) {
-          const [sRlLo, sRlHi] = patchDomain('adsr.release', 0.01, 12);
-          veRange(adsr, 'Release', {
-            hint: registryHint('adsr.release'),
-            field: 'adsr.release',
-            min: sRlLo,
-            max: sRlHi,
-            log: true,
-            value: rangeMid(sanitiseRangeValueIn(patch.adsr.release, sRlLo, sRlHi, 0.5)),
-            format: secFormat,
-            onChange: (v) => {
-              patch.adsr.release = v;
-              commit();
-            },
-          });
-        }
-
-        const sends = controlsSectionVisible(sendsSpec) ? veSection(container, 'Sends') : null;
-        if (sends && controlsFieldAllowed(sendsSpec, 'reverb')) {
-          const [sRvLo, sRvHi] = patchDomain('sends.reverb', 0, 1);
-          veRange(sends, 'Reverb', {
-            hint: registryHint('sends.reverb'),
-            field: 'sends.reverb',
-            min: sRvLo,
-            max: sRvHi,
-            step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.sends.reverb, sRvLo, sRvHi, 0.3)),
-            onChange: (v) => {
-              patch.sends.reverb = v;
-              commit();
-            },
-          });
-        }
-        if (sends && controlsFieldAllowed(sendsSpec, 'delay')) {
-          const [sDlLo, sDlHi] = patchDomain('sends.delay', 0, 1);
-          veRange(sends, 'Delay', {
-            hint: registryHint('sends.delay'),
-            field: 'sends.delay',
-            min: sDlLo,
-            max: sDlHi,
-            step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.sends.delay, sDlLo, sDlHi, 0.15)),
-            onChange: (v) => {
-              patch.sends.delay = v;
-              commit();
-            },
-          });
+        // v0.0.189 (phase 2c, the fallback's half): the Filter, Envelope and
+        // Sends controls are one loop over the registry, exactly as the knob
+        // editor's became in v0.0.187 — domain, curve (log sliders map through
+        // the log) and unit (the format) from the row; per control only the
+        // label, the pre-registry fallback domain, the initial value a stored
+        // patch without the field shows, the slider step, and cutoff's
+        // whole-hertz write. Witnessed byte-identical by page-boot's
+        // fallback fixture (tests/fixtures/editor-controls-fallback.json).
+        const SLIDER_DIALS = [
+          ['filter', 'Filter', filterSpec, [
+            ['cutoff', 'Cutoff', { fallback: [40, 12000], initial: 2000, write: Math.round }],
+            ['q', 'Resonance', { fallback: [0.1, 20], initial: 0.7, step: 0.1 }],
+            ['envAmount', 'Env amount', { fallback: [0, 1], initial: 0.3 }],
+          ]],
+          ['adsr', 'Envelope', adsrSpec, [
+            ['attack', 'Attack', { fallback: [0.001, 8], initial: 0.01 }],
+            ['decay', 'Decay', { fallback: [0.001, 8], initial: 0.2 }],
+            ['sustain', 'Sustain', { fallback: [0, 1], initial: 0.7 }],
+            ['release', 'Release', { fallback: [0.01, 12], initial: 0.5 }],
+          ]],
+          ['sends', 'Sends', sendsSpec, [
+            ['reverb', 'Reverb', { fallback: [0, 1], initial: 0.3 }],
+            ['delay', 'Delay', { fallback: [0, 1], initial: 0.15 }],
+          ]],
+        ];
+        const sliderFormat = (unit) => (unit === 'Hz' ? hzFormat : unit === 's' ? secFormat : undefined);
+        for (const [section, heading, spec, dials] of SLIDER_DIALS) {
+          const box = controlsSectionVisible(spec) ? veSection(container, heading) : null;
+          if (!box) continue;
+          if (section === 'filter' && controlsFieldAllowed(spec, 'type')) {
+            veSelect(box, 'Type', {
+              hint: registryHint('filter.type'),
+              field: 'filter.type',
+              options: FILTER_TYPES,
+              value: patch.filter.type,
+              onChange: (v) => {
+                patch.filter.type = v;
+                commit();
+              },
+            });
+          }
+          for (const [key, label, ui] of dials) {
+            if (!controlsFieldAllowed(spec, key)) continue;
+            const path = `${section}.${key}`;
+            const [lo, hi] = patchDomain(path, ui.fallback[0], ui.fallback[1]);
+            const reg = engineModule && engineModule.PARAM_REGISTRY ? engineModule.PARAM_REGISTRY[`patch.${path}`] : null;
+            const log = reg ? reg.curve === 'log' : false;
+            veRange(box, label, {
+              hint: registryHint(path),
+              field: path,
+              min: lo,
+              max: hi,
+              ...(log ? { log: true } : { step: ui.step || 0.01 }),
+              value: rangeMid(sanitiseRangeValueIn(patch[section][key], lo, hi, ui.initial)),
+              ...(sliderFormat(reg ? reg.unit : '') ? { format: sliderFormat(reg.unit) } : {}),
+              onChange: (v) => {
+                patch[section][key] = ui.write ? ui.write(v) : v;
+                commit();
+              },
+            });
+          }
         }
       }
 

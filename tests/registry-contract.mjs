@@ -310,9 +310,18 @@ test('the page reads every dial\'s hint from the registry, not from a literal of
   // slider editor once per control.
   assert.ok(/if \(field\) describe\(handle\.el, registryHint\(field\)\);/.test(page),
     'buildKnobEditor no longer describes every dial from its registry row');
-  const sliderCalls = (page.match(/hint: registryHint\(/g) || []).length;
-  assert.ok(sliderCalls >= 19,
-    `the slider editor passes registryHint on ${sliderCalls} controls; every one of its 19 must`);
+  // v0.0.189: the slider editor's Filter/Envelope/Sends controls are one loop
+  // (the count of literal call sites that stood in for this is gone with the
+  // literals); page-boot's fallback check proves every rendered control's
+  // accessible description equals its row's hint, over all 36 voices.
+  const sliderStart = page.indexOf('function buildSliderEditor(');
+  const sliderEnd = page.indexOf('function buildKnobEditor(');
+  const slider = page.slice(sliderStart, sliderEnd);
+  assert.ok(/hint: registryHint\(path\),/.test(slider),
+    'the slider editor\'s registry loop no longer passes each control its row\'s hint');
+  const sliderCalls = (slider.match(/hint: registryHint\(/g) || []).length;
+  assert.ok(sliderCalls >= 10,
+    `the slider editor passes registryHint on ${sliderCalls} call sites; its source, engine and loop controls all must`);
 });
 
 let failures = 0;
