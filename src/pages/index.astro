@@ -9460,9 +9460,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return section;
       }
 
-      function veRange(parent, labelText, { min, max, step, value, log = false, format, onChange, hint = '' }) {
+      function veRange(parent, labelText, { min, max, step, value, log = false, format, onChange, hint = '', field = '' }) {
         const wrap = document.createElement('div');
         wrap.className = 'control ve-control';
+        if (field) wrap.dataset.field = field; // v0.0.188: the same seam the knob cells carry
         const id = `ve-control-${++veControlId}`;
         const row = document.createElement('div');
         row.className = 'control-label-row';
@@ -9501,9 +9502,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return input;
       }
 
-      function veSelect(parent, labelText, { options, value, onChange, hint = '' }) {
+      function veSelect(parent, labelText, { options, value, onChange, hint = '', field = '' }) {
         const wrap = document.createElement('div');
         wrap.className = 'control ve-control';
+        if (field) wrap.dataset.field = field;
         const id = `ve-control-${++veControlId}`;
         const label = document.createElement('label');
         label.htmlFor = id;
@@ -9859,6 +9861,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (source && controlsFieldAllowed(sourceSpec, 'shape1')) {
           veSelect(source, 'Osc 1', {
             hint: registryHint('source.shape1'),
+            field: 'source.shape1',
             options: OSC_TYPES,
             value: SHAPE_NAMES[Math.round(readShape(patch.source, 1) ?? 0)],
             onChange: (v) => {
@@ -9876,6 +9879,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           osc2Enabled = initialShape2 !== null;
           const osc2Control = veSelect(source, 'Osc 2', {
             hint: registryHint('source.shape2'),
+            field: 'source.shape2',
             options: [['none', 'None'], ...OSC_TYPES],
             value: initialShape2 === null ? 'none' : SHAPE_NAMES[Math.round(initialShape2)],
             onChange: (v) => {
@@ -9891,6 +9895,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sMixLo, sMixHi] = patchDomain('source.mix', 0, 1);
           const mixControl = veRange(source, 'Mix', {
             hint: registryHint('source.mix'),
+            field: 'source.mix',
             min: sMixLo,
             max: sMixHi,
             step: 0.01,
@@ -9917,6 +9922,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const pairGap = detuneMode === 'pair';
           const detuneControl = veRange(source, pairGap ? 'Detune' : 'Spread', {
             hint: registryHint('source.detune'),
+            field: 'source.detune',
             min: detuneMin,
             max: DETUNE_MAX,
             step: 1,
@@ -9947,6 +9953,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (source && !pitchInPlaceOfOctave && controlsFieldAllowed(sourceSpec, 'octave')) {
           veSelect(source, 'Octave', {
             hint: registryHint('source.octave'),
+            field: 'source.octave',
             options: [
               ['-1', '-1'],
               ['0', '0'],
@@ -9963,6 +9970,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sPtLo, sPtHi] = patchDomain('source.pitch', -24, 24);
           veRange(source, 'Pitch', {
             hint: registryHint('source.pitch'),
+            field: 'source.pitch',
             min: sPtLo,
             max: sPtHi,
             step: 1,
@@ -9984,6 +9992,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sNzLo, sNzHi] = patchDomain('source.noise', 0, 1);
           veRange(source, 'Noise', {
             hint: registryHint('source.noise'),
+            field: 'source.noise',
             min: sNzLo,
             max: sNzHi,
             step: 0.01,
@@ -10014,6 +10023,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sFdLo, sFdHi] = patchDomain('source.fold', 0, 1);
           veRange(source, 'Fold', {
             hint: registryHint('source.fold'),
+            field: 'source.fold',
             min: sFdLo,
             max: sFdHi,
             step: 0.01,
@@ -10035,6 +10045,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           for (const spec of specs) {
             veRange(groupSection, spec.label, {
               hint: registryHint(`source.${spec.field}`),
+              field: `source.${spec.field}`,
               min: spec.min,
               max: spec.max,
               step: spec.step || 0.01,
@@ -10058,6 +10069,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [lo, hi] = patchDomain('fm.ratio', 0.25, 16);
           veRange(fmS, 'Ratio', {
             hint: registryHint('fm.ratio'),
+            field: 'fm.ratio',
             min: lo, max: hi, log: true,
             value: rangeMid(sanitiseRangeValueIn(patch.fm.ratio, lo, hi, defaults.fm.ratio)),
             format: timesFormat,
@@ -10068,6 +10080,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [lo, hi] = patchDomain('fm.depth', 0, 4);
           veRange(fmS, 'Depth', {
             hint: registryHint('fm.depth'),
+            field: 'fm.depth',
             min: lo, max: hi, step: 0.01,
             value: rangeMid(sanitiseRangeValueIn(patch.fm.depth, lo, hi, defaults.fm.depth)),
             format: timesFormat,
@@ -10078,6 +10091,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [lo, hi] = patchDomain('fm.bite', 0.02, 4);
           veRange(fmS, 'Bite', {
             hint: registryHint('fm.bite'),
+            field: 'fm.bite',
             min: lo, max: hi, log: true,
             value: rangeMid(sanitiseRangeValueIn(patch.fm.bite, lo, hi, defaults.fm.bite)),
             format: secFormat,
@@ -10096,6 +10110,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const [lo, hi] = patchDomain(`additive.${key}`, isStretch ? -0.1 : 0, isStretch ? 0.1 : 2);
             veRange(addS, isStretch ? 'Stretch' : `P${key.slice(1)}`, {
               hint: registryHint(`additive.${key}`),
+              field: `additive.${key}`,
               min: lo, max: hi, step: 0.01,
               value: rangeMid(sanitiseRangeValueIn(patch.additive[key], lo, hi, defaults.additive[key])),
               format: isStretch ? stretchFormat : timesFormat,
@@ -10112,6 +10127,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const materials = registryEnum('modal.material', ['metal', 'wood', 'glass', 'bell']);
           veSelect(modalS, 'Material', {
             hint: registryHint('modal.material'),
+            field: 'modal.material',
             options: materials.map((m) => [m, materialLabel(m)]),
             value: patch.modal.material,
             onChange: (v) => { patch.modal.material = v; commit(); },
@@ -10121,6 +10137,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [lo, hi] = patchDomain('modal.hardness', 0, 2);
           veRange(modalS, 'Hardness', {
             hint: registryHint('modal.hardness'),
+            field: 'modal.hardness',
             min: lo, max: hi, step: 0.01,
             value: rangeMid(sanitiseRangeValueIn(patch.modal.hardness, lo, hi, defaults.modal.hardness)),
             format: timesFormat,
@@ -10131,6 +10148,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [lo, hi] = patchDomain('modal.damping', 0.25, 4);
           veRange(modalS, 'Damping', {
             hint: registryHint('modal.damping'),
+            field: 'modal.damping',
             min: lo, max: hi, log: true,
             value: rangeMid(sanitiseRangeValueIn(patch.modal.damping, lo, hi, defaults.modal.damping)),
             format: timesFormat,
@@ -10142,6 +10160,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (filter && controlsFieldAllowed(filterSpec, 'type')) {
           veSelect(filter, 'Type', {
             hint: registryHint('filter.type'),
+            field: 'filter.type',
             options: FILTER_TYPES,
             value: patch.filter.type,
             onChange: (v) => {
@@ -10154,6 +10173,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sCfLo, sCfHi] = patchDomain('filter.cutoff', 40, 12000);
           veRange(filter, 'Cutoff', {
             hint: registryHint('filter.cutoff'),
+            field: 'filter.cutoff',
             min: sCfLo,
             max: sCfHi,
             log: true,
@@ -10169,6 +10189,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sQLo, sQHi] = patchDomain('filter.q', 0.1, 20);
           veRange(filter, 'Resonance', {
             hint: registryHint('filter.q'),
+            field: 'filter.q',
             min: sQLo,
             max: sQHi,
             step: 0.1,
@@ -10183,6 +10204,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sEaLo, sEaHi] = patchDomain('filter.envAmount', 0, 1);
           veRange(filter, 'Env amount', {
             hint: registryHint('filter.envAmount'),
+            field: 'filter.envAmount',
             min: sEaLo,
             max: sEaHi,
             step: 0.01,
@@ -10199,6 +10221,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sAtLo, sAtHi] = patchDomain('adsr.attack', 0.001, 8);
           veRange(adsr, 'Attack', {
             hint: registryHint('adsr.attack'),
+            field: 'adsr.attack',
             min: sAtLo,
             max: sAtHi,
             log: true,
@@ -10214,6 +10237,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sDcLo, sDcHi] = patchDomain('adsr.decay', 0.001, 8);
           veRange(adsr, 'Decay', {
             hint: registryHint('adsr.decay'),
+            field: 'adsr.decay',
             min: sDcLo,
             max: sDcHi,
             log: true,
@@ -10229,6 +10253,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sSuLo, sSuHi] = patchDomain('adsr.sustain', 0, 1);
           veRange(adsr, 'Sustain', {
             hint: registryHint('adsr.sustain'),
+            field: 'adsr.sustain',
             min: sSuLo,
             max: sSuHi,
             step: 0.01,
@@ -10243,6 +10268,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sRlLo, sRlHi] = patchDomain('adsr.release', 0.01, 12);
           veRange(adsr, 'Release', {
             hint: registryHint('adsr.release'),
+            field: 'adsr.release',
             min: sRlLo,
             max: sRlHi,
             log: true,
@@ -10260,6 +10286,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sRvLo, sRvHi] = patchDomain('sends.reverb', 0, 1);
           veRange(sends, 'Reverb', {
             hint: registryHint('sends.reverb'),
+            field: 'sends.reverb',
             min: sRvLo,
             max: sRvHi,
             step: 0.01,
@@ -10274,6 +10301,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const [sDlLo, sDlHi] = patchDomain('sends.delay', 0, 1);
           veRange(sends, 'Delay', {
             hint: registryHint('sends.delay'),
+            field: 'sends.delay',
             min: sDlLo,
             max: sDlHi,
             step: 0.01,
@@ -11571,7 +11599,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // envelope, so double-click returns to that sound's truth.
           const tabBase = kitKind ? deepMerge(base, publishedKind(kitKind)) : base;
           let knobsBuilt = false;
-          if (knobApi) {
+          // v0.0.188: a deliberate test seam on the same terms as
+          // window.__ambi4Engine. The slider editor is the path the page takes
+          // when knob.js is missing or throws, and nothing could boot it on
+          // purpose — a path nothing can reach is a path that rots. With the
+          // flag set, page-boot renders every stock voice through it and pins
+          // the result (tests/fixtures/editor-controls-fallback.json).
+          const forceSliders = typeof window !== 'undefined' && window.__ambi4SliderEditor === true;
+          if (knobApi && !forceSliders) {
             try {
               buildKnobEditor(patchBox, editView, commit, patchKnobs, controls, tabBase, ghost, track,
                 voiceEntry && voiceEntry.detuneMode ? voiceEntry.detuneMode : null);

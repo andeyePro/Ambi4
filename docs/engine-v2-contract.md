@@ -2293,3 +2293,14 @@ word), the moves every chosen word's moves on it that the voice exposes, one
 per dial. `moveValue(value, direction, domain)` goes a third of the way to the
 end named and never past it, both ends of a span. A word with nothing honest
 to say for a set answers no voice and a plain sentence.
+
+## The slider fallback editor is gated (v0.0.188)
+
+Module ownership: **the page** (`window.__ambi4SliderEditor`, a deliberate test
+seam on the terms of `window.__ambi4Engine`; `veRange`/`veSelect` carry
+`data-field`); gated by `tests/page-boot.mjs` (every stock voice rendered
+through the fallback with the seam set, its control layout pinned in
+`tests/fixtures/editor-controls-fallback.json`, every control's input or
+select carrying its registry hint as its accessible description). The
+fallback is the path the page takes when knob.js is missing or throws; until
+now nothing could boot it on purpose.

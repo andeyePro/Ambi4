@@ -1581,6 +1581,71 @@ try {
       }
     }
 
+    // v0.0.188 — the slider fallback editor, booted on purpose. With the seam
+    // set, every stock voice renders through the path the page takes when
+    // knob.js is missing: every control names its field (pinned, with its
+    // label and kind, in tests/fixtures/editor-controls-fallback.json — written
+    // when absent, asserted when present), and every control's input or select
+    // carries its registry hint as its accessible description.
+    {
+      const fixturePath = join(repoRoot, 'tests/fixtures/editor-controls-fallback.json');
+      const registry = engineModule.PARAM_REGISTRY || {};
+      const voicesModule = await import(pathToFileURL(join(repoRoot, 'src/scripts/engine-voices.js')).href);
+      const layout = {};
+      let described = 0;
+      window.__ambi4SliderEditor = true;
+      for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+        const select = doc.getElementById(`track-voice-${track}`);
+        layout[track] = {};
+        for (const voice of Object.keys(voicesModule.VOICES[track])) {
+          select.value = voice;
+          select.dispatchEvent(new window.Event('change', { bubbles: true }));
+          const editor = await openEditor(track);
+          const built = await waitUntil(() => editor.querySelectorAll('.patch-controls .ve-control[data-field]').length > 0
+            && !editor.querySelector('.patch-controls .knob-cell'));
+          if (!built) {
+            failures.push(`${track}.${voice}: the slider editor did not render with the seam set`);
+            continue;
+          }
+          await new Promise((r) => setTimeout(r, 30));
+          layout[track][voice] = Array.from(editor.querySelectorAll('.patch-controls .ve-control')).map((wrap) => ({
+            field: wrap.dataset.field || null,
+            label: wrap.querySelector('label') ? wrap.querySelector('label').textContent : '',
+            kind: wrap.querySelector('select') ? 'select' : wrap.querySelector('input[type="range"]') ? 'range' : 'other',
+          }));
+          for (const wrap of editor.querySelectorAll('.patch-controls .ve-control[data-field]')) {
+            const row = registry[`patch.${wrap.dataset.field}`];
+            const control = wrap.querySelector('input, select');
+            const descId = control && control.getAttribute('aria-describedby');
+            const desc = descId ? doc.getElementById(descId) : null;
+            if (!row) continue;
+            if (!desc || desc.textContent !== row.hint) failures.push(`${track}.${voice}: the fallback ${wrap.dataset.field} control does not carry its registry hint`);
+            described += 1;
+          }
+        }
+      }
+      window.__ambi4SliderEditor = false;
+      // Back to the knob editor for everything after this block.
+      for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+        const select = doc.getElementById(`track-voice-${track}`);
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      }
+      if (described < 200) failures.push(`only ${described} fallback controls were checked for a hint — the seam has moved`);
+      if (!existsSync(fixturePath)) {
+        writeFileSync(fixturePath, JSON.stringify(layout, null, 1) + '\n');
+        console.log(`editor-controls-fallback fixture written: ${fixturePath}`);
+      } else {
+        const pinned = JSON.parse(readFileSync(fixturePath, 'utf8'));
+        for (const track of Object.keys(pinned)) {
+          for (const voice of Object.keys(pinned[track])) {
+            if (JSON.stringify(pinned[track][voice]) !== JSON.stringify(layout[track] && layout[track][voice])) {
+              failures.push(`${track}.${voice}: the fallback control layout moved — pinned ${JSON.stringify(pinned[track][voice])} got ${JSON.stringify(layout[track] && layout[track][voice])}`);
+            }
+          }
+        }
+      }
+    }
+
     // v0.0.174 — "what makes this sound": the words line under the dials is
     // exactly what the pure module says for the sounding voice's patch, so the
     // page's wiring (voice, controls, detune mode, the live patch object) is
