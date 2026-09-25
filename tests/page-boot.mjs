@@ -318,6 +318,22 @@ window.devicePixelRatio = 1;
 const clipboard = { text: '' };
 installClipboard(window);
 
+/**
+ * v0.0.186: the link on the clipboard, decoded — the payload and its schema
+ * stamp (`v`), read the way the page's own decoder reads them. Null when no
+ * link was copied or it does not decode.
+ */
+function decodeCopiedLink() {
+  const at = clipboard.text.indexOf('#p=');
+  if (at < 0) return null;
+  const value = clipboard.text.slice(at + 3);
+  try {
+    return JSON.parse(Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
 function installClipboard(win) {
   const stub = {
     writeText: (text) => {
@@ -1903,6 +1919,26 @@ try {
           doc.getElementById('genre-rules-apply').click();
           const landed = await waitUntil(() => engine.getParams().bpm === 200);
           if (!landed) failures.push(`Apply with Tempo 200–200 left the engine at ${engine.getParams().bpm} bpm (was ${before})`);
+          // v0.0.186 — the share wire's version stamp, the other half: with an
+          // essence re-ruling in place a link carries a genreRules key a
+          // pre-178 build reads past, so it takes the latest stamp (2), and
+          // the diff carries the re-ruling itself.
+          {
+            const share = doc.getElementById('preset-share');
+            if (share) {
+              clipboard.text = '';
+              share.click();
+              const copied = await waitUntil(() => clipboard.text.includes('#p='));
+              const ruled = copied ? decodeCopiedLink() : null;
+              if (!ruled) {
+                failures.push('Share with an essence re-ruling copied nothing that decodes');
+              } else {
+                if (ruled.v !== 2) failures.push(`a link carrying an essence re-ruling is stamped schema ${JSON.stringify(ruled.v)}, not 2`);
+                const rules = (ruled.d && ruled.d.genreRules) || ruled.genreRules;
+                if (!rules || !Array.isArray(rules.bpm) || rules.bpm[0] !== 200) failures.push(`the link does not carry the tempo re-ruling (${JSON.stringify(rules)})`);
+              }
+            }
+          }
           if (toggle.textContent !== 'Rules · edited') failures.push(`the Rules button does not say edited after an essence change (says ${JSON.stringify(toggle.textContent)})`);
           // v0.0.179 (unit 11): the rest of the essence is on screen, and a
           // ruled LINE-UP lands at the engine — the one kind of rule Apply
@@ -2403,6 +2439,21 @@ try {
           failures.push(
             `Share left the empty preset name as "${nameBox.value}" instead of suggesting "${expected}"`
           );
+        }
+        // v0.0.186 — the share wire's version stamp, the plain half: a link
+        // carrying nothing an older build would drop (no cable, no sampling,
+        // no LFO or macro change, no essence re-ruling, no genre of the
+        // person's own) is a schema-1 link every older build reads in full.
+        // The state here is plain: every user genre and voice above was
+        // forgotten and the rules reset before this block runs.
+        {
+          const plain = decodeCopiedLink();
+          if (!plain) {
+            failures.push('the plain Share link did not decode');
+          } else {
+            if (plain.v !== 1) failures.push(`a plain link is stamped schema ${JSON.stringify(plain.v)}, not 1 — an older build would refuse or misread a link it could have read in full`);
+            if (plain.g !== undefined) failures.push('a plain link carries a genre it has no reason to');
+          }
         }
         // Deterministic: the same settings, shared again, is the same name.
         clipboard.text = '';
