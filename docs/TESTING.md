@@ -852,3 +852,120 @@ Automated: the page-boot gate additions
       preset clears the tag; that favouriting adds a mood group and the hide
       toggle prunes the list; and that the Pause button's own explanation
       matches whether this engine build actually ships `pause()`.
+
+## v0.0.172–187 delta — the synthesis programme (2026-09-25)
+
+The ruling and the sequence are in `docs/synthesis-programme.md`. Every item
+below was gated in Node (page-boot, voices-smoke, genre-smoke, the new
+patch-words, sound-finder and registry suites); the browser drives for each are
+written and parked in `tests/pending/` until the Mac bridge key is restored
+(fromClaude 13). Nothing here changes a stock voice's sound at its defaults —
+the maths says bit-identical, and your ear is the check the maths cannot be.
+
+Every dial says what you will hear (v0.0.172)
+- [ ] Advanced → any track's Edit: hover or keyboard-focus ANY dial. A tooltip
+      says what changes when you turn it, in plain words (Cutoff: "How much of
+      the top end gets through…"). No dial anywhere is a bare label.
+- [ ] The chip beside the track name in the editor header names the engine
+      (Subtractive, FM, Additive, Modal, Noise, Hybrid) and a sentence under
+      the header says what that engine does. The picker's "Custom (…)" label
+      uses the same word.
+
+What makes this sound (v0.0.173)
+- [ ] Under the dials of every editor a line describes the sound from its own
+      patch: "Two saws 6 cents apart. Low-pass at 3520 Hz, ringing…". Move a
+      dial: the number in the line changes to what the dial reads, and only
+      that number. Open a spread on a dial: the line prints both ends.
+
+The three engine sections (v0.0.175–177)
+- [ ] Melody → Bell, Keys, Tines; Texture → Sparkle; Arp → Crystal: the editor
+      has an FM row (Ratio, Depth, Bite). Pluck, Warm and every other voice has
+      none. At the defaults the voice sounds exactly as before; Depth to 0 is a
+      bare sine, Ratio between whole numbers rings like a bell.
+- [ ] Pad → Glass: an Additive row with P1–P5 and Stretch, never a P6; Melody
+      → Organ stab: P1–P6 and Stretch. A bar to zero removes that partial
+      without a click; Stretch to the right goes bell-like.
+- [ ] Texture → Chimes; Arp → Marimba: a Modal row (Material, Hardness,
+      Damping). Material steps metal → wood → glass → bell and the same note
+      rings with a different object's overtones; Hardness up sharpens the
+      click and brightens; Damping up chokes the ring.
+- [ ] A patch saved before these rows existed sounds the same after: the
+      defaults are the literals the voices always used.
+
+The Rules panel holds the whole essence (v0.0.178–179)
+- [ ] Pick Synthwave, open Rules: it now leads with Tempo and Swing as spread
+      dials (drag sideways to widen the draw span; click the readout and type
+      "84-104"), then Time signatures, Modes and Chord changes as weighted
+      rows (value, weight, ×, +), then Shape (structures), Colour, Dissonance,
+      Density, Hall, and the Line-up (each track's Off/Auto/On, voice, level,
+      variation).
+- [ ] Set Tempo to 200–200 and Apply: the piece is at 200 bpm, the button reads
+      "Rules · edited", nothing else about the piece changed (same dice).
+      Back to the genre's rules: the genre's own tempo returns.
+- [ ] Set a metre row to 3/4 and Apply: the piece is in 3/4. Empty the Modes
+      rows and Apply: the engine's default mode (the section stopped ruling).
+- [ ] In the Line-up set the pad to Off and Apply: the pad stops — the one
+      rule Apply used to keep out, because here you asked for it. Tracks you
+      did not rule keep your own voice and level as before.
+- [ ] Share with a re-ruling in place, then paste the link into an older
+      build if you have one: it plays with only the chord rules (the link is
+      stamped 2). Without a re-ruling the link is stamped 1 and reads in full.
+
+A genre of your own (v0.0.180–181)
+- [ ] With rules edited, type a name in the Rules panel's save row and Save as
+      my genre: it appears in the picker under "My genres", selected; the
+      Rules button reads plain again (the rules are baked in); the piece
+      playing did not change.
+- [ ] Next draws a fresh piece from it — with your ruled pad still Off, your
+      ruled tempo still 200. Favourite it: it joins the mood groups.
+- [ ] Reload (consent granted): it is still in the picker and still draws.
+      Forget this genre removes it and returns you to the genre it came from;
+      what is playing keeps playing.
+- [ ] Share while it is the current genre, open the link in a private window:
+      the piece rebuilds, the genre is under My genres for that visit, and Save
+      as my genre keeps it there.
+
+A voice of your own (v0.0.182–183)
+- [ ] Edit a track, move a dial, type a name in the save row under the words
+      line and Save as my voice: it appears in that track's picker under "My
+      voices", selected, and in every track's picker that plays the same voice
+      set. Pick a stock voice, pick it back: the dials return exactly.
+- [ ] Move a dial while it plays: the picker reads "<name> · edited". Forget
+      this voice removes it; what is playing keeps playing.
+- [ ] Reload (consent granted): still listed, still plays its dials.
+- [ ] Share while it plays, open the link in a private window: the sound
+      arrives (it always did) and the NAME is under My voices for the visit.
+
+The engine lessons (v0.0.184)
+- [ ] Press the engine chip in Bell's editor: the tour panel opens "FM in three
+      moves", the Ratio dial is highlighted, and the text says what to drag
+      and what to listen for. Next moves the highlight to Depth, then Bite.
+      Close: the highlight goes; the "?" tour opens under its own title.
+- [ ] The same on Warm (Subtractive), Organ stab (Additive), Marimba (Modal),
+      Coloured noise (Noise). Every highlighted dial is a dial that editor has.
+
+A sound in mind (v0.0.185)
+- [ ] Under any tuned track's dials, "A sound in mind?": press "bright" and
+      "glassy" on the melody — the answer reads "Try Bell (FM): …" with two
+      moves and why. Set it up: Bell is on the track and the named dials have
+      moved a third of the way; ⌘Z takes it back. Press "dark": "bright" is
+      released (a pair is one or the other).
+- [ ] On the kit, every word answers plainly that nothing here is honestly
+      that word; there is no Set it up.
+
+Automated
+- [ ] `npm run build && node tests/all.mjs` — 24 suites, including
+      patch-words-smoke (the number law on all 36 voices), sound-finder-smoke
+      (the table's integrity), registry-contract (every row has a hint; the
+      page keeps no hint literal), and page-boot (every dial's accessible
+      description, the chips, the sections' disclosure, the Rules panel typed
+      and applied at the engine, save/next/forget of a genre and a voice, both
+      ends of the links, the lessons on their dials, the finder, and the
+      pinned dial layout of every stock voice in
+      `tests/fixtures/editor-dials.json`).
+- [ ] When the bridge key returns: `tests/sweep-drives.sh`, both
+      `.vibe/measure.sh local overlaps` runs with an editor open (desktop and
+      390×844), and each drive in `tests/pending/` moved back into `tests/` —
+      the FM, additive and modal render proofs, the genre-essence and lesson
+      gestures, the user-genre and user-voice reloads, the finder's claims by
+      measurement (one row broken on purpose must go red).
