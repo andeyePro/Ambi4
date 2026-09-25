@@ -774,6 +774,8 @@ export function applyGenreOverrides(genreJson, overrides = {}) {
       if (level !== undefined) clean.level = level;
       const randomness = cleanScalarOrSpan(spec.randomness, 0, 1);
       if (randomness !== undefined) clean.randomness = randomness;
+      // v0.0.195: the voice rule rides through as the engine sanitises it.
+      if (spec.voiceRule === null || isObject(spec.voiceRule)) clean.voiceRule = spec.voiceRule;
       per[name] = clean;
     }
     essence.instrumentation.perTrack = per;
@@ -860,6 +862,7 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
       // both, and clamping them here would only hide a bad file.
       if (spec.level !== undefined) track.level = spec.level;
       if (spec.randomness !== undefined) track.randomness = spec.randomness;
+      if (spec.voiceRule !== undefined) track.voiceRule = spec.voiceRule;
     }
     if (dissonance !== undefined && TUNED_TRACKS.includes(name)) track.dissonance = dissonance;
     if (DENSITY_TRACKS.includes(name)) {

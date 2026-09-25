@@ -1721,7 +1721,10 @@ function sanitiseSequencer(percussive, value, base, laneIds = PERCUSSION_LANES, 
   // v0.0.194: `hand` marks a sequencer a PERSON wrote — the page's typed
   // writers and a grid tapped on a silent track set it; a compiled genre never
   // does. Emitted only when true, so every stored piece reads back byte-equal.
-  const hand = at('hand') === undefined ? Boolean(from && from.hand === true) : at('hand') === true;
+  // A SENT sequencer must say `hand` itself: a genre compile, a preset, a
+  // share link and Blank slate all send theirs without it, and none of them
+  // may inherit a person's flag from the slot they replace.
+  const hand = v ? at('hand') === true : Boolean(from && from.hand === true);
   const handKey = hand ? { hand: true } : {};
   if (!percussive) {
     return { mode, weights, steps: sanitiseStepLane(at('steps'), from ? from.steps : undefined, stepBeats), ...handKey };
@@ -1894,6 +1897,46 @@ function sanitiseVary(value, base) {
  * are kept out at draw time (voiceFor's own fallback law), not here — the
  * sanitiser has no voice bank to ask.
  */
+/**
+ * v0.0.195: the voice RULE — the first instance of the one logic every rule
+ * will follow (owner ruling 2026-09-25): NOW is `tracks[t].voice`, the pick;
+ * CHANCE is how likely a redraw is at each `when` (bar, section or piece) —
+ * 0 holds the pick for good, null follows the track's Randomness at the old
+ * wander factor; POOL is the ordered, weighted list a redraw may pick from,
+ * `by weight` or `in turn`. Sparse: present only when set. A track with no
+ * rule keeps the pre-v0.0.195 wander and blend to the byte.
+ */
+const VOICE_RULE_WHEN = Object.freeze(['bar', 'section', 'piece']);
+const VOICE_RULE_ORDER = Object.freeze(['weight', 'turn']);
+const VOICE_RULE_POOL_CAP = 32;
+function sanitiseVoiceRule(value, base) {
+  if (value === null) return null;
+  const from = base && typeof base === 'object' && !Array.isArray(base) ? base : null;
+  const v = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  if (!v && !from) return null;
+  const at = (key) => (v && key in v ? v[key] : from ? from[key] : undefined);
+  const chanceRaw = at('chance');
+  const chance = chanceRaw === null || chanceRaw === undefined
+    ? null
+    : Number.isFinite(Number(chanceRaw)) ? clamp(Number(chanceRaw), 0, 1) : null;
+  const when = oneOf(at('when'), VOICE_RULE_WHEN, 'bar');
+  const order = oneOf(at('order'), VOICE_RULE_ORDER, 'weight');
+  const poolRaw = at('pool');
+  const pool = [];
+  const seen = new Set();
+  if (Array.isArray(poolRaw)) {
+    for (const entry of poolRaw) {
+      const id = entry && typeof entry === 'object' ? entry.id : entry;
+      if (typeof id !== 'string' || !MANIFEST_VOICE_ID.test(id) || seen.has(id)) continue;
+      const w = entry && typeof entry === 'object' ? Number(entry.weight) : 1;
+      pool.push({ id, weight: Number.isFinite(w) && w > 0 ? clamp(w, 0.01, 100) : 1 });
+      seen.add(id);
+      if (pool.length >= VOICE_RULE_POOL_CAP) break;
+    }
+  }
+  return { chance, when, pool, order };
+}
+
 function sanitiseVoiceWeights(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const out = {};
@@ -1960,6 +2003,12 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
       partial && 'voiceWeights' in partial ? partial.voiceWeights : baseTrack.voiceWeights
     );
     if (weights) track.voiceWeights = weights;
+    // v0.0.195: sparse like the blend — the key (even null) replaces, its
+    // absence inherits; a partial rule merges field by field.
+    const rule = sanitiseVoiceRule(
+      partial && 'voiceRule' in partial ? partial.voiceRule : undefined, baseTrack.voiceRule
+    );
+    if (rule) track.voiceRule = rule;
     if (shape.tuned) {
       track.dissonance = sanitiseRangeValue(partial && partial.dissonance, 0, 1)
         ?? sanitiseRangeValue(baseTrack.dissonance, 0, 1)
@@ -4623,6 +4672,10 @@ export function createEngine(initialParams, options = {}) {
   // v0.0.162 (his 128 a): the section's draw from a track's voiceWeights —
   // ephemeral like the wander; getParams keeps reporting the user's config.
   const sectionVoice = new Map();   // track → the voice this section drew
+  // v0.0.195: the voice the track's RULE drew (ephemeral like the wander, so
+  // getParams keeps reporting the pick — Now — and the resolved view the draw).
+  const ruleVoice = new Map();
+  const pieceDrawPending = new Set(); // tracks whose 'piece' rule may draw at bar 0
   // Per-kind patch merges (v14 kit), by `${track}:${voice}:${kind}`.
   const kindPatches = new Map();
   // The same merges with every v7 range resolved to a number, thrown away each
@@ -5737,9 +5790,62 @@ export function createEngine(initialParams, options = {}) {
    */
   function effectiveVoice(track) {
     const config = params.tracks[track];
-    return wanderedVoice.get(track)
+    return ruleVoice.get(track)
+      ?? wanderedVoice.get(track)
       ?? sectionVoice.get(track)
       ?? (config ? config.voice : undefined);
+  }
+
+  // -- v0.0.195: the voice rule ----------------------------------------------
+  function voiceRuleFor(track) {
+    const config = params.tracks[track];
+    return config && config.voiceRule ? config.voiceRule : null;
+  }
+
+  /** The chance a redraw fires at this `when`: explicit, or the old wander law. */
+  function ruleChance(track, rule) {
+    return rule.chance === null
+      ? clamp(VOICE_WANDER_CHANCE * varyAmount(track, 'voice'), 0, 1)
+      : rule.chance;
+  }
+
+  /** One draw from the rule's pool: by weight among the OTHER voices, or the next in turn. */
+  function drawFromRule(track, rule) {
+    const bank = voiceBank(track) || {};
+    const pool = rule.pool.filter((entry) => bank[entry.id]);
+    if (!pool.length) return null;
+    const current = effectiveVoice(track);
+    if (rule.order === 'turn') {
+      const at = pool.findIndex((entry) => entry.id === current);
+      return pool[(at + 1) % pool.length].id;
+    }
+    // By weight draws from the WHOLE pool, the current voice included — the
+    // law the blend always had, so a 9:1 pool mostly stays where it is.
+    const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
+    let at = rng() * total;
+    let drawn = pool[pool.length - 1].id;
+    for (const entry of pool) {
+      at -= entry.weight;
+      if (at <= 1e-12) { drawn = entry.id; break; }
+    }
+    return drawn;
+  }
+
+  /** Apply a rule draw; true when the sounding voice changed. */
+  function takeRuleDraw(track, drawn) {
+    if (!drawn || drawn === effectiveVoice(track)) return false;
+    if (drawn === params.tracks[track].voice) ruleVoice.delete(track);
+    else ruleVoice.set(track, drawn);
+    return true;
+  }
+
+  /** A rule's draw at one of its moments; true when the voice changed. */
+  function ruleMoment(track, rule, when) {
+    if (rule.when !== when) return false;
+    const p = ruleChance(track, rule);
+    if (p <= 0) return false;
+    if (p < 1 && rng() >= p) return false;
+    return takeRuleDraw(track, drawFromRule(track, rule));
   }
 
   /**
@@ -5748,10 +5854,20 @@ export function createEngine(initialParams, options = {}) {
    * rides the engine's own rng in bar order); a track with no blend spends no
    * draw, so every piece stored before this behaves to the byte.
    */
-  function drawSectionVoices(time) {
+  function drawSectionVoices(time, only = null) {
     let changed = false;
     for (const name of trackOrder()) {
+      if (only && !only.has(name)) continue;
       const config = params.tracks[name];
+      // v0.0.195: a track with a rule follows the rule and nothing else — the
+      // blend below is what a rule-less voiceWeights still means.
+      const rule = voiceRuleFor(name);
+      if (rule) {
+        if (sectionVoice.delete(name)) changed = true;
+        if (wanderedVoice.delete(name)) changed = true;
+        if (ruleMoment(name, rule, 'section')) changed = true;
+        continue;
+      }
       const weights = config && config.voiceWeights;
       if (!weights) {
         if (sectionVoice.delete(name)) changed = true;
@@ -5802,8 +5918,20 @@ export function createEngine(initialParams, options = {}) {
    */
   function wanderVoices(time) {
     let changed = false;
+    // v0.0.195: a once-per-piece draw is bar 0's; a track off or held then
+    // does not get it later, or "once per piece" would mean "when it first
+    // comes on".
+    if (currentBarNumber > 0) pieceDrawPending.clear();
     for (const name of trackOrder()) {
       if (params.tracks[name].state === 'off' || held.has(name)) continue;
+      // v0.0.195: the rule, when there is one, is the whole voice policy.
+      const rule = voiceRuleFor(name);
+      if (rule) {
+        if (wanderedVoice.delete(name)) changed = true;
+        if (ruleMoment(name, rule, 'bar')) changed = true;
+        if (pieceDrawPending.delete(name) && ruleMoment(name, rule, 'piece')) changed = true;
+        continue;
+      }
       // v0.0.162: a track with an authored voice blend has STATED its voice
       // policy — the anti-monotony wander stands down for it entirely (before
       // any draw, so blend-free pieces keep their exact streams).
@@ -5862,6 +5990,7 @@ export function createEngine(initialParams, options = {}) {
     activeSequencer.delete(name);
     sequencerPlayed.delete(name);
     wanderedVoice.delete(name);
+    ruleVoice.delete(name);
     sectionVoice.delete(name);
     monoNotes.delete(name);
     noteTimes.delete(name);
@@ -9042,8 +9171,12 @@ export function createEngine(initialParams, options = {}) {
       loopCapture.clear();
       loopRecord = null;
       // The voice wander is ephemeral: a new performance starts on the voices
-      // the user actually selected.
+      // the user actually selected. v0.0.195: so is a rule's draw, and a
+      // rule that redraws per piece gets its one chance at bar 0.
       wanderedVoice.clear();
+      ruleVoice.clear();
+      pieceDrawPending.clear();
+      for (const name of trackOrder()) if (voiceRuleFor(name)) pieceDrawPending.add(name);
       noteTimes.clear();
       statsStart = ctx.currentTime;
       delayTarget = 0;
@@ -9138,18 +9271,22 @@ export function createEngine(initialParams, options = {}) {
       && typeof partial.tracks === 'object' ? partial.tracks : null;
     if (!tracks) return;
     let blendTouched = false;
+    const touched = new Set(); // v0.0.195: only THESE tracks re-draw below
     for (const name of trackOrder()) {
       const track = tracks[name] && typeof tracks[name] === 'object' ? tracks[name] : null;
       if (track && 'voice' in track) wanderedVoice.delete(name);
       // v0.0.162: touching a blend (or the explicit voice under one) drops
       // the section's draw for that track and re-draws below, so the edit is
-      // audible now rather than a section away.
-      if (track && ('voiceWeights' in track || 'voice' in track)) {
+      // audible now rather than a section away. v0.0.195: the rule likewise —
+      // Chance to 0 is heard on the next note, not the next section.
+      if (track && ('voiceWeights' in track || 'voice' in track || 'voiceRule' in track)) {
         sectionVoice.delete(name);
+        ruleVoice.delete(name);
         blendTouched = true;
+        touched.add(name);
       }
     }
-    if (blendTouched && isRunning) drawSectionVoices(null);
+    if (blendTouched && isRunning) drawSectionVoices(null, touched);
   }
 
   function setParams(partial) {

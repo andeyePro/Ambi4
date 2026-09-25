@@ -986,11 +986,42 @@ found four reasons, all of them now closed on the Node gate
       it: the piece STARTS (no separate Play) and the bass plays those notes
       from the first bar. Hover Write it: its tooltip names the bass grid, not
       the melody grid.
-- [ ] On laptop speakers the blank bass is audible: it is a sine with a
-      low-passed saw under it now, not a bare 65 Hz sine.
+- [ ] On laptop speakers the blank bass is audible: one triangle oscillator,
+      filter open, instead of a bare 65 Hz sine.
 - [ ] Pick Synthwave and press Play: the transport line reads "Bass enters in
       1 bar · Melody enters in 2 bars …" and the entries drop off as each track
       comes in. A hand-written track is never listed.
-- [ ] Automated: `npm run build && node tests/all.mjs` — 25 suites, including
-      blank-slate-sounds. Stock genres and every stored piece are unchanged:
+- [ ] Automated: `npm run build && node tests/all.mjs` — blank-slate-sounds is
+      the gate; the browser drive is `tests/pending/blank-slate-first-minute-drive.mjs`. Stock genres and every stored piece are unchanged:
       a sequencer only carries `hand` when a person wrote it.
+
+## v0.0.195 delta — the voice rule, the first Now / Chance / Pool (2026-09-25)
+
+His report: "when I try to stop Melody's Organ Stab – there is no way – it
+just picks an instrument from that dropdown and plays it then picks another".
+Gated at the engine by `tests/voice-rule-smoke.mjs`; the browser drive is
+owed to the bridge key (fromClaude 13).
+
+- [ ] Synthwave, Advanced, open the Melody editor: the Randomise row's first
+      knob is now Voice chance, with an "each bar / each section / each piece"
+      selector and a Pool… button beside it. Turn Voice chance to the bottom:
+      it reads Hold, the melody stays on Keys for the rest of the piece, and
+      the picker shows plain Keys (no "· wandering").
+- [ ] Press Next: a fresh Synthwave piece, and the melody is STILL Keys, still
+      held. Raise Voice chance: the picker reads "Keys · drawn" and the voice
+      moves at the rate you set, at the moment you chose.
+- [ ] Pool…: remove Organ stab (×), reorder with ▲▼, add a voice from the
+      list, choose In turn, Done. The melody now steps through your list in
+      order; Organ stab never sounds. No pool sets Hold.
+- [ ] Pick any voice in the picker while a rule is drawing: it holds (Chance
+      reads Hold); the pool is kept for when you raise Chance again.
+- [ ] A piece saved before v0.0.195, or any stock genre at its defaults, sounds
+      exactly as before — the maths says byte-identical (the engine suites
+      hold the streams); your ear is the check the maths cannot be.
+- [ ] Blank slate: every track's Voice chance reads Hold and its pool is empty.
+- [ ] Automated: `npm run build && node tests/all.mjs` — 27 suites, including
+      voice-rule-smoke (the engine: 8 checks, 6 red on the old engine) and
+      voice-rule-page (the built page in jsdom: the knob to Hold, 8 bars on
+      Keys, Next keeps it, the Pool editor, When, "· drawn", a pick holds,
+      Blank slate zeroes). Browser drives parked in `tests/pending/`:
+      blank-slate-first-minute-drive and voice-rule-drive (fromClaude 13).

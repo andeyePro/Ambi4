@@ -2319,4 +2319,32 @@ scheduled note recorded: the grid path and the typed path each schedule a bass
 and a melody note within one bar of the transport starting, with the pitches
 entered). Ruling 7 (bar 0 is pad alone, a forced-on track waits its turn)
 still governs every generated track and every stored piece; whether it should
-also hold for a hand-written line inside a genre is asked in fromClaude.
+also hold for a hand-written line inside a genre is asked in fromClaude. The Blank slate bass
+opens on one oscillator with the filter open (his 117), a triangle rather than a
+sine so a laptop speaker can carry it; fromClaude 21 asks him to bless the shape.
+
+## The voice rule — the first Now / Chance / Pool (v0.0.195)
+
+Module ownership: **the engine** (`sanitiseVoiceRule`; `tracks[t].voiceRule =
+{ chance, when, pool, order }`, sparse — present only when set, so every stored
+piece reads back byte-equal; `chance` 0..1 or null = follow Randomness at the
+old wander factor; `when` bar | section | piece; `pool` an ordered list of
+`{ id, weight }`; `order` weight | turn. With a rule, `wanderVoices` and
+`drawSectionVoices` follow it and nothing else: at each `when` a draw fires
+with probability `chance` and picks from the whole pool by weight (the
+current voice included, the law the blend always had), or the next in turn; the draw is ephemeral like the wander, so
+`getParams` reports the pick — Now — and `getResolved` the sounding voice.
+Touching the rule or the pick drops that track's draw at once, and only that track's. A track with no rule
+keeps the pre-v0.0.195 wander and blend to the byte) and **the page** (the
+Randomise row's Voice knob is the rule's Chance, with a When selector and a
+Pool… button beside it; the Pool editor edits order, weights, membership and
+the order law; a legacy `voiceWeights` becomes a pool with Chance 1 per
+section the first time it is touched; an explicit pick in the voice picker
+holds the rule; Next keeps every rule at Chance 0 and the pick under it;
+Blank slate writes Chance 0 and an empty pool on every track; Save as my
+genre carries each track's rule in `instrumentation.perTrack`). Gated by
+`tests/voice-rule-smoke.mjs` at the engine (Synthwave's melody held on Keys
+for 64 bars at Randomness 1 with Organ stab out of the pool, across three
+fresh compiles; Chance 1 draws only from the pool; In turn walks the pool;
+the legacy blend and the legacy wander unchanged), red on the old engine
+for every rule test.

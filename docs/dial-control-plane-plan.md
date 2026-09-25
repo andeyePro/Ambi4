@@ -427,7 +427,37 @@ this programme, not a parallel one.
   that feels wrong on a trackpad will feel wrong differently on a touchscreen;
   budget a tuning pass rather than a single guess.
 
-## 5. Open decisions
+## 5. The one logic every rule follows — Now / Chance / Pool (owner ruling 2026-09-25)
+
+Every decision the engine makes for the person is ONE control with three
+layers, always in this order and always with these names:
+
+- **Now** — the value playing, editable. For a number, the dial; for a
+  choice, the picker.
+- **Chance** — a dial from 0 to 1: 0 holds Now for good, up lets it redraw,
+  with a *When* of bar, section or piece. For a number, Chance is the walk
+  inside its spread; for a choice it is a probability per When.
+- **Pool** — an ordered, weighted list of what a redraw may pick from, *by
+  weight* or *in turn*. For a number the pool is the min–max spread; for a
+  choice it is a weighted row list.
+
+Disclosure is a global level plus in-place expand: Simple shows Now,
+Advanced adds Chance, Expert adds Pool, and any control opens a layer in
+place the way a spread opens on a dial. Chance 0 means yours: Next keeps a
+held rule and redraws the rest. Blank slate is every rule at Now zeroed,
+Chance 0, Pool empty (his item 96).
+
+**Shipped first (v0.0.195): the voice rule.** `tracks[t].voiceRule` — the
+picker is Now, the Randomise row's Voice knob is Chance (with When and Pool…
+beside it), the Pool editor is the pool. It retires the hidden wander law
+(p = 0.25 × Randomness per bar over every other voice) and the Blend voices
+editor of his 128 a into the same three layers, with an exact migration so
+no stored piece moves. Built inside index.astro as a one-off; the shared
+primitive every later rule must use is the next TODO item under
+"Reconstructible Ambi4", so the logic holds by construction rather than by
+review.
+
+## 6. Open decisions
 
 None outstanding. Envelope ownership is settled (D6, per voice). The remaining
 judgement call is the registry's path naming and the graph's serialisation

@@ -4317,7 +4317,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (engineCaps.voiceBlend && voiceSelect.options.length > 1) {
           const blend = document.createElement('option');
           blend.value = VOICE_BLEND_VALUE;
-          blend.textContent = 'Blend voices…';
+          blend.textContent = 'Pool of voices…';
           voiceSelect.append(blend);
         }
         syncMyVoicesGroup(id);
@@ -4339,9 +4339,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           delete settings.tracks[id].userVoice;
           settings.tracks[id].voice = voiceSelect.value;
           // v0.0.163: an explicit pick ends the blend, exactly as it ends the
-          // wander — the title on the live option says so.
+          // wander — the title on the live option says so. v0.0.195: under a
+          // rule, a pick is a HOLD (Chance 0): the pool stays, ready to be
+          // raised again in the editor.
           delete settings.tracks[id].voiceWeights;
-          engine.setParams({ tracks: { [id]: { voice: voiceSelect.value, voiceWeights: null } } });
+          const held = isPlainObject(settings.tracks[id].voiceRule)
+            ? { ...settings.tracks[id].voiceRule, chance: 0 }
+            : null;
+          if (held) settings.tracks[id].voiceRule = held;
+          engine.setParams({ tracks: { [id]: { voice: voiceSelect.value, voiceWeights: null, ...(held ? { voiceRule: held } : {}) } } });
           persistSettings();
           soundingVoice.delete(id);
           refreshVoiceSelect(id);
@@ -4425,11 +4431,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const patch = structuredClone(mine.patch);
         settings.tracks[track].voice = mine.voice;
         delete settings.tracks[track].voiceWeights;
+        // v0.0.195: a pick holds the rule, your own voice or a stock one.
+        const heldRule = isPlainObject(settings.tracks[track].voiceRule)
+          ? { ...settings.tracks[track].voiceRule, chance: 0 }
+          : null;
+        if (heldRule) settings.tracks[track].voiceRule = heldRule;
         settings.tracks[track].userVoice = { id: mine.id, name: mine.name };
         if (!isPlainObject(settings.patches[track])) settings.patches[track] = {};
         settings.patches[track][mine.voice] = patch;
         engine.setParams({
-          tracks: { [track]: { voice: mine.voice, voiceWeights: null } },
+          tracks: { [track]: { voice: mine.voice, voiceWeights: null, ...(heldRule ? { voiceRule: heldRule } : {}) } },
           patches: { [track]: { [mine.voice]: structuredClone(patch) } },
         });
         persistSettings();
@@ -6267,6 +6278,75 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return Math.round(raw) <= 0 ? null : varyPct(raw);
       };
 
+      /** v0.0.195: every voice this track can play, in bank order. */
+      function voiceBankIds(track) {
+        const select = document.getElementById(`track-voice-${track}`);
+        return select
+          ? [...select.options].map((o) => o.value).filter((v) => v && !v.startsWith('__') && !v.startsWith(USER_VOICE_VALUE_PREFIX))
+          : [settings.tracks[track].voice];
+      }
+
+      /** The rule this track would have: its own, or one made from the legacy blend or the bank. Pure. */
+      function deriveVoiceRule(track) {
+        const t = settings.tracks[track];
+        if (isPlainObject(t.voiceRule)) return structuredClone(t.voiceRule);
+        const weights = isPlainObject(t.voiceWeights) ? t.voiceWeights : null;
+        const pool = weights
+          ? Object.entries(weights).filter(([, w]) => w > 0).map(([id, w]) => ({ id, weight: w }))
+          : voiceBankIds(track).map((id) => ({ id, weight: 1 }));
+        return { chance: weights ? 1 : null, when: weights ? 'section' : 'bar', pool, order: 'weight' };
+      }
+
+      /** The track's voice rule, written into settings if it had none (the blend it replaces is dropped). */
+      function ensureVoiceRule(track) {
+        const t = settings.tracks[track];
+        if (!isPlainObject(t.voiceRule)) {
+          t.voiceRule = deriveVoiceRule(track);
+          delete t.voiceWeights;
+        }
+        return t.voiceRule;
+      }
+
+      function commitVoiceRule(track) {
+        const rule = settings.tracks[track].voiceRule;
+        engine.setParams({ tracks: { [track]: { voiceRule: isPlainObject(rule) ? structuredClone(rule) : null, voiceWeights: null } } });
+        persistSettings();
+        soundingVoice.delete(track);
+        refreshVoiceSelect(track);
+      }
+
+      /** The When selector and the Pool button, beside the Voice chance knob. */
+      function appendVoiceRuleControls(cells, track) {
+        const wrap = document.createElement('div');
+        wrap.className = 'vary-knob voice-rule-controls';
+        const when = document.createElement('select');
+        when.className = 'genre-select voice-rule-when';
+        when.id = `voice-rule-when-${track}`;
+        when.setAttribute('aria-label', `${TRACK_LABELS[track]} voice chance: when`);
+        for (const [value, text] of [['bar', 'each bar'], ['section', 'each section'], ['piece', 'each piece']]) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = text;
+          when.append(option);
+        }
+        const stored = settings.tracks[track].voiceRule;
+        when.value = isPlainObject(stored) ? stored.when : 'bar';
+        when.addEventListener('change', () => {
+          ensureVoiceRule(track).when = when.value;
+          commitVoiceRule(track);
+        });
+        describe(when, 'When the voice may be redrawn: at every bar, at every new section, or once per piece.');
+        const pool = document.createElement('button');
+        pool.type = 'button';
+        pool.className = 'secondary-button voice-rule-pool';
+        pool.id = `voice-rule-pool-${track}`;
+        pool.textContent = 'Pool…';
+        pool.addEventListener('click', () => openBlendEditor(track));
+        describe(pool, 'The voices a redraw may pick from, in order and weighted: add, remove, reorder, and choose by weight or in turn.');
+        wrap.append(when, pool);
+        cells.append(wrap);
+      }
+
       function buildVaryRow(container, track, knobs) {
         if (!engineCaps.vary[track]) return;
         const row = document.createElement('div');
@@ -6279,17 +6359,36 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         row.append(title, cells);
         container.append(row);
 
-        for (const [key, label] of VARY_KEYS) {
+        // v0.0.195: with a rule, the Voice knob's 0 reads "Hold", not "0%".
+        for (const [key, label] of VARY_KEYS.map(([k, l]) => [k, k === 'voice' ? 'Voice chance' : l])) {
           const commitVary = (value) => {
             settings.tracks[track].vary[key] = value;
-            engine.setParams({ tracks: { [track]: { vary: { [key]: value } } } });
+            const partial = { vary: { [key]: value } };
+            // v0.0.195: the Voice knob is the voice rule's CHANCE — the first
+            // Now / Chance / Pool. Auto (null) follows Randomness at the old
+            // wander law; 0 holds the pick for good. The pool, if none was
+            // built, is every voice this track can play, in bank order.
+            if (key === 'voice') {
+              const chance = value === null ? null : (isPlainObject(value) ? rangeMid(value) : value);
+              const rule = ensureVoiceRule(track);
+              rule.chance = chance === null ? null : clamp(Number(chance) || 0, 0, 1);
+              // A Blank slate track has an empty pool: raising Chance on it
+              // means "let it move", so the pool is the bank until you edit it.
+              if (rule.chance !== 0 && !rule.pool.length) rule.pool = voiceBankIds(track).map((id) => ({ id, weight: 1 }));
+              partial.voiceRule = structuredClone(rule);
+              refreshVoiceSelect(track);
+            }
+            engine.setParams({ tracks: { [track]: partial } });
             persistSettings();
           };
-          const raw = varyRawFromValue(settings.tracks[track].vary[key]);
+          const stored = key === 'voice' && isPlainObject(settings.tracks[track].voiceRule)
+            ? settings.tracks[track].voiceRule.chance
+            : settings.tracks[track].vary[key];
+          const raw = varyRawFromValue(stored);
           // Which shape the value currently has, so the readout can tell the
           // Auto detent (single mode, raw 0) from a range whose min thumb
           // happens to be sitting at the bottom of the scale (0%).
-          let ranged = isPlainObject(settings.tracks[track].vary[key]);
+          let ranged = isPlainObject(stored);
           let built = false;
           if (knobApi) {
             const cell = document.createElement('div');
@@ -6303,7 +6402,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 step: 1,
                 value: raw,
                 marks: [0],
-                format: (v) => (ranged ? pctFormat(varyPct(Math.max(1, v))) : varyFormat(v)),
+                format: (v) => (ranged ? pctFormat(varyPct(Math.max(1, v))) : key === 'voice' && Math.round(v) === 1 ? 'Hold' : varyFormat(v)),
                 allowRange: true,
                 // DEFAULTS.tracks[*].vary is all-null (the Auto detent, raw 0)
                 // for every track/key — dblclick returns to "follows Randomness".
@@ -6316,7 +6415,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               });
               describe(
                 handle.el,
-                `How much ${TRACK_LABELS[track]}'s ${label.toLowerCase()} varies. At the left detent it follows this track's Randomness dial; anywhere else overrides it.`
+                key === 'voice'
+                  ? `Voice chance: how likely ${TRACK_LABELS[track]} is to move to another voice from its pool, at each bar, section or piece (choose which beside it). 0 holds the voice you picked for good; at the left detent it follows this track's Randomness dial.`
+                  : `How much ${TRACK_LABELS[track]}'s ${label.toLowerCase()} varies. At the left detent it follows this track's Randomness dial; anywhere else overrides it.`
               );
               if (knobs) knobs.push(handle);
               built = true;
@@ -6358,6 +6459,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             wrap.append(lrow, input);
             cells.append(wrap);
           }
+          if (key === 'voice') appendVoiceRuleControls(cells, track);
         }
       }
 
@@ -7221,7 +7323,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
       }
 
-      function commitSequencer(track) {
+      function commitSequencer(track, { tapped = false } = {}) {
         const t = settings.tracks[track];
         t.sequencer = t.sequencers[0];
         // v0.0.194 (the Blank slate first minute): a step tapped on the grid of
@@ -7232,7 +7334,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // Blank slate then tapping steps was silence forever: the lit cells
         // reached the engine and the Off state stopped them at the door.
         let switchedOn = false;
-        if (t.state === 'off' && sequencersHaveSteps(t.sequencers)) {
+        if (tapped && t.state === 'off' && sequencersHaveSteps(t.sequencers)) {
           t.state = 'on';
           for (const seq of t.sequencers) if (seq && seq.mode === 'manual') seq.hand = true;
           switchedOn = true;
@@ -7266,7 +7368,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         engine.setParams(partial);
         persistSettings();
         if (switchedOn) {
-          setTrackState(track, 'on');
+          // The state went in the payload above; this is the UI's half of
+          // setTrackState, without sending it twice.
+          stateControls.get(track)?.set('on');
+          syncTrackOffIndicator(track);
+          updateComplexityDisplay();
+          updateScopeMode(track);
+          updateFrontScope();
           const tip = document.getElementById('guided-tip');
           if (tip) tip.textContent = `${TRACK_LABELS[track] || track} switched on: a step you tap plays.`;
         }
@@ -8171,10 +8279,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         function wireCell(li, i, cell, probEl, bandTop, dot) {
           const getStep = () => laneSteps(lanes[li])[i];
-          const commit = () => {
+          const commit = (opts) => {
             updateCell(li, i);
             applyTieSpans(li);
-            commitSequencer(track);
+            commitSequencer(track, opts);
           };
 
           // v0.0.145: the dots are wired per group slot in wireDots — a single
@@ -8309,12 +8417,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               cell.removeEventListener('pointermove', onMove);
               cell.removeEventListener('pointerup', up);
               cell.removeEventListener('pointercancel', cancel);
+              let tapped = false;
               if (!gesture && toggleOnTap) {
                 const s = getStep();
                 s.on = !s.on;
+                tapped = s.on; // a step switched ON by a tap is what wakes a silent track
                 updateCell(li, i);
               }
-              commitSequencer(track);
+              commitSequencer(track, { tapped });
             };
             const up = finish(true);
             const cancel = finish(false);
@@ -8362,7 +8472,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               s.on = !s.on;
-              commit();
+              commit({ tapped: s.on });
             } else if (e.key === 't' || e.key === 'T') {
               // Keyboard equivalent of the sideways tie drag.
               e.preventDefault();
@@ -13111,15 +13221,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const select = document.getElementById(`track-voice-${track}`);
         if (!select || !settings.tracks[track]) return;
         const voices = [...select.options]
-          .filter((o) => o.value && o.value !== VOICE_LIVE_VALUE && o.value !== VOICE_BLEND_VALUE)
+          .filter((o) => o.value && o.value !== VOICE_LIVE_VALUE && o.value !== VOICE_BLEND_VALUE && !o.value.startsWith(USER_VOICE_VALUE_PREFIX))
           .map((o) => ({ id: o.value, label: o.textContent }));
         if (voices.length < 2) return;
-        const stored = settings.tracks[track].voiceWeights;
-        const weights = new Map(voices.map((v) => [v.id,
-          isPlainObject(stored) && Number.isFinite(stored[v.id])
-            ? clamp(Math.round(stored[v.id]), 0, 10)
-            : (!isPlainObject(stored) && v.id === settings.tracks[track].voice ? 1 : 0),
-        ]));
+        const labelOf = (id) => voices.find((v) => v.id === id)?.label || id;
+        // v0.0.195: the editor edits the rule's POOL — an ordered, weighted
+        // list — and its order law. A legacy blend arrives as a pool of its
+        // weights (ensureVoiceRule); a track with neither starts on its pick.
+        // A copy until Done: Cancel must leave settings and the engine exactly
+        // as they were, blend included.
+        const rule = deriveVoiceRule(track);
+        const rows = rule.pool.filter((entry) => voices.some((v) => v.id === entry.id)).map((entry) => ({ ...entry }));
+        let order = rule.order;
         const panel = document.createElement('div');
         panel.className = 'module-panel blend-editor';
         panel.id = 'voice-blend-editor';
@@ -13128,36 +13241,106 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const title = document.createElement('span');
         title.className = 'panel-label popover-title';
         title.id = 'voice-blend-title';
-        title.textContent = `Blend — ${TRACK_LABELS[track] || track}`;
+        title.textContent = `Pool — ${TRACK_LABELS[track] || track}`;
         panel.append(title);
         const hint = document.createElement('p');
         hint.className = 'hint';
         hint.textContent =
-          'Give each voice a weight: every new section draws the sounding voice '
-          + 'from them. 0 leaves a voice out; a single nonzero weight is simply '
-          + 'that voice. Your voice pick stays as it is underneath.';
+          'The voices a redraw may pick from. By weight draws one of the others '
+          + 'by these weights; in turn steps down the list. Voice chance in the '
+          + 'editor says how often; 0 holds what you picked.';
         panel.append(hint);
-        for (const v of voices) {
-          const row = document.createElement('div');
-          row.className = 'blend-row';
-          const label = document.createElement('label');
-          label.textContent = v.label;
-          label.htmlFor = `blend-weight-${track}-${v.id}`;
-          const input = document.createElement('input');
-          input.type = 'number';
-          input.id = `blend-weight-${track}-${v.id}`;
-          input.min = '0';
-          input.max = '10';
-          input.step = '1';
-          input.inputMode = 'numeric';
-          input.value = String(weights.get(v.id));
-          input.addEventListener('change', () => {
-            weights.set(v.id, clamp(Math.round(Number(input.value) || 0), 0, 10));
-            input.value = String(weights.get(v.id));
+        const list = document.createElement('div');
+        list.className = 'blend-rows';
+        panel.append(list);
+        const render = () => {
+          list.innerHTML = '';
+          rows.forEach((entry, index) => {
+            const row = document.createElement('div');
+            row.className = 'blend-row';
+            row.dataset.voice = entry.id;
+            const label = document.createElement('label');
+            label.textContent = labelOf(entry.id);
+            label.htmlFor = `blend-weight-${track}-${entry.id}`;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = `blend-weight-${track}-${entry.id}`;
+            input.min = '1';
+            input.max = '10';
+            input.step = '1';
+            input.inputMode = 'numeric';
+            input.value = String(clamp(Math.round(entry.weight), 1, 10));
+            input.title = 'Weight';
+            input.addEventListener('change', () => {
+              entry.weight = clamp(Math.round(Number(input.value) || 1), 1, 10);
+              input.value = String(entry.weight);
+            });
+            const up = document.createElement('button');
+            up.type = 'button';
+            up.className = 'secondary-button blend-move';
+            up.textContent = '▲';
+            up.setAttribute('aria-label', `Move ${labelOf(entry.id)} up`);
+            up.disabled = index === 0;
+            up.addEventListener('click', () => { rows.splice(index - 1, 0, rows.splice(index, 1)[0]); render(); });
+            const down = document.createElement('button');
+            down.type = 'button';
+            down.className = 'secondary-button blend-move';
+            down.textContent = '▼';
+            down.setAttribute('aria-label', `Move ${labelOf(entry.id)} down`);
+            down.disabled = index === rows.length - 1;
+            down.addEventListener('click', () => { rows.splice(index + 1, 0, rows.splice(index, 1)[0]); render(); });
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'secondary-button blend-remove';
+            remove.textContent = '×';
+            remove.setAttribute('aria-label', `Remove ${labelOf(entry.id)} from the pool`);
+            remove.addEventListener('click', () => { rows.splice(index, 1); render(); });
+            row.append(label, input, up, down, remove);
+            list.append(row);
           });
-          row.append(label, input);
-          panel.append(row);
+          const spare = voices.filter((v) => !rows.some((entry) => entry.id === v.id));
+          const addRow = document.createElement('div');
+          addRow.className = 'blend-row blend-add';
+          const add = document.createElement('select');
+          add.className = 'genre-select';
+          add.id = `blend-add-${track}`;
+          add.setAttribute('aria-label', 'Add a voice to the pool');
+          const first = document.createElement('option');
+          first.value = '';
+          first.textContent = spare.length ? 'Add a voice…' : 'Every voice is in';
+          add.append(first);
+          for (const v of spare) {
+            const option = document.createElement('option');
+            option.value = v.id;
+            option.textContent = v.label;
+            add.append(option);
+          }
+          add.disabled = !spare.length;
+          add.addEventListener('change', () => {
+            if (!add.value) return;
+            rows.push({ id: add.value, weight: 1 });
+            render();
+          });
+          addRow.append(add);
+          list.append(addRow);
+        };
+        render();
+        const orderRow = document.createElement('div');
+        orderRow.className = 'blend-order';
+        orderRow.setAttribute('role', 'radiogroup');
+        orderRow.setAttribute('aria-label', 'Draw order');
+        for (const [value, text] of [['weight', 'By weight'], ['turn', 'In turn']]) {
+          const lab = document.createElement('label');
+          const radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = `blend-order-${track}`;
+          radio.value = value;
+          radio.checked = order === value;
+          radio.addEventListener('change', () => { if (radio.checked) order = value; });
+          lab.append(radio, document.createTextNode(` ${text}`));
+          orderRow.append(lab);
         }
+        panel.append(orderRow);
         const actions = document.createElement('div');
         actions.className = 'blend-actions';
         const cancel = document.createElement('button');
@@ -13168,20 +13351,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const clear = document.createElement('button');
         clear.type = 'button';
         clear.className = 'secondary-button';
-        clear.textContent = 'No blend';
+        clear.textContent = 'No pool';
         clear.addEventListener('click', () => {
-          commitBlend(track, {});
+          rule.pool = [];
+          rule.chance = 0;
+          settings.tracks[track].voiceRule = rule;
+          delete settings.tracks[track].voiceWeights;
+          commitVoiceRule(track);
           closeBlendEditor();
+          renderVoiceEditorIfOpen(track);
         });
         const done = document.createElement('button');
         done.type = 'button';
         done.className = 'secondary-button';
         done.textContent = 'Done';
         done.addEventListener('click', () => {
-          const out = {};
-          for (const [id2, w] of weights) if (w > 0) out[id2] = w;
-          commitBlend(track, out);
+          rule.pool = rows.map((entry) => ({ id: entry.id, weight: entry.weight }));
+          rule.order = order;
+          // A pool built by hand with the knob still on Hold would never draw:
+          // a person who lists voices wants them heard, so Hold lifts to the
+          // old blend's law (every section) unless Chance was set on purpose.
+          if (rule.chance === 0 && rows.length > 1) {
+            rule.chance = 1;
+            if (rule.when === 'bar') rule.when = 'section';
+          }
+          settings.tracks[track].voiceRule = rule;
+          delete settings.tracks[track].voiceWeights;
+          commitVoiceRule(track);
           closeBlendEditor();
+          renderVoiceEditorIfOpen(track);
         });
         actions.append(cancel, clear, done);
         panel.append(actions);
@@ -13189,25 +13387,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (event.key === 'Escape') closeBlendEditor();
         });
         document.body.append(panel);
-        panel.querySelector('input')?.focus();
+        panel.querySelector('input, select, button')?.focus();
       }
-      function commitBlend(track, out) {
-        const ids = Object.keys(out);
-        if (ids.length >= 2) {
-          settings.tracks[track].voiceWeights = out;
-          engine.setParams({ tracks: { [track]: { voiceWeights: out } } });
-        } else {
-          delete settings.tracks[track].voiceWeights;
-          engine.setParams({ tracks: { [track]: { voiceWeights: null } } });
-          if (ids.length === 1) {
-            // One weight is not a blend — it is a choice, honoured as one.
-            settings.tracks[track].voice = ids[0];
-            engine.setParams({ tracks: { [track]: { voice: ids[0] } } });
-          }
-        }
-        persistSettings();
-        soundingVoice.delete(track);
-        refreshVoiceSelect(track);
+      function renderVoiceEditorIfOpen(track) {
+        const editor = document.getElementById(`voice-editor-${track}`);
+        if (editor && !editor.hidden) renderVoiceEditor(track);
       }
 
       /**
@@ -13228,7 +13412,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // v0.0.163: a blended track ALWAYS shows its live option — the drawn
         // voice with the state named — even in the sections where the draw
         // happens to land on the stored pick.
-        const blended = isPlainObject(settings.tracks[track].voiceWeights);
+        // v0.0.195: a rule with any chance of a redraw reads like a blend — the
+        // draw is named — and its title says where the dial is.
+        const rule = isPlainObject(settings.tracks[track].voiceRule) ? settings.tracks[track].voiceRule : null;
+        const trackRandomness = rangeMid(settings.tracks[track].randomness ?? 0);
+        const ruled = Boolean(rule && rule.pool.length > 1
+          && (rule.chance === null ? trackRandomness > 0 : rule.chance > 0));
+        const blended = isPlainObject(settings.tracks[track].voiceWeights) || ruled;
         let live = select.querySelector('.voice-live-option');
         // v0.0.182: a voice of the person's own reads as itself while its
         // dials stand where it saved them, and as "<name> · edited" once moved.
@@ -13269,15 +13459,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               ? `Custom (${engineType})`
               : 'Custom'
           : blended
-            ? `${voiceLabel(track, sounding)} · blend`
+            ? `${voiceLabel(track, sounding)} · ${ruled ? 'drawn' : 'blend'}`
             : wandering
               ? `${voiceLabel(track, sounding)} · wandering`
               : voiceLabel(track, sounding);
-        live.title = blended
-          ? 'Several voices share this track by weight; each new section draws one. Blend voices… changes the weights; picking a voice ends the blend.'
-          : wandering
-            ? 'The generator wandered onto this voice for variety — your own choice is unchanged, and picking any voice ends the wander at once.'
-            : '';
+        live.title = ruled
+          ? 'This track draws its voice by its rule — Voice chance and its pool, in the Randomise row of its editor. Chance 0 holds it; picking a voice holds it too.'
+          : blended
+            ? 'Several voices share this track by weight; each new section draws one. Pool of voices… changes the weights; picking a voice ends the blend.'
+            : wandering
+              ? 'The generator wandered onto this voice for variety (Voice chance in its editor follows Randomness) — your own choice is unchanged, and picking any voice holds it at once.'
+              : '';
         if (live.textContent !== text) live.textContent = text;
         live.selected = true;
       }
@@ -13827,6 +14019,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const compiled = compileGenreParams(genre, seed);
         if (!compiled) return false;
         const next = settingsFromGenre(compiled, genre.slug);
+        // v0.0.195 (owner ruling): Chance 0 means yours — Next keeps a held
+        // voice rule and the pick under it, and redraws everything else.
+        for (const id of Object.keys(next.tracks || {})) {
+          const mine = settings.tracks?.[id];
+          if (!isPlainObject(mine) || !isPlainObject(mine.voiceRule) || mine.voiceRule.chance !== 0) continue;
+          if (!isPlainObject(next.tracks[id])) continue;
+          next.tracks[id].voiceRule = structuredClone(mine.voiceRule);
+          if (typeof mine.voice === 'string') next.tracks[id].voice = mine.voice;
+          delete next.tracks[id].voiceWeights;
+        }
         // The SEED is the half of the provenance that was being thrown away.
         // `settings.genre` said which genre; nothing said which compile, and
         // one genre has as many bases as there are seeds.
@@ -13999,6 +14201,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               voice: typeof spec.voice === 'string' ? spec.voice : null,
               level: spanOf(spec.level),
               randomness: spanOf(spec.randomness),
+              // v0.0.195: a filed voice rule rides through the form untouched.
+              voiceRule: isPlainObject(spec.voiceRule) ? structuredClone(spec.voiceRule) : null,
             }];
           })),
         };
@@ -14567,6 +14771,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (spec.voice) out.voice = spec.voice;
             if (spec.level) out.level = spanBack(spec.level);
             if (spec.randomness) out.randomness = spanBack(spec.randomness);
+            if (isPlainObject(spec.voiceRule)) out.voiceRule = structuredClone(spec.voiceRule);
             return [id, out];
           })),
           progressionGrammar: m.progressionGrammar
@@ -14932,6 +15137,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         mine.madeFrom = base;
         mine.cluster = genre.cluster;
         mine.oneLiner = `Your own, made from ${genreBySlug(base)?.name || base}.`;
+        // v0.0.195: each track's voice rule is the genre's now, held or not.
+        for (const id of TRACK_IDS) {
+          const rule = settings.tracks?.[id]?.voiceRule;
+          if (!isPlainObject(rule)) continue;
+          mine.essence.instrumentation = isPlainObject(mine.essence.instrumentation) ? mine.essence.instrumentation : {};
+          const per = isPlainObject(mine.essence.instrumentation.perTrack) ? mine.essence.instrumentation.perTrack : {};
+          per[id] = { ...(isPlainObject(per[id]) ? per[id] : {}), voiceRule: structuredClone(rule) };
+          mine.essence.instrumentation.perTrack = per;
+        }
         // The sound: the patches set on this device are the genre's now.
         if (isPlainObject(settings.patches) && Object.keys(settings.patches).length) {
           mine.essence.instrumentation = isPlainObject(mine.essence.instrumentation) ? mine.essence.instrumentation : {};
@@ -16249,7 +16463,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line you type starts playing at once): start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. And the derivation runs the other way too: Fit chords to the tune reads whatever tune an instrument already carries \u2014 typed, sung, imported or drawn \u2014 and writes the chord loop that fits it, notes on the beat deciding each bar\u2019s chord and notes between passing.'
+              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing): start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. And the derivation runs the other way too: Fit chords to the tune reads whatever tune an instrument already carries \u2014 typed, sung, imported or drawn \u2014 and writes the chord loop that fits it, notes on the beat deciding each bar\u2019s chord and notes between passing.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -16672,16 +16886,29 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // "Write it" then silence, with Play three controls away, was the
           // first thing he reported. A paused piece is left paused: Resume is
           // the person's own decision.
-          const startedNow = !engine.running && !paused;
-          if (startedNow) startPlayback().catch(() => {});
           if (guidedTip) {
             guidedTip.textContent =
               `${TRACK_LABELS[target] || target} written: ${written} note${written === 1 ? '' : 's'} across ` +
               `${bars.length} bar${bars.length === 1 ? '' : 's'}` +
               (bars.length > 1 ? ' (played in order)' : '') +
               (dropped.length ? ` — dropped: ${dropped.join(' ')} (eight bars is the cap)` : '') +
-              (startedNow ? ' — playing now.' : ' — it plays from the next bar.');
+              (engine.running ? ' — it plays from the next bar.' : '.');
           }
+          startAfterWriting();
+        }
+
+        /**
+         * v0.0.194: a typed line starts the piece if nothing is playing —
+         * "Write it" then silence, with Play three controls away, was the
+         * first thing he reported. A paused piece is left paused: Resume is
+         * the person's own decision. The tip says "playing now" only once the
+         * engine reports it is, never before the start is known.
+         */
+        function startAfterWriting() {
+          if (engine.running || paused) return;
+          startPlayback().then(() => {
+            if (engine.running && guidedTip) guidedTip.textContent = guidedTip.textContent.replace(/\.?$/, '') + ' — playing now.';
+          }).catch(() => {});
         }
 
         // v0.0.148 — his 116, the third compose method, in his own words:
@@ -16851,6 +17078,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               + (dropped ? ' Some lines did not fit: eight bars is the cap.' : '')
               + ' Every note is an ordinary step — drag any note the words got wrong.';
           }
+          startAfterWriting();
         }
 
         wordsWrite?.addEventListener('click', () => { writeTypedWords(); });
@@ -17038,6 +17266,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               + (bars.length > 1 ? ' (played in order)' : '')
               + (dropped.length ? ` — dropped: ${dropped.join(' ')}.` : '.');
           }
+          startAfterWriting();
         }
 
         beatWrite?.addEventListener('click', writeTypedBeat);
@@ -17191,6 +17420,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (typeof engine.entryBar !== 'function' || !Number.isFinite(bar)) return;
         const bits = [];
         for (const id of TRACK_IDS) {
+          // Only a track switched ON is promised: an Auto track may stay out
+          // after its turn (the section and the ladder decide), and the line
+          // must not claim what the engine may not do.
+          if (settings.tracks[id]?.state !== 'on') continue;
           const at = engine.entryBar(id);
           if (at === null || !(bar < at)) continue;
           const left = at - bar;
@@ -17678,21 +17911,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const t = blank.tracks[track];
           t.state = 'off';
           t.randomness = 0;
+          // v0.0.195: the voice rule zeroed too — Chance 0, Pool empty — so a
+          // blank track keeps whatever voice you give it (his 96: everything
+          // zeroed).
+          delete t.voiceWeights;
+          t.voiceRule = { chance: 0, when: 'bar', pool: [], order: 'weight' };
           if (typeof t.voice === 'string') {
             // The kit keeps its authored sound and loses only its sends; every
             // tuned track opens on the init patch above.
-            // v0.0.194: the bass carries one harmonic above its fundamental —
-            // a saw under the sine, low-passed — because a bare 65 Hz sine is
-            // below what a laptop or phone speaker can reproduce, so a blank
-            // bass line "did nothing" on exactly the machines he tries it on.
+            // v0.0.194: the bass opens on ONE oscillator with the filter wide
+            // open, as his 117 ruled — but a triangle, not a sine: a bare
+            // 65 Hz sine is below what a laptop or phone speaker can make, so
+            // a blank bass line "did nothing" on exactly the machines he
+            // tries it on, and a triangle's odd harmonics are what a small
+            // speaker can carry. fromClaude 21 asks him to bless the shape.
             const init = track === 'percussion'
               ? { sends: { reverb: 0, delay: 0 } }
               : track === 'bass'
-                ? {
-                  ...structuredClone(INIT_PATCH),
-                  source: { ...INIT_PATCH.source, shape2: 2, mix: 0.35 },
-                  filter: { ...INIT_PATCH.filter, cutoff: 1200 },
-                }
+                ? { ...structuredClone(INIT_PATCH), source: { ...INIT_PATCH.source, shape1: 1 } }
                 : structuredClone(INIT_PATCH);
             blank.patches[track] = {
               ...(blank.patches[track] || {}),
@@ -18195,7 +18431,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '.track-rows',
-          text: 'Six tracks, one line each. The coloured lamp beside the name cycles off, auto and on, the box beside it picks that track\'s voice, and the two dials are its level and its own randomness. Save as my voice, under a track\'s dials, keeps a sound you made in that picker under My voices.',
+          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in the track\'s editor (Randomise row): 0 holds your pick, Pool… chooses which voices it may move to and in what order. Save as my voice keeps a sound you made under My voices.',
         },
         {
           tab: 'advanced',
@@ -20430,6 +20666,36 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       gap: 8px;
       z-index: 60;
     }
+    /* v0.0.195: the Pool editor's move/remove buttons and its add row, and
+       the When selector beside the Voice chance knob. */
+    .blend-move,
+    .blend-remove {
+      min-height: 28px;
+      padding: 0 8px;
+    }
+    .blend-order {
+      display: flex;
+      gap: 12px;
+      margin: 8px 0;
+      font-size: 0.9rem;
+    }
+    .voice-rule-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      justify-content: center;
+    }
+    .voice-rule-when {
+      min-height: 30px;
+      padding: 2px 6px;
+      font-size: 0.85rem;
+      max-width: 12ch;
+    }
+    .voice-rule-pool {
+      min-height: 30px;
+      padding: 2px 8px;
+    }
+
     .blend-row {
       display: flex;
       align-items: center;
