@@ -38,6 +38,7 @@ export const fmt = {
   octaves: (v) => `${Math.round(v * 10) / 10} octaves`,
   plain: (v) => String(Math.round(v * 100) / 100),
   perBar: (v) => `${Math.round(v * 10) / 10} per bar`,
+  times: (v) => `${Math.round(v * 100) / 100}×`,
 };
 
 const isRange = (v) => v && typeof v === 'object' && Number.isFinite(v.min) && Number.isFinite(v.max);
@@ -120,9 +121,17 @@ export function describePatch({ engineType = '', patch, controls = true, detuneM
   const shape2 = has(src.shape2) ? src.shape2 : (typeof src.osc2 === 'string' ? SHAPE_NAMES.indexOf(src.osc2.replace('sawtooth', 'saw')) : null);
   const twoOsc = can('source', 'shape2') && shape2 !== null && shape2 >= 0;
   switch (engineType) {
-    case 'fm':
-      source.push('a sine carrier wobbled by a sine modulator (FM)');
+    case 'fm': {
+      const fm = patch.fm || {};
+      const ratio = allowed(controls, 'fm', 'ratio') && has(fm.ratio) ? ` at ${show(fm.ratio, fmt.times)} the note` : '';
+      source.push(`a sine carrier wobbled by a sine modulator (FM)${ratio}`);
+      const depth = mid(fm.depth);
+      if (allowed(controls, 'fm', 'depth') && depth !== null && Math.abs(depth - 1) > 0.005) {
+        source.push(`driven ${show(fm.depth, fmt.times)}`);
+      }
+      if (allowed(controls, 'fm', 'bite') && has(fm.bite)) source.push(`bright for ${show(fm.bite, fmt.sec)}`);
       break;
+    }
     case 'additive':
       source.push('partials summed at their own levels (additive)');
       break;
@@ -259,6 +268,8 @@ export function printableNumbers(patch) {
   const flt = (patch && patch.filter) || {};
   const env = (patch && patch.adsr) || {};
   const snd = (patch && patch.sends) || {};
+  const fmp = (patch && patch.fm) || {};
+  add(fmp.ratio, fmt.times); add(fmp.depth, fmt.times); add(fmp.bite, fmt.sec);
   add(src.mix, fmt.pct); add(src.detune, fmt.cents); add(src.octave, fmt.plain); add(src.pitch, fmt.semitones);
   add(src.noise, fmt.pct); add(src.fold, fmt.pct); add(src.bandCentre, fmt.hz); add(src.bandWidth, fmt.octaves);
   add(src.burst, fmt.pct); add(src.glide, fmt.semitones); add(src.formant1, fmt.hz); add(src.formant2, fmt.hz);

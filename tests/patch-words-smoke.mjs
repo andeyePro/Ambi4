@@ -56,7 +56,7 @@ test('every stock voice gets a sentence, and every number in it is a patch value
 });
 
 test('the engine class opens the sentence in its own words', () => {
-  assert.match(describeVoice('melody', 'bell'), /^A sine carrier wobbled by a sine modulator \(FM\)/);
+  assert.match(describeVoice('melody', 'bell'), /^A sine carrier wobbled by a sine modulator \(FM\) at 3\.47× the note, bright for 0\.8 s/);
   assert.match(describeVoice('melody', 'stab'), /^Partials summed at their own levels \(additive\)/);
   assert.match(describeVoice('texture', 'chimes'), /struck-object model \(modal\)/);
   assert.match(describeVoice('texture', 'colour'), /^Sculpted noise/);

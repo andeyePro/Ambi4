@@ -128,6 +128,16 @@ export const PARAM_REGISTRY = Object.freeze({
   'patch.adsr.decay': number(0.001, 8, { curve: 'log', unit: 's', hint: 'How quickly a note falls from its peak to the level it holds.' }),
   'patch.adsr.sustain': number(0, 1, { hint: 'The level a note holds while it lasts: none is a pluck, full is a held tone.' }),
   'patch.adsr.release': number(0.01, 12, { curve: 'log', unit: 's', hint: 'How long a note takes to fade once it ends: short stops dead, long rings on.' }),
+  // v0.0.175 — the FM engine section (docs/synthesis-programme.md § 2, unit
+  // 4). Read only by a voice whose defaults publish `fm` (bell, keys, tines,
+  // sparkle, crystal); the others never grow the fields, which is the
+  // disclosure rule. Ratio and bite take the voice's authored literal as
+  // their default; depth is a MULTIPLIER over the voice's own velocity-scaled
+  // index law (`f * (1.5 + 2.5 * v)` and the like), so 1 is the voice as
+  // shipped and no flat field could have reproduced it.
+  'patch.fm.ratio': number(0.25, 16, { curve: 'log', hint: 'How fast the modulator wobbles the carrier, as a multiple of the note: whole numbers sound harmonic and organ-like, in-between numbers ring like bells and metal.' }),
+  'patch.fm.depth': number(0, 4, { hint: 'How hard the wobble drives the tone: none is a plain sine, 1 is the voice as shipped, more adds brightness and grit.' }),
+  'patch.fm.bite': number(0.02, 4, { curve: 'log', unit: 's', hint: 'How long the brightness lasts after the note starts: short is a snap that mellows at once, long stays bright into the tail.' }),
   'patch.sends.reverb': number(0, 1, { hint: 'How much of this voice goes to the shared reverb: dry and close at the left, in a hall at the right.' }),
   'patch.sends.delay': number(0, 1, { hint: 'How much of this voice goes to the shared echo: none at the left, repeating in time at the right.' }),
 });

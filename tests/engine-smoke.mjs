@@ -8817,8 +8817,12 @@ test('v23 manifest: compiles to a controls/defaults pair the voice-editor shape 
   assert.ok(compiled, 'a user track with a manifest publishes a compiled one');
   // The exact shape VOICES[track][voiceId] publishes: a section with dials is
   // the list of its fields, a section with none is false and vanishes.
+  // v0.0.175: `fm` is a patch section now, so a manifest that names no FM
+  // dial compiles to `fm: false` — the section vanishes from its editor,
+  // exactly as filter and sends do here.
   assert.deepEqual(compiled.controls, {
     source: ['detune', 'octave'],
+    fm: false,
     filter: false,
     adsr: ['attack'],
     sends: false,
@@ -8838,7 +8842,8 @@ test('v23 manifest: compiles to a controls/defaults pair the voice-editor shape 
 
   // Every section a built-in editor knows about is answered for — an absent
   // key would read as "render everything", which is not what "no dials" means.
-  assert.deepEqual(Object.keys(compiled.controls), ['source', 'filter', 'adsr', 'sends']);
+  // Registry order: the fm rows sit between adsr and sends in the table.
+  assert.deepEqual(Object.keys(compiled.controls), ['source', 'filter', 'adsr', 'fm', 'sends']);
 
   // Not for a built-in, not for an unknown id, not for a track without one.
   assert.equal(engine.getTrackManifest('pad'), null);

@@ -1717,7 +1717,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     // The v3 Patch schema's sections, in editor order. Anything else on a
     // patch object (v14 `perKind`) is state, not an editable section.
-    const PATCH_SECTIONS = ['source', 'filter', 'adsr', 'sends'];
+    // v0.0.175: `fm` joined (the FM engine section; only FM voices publish it).
+    const PATCH_SECTIONS = ['source', 'fm', 'filter', 'adsr', 'sends'];
 
     // Used only when a voice doesn't export .defaults (older engine-voices).
     const FALLBACK_PATCH = {
@@ -9269,6 +9270,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const hzFormat = (v) => `${Math.round(v)} Hz`;
       const secFormat = (v) => (v < 0.1 ? `${Math.round(v * 1000)} ms` : `${Math.round(v * 100) / 100} s`);
       const plainFormat = (v) => String(Math.round(v * 100) / 100);
+      // v0.0.175: a multiplier — the FM ratio (× the note) and depth (× as shipped).
+      const timesFormat = (v) => `${Math.round(v * 100) / 100}×`;
 
       const FILTER_ORDER = ['lowpass', 'highpass', 'bandpass', 'notch'];
       const FILTER_DIAL_LABELS = ['LP', 'HP', 'BP', 'Notch'];
@@ -9758,6 +9761,42 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               },
             });
           }
+        }
+
+        // v0.0.175: the FM section, on the voices that publish it (see the
+        // knob editor's copy for the rule).
+        const fmSpecS = controlsSectionSpec(controls, 'fm');
+        const fmOnS = defaults && isPlainObject(defaults.fm) && isPlainObject(patch.fm) && controlsSectionVisible(fmSpecS);
+        const fmS = fmOnS ? veSection(container, 'FM') : null;
+        if (fmS && controlsFieldAllowed(fmSpecS, 'ratio')) {
+          const [lo, hi] = patchDomain('fm.ratio', 0.25, 16);
+          veRange(fmS, 'Ratio', {
+            hint: registryHint('fm.ratio'),
+            min: lo, max: hi, log: true,
+            value: rangeMid(sanitiseRangeValueIn(patch.fm.ratio, lo, hi, defaults.fm.ratio)),
+            format: timesFormat,
+            onChange: (v) => { patch.fm.ratio = v; commit(); },
+          });
+        }
+        if (fmS && controlsFieldAllowed(fmSpecS, 'depth')) {
+          const [lo, hi] = patchDomain('fm.depth', 0, 4);
+          veRange(fmS, 'Depth', {
+            hint: registryHint('fm.depth'),
+            min: lo, max: hi, step: 0.01,
+            value: rangeMid(sanitiseRangeValueIn(patch.fm.depth, lo, hi, defaults.fm.depth)),
+            format: timesFormat,
+            onChange: (v) => { patch.fm.depth = v; commit(); },
+          });
+        }
+        if (fmS && controlsFieldAllowed(fmSpecS, 'bite')) {
+          const [lo, hi] = patchDomain('fm.bite', 0.02, 4);
+          veRange(fmS, 'Bite', {
+            hint: registryHint('fm.bite'),
+            min: lo, max: hi, log: true,
+            value: rangeMid(sanitiseRangeValueIn(patch.fm.bite, lo, hi, defaults.fm.bite)),
+            format: secFormat,
+            onChange: (v) => { patch.fm.bite = v; commit(); },
+          });
         }
 
         const filter = controlsSectionVisible(filterSpec) ? veSection(container, 'Filter') : null;
@@ -10428,6 +10467,58 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 });
             void cell;
           }
+        }
+
+        // -- FM (v0.0.175, unit 4 of docs/synthesis-programme.md) --
+        // Only a voice whose defaults publish `fm` grows the section: the
+        // disclosure rule the Spectral, Motion and Burst rows already follow.
+        const fmSpec = controlsSectionSpec(controls, 'fm');
+        const fmOn = isPlainObject(defaults.fm) && isPlainObject(patch.fm) && controlsSectionVisible(fmSpec);
+        const fmRow = fmOn ? knobSection('FM') : null;
+        if (fmRow && allowed(fmSpec, 'ratio')) {
+          const [lo, hi] = regDomain('fm.ratio', 0.25, 16);
+          addLogKnob(
+            fmRow, 'Ratio', lo, hi,
+            sanitiseRangeValueIn(patch.fm.ratio, lo, hi, defaults.fm.ratio),
+            timesFormat,
+            (v) => {
+              patch.fm.ratio = mapRV(v, (x) => clamp(x, lo, hi));
+              commit();
+            },
+            { allowRange: true, field: 'fm.ratio' },
+            defaults.fm.ratio
+          );
+        }
+        if (fmRow && allowed(fmSpec, 'depth')) {
+          const [lo, hi] = regDomain('fm.depth', 0, 4);
+          addKnob(fmRow, {
+            label: 'Depth',
+            field: 'fm.depth',
+            min: lo,
+            max: hi,
+            value: sanitiseRangeValueIn(patch.fm.depth, lo, hi, defaults.fm.depth),
+            format: timesFormat,
+            allowRange: true,
+            defaultValue: defaults.fm.depth,
+            onInput: (v) => {
+              patch.fm.depth = mapRV(v, (x) => clamp(x, lo, hi));
+              commit();
+            },
+          });
+        }
+        if (fmRow && allowed(fmSpec, 'bite')) {
+          const [lo, hi] = regDomain('fm.bite', 0.02, 4);
+          addLogKnob(
+            fmRow, 'Bite', lo, hi,
+            sanitiseRangeValueIn(patch.fm.bite, lo, hi, defaults.fm.bite),
+            secFormat,
+            (v) => {
+              patch.fm.bite = mapRV(v, (x) => clamp(x, lo, hi));
+              commit();
+            },
+            { allowRange: true, field: 'fm.bite' },
+            defaults.fm.bite
+          );
         }
 
         // -- filter --

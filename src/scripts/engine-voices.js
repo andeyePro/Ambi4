@@ -731,6 +731,9 @@ function finishSustained(rig, {
  * Two-operator FM: a sine modulator on the carrier's frequency, with its own
  * decaying index. The index envelope is what makes an FM tone bright on the
  * attack and mellow in the tail rather than buzzing all the way through.
+ * Since v0.0.175 the callers hand in the patch's `fm` section: ratio and the
+ * index decay ("bite") straight from the dials, and the index law scaled by
+ * the depth multiplier — at the defaults the graph is the one that shipped.
  */
 function fm(rig, carrier, { t, freq, ratio, index, decay, floor = 0.02 }) {
   const mod = rig.osc('sine', freq * ratio, t);
@@ -1070,6 +1073,14 @@ const calling = (defaults) => defaults.source.cadence !== undefined;
  */
 const folding = (defaults) => defaults.source.fold !== undefined;
 
+/**
+ * True for a voice that publishes the FM engine section (v0.0.175, unit 4 of
+ * docs/synthesis-programme.md) — declared by publishing `fm` in its defaults,
+ * exactly as the families above are. Only a voice whose play() hands
+ * `p.fm` to the fm() helper declares it; a pad never grows FM dials.
+ */
+const modulated = (defaults) => defaults.fm !== undefined;
+
 /** The noise-sculpting half of a v19 source, clamped to the schema. */
 const sculptFields = (source, d) => ({
   tilt: inRange(source.tilt, -1, 1, d.source.tilt),
@@ -1193,6 +1204,16 @@ function patchFor(defaults, patch, kind = null) {
       reverb: inRange(sends.reverb, 0, 1, d.sends.reverb),
       delay: inRange(sends.delay, 0, 1, d.sends.delay),
     },
+    // v0.0.175: the FM section, on the voices that publish it. `depth` is a
+    // multiplier over the voice's own index law (1 = as shipped); `ratio` and
+    // `bite` (the index decay) default to the literals each voice authored.
+    ...(modulated(d) ? {
+      fm: {
+        ratio: inRange(part(patch, 'fm').ratio, 0.25, 16, d.fm.ratio),
+        depth: inRange(part(patch, 'fm').depth, 0, 4, d.fm.depth),
+        bite: inRange(part(patch, 'fm').bite, 0.02, 4, d.fm.bite),
+      },
+    } : {}),
     // AUDIT FIX (voices cluster): the voice's OWN published values, so a
     // patch can be applied RELATIVE to what the voice authored rather than
     // replacing it. A kit publishes ONE adsr and ONE filter but plays three
@@ -1585,6 +1606,8 @@ const DEFAULTS = {
       filter: { type: 'highpass', cutoff: 140, q: 0.6, envAmount: 0 },
       adsr: { attack: 0.005, decay: 2.4, sustain: 0, release: 0.05 },
       sends: { reverb: 0.55, delay: 0.4 },
+      // v0.0.175: the literals bell's fm() call always used, now dials.
+      fm: { ratio: 3.47, depth: 1, bite: 0.8 },
     },
     flute: {
       source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
@@ -1597,6 +1620,7 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 4280, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.004, decay: 1.7, sustain: 0, release: 0.05 },
       sends: { reverb: 0.35, delay: 0.3 },
+      fm: { ratio: 1, depth: 1, bite: 0.3 },
     },
     // v19 call synthesis. The melody reading is a small bright bird: a rising
     // fifth, three calls to the bar, formants up where a whistle lives.
@@ -1618,6 +1642,7 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 4060, q: 0.8, envAmount: 0 },
       adsr: { attack: 0.005, decay: 1.55, sustain: 0, release: 0.05 },
       sends: { reverb: 0.3, delay: 0.25 },
+      fm: { ratio: 1, depth: 1, bite: 0.12 },
     },
     nylon: {
       source: {
@@ -1654,6 +1679,7 @@ const DEFAULTS = {
       filter: { type: 'highpass', cutoff: 500, q: 0.6, envAmount: 0 },
       adsr: { attack: 0.02, decay: 1.5, sustain: 0, release: 0.05 },
       sends: { reverb: 0.8, delay: 0.5 },
+      fm: { ratio: 7.1, depth: 1, bite: 0.3 },
     },
     grains: {
       source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
@@ -1731,6 +1757,7 @@ const DEFAULTS = {
       filter: { type: 'highpass', cutoff: 350, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.003, decay: 0.525, sustain: 0, release: 0.05 },
       sends: { reverb: 0.45, delay: 0.5 },
+      fm: { ratio: 2.01, depth: 1, bite: 0.09 },
     },
     marimba: {
       source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
@@ -1919,19 +1946,19 @@ const CONTROLS = {
   },
   melody: {
     pluck: { source: true, filter: true, adsr: true, sends: true },
-    bell: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    bell: { source: ['detune', 'octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     flute: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
-    keys: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    keys: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     call: { source: CALL_CONTROLS, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     // An FM pair and an additive drawbar stack: octave is the only source
     // control either of them can honestly offer.
-    tines: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    tines: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     nylon: { source: true, filter: true, adsr: true, sends: true },
     tape: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     stab: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   texture: {
-    sparkle: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    sparkle: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     grains: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     chimes: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     // SPEC-CRITIC: shape1 only reaches the quiet 0.14-weight anchor tone
@@ -1947,7 +1974,7 @@ const CONTROLS = {
   },
   arp: {
     softPluck: { source: true, filter: true, adsr: true, sends: true },
-    crystal: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    crystal: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     marimba: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     muted: { source: true, filter: true, adsr: true, sends: true },
   },
@@ -2832,7 +2859,10 @@ function melodyBell(ctx, destination, note, patch) {
   carrierGain.connect(amp);
   // A non-integer ratio puts the partials off the harmonic series, which is
   // what a bell is; the index decay turns the clang into a hum.
-  fm(rig, carrier, { t, freq: f, ratio: 3.47, index: f * (1.5 + 2.5 * v), decay: 0.8 });
+  fm(rig, carrier, {
+    t, freq: f, ratio: p ? p.fm.ratio : 3.47,
+    index: f * (1.5 + 2.5 * v) * (p ? p.fm.depth : 1), decay: p ? p.fm.bite : 0.8,
+  });
 
   // A second, slightly detuned partial gives the tail a slow beat.
   const partial = rig.osc('sine', f * 2.76, t, p ? p.source.detune : 6);
@@ -2939,7 +2969,10 @@ function melodyKeys(ctx, destination, note, patch) {
   carrierGain.connect(amp);
   // Ratio 1 keeps the added partials harmonic; the index scales with velocity,
   // so playing harder adds harmonics rather than just volume.
-  fm(rig, carrier, { t, freq: f, ratio: 1, index: f * (0.5 + 2.2 * v * v), decay: 0.3 });
+  fm(rig, carrier, {
+    t, freq: f, ratio: p ? p.fm.ratio : 1,
+    index: f * (0.5 + 2.2 * v * v) * (p ? p.fm.depth : 1), decay: p ? p.fm.bite : 0.3,
+  });
 
   // The tine itself: a short, high, quiet ping over the body of the note.
   const tine = rig.osc('sine', f * 4.02, t);
@@ -2989,7 +3022,10 @@ function melodyTines(ctx, destination, note, patch) {
   carrierGain.connect(amp);
   // Index four times keys', decay a third of it: harmonics that arrive with
   // the hammer and are gone by the time the note is ringing.
-  fm(rig, carrier, { t, freq: f, ratio: 1, index: f * (1.2 + 3.6 * v * v), decay: 0.12 });
+  fm(rig, carrier, {
+    t, freq: f, ratio: p ? p.fm.ratio : 1,
+    index: f * (1.2 + 3.6 * v * v) * (p ? p.fm.depth : 1), decay: p ? p.fm.bite : 0.12,
+  });
 
   // The tine itself — higher and shorter than keys', and it is what barks.
   const tine = rig.osc('sine', f * 7.94, t);
@@ -3192,7 +3228,10 @@ function textureSparkle(ctx, destination, note, patch) {
     gain.connect(amp);
     // A high modulator ratio scatters energy into a thin band of upper
     // partials: a glint rather than a note.
-    fm(rig, carrier, { t: at, freq, ratio: 7.1, index: freq * (0.8 + 1.4 * v), decay: 0.3 });
+    fm(rig, carrier, {
+      t: at, freq, ratio: p ? p.fm.ratio : 7.1,
+      index: freq * (0.8 + 1.4 * v) * (p ? p.fm.depth : 1), decay: p ? p.fm.bite : 0.3,
+    });
     const spread = between(0.8, 1.2);
     const decay = clamp(dur * 0.5, 1.1, 2.4) * spread;
     const done = struckEnv(gain.gain, at, {
@@ -3637,7 +3676,10 @@ function arpCrystal(ctx, destination, note, patch) {
   const carrierGain = rig.gain(0.65);
   carrier.connect(carrierGain);
   carrierGain.connect(amp);
-  fm(rig, carrier, { t, freq: f, ratio: 2.01, index: f * (1 + 2 * v), decay: 0.09 });
+  fm(rig, carrier, {
+    t, freq: f, ratio: p ? p.fm.ratio : 2.01,
+    index: f * (1 + 2 * v) * (p ? p.fm.depth : 1), decay: p ? p.fm.bite : 0.09,
+  });
 
   const partial = rig.osc('sine', f * 4.01, t);
   const partialGain = rig.gain(SILENCE);

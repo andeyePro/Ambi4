@@ -2144,3 +2144,24 @@ patch, formatted by the unit's editor formatter (`fmt.hz`, `fmt.sec`, `fmt.pct`,
 spread prints as `lo–hi` with the unit once. Fields the voice's `controls` hide
 are not described. The engine class opens the sentence. A unit that adds an
 engine section (FM, Additive, Modal) extends the describer in the same commit.
+
+## The FM engine section (v0.0.175)
+
+Module ownership: **the registry** (`patch.fm.ratio`, `patch.fm.depth`,
+`patch.fm.bite`), **the voice library** (`modulated()`, `patchFor`'s `fm`
+block, the five FM voices' `fm` defaults and `controls.fm`), both editors in
+`index.astro`; gated by `tests/voices-smoke.mjs` (the defaults rebuild the
+shipped modulator graph exactly; ratio moves the modulator, depth scales the
+index, bite sets its decay), `tests/registry-contract.mjs`, `tests/page-boot.mjs`
+(the section appears on Bell and not on Pluck), and, parked until the bridge
+key returns, `tests/pending/fm-render-drive.mjs` (the sound, measured).
+
+Contract: a voice publishes the section by carrying `fm` in its defaults —
+the disclosure rule (`docs/synthesis-programme.md` § 3): no other voice grows
+the fields, the sanitiser drops them for a voice that lacks the section only
+in the sense that the voice never reads them. `ratio` (0.25–16, log) and
+`bite` (0.02–4 s, log; the index decay) default to the literal each voice
+authored. `depth` (0–4) is a MULTIPLIER over the voice's own velocity-scaled
+index law, default exactly 1, so the shipped sound is unchanged at the
+defaults and a stored link from before the section sounds as it did. All three
+are rangeable, walk on `bar`, and are described by the words line.

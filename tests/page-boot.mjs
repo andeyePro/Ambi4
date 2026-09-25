@@ -1221,6 +1221,45 @@ try {
       failures.push(`only ${dialsChecked} dials were checked for a hint across six editors — the seam has moved`);
     }
 
+    // v0.0.175 — the FM section appears on an FM voice and on no other: the
+    // disclosure rule, checked on the melody editor with Bell then Pluck.
+    {
+      const select = doc.getElementById('track-voice-melody');
+      const fmCells = () => doc.querySelectorAll('#voice-editor-melody .patch-controls .knob-cell[data-field^="fm."]');
+      const fmHeading = () => Array.from(doc.querySelectorAll('#voice-editor-melody .knob-section > .panel-label')).some((el) => el.textContent === 'FM');
+      const pick = async (voice) => {
+        select.value = voice;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        await openEditor('melody');
+        await waitUntil(() => doc.querySelectorAll('#voice-editor-melody .patch-controls .knob-cell').length > 0);
+      };
+      await pick('bell');
+      if (!(await waitUntil(() => fmCells().length === 3))) {
+        failures.push(`Bell's editor shows ${fmCells().length} FM dials, expected Ratio, Depth and Bite`);
+      } else if (!fmHeading()) {
+        failures.push('Bell\'s FM dials have no "FM" section heading');
+      } else {
+        for (const cell of fmCells()) {
+          const row = registry[`patch.${cell.dataset.field}`];
+          const knob = cell.querySelector('.knob');
+          const descId = knob && knob.getAttribute('aria-describedby');
+          const desc = descId ? doc.getElementById(descId) : null;
+          if (!row || !desc || desc.textContent !== row.hint) {
+            failures.push(`${cell.dataset.field}: the FM dial does not carry its registry hint`);
+          }
+        }
+        const words = doc.querySelector('#voice-editor-melody .ve-words');
+        if (!words || !/FM\) at 3\.47× the note/.test(words.textContent)) {
+          failures.push(`Bell's words line does not name its FM ratio: ${JSON.stringify(words && words.textContent)}`);
+        }
+      }
+      await pick('pluck');
+      await new Promise((r) => setTimeout(r, 50));
+      if (fmCells().length || fmHeading()) {
+        failures.push('Pluck, a subtractive voice, grew FM dials — the disclosure rule is broken');
+      }
+    }
+
     // v0.0.174 — "what makes this sound": the words line under the dials is
     // exactly what the pure module says for the sounding voice's patch, so the
     // page's wiring (voice, controls, detune mode, the live patch object) is

@@ -774,9 +774,15 @@ test('every voice publishes a complete, in-range default patch', () => {
       const where = `${track}.${id} defaults`;
       assert.ok(defaults && typeof defaults === 'object', `${where}: missing`);
       // v0.0.159: a kit also publishes each sound's own envelope in perKind.
-      const groups = Object.keys(defaults).filter((k) => k !== 'perKind').sort();
+      // v0.0.175: an FM voice also publishes its `fm` section (unit 4).
+      const groups = Object.keys(defaults).filter((k) => k !== 'perKind' && k !== 'fm').sort();
       assert.deepEqual(groups, ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      if (defaults.fm !== undefined) {
+        assert.equal(VOICES[track][id].engineType, 'fm', `${where}: publishes fm but is not an FM voice`);
+        assert.deepEqual(Object.keys(defaults.fm).sort(), ['bite', 'depth', 'ratio'], `${where}.fm: wrong fields`);
+        assert.equal(defaults.fm.depth, 1, `${where}.fm.depth: the shipped voice is depth 1 by definition`);
+      }
       if (defaults.perKind !== undefined) {
         assert.equal(track, 'percussion', `${where}: perKind on a non-kit voice`);
         assert.deepEqual(Object.keys(defaults.perKind).sort(), ['high', 'low', 'mid'],
@@ -1630,8 +1636,13 @@ test('controls: schema shape, and every applicable field exists in defaults', ()
       const { controls, defaults } = VOICES[track][id];
       const where = `${track}.${id} controls`;
       assert.ok(controls && typeof controls === 'object', `${where}: missing`);
-      assert.deepEqual(Object.keys(controls).sort(), ['adsr', 'filter', 'sends', 'source'],
+      // v0.0.175: an FM voice also declares `fm: true`, and only an FM voice —
+      // the section a voice exposes is the section it publishes.
+      assert.deepEqual(Object.keys(controls).filter((k) => k !== 'fm').sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      assert.equal('fm' in controls, defaults.fm !== undefined,
+        `${where}: fm control declared ${'fm' in controls} but defaults publish ${defaults.fm !== undefined}`);
+      if ('fm' in controls) assert.equal(controls.fm, true, `${where}.fm: the whole section applies`);
       const sourceFields = sourceFieldsFor(track, id);
       checkControlShape(`${where}.source`, controls.source, sourceFields);
       checkControlShape(`${where}.filter`, controls.filter, FILTER_FIELDS);
@@ -2442,6 +2453,77 @@ test('v19: every new voice survives both ends of every new dial at once', () => 
       }
     }
   }
+});
+
+// --------------------------------------------------------------------------
+// v0.0.175 — the FM engine section (unit 4 of docs/synthesis-programme.md)
+// --------------------------------------------------------------------------
+
+const FM_VOICES = [['melody', 'bell'], ['melody', 'keys'], ['melody', 'tines'], ['texture', 'sparkle'], ['arp', 'crystal']];
+
+/** The modulator oscillator and its depth gain, from one recorded note. */
+function fmPair(destination) {
+  // The modulator is the sine oscillator whose output feeds a gain that feeds
+  // an AudioParam (the carrier's frequency) rather than a node.
+  for (const osc of created) {
+    if (osc.kind !== 'oscillator') continue;
+    for (const out of osc.outputs) {
+      if (out && out.kind === 'gain' && out.outputs.some((t) => t && t.isParam && t.name === 'oscillator.frequency')) {
+        return { mod: osc, depth: out };
+      }
+    }
+  }
+  return null;
+}
+
+test('v0.0.175 FM: every FM voice publishes the section and its defaults reproduce the shipped graph exactly', () => {
+  for (const [track, id] of FM_VOICES) {
+    const voice = VOICES[track][id];
+    assert.equal(voice.engineType, 'fm', `${track}.${id} is not classed fm`);
+    assert.ok(voice.defaults.fm, `${track}.${id} publishes no fm section`);
+    assert.equal(voice.controls.fm, true, `${track}.${id} does not expose the fm section`);
+    const note = { midi: 69, freq: null, kind: null, when: 0.5, duration: 0.5, velocity: 0.8, pan: 0 };
+    // No patch at all (the literal path) and the voice's own defaults must
+    // build the same modulator: same frequency, same depth, same decay.
+    const runs = [];
+    for (const patch of [undefined, structuredClone(voice.defaults)]) {
+      const ctx = new MockAudioContext();
+      const destination = makeNode('gain');
+      created = []; startedSources = []; automation.length = 0;
+      voice.play(ctx, destination, note, patch);
+      const pair = fmPair(destination);
+      assert.ok(pair, `${track}.${id}: no modulator→depth→frequency chain found`);
+      const events = automation.filter((e) => e.paramId === pair.depth.gain.paramId).map((e) => [e.kind, +e.value.toFixed(6), +e.time.toFixed(6)]);
+      runs.push({ freq: pair.mod.frequency.max, events });
+    }
+    assert.deepEqual(runs[1], runs[0], `${track}.${id}: the defaults do not reproduce the literal graph`);
+  }
+});
+
+test('v0.0.175 FM: ratio moves the modulator, depth scales the index, bite sets its decay', () => {
+  const voice = VOICES.melody.bell;
+  const note = { midi: 69, freq: null, kind: null, when: 0.5, duration: 0.5, velocity: 0.8, pan: 0 };
+  const play = (fm) => {
+    const ctx = new MockAudioContext();
+    const destination = makeNode('gain');
+    created = []; startedSources = []; automation.length = 0;
+    voice.play(ctx, destination, note, { ...structuredClone(voice.defaults), fm: { ...voice.defaults.fm, ...fm } });
+    const pair = fmPair(destination);
+    const set = automation.find((e) => e.paramId === pair.depth.gain.paramId && e.kind === 'set');
+    const ramp = automation.find((e) => e.paramId === pair.depth.gain.paramId && e.kind === 'exponential');
+    return { freq: pair.mod.frequency.max, index: set.value, decayEnd: ramp.time };
+  };
+  const base = play({});
+  assert.ok(Math.abs(base.freq - 440 * 3.47) < 0.01, `bell's modulator sits at 3.47× the note (got ${base.freq})`);
+  const ratio2 = play({ ratio: 2 });
+  assert.ok(Math.abs(ratio2.freq - 880) < 0.01, `ratio 2 must put the modulator at 880 Hz (got ${ratio2.freq})`);
+  const deep = play({ depth: 2 });
+  assert.ok(Math.abs(deep.index - base.index * 2) < 1e-6, `depth 2 must double the index (${base.index} → ${deep.index})`);
+  const none = play({ depth: 0 });
+  assert.ok(none.index < 1e-3, `depth 0 must silence the modulator (index ${none.index})`);
+  const snap = play({ bite: 0.1 });
+  assert.ok(Math.abs((snap.decayEnd - 0.5) - 0.1) < 1e-6, `bite 0.1 must end the index decay 0.1 s after onset (got ${snap.decayEnd - 0.5})`);
+  assert.ok(Math.abs((base.decayEnd - 0.5) - 0.8) < 1e-6, `the default bite is bell's 0.8 s (got ${base.decayEnd - 0.5})`);
 });
 
 // --------------------------------------------------------------------------
