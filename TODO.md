@@ -51,7 +51,7 @@ The 2026-09-25 session (4 h, 8 % of the week) took the two smallest slices with 
 - [ ] **Bass groove as rules** — `buildBassGroove` feel, articulation, anchor lock and the syncopation cell drawn.
 - [ ] **Arp under auto writes its choice** — `autoArpSettings(complexity)` writes pattern, rate and octaves into Now with the mode shown as auto-resolved; the manual controls are the same fields.
 - [ ] **Kit variant schedule and fills as rules** — `kitFillVariant` and the weighted bank switching as Chance / Pool over the grid's tabs.
-- [ ] **Walks show their live Now** — every ranged field prints its instantaneous value as a number; the spread is its Pool, the walk seed its Chance, so two identical configs align.
+- [x] *(SHIPPED v0.0.198)* **Walks show their live Now** — knob.js prints "now X" under any spread dial fed its resolved value, and aria-valuetext reads it. Not in it: the walk's seed as a Chance control (the walk is still the engine's own bounded random walk per track:param; exposing its seed is the recipe round-trip's job once the ratchet names it).
 - [ ] **The auto ladder per track** — `AUTO_THRESHOLDS` become a visible line-up rule per track instead of a hardcoded constant.
 - [ ] **Preset blocks editable for every preset** — `PRESET_BLOCKS` (abab, journey, waves) shown and editable bar by bar, not only under `custom`; section voice draws become the voice rule's per-section When.
 - [ ] **The Recipe sheet** — a read-only view of the playing piece's full rules in canonical order at every level, each line a link to its control, Copy as text. No Create entry, no capture button (his 96). **[decide]** whether a read-only sheet with Copy as text sits inside item 96 — ask in fromClaude when it is next in line.

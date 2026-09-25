@@ -601,6 +601,32 @@ export function createKnob(container, options) {
   valueEl.style.margin = '0';
   valueEl.style.cursor = 'pointer';
   root.appendChild(valueEl);
+  // v0.0.198: the live value as a NUMBER, not only a mark. A span whose
+  // position you can only see as a pointer is a rule whose Now you cannot
+  // read; this line under the readout says where the walk is this bar.
+  const liveEl = document.createElement('span');
+  liveEl.className = 'knob-live';
+  liveEl.setAttribute('data-role', 'live-readout');
+  liveEl.setAttribute('aria-hidden', 'true'); // aria-valuetext carries it
+  // Overlaid under the readout, out of the flow, so no dial cell grows by a
+  // line; the layout sweeps are what check it paints past nothing.
+  liveEl.style.position = 'absolute';
+  liveEl.style.left = '0';
+  liveEl.style.right = '0';
+  liveEl.style.top = '100%';
+  liveEl.style.textAlign = 'center';
+  liveEl.style.fontFamily = LABEL_FONT;
+  liveEl.style.color = VALUE_COLOR;
+  liveEl.style.fontSize = '10px';
+  liveEl.style.lineHeight = '1.2';
+  liveEl.style.opacity = '0.85';
+  liveEl.style.pointerEvents = 'none';
+  liveEl.style.display = 'none';
+  if (!root.style.position) root.style.position = 'relative';
+  // Inside the label, not a fourth child of the root: the readout stays
+  // root.children[2] and the click-to-type input children[3], which is the
+  // contract the knob suites and the page's own code read by index.
+  labelEl.appendChild(liveEl);
 
   function degFor(v) {
     return START_DEG + (SWEEP_DEG * (v - min)) / range;
@@ -759,11 +785,21 @@ export function createKnob(container, options) {
     // IS the live value, and a second mark on top of it would be noise.
     if (liveValue == null || mode !== 'range') {
       livePointer.style.display = 'none';
+      liveEl.style.display = 'none';
+      liveEl.textContent = '';
+      if (mode === 'range' && value !== valueMax) {
+        root.setAttribute('aria-valuetext', `min ${fmt(value)}, max ${fmt(valueMax)}, drifting`);
+      }
       return;
     }
     const v = Math.min(Math.max(liveValue, value), valueMax);
     livePointer.style.display = '';
     livePointer.setAttribute('transform', `rotate(${+degFor(v).toFixed(2)} ${CX} ${CY})`);
+    liveEl.textContent = `now ${fmt(v)}`;
+    liveEl.style.display = '';
+    if (value !== valueMax) {
+      root.setAttribute('aria-valuetext', `min ${fmt(value)}, max ${fmt(valueMax)}, now ${fmt(v)}`);
+    }
   }
 
   function updateView() {

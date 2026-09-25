@@ -458,6 +458,22 @@ test('the live pointer shows only inside a span', () => {
   assert.notEqual(live.style.display, 'none');
 });
 
+test('v0.0.198: inside a span the live value is printed as a number, and read aloud', () => {
+  const { handle, el } = makeKnob({ value: 50 });
+  const live = byRole(el, 'live-readout');
+  assert.ok(live, 'the live readout element must exist');
+  handle.setLive(50);
+  assert.equal(live.style.display, 'none', 'single mode prints no second number');
+  handle.set({ min: 20, max: 80 });
+  handle.setLive(60);
+  assert.notEqual(live.style.display, 'none');
+  assert.ok(/^now /.test(live.textContent), `expected "now …", got "${live.textContent}"`);
+  assert.ok(/now/.test(el.getAttribute('aria-valuetext')), `aria-valuetext carries the live value: ${el.getAttribute('aria-valuetext')}`);
+  handle.setLive(null);
+  assert.equal(live.style.display, 'none');
+  assert.ok(/drifting/.test(el.getAttribute('aria-valuetext')), 'without a live value the span reads as drifting again');
+});
+
 test('the live pointer is clamped into the span and never commits', () => {
   const { handle, el, seen } = makeKnob({ value: { min: 20, max: 80 } });
   const live = byRole(el, 'live-pointer');

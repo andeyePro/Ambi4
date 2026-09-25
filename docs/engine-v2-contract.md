@@ -2369,3 +2369,13 @@ are the primitive's, and the ids `voice-rule-when-<track>` /
 opens and hides them, "more" opens Pool in place, the Chance layer holds the
 dial). Every later rule (chords, motif, groove, arp, kit, walks, ladder,
 blocks) mounts on this module and nothing else.
+
+## A spread dial prints its live value (v0.0.198)
+
+Module ownership: **knob.js** (`setLive(v)` in range mode also writes "now
+X" into a `.knob-live` span nested in the label — nested so the readout stays
+`children[2]` and the click-to-type input `children[3]` — and puts "now X"
+into aria-valuetext; null hides it and the span reads as drifting again).
+Gated by `tests/knob-gesture.mjs`. The page already feeds every spread dial
+(globals, track rows, patch dials) from `getResolved()` at 4 Hz; nothing
+changed there.
