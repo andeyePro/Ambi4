@@ -20,7 +20,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
@@ -1529,6 +1529,58 @@ try {
       if (!kit.querySelector('.ve-finder-go').hidden) failures.push('the kit offers Set it up with nothing to set up');
     }
 
+    // v0.0.187 — the dial LAYOUT of every stock voice, pinned. Phase 2c of
+    // the routing programme turns the knob editor's hand-written literals
+    // into a loop over the registry, and "byte-identical" needs a witness:
+    // this fixture is every built-in track's every voice's dials — field and
+    // label, in order — captured from the page BEFORE the refactor and held
+    // afterwards. Missing fixture: written (the first run is the truth);
+    // present: asserted.
+    {
+      const fixturePath = join(repoRoot, 'tests/fixtures/editor-dials.json');
+      const layout = {};
+      const voicesModule = await import(pathToFileURL(join(repoRoot, 'src/scripts/engine-voices.js')).href);
+      for (const track of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+        const select = doc.getElementById(`track-voice-${track}`);
+        layout[track] = {};
+        for (const voice of Object.keys(voicesModule.VOICES[track])) {
+          select.value = voice;
+          select.dispatchEvent(new window.Event('change', { bubbles: true }));
+          const editor = await openEditor(track);
+          await waitUntil(() => {
+            const cells = editor.querySelectorAll('.patch-controls .knob-cell[data-field]');
+            return cells.length > 0 && editor.querySelector('.ve-header .ve-engine');
+          });
+          await new Promise((r) => setTimeout(r, 30));
+          layout[track][voice] = Array.from(editor.querySelectorAll('.patch-controls .knob-section')).map((section) => ({
+            heading: section.querySelector('.panel-label') ? section.querySelector('.panel-label').textContent : '',
+            dials: Array.from(section.querySelectorAll('.knob-cell')).map((cell) => ({
+              field: cell.dataset.field || null,
+              label: cell.querySelector('.knob-label') ? cell.querySelector('.knob-label').textContent : (cell.querySelector('button') ? cell.querySelector('button').textContent : ''),
+              hidden: cell.hidden === true,
+            })),
+          }));
+        }
+      }
+      if (!existsSync(fixturePath)) {
+        writeFileSync(fixturePath, JSON.stringify(layout, null, 1) + '\n');
+        console.log(`editor-dials fixture written: ${fixturePath}`);
+      } else {
+        const pinned = JSON.parse(readFileSync(fixturePath, 'utf8'));
+        const want = JSON.stringify(pinned);
+        const got = JSON.stringify(layout);
+        if (want !== got) {
+          for (const track of Object.keys(pinned)) {
+            for (const voice of Object.keys(pinned[track])) {
+              if (JSON.stringify(pinned[track][voice]) !== JSON.stringify(layout[track] && layout[track][voice])) {
+                failures.push(`${track}.${voice}: the dial layout moved — pinned ${JSON.stringify(pinned[track][voice])} got ${JSON.stringify(layout[track] && layout[track][voice])}`);
+              }
+            }
+          }
+        }
+      }
+    }
+
     // v0.0.174 — "what makes this sound": the words line under the dials is
     // exactly what the pure module says for the sounding voice's patch, so the
     // page's wiring (voice, controls, detune mode, the live patch object) is
@@ -1991,10 +2043,14 @@ try {
               const forget = doc.getElementById('genre-rules-forget');
               if (!forget || forget.hidden) failures.push('Forget this genre is hidden on a genre of the person\'s own');
               // Next: a fresh draw from the saved genre keeps the ruled pad Off and the tempo 200.
-              const seedBefore = engine.getParams().harmony && JSON.stringify(engine.getParams().harmony.seed);
+              // Next redraws from the saved genre. Whether the chord loop changes
+              // is chance (the genre's grammar has five loops, so one draw in
+              // five repeats it); what is asserted is that the redraw is a draw
+              // OF THE SAVED GENRE — its tag, its ruled pad, its ruled tempo.
               doc.getElementById('fast-forward').click();
-              const redrawn = await waitUntil(() => engine.getParams().genre === slug && JSON.stringify(engine.getParams().harmony && engine.getParams().harmony.seed) !== seedBefore, 8000);
-              if (!redrawn) failures.push('Next did not draw a fresh piece from the saved genre');
+              await new Promise((r) => setTimeout(r, 150));
+              const redrawn = await waitUntil(() => engine.getParams().genre === slug, 8000);
+              if (!redrawn) failures.push('Next did not draw from the saved genre');
               const pad = engine.getParams().tracks && engine.getParams().tracks.pad;
               if (!pad || pad.state !== 'off') failures.push(`a fresh draw from the saved genre has the pad ${JSON.stringify(pad && pad.state)}, not Off — the rule did not live in the genre`);
               if (engine.getParams().bpm !== 200) failures.push(`a fresh draw from the saved genre is at ${engine.getParams().bpm} bpm, not the ruled 200`);

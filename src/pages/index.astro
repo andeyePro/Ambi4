@@ -10945,10 +10945,39 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           );
         }
 
-        // -- filter --
-        const filter = controlsSectionVisible(filterSpec) ? knobSection('Filter') : null;
-        if (filter && allowed(filterSpec, 'type')) {
-          addKnob(filter, {
+        // -- filter, envelope, sends: ONE loop over the registry (phase 2c,
+        // v0.0.187). Each numeric dial's domain, curve (log → addLogKnob) and
+        // unit (→ the format) come from its row, and whether it may spread
+        // is the row's `rangeable`, derived rather than hand-passed. What
+        // stays per dial is what is genuinely a page fact: its label, its
+        // pre-registry fallback (the domain an engine bundle without a
+        // registry would boot on), whether it opens as a span by default
+        // (cutoff and the sends, since v7), and cutoff's whole-hertz write.
+        // The Type dial (an enumeration) and the kit's envelope note keep
+        // their own code, inside the loop's own section.
+        const PATCH_DIALS = [
+          ['filter', 'Filter', filterSpec, [
+            ['cutoff', 'Cutoff', { fallback: [40, 12000], initial: 2000, rangeDefault: true, write: Math.round }],
+            ['q', 'Resonance', { fallback: [0.1, 20], initial: 0.7, step: 0.1 }],
+            ['envAmount', 'Env amount', { fallback: [0, 1], initial: 0.3 }],
+          ]],
+          ['adsr', 'Envelope', adsrSpec, [
+            ['attack', 'Attack', { fallback: [0.001, 8], initial: 0.01 }],
+            ['decay', 'Decay', { fallback: [0.001, 8], initial: 0.2 }],
+            ['sustain', 'Sustain', { fallback: [0, 1], initial: 0.7 }],
+            ['release', 'Release', { fallback: [0.01, 12], initial: 0.5 }],
+          ]],
+          ['sends', 'Sends', sendsSpec, [
+            ['reverb', 'Reverb', { fallback: [0, 1], initial: 0.3, rangeDefault: true }],
+            ['delay', 'Delay', { fallback: [0, 1], initial: 0.15, rangeDefault: true }],
+          ]],
+        ];
+        const formatForUnit = (unit) => (unit === 'Hz' ? hzFormat : unit === 's' ? secFormat : plainFormat);
+        for (const [section, heading, spec, dials] of PATCH_DIALS) {
+          const row = controlsSectionVisible(spec) ? knobSection(heading) : null;
+          if (!row) continue;
+          if (section === 'filter' && allowed(spec, 'type')) {
+          addKnob(row, {
             label: 'Type',
             field: 'filter.type',
             allowRange: false, // an enumeration — see the Octave dial above
@@ -10966,71 +10995,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               commit();
             },
           });
-        }
-        if (filter && allowed(filterSpec, 'cutoff')) {
-          // v7: cutoff is on the default-RANGE list — rangeDefault starts a
-          // freshly-opened (plain-number) patch already split into a
-          // min=max=value range, ready for the second thumb.
-          const [cfLo, cfHi] = regDomain('filter.cutoff', 40, 12000);
-          addLogKnob(
-            filter,
-            'Cutoff',
-            cfLo,
-            cfHi,
-            sanitiseRangeValueIn(patch.filter.cutoff, cfLo, cfHi, 2000),
-            hzFormat,
-            (v) => {
-              patch.filter.cutoff = mapRV(v, Math.round);
-              commit();
-            },
-            { allowRange: true, rangeDefault: true, field: 'filter.cutoff' },
-            defaults.filter.cutoff
-          );
-        }
-        if (filter && allowed(filterSpec, 'q')) {
-          const [qLo, qHi] = regDomain('filter.q', 0.1, 20);
-          addKnob(filter, {
-            label: 'Resonance',
-            field: 'filter.q',
-            min: qLo,
-            max: qHi,
-            step: 0.1,
-            value: sanitiseRangeValueIn(patch.filter.q, qLo, qHi, 0.7),
-            format: plainFormat,
-            allowRange: true,
-            defaultValue: defaults.filter.q,
-            onInput: (v) => {
-              patch.filter.q = mapRV(v, (x) => clamp(x, qLo, qHi));
-              commit();
-            },
-          });
-        }
-        if (filter && allowed(filterSpec, 'envAmount')) {
-          const [eaLo, eaHi] = regDomain('filter.envAmount', 0, 1);
-          addKnob(filter, {
-            label: 'Env amount',
-            field: 'filter.envAmount',
-            min: eaLo,
-            max: eaHi,
-            value: sanitiseRangeValueIn(patch.filter.envAmount, eaLo, eaHi, 0.3),
-            format: plainFormat,
-            allowRange: true,
-            defaultValue: defaults.filter.envAmount,
-            onInput: (v) => {
-              patch.filter.envAmount = mapRV(v, (x) => clamp(x, eaLo, eaHi));
-              commit();
-            },
-          });
-        }
 
-        // -- envelope --
-        const env = controlsSectionVisible(adsrSpec) ? knobSection('Envelope') : null;
-        // v0.0.159 (his 129a): a kit plays three sounds, each with its own
-        // published envelope. On Common these dials are a SCALE over all of
-        // them; on a sound's tab they are that sound's own exact envelope.
-        if (env && track === 'percussion') {
+          }
+          if (section === 'adsr' && track === 'percussion') {
           describe(
-            env,
+            row,
             ghost
               ? 'This sound’s own envelope — exact. The Common tab’s Decay '
                 + 'scales every sound together; its other dials apply to any '
@@ -11040,119 +11009,39 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 + 'long; the other dials apply to sounds that have not set '
                 + 'their own.'
           );
-        }
-        if (env && allowed(adsrSpec, 'attack')) {
-          const [atLo, atHi] = regDomain('adsr.attack', 0.001, 8);
-          addLogKnob(
-            env,
-            'Attack',
-            atLo,
-            atHi,
-            sanitiseRangeValueIn(patch.adsr.attack, atLo, atHi, 0.01),
-            secFormat,
-            (v) => {
-              patch.adsr.attack = v;
-              commit();
-            },
-            { allowRange: true, field: 'adsr.attack' },
-            defaults.adsr.attack
-          );
-        }
-        if (env && allowed(adsrSpec, 'decay')) {
-          const [dcLo, dcHi] = regDomain('adsr.decay', 0.001, 8);
-          addLogKnob(
-            env,
-            'Decay',
-            dcLo,
-            dcHi,
-            sanitiseRangeValueIn(patch.adsr.decay, dcLo, dcHi, 0.2),
-            secFormat,
-            (v) => {
-              patch.adsr.decay = v;
-              commit();
-            },
-            { allowRange: true, field: 'adsr.decay' },
-            defaults.adsr.decay
-          );
-        }
-        if (env && allowed(adsrSpec, 'sustain')) {
-          const [suLo, suHi] = regDomain('adsr.sustain', 0, 1);
-          addKnob(env, {
-            label: 'Sustain',
-            field: 'adsr.sustain',
-            min: suLo,
-            max: suHi,
-            value: sanitiseRangeValueIn(patch.adsr.sustain, suLo, suHi, 0.7),
-            format: plainFormat,
-            allowRange: true,
-            defaultValue: defaults.adsr.sustain,
-            onInput: (v) => {
-              patch.adsr.sustain = mapRV(v, (x) => clamp(x, suLo, suHi));
-              commit();
-            },
-          });
-        }
-        if (env && allowed(adsrSpec, 'release')) {
-          const [rlLo, rlHi] = regDomain('adsr.release', 0.01, 12);
-          addLogKnob(
-            env,
-            'Release',
-            rlLo,
-            rlHi,
-            sanitiseRangeValueIn(patch.adsr.release, rlLo, rlHi, 0.5),
-            secFormat,
-            (v) => {
-              patch.adsr.release = v;
-              commit();
-            },
-            { allowRange: true, field: 'adsr.release' },
-            defaults.adsr.release
-          );
-        }
 
-        // -- sends --
-        // Both sends are on the v7 default-RANGE list too (like Cutoff
-        // above) — rangeDefault starts a plain-number patch pre-split.
-        const sends = controlsSectionVisible(sendsSpec) ? knobSection('Sends') : null;
-        if (sends && allowed(sendsSpec, 'reverb')) {
-          // v0.0.171: the WRITE clamps against the same pair the dial draws.
-          // Reading the bounds from the registry and then clamping to a
-          // literal is the shape of fault this phase exists to end — the dial
-          // would report a value the patch never stored the day the row moved.
-          const [rvLo, rvHi] = regDomain('sends.reverb', 0, 1);
-          addKnob(sends, {
-            label: 'Reverb',
-            field: 'sends.reverb',
-            min: rvLo,
-            max: rvHi,
-            value: sanitiseRangeValueIn(patch.sends.reverb, rvLo, rvHi, 0.3),
-            format: plainFormat,
-            allowRange: true,
-            rangeDefault: true,
-            defaultValue: defaults.sends.reverb,
-            onInput: (v) => {
-              patch.sends.reverb = mapRV(v, (x) => clamp(x, rvLo, rvHi));
-              commit();
-            },
-          });
-        }
-        if (sends && allowed(sendsSpec, 'delay')) {
-          const [dlLo, dlHi] = regDomain('sends.delay', 0, 1);
-          addKnob(sends, {
-            label: 'Delay',
-            field: 'sends.delay',
-            min: dlLo,
-            max: dlHi,
-            value: sanitiseRangeValueIn(patch.sends.delay, dlLo, dlHi, 0.15),
-            format: plainFormat,
-            allowRange: true,
-            rangeDefault: true,
-            defaultValue: defaults.sends.delay,
-            onInput: (v) => {
-              patch.sends.delay = mapRV(v, (x) => clamp(x, dlLo, dlHi));
-              commit();
-            },
-          });
+          }
+          for (const [key, label, ui] of dials) {
+            if (!allowed(spec, key)) continue;
+            const path = `${section}.${key}`;
+            const [lo, hi] = regDomain(path, ui.fallback[0], ui.fallback[1]);
+            const reg = engineModule && engineModule.PARAM_REGISTRY ? engineModule.PARAM_REGISTRY[`patch.${path}`] : null;
+            const log = reg ? reg.curve === 'log' : false;
+            const format = formatForUnit(reg ? reg.unit : '');
+            const allowRange = reg ? reg.rangeable !== false : true;
+            const value = sanitiseRangeValueIn(patch[section][key], lo, hi, ui.initial);
+            const write = ui.write
+              ? (v) => { patch[section][key] = mapRV(v, ui.write); commit(); }
+              : log
+                ? (v) => { patch[section][key] = v; commit(); }
+                : (v) => { patch[section][key] = mapRV(v, (x) => clamp(x, lo, hi)); commit(); };
+            const knobOpts = { allowRange, field: path, ...(ui.rangeDefault ? { rangeDefault: true } : {}) };
+            if (log) {
+              addLogKnob(row, label, lo, hi, value, format, write, knobOpts, defaults[section][key]);
+            } else {
+              addKnob(row, {
+                label,
+                min: lo,
+                max: hi,
+                ...(ui.step ? { step: ui.step } : {}),
+                value,
+                format,
+                defaultValue: defaults[section][key],
+                onInput: write,
+                ...knobOpts,
+              });
+            }
+          }
         }
       }
 

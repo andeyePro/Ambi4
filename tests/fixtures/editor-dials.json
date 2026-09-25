@@ -1,0 +1,3616 @@
+{
+ "pad": {
+  "warm": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Spread",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "glass": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.detune",
+      "label": "Spread",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Additive",
+    "dials": [
+     {
+      "field": "additive.p1",
+      "label": "P1",
+      "hidden": false
+     },
+     {
+      "field": "additive.p2",
+      "label": "P2",
+      "hidden": false
+     },
+     {
+      "field": "additive.p3",
+      "label": "P3",
+      "hidden": false
+     },
+     {
+      "field": "additive.p4",
+      "label": "P4",
+      "hidden": false
+     },
+     {
+      "field": "additive.p5",
+      "label": "P5",
+      "hidden": false
+     },
+     {
+      "field": "additive.stretch",
+      "label": "Stretch",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "strings": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Spread",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "choir": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "polysaw": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Spread",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ]
+ },
+ "arp": {
+  "softPluck": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "crystal": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "FM",
+    "dials": [
+     {
+      "field": "fm.ratio",
+      "label": "Ratio",
+      "hidden": false
+     },
+     {
+      "field": "fm.depth",
+      "label": "Depth",
+      "hidden": false
+     },
+     {
+      "field": "fm.bite",
+      "label": "Bite",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "marimba": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Modal",
+    "dials": [
+     {
+      "field": "modal.material",
+      "label": "Material",
+      "hidden": false
+     },
+     {
+      "field": "modal.hardness",
+      "label": "Hardness",
+      "hidden": false
+     },
+     {
+      "field": "modal.damping",
+      "label": "Damping",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "muted": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ]
+ },
+ "melody": {
+  "pluck": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "bell": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.detune",
+      "label": "Spread",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "FM",
+    "dials": [
+     {
+      "field": "fm.ratio",
+      "label": "Ratio",
+      "hidden": false
+     },
+     {
+      "field": "fm.depth",
+      "label": "Depth",
+      "hidden": false
+     },
+     {
+      "field": "fm.bite",
+      "label": "Bite",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "flute": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "keys": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "FM",
+    "dials": [
+     {
+      "field": "fm.ratio",
+      "label": "Ratio",
+      "hidden": false
+     },
+     {
+      "field": "fm.depth",
+      "label": "Depth",
+      "hidden": false
+     },
+     {
+      "field": "fm.bite",
+      "label": "Bite",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "call": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Glide",
+    "dials": [
+     {
+      "field": "source.glide",
+      "label": "Sweep",
+      "hidden": false
+     },
+     {
+      "field": "source.glideCurve",
+      "label": "Curve",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Formants",
+    "dials": [
+     {
+      "field": "source.formant1",
+      "label": "Formant 1",
+      "hidden": false
+     },
+     {
+      "field": "source.formant2",
+      "label": "Formant 2",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Phrasing",
+    "dials": [
+     {
+      "field": "source.cadence",
+      "label": "Cadence",
+      "hidden": false
+     },
+     {
+      "field": "source.irregular",
+      "label": "Irregular",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "tines": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "FM",
+    "dials": [
+     {
+      "field": "fm.ratio",
+      "label": "Ratio",
+      "hidden": false
+     },
+     {
+      "field": "fm.depth",
+      "label": "Depth",
+      "hidden": false
+     },
+     {
+      "field": "fm.bite",
+      "label": "Bite",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "nylon": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "tape": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "stab": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Additive",
+    "dials": [
+     {
+      "field": "additive.p1",
+      "label": "P1",
+      "hidden": false
+     },
+     {
+      "field": "additive.p2",
+      "label": "P2",
+      "hidden": false
+     },
+     {
+      "field": "additive.p3",
+      "label": "P3",
+      "hidden": false
+     },
+     {
+      "field": "additive.p4",
+      "label": "P4",
+      "hidden": false
+     },
+     {
+      "field": "additive.p5",
+      "label": "P5",
+      "hidden": false
+     },
+     {
+      "field": "additive.p6",
+      "label": "P6",
+      "hidden": false
+     },
+     {
+      "field": "additive.stretch",
+      "label": "Stretch",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ]
+ },
+ "bass": {
+  "sub": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "round": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "breath": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "fingered": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "sawbass": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "acid": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "upright": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": null,
+      "label": "Osc 2",
+      "hidden": false
+     },
+     {
+      "field": "source.shape2",
+      "label": "OSC 2",
+      "hidden": false
+     },
+     {
+      "field": "source.mix",
+      "label": "Mix",
+      "hidden": false
+     },
+     {
+      "field": "source.detune",
+      "label": "Detune",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     },
+     {
+      "field": "source.fold",
+      "label": "Fold",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ]
+ },
+ "texture": {
+  "sparkle": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "FM",
+    "dials": [
+     {
+      "field": "fm.ratio",
+      "label": "Ratio",
+      "hidden": false
+     },
+     {
+      "field": "fm.depth",
+      "label": "Depth",
+      "hidden": false
+     },
+     {
+      "field": "fm.bite",
+      "label": "Bite",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "grains": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "chimes": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.detune",
+      "label": "Spread",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Modal",
+    "dials": [
+     {
+      "field": "modal.material",
+      "label": "Material",
+      "hidden": false
+     },
+     {
+      "field": "modal.hardness",
+      "label": "Hardness",
+      "hidden": false
+     },
+     {
+      "field": "modal.damping",
+      "label": "Damping",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "wash": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     },
+     {
+      "field": "filter.envAmount",
+      "label": "Env amount",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "colour": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Spectral",
+    "dials": [
+     {
+      "field": "source.tilt",
+      "label": "Tilt",
+      "hidden": false
+     },
+     {
+      "field": "source.bandCentre",
+      "label": "Band",
+      "hidden": false
+     },
+     {
+      "field": "source.bandWidth",
+      "label": "Width",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Motion",
+    "dials": [
+     {
+      "field": "source.sweepRate",
+      "label": "Sweep",
+      "hidden": false
+     },
+     {
+      "field": "source.sweepDepth",
+      "label": "Depth",
+      "hidden": false
+     },
+     {
+      "field": "source.gust",
+      "label": "Gust",
+      "hidden": false
+     },
+     {
+      "field": "source.gustRate",
+      "label": "Gust rate",
+      "hidden": false
+     },
+     {
+      "field": "source.swell",
+      "label": "Swell",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Bursts",
+    "dials": [
+     {
+      "field": "source.burst",
+      "label": "Density",
+      "hidden": false
+     },
+     {
+      "field": "source.burstSharp",
+      "label": "Sharpness",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "cloud": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Spectral",
+    "dials": [
+     {
+      "field": "source.tilt",
+      "label": "Tilt",
+      "hidden": false
+     },
+     {
+      "field": "source.bandCentre",
+      "label": "Band",
+      "hidden": false
+     },
+     {
+      "field": "source.bandWidth",
+      "label": "Width",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Motion",
+    "dials": [
+     {
+      "field": "source.sweepRate",
+      "label": "Sweep",
+      "hidden": false
+     },
+     {
+      "field": "source.sweepDepth",
+      "label": "Depth",
+      "hidden": false
+     },
+     {
+      "field": "source.gust",
+      "label": "Gust",
+      "hidden": false
+     },
+     {
+      "field": "source.gustRate",
+      "label": "Gust rate",
+      "hidden": false
+     },
+     {
+      "field": "source.swell",
+      "label": "Swell",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Bursts",
+    "dials": [
+     {
+      "field": "source.burst",
+      "label": "Density",
+      "hidden": false
+     },
+     {
+      "field": "source.burstSharp",
+      "label": "Sharpness",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "call": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.octave",
+      "label": "Octave",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Glide",
+    "dials": [
+     {
+      "field": "source.glide",
+      "label": "Sweep",
+      "hidden": false
+     },
+     {
+      "field": "source.glideCurve",
+      "label": "Curve",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Formants",
+    "dials": [
+     {
+      "field": "source.formant1",
+      "label": "Formant 1",
+      "hidden": false
+     },
+     {
+      "field": "source.formant2",
+      "label": "Formant 2",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Phrasing",
+    "dials": [
+     {
+      "field": "source.cadence",
+      "label": "Cadence",
+      "hidden": false
+     },
+     {
+      "field": "source.irregular",
+      "label": "Irregular",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ]
+ },
+ "percussion": {
+  "soft": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.pitch",
+      "label": "Pitch",
+      "hidden": false
+     },
+     {
+      "field": "source.noise",
+      "label": "Noise",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "hand": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.pitch",
+      "label": "Pitch",
+      "hidden": false
+     },
+     {
+      "field": "source.noise",
+      "label": "Noise",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "tick": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.pitch",
+      "label": "Pitch",
+      "hidden": false
+     },
+     {
+      "field": "source.noise",
+      "label": "Noise",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ],
+  "dust": [
+   {
+    "heading": "Source",
+    "dials": [
+     {
+      "field": "source.shape1",
+      "label": "OSC 1",
+      "hidden": false
+     },
+     {
+      "field": "source.pitch",
+      "label": "Pitch",
+      "hidden": false
+     },
+     {
+      "field": "source.noise",
+      "label": "Noise",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Filter",
+    "dials": [
+     {
+      "field": "filter.type",
+      "label": "Type",
+      "hidden": false
+     },
+     {
+      "field": "filter.cutoff",
+      "label": "Cutoff",
+      "hidden": false
+     },
+     {
+      "field": "filter.q",
+      "label": "Resonance",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Envelope",
+    "dials": [
+     {
+      "field": "adsr.attack",
+      "label": "Attack",
+      "hidden": false
+     },
+     {
+      "field": "adsr.decay",
+      "label": "Decay",
+      "hidden": false
+     },
+     {
+      "field": "adsr.sustain",
+      "label": "Sustain",
+      "hidden": false
+     },
+     {
+      "field": "adsr.release",
+      "label": "Release",
+      "hidden": false
+     }
+    ]
+   },
+   {
+    "heading": "Sends",
+    "dials": [
+     {
+      "field": "sends.reverb",
+      "label": "Reverb",
+      "hidden": false
+     },
+     {
+      "field": "sends.delay",
+      "label": "Delay",
+      "hidden": false
+     }
+    ]
+   }
+  ]
+ }
+}
