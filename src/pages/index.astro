@@ -10194,7 +10194,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const SLIDER_DIALS = [
           ['filter', 'Filter', filterSpec, [
             ['cutoff', 'Cutoff', { fallback: [40, 12000], initial: 2000, write: Math.round }],
-            ['q', 'Resonance', { fallback: [0.1, 20], initial: 0.7, step: 0.1 }],
+            // v0.0.192: Resonance has always been drawn LINEAR, though its row
+            // says log; the loops read the row's curve and turned it log. The
+            // shipped drawing stands until the open row (TODO: the q log/linear
+            // discrepancy) is ruled.
+            ['q', 'Resonance', { fallback: [0.1, 20], initial: 0.7, step: 0.1, curve: 'linear' }],
             ['envAmount', 'Env amount', { fallback: [0, 1], initial: 0.3 }],
           ]],
           ['adsr', 'Envelope', adsrSpec, [
@@ -10229,7 +10233,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const path = `${section}.${key}`;
             const [lo, hi] = patchDomain(path, ui.fallback[0], ui.fallback[1]);
             const reg = engineModule && engineModule.PARAM_REGISTRY ? engineModule.PARAM_REGISTRY[`patch.${path}`] : null;
-            const log = reg ? reg.curve === 'log' : false;
+            const log = ui.curve ? ui.curve === 'log' : (reg ? reg.curve === 'log' : false);
             veRange(box, label, {
               hint: registryHint(path),
               field: path,
@@ -10919,7 +10923,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const PATCH_DIALS = [
           ['filter', 'Filter', filterSpec, [
             ['cutoff', 'Cutoff', { fallback: [40, 12000], initial: 2000, rangeDefault: true, write: Math.round }],
-            ['q', 'Resonance', { fallback: [0.1, 20], initial: 0.7, step: 0.1 }],
+            // v0.0.192: Resonance has always been drawn LINEAR, though its row
+            // says log; the loops read the row's curve and turned it log. The
+            // shipped drawing stands until the open row (TODO: the q log/linear
+            // discrepancy) is ruled.
+            ['q', 'Resonance', { fallback: [0.1, 20], initial: 0.7, step: 0.1, curve: 'linear' }],
             ['envAmount', 'Env amount', { fallback: [0, 1], initial: 0.3 }],
           ]],
           ['adsr', 'Envelope', adsrSpec, [
@@ -10977,7 +10985,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const path = `${section}.${key}`;
             const [lo, hi] = regDomain(path, ui.fallback[0], ui.fallback[1]);
             const reg = engineModule && engineModule.PARAM_REGISTRY ? engineModule.PARAM_REGISTRY[`patch.${path}`] : null;
-            const log = reg ? reg.curve === 'log' : false;
+            const log = ui.curve ? ui.curve === 'log' : (reg ? reg.curve === 'log' : false);
             const format = formatForUnit(reg ? reg.unit : '');
             const allowRange = reg ? reg.rangeable !== false : true;
             const value = sanitiseRangeValueIn(patch[section][key], lo, hi, ui.initial);

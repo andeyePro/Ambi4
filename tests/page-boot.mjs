@@ -1573,6 +1573,11 @@ try {
               field: cell.dataset.field || null,
               label: cell.querySelector('.knob-label') ? cell.querySelector('.knob-label').textContent : (cell.querySelector('button') ? cell.querySelector('button').textContent : ''),
               hidden: cell.hidden === true,
+              // v0.0.192: the dial's own domain as the DOM states it — a log
+              // dial reads 0–1 here (its log map lives in the page), so a
+              // linear dial turning log, or a domain moving, changes the pin.
+              min: cell.querySelector('.knob') ? cell.querySelector('.knob').getAttribute('aria-valuemin') : null,
+              max: cell.querySelector('.knob') ? cell.querySelector('.knob').getAttribute('aria-valuemax') : null,
             })),
           }));
         }
@@ -1627,6 +1632,10 @@ try {
             field: wrap.dataset.field || null,
             label: wrap.querySelector('label') ? wrap.querySelector('label').textContent : '',
             kind: wrap.querySelector('select') ? 'select' : wrap.querySelector('input[type="range"]') ? 'range' : 'other',
+            // v0.0.192: the slider's own min, max and step — a log slider reads 0–1, step 0.001.
+            range: wrap.querySelector('input[type="range"]')
+              ? ['min', 'max', 'step'].map((a) => wrap.querySelector('input[type="range"]').getAttribute(a))
+              : null,
           }));
           for (const wrap of editor.querySelectorAll('.patch-controls .ve-control[data-field]')) {
             const row = registry[`patch.${wrap.dataset.field}`];

@@ -4,410 +4,738 @@
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Spread",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "glass": [
    {
     "field": "source.detune",
     "label": "Spread",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "additive.p1",
     "label": "P1",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p2",
     "label": "P2",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p3",
     "label": "P3",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p4",
     "label": "P4",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p5",
     "label": "P5",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.stretch",
     "label": "Stretch",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-0.1",
+     "0.1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "strings": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Spread",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "choir": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "polysaw": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Spread",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ]
  },
@@ -416,298 +744,536 @@
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "crystal": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "fm.ratio",
     "label": "Ratio",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "fm.depth",
     "label": "Depth",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ]
    },
    {
     "field": "fm.bite",
     "label": "Bite",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "marimba": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "modal.material",
     "label": "Material",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "modal.hardness",
     "label": "Hardness",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "modal.damping",
     "label": "Damping",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "muted": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ]
  },
@@ -716,673 +1282,1228 @@
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "bell": [
    {
     "field": "source.detune",
     "label": "Spread",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "fm.ratio",
     "label": "Ratio",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "fm.depth",
     "label": "Depth",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ]
    },
    {
     "field": "fm.bite",
     "label": "Bite",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "flute": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "keys": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "fm.ratio",
     "label": "Ratio",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "fm.depth",
     "label": "Depth",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ]
    },
    {
     "field": "fm.bite",
     "label": "Bite",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "call": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.glide",
     "label": "Sweep",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-24",
+     "24",
+     "1"
+    ]
    },
    {
     "field": "source.glideCurve",
     "label": "Curve",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.formant1",
     "label": "Formant 1",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "source.formant2",
     "label": "Formant 2",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "source.cadence",
     "label": "Cadence",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.5",
+     "8",
+     "0.1"
+    ]
    },
    {
     "field": "source.irregular",
     "label": "Irregular",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "tines": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "fm.ratio",
     "label": "Ratio",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "fm.depth",
     "label": "Depth",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ]
    },
    {
     "field": "fm.bite",
     "label": "Bite",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "nylon": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "tape": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "stab": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "additive.p1",
     "label": "P1",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p2",
     "label": "P2",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p3",
     "label": "P3",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p4",
     "label": "P4",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p5",
     "label": "P5",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.p6",
     "label": "P6",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "additive.stretch",
     "label": "Stretch",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-0.1",
+     "0.1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ]
  },
@@ -1391,534 +2512,950 @@
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "round": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "breath": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "fingered": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "sawbass": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "acid": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "upright": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.shape2",
     "label": "Osc 2",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.mix",
     "label": "Mix",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.detune",
     "label": "Detune",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.fold",
     "label": "Fold",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ]
  },
@@ -1927,544 +3464,1006 @@
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "fm.ratio",
     "label": "Ratio",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "fm.depth",
     "label": "Depth",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ]
    },
    {
     "field": "fm.bite",
     "label": "Bite",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "grains": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "chimes": [
    {
     "field": "source.detune",
     "label": "Spread",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-50",
+     "50",
+     "1"
+    ]
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "modal.material",
     "label": "Material",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "modal.hardness",
     "label": "Hardness",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "2",
+     "0.01"
+    ]
    },
    {
     "field": "modal.damping",
     "label": "Damping",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "wash": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "filter.envAmount",
     "label": "Env amount",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "colour": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.tilt",
     "label": "Tilt",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-1",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.bandCentre",
     "label": "Band",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "source.bandWidth",
     "label": "Width",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "4",
+     "0.05"
+    ]
    },
    {
     "field": "source.sweepRate",
     "label": "Sweep",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "0.5",
+     "0.005"
+    ]
    },
    {
     "field": "source.sweepDepth",
     "label": "Depth",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.gust",
     "label": "Gust",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.gustRate",
     "label": "Gust rate",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.02",
+     "0.5",
+     "0.005"
+    ]
    },
    {
     "field": "source.swell",
     "label": "Swell",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.burst",
     "label": "Density",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.burstSharp",
     "label": "Sharpness",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "cloud": [
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.tilt",
     "label": "Tilt",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-1",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.bandCentre",
     "label": "Band",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "source.bandWidth",
     "label": "Width",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "4",
+     "0.05"
+    ]
    },
    {
     "field": "source.sweepRate",
     "label": "Sweep",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "0.5",
+     "0.005"
+    ]
    },
    {
     "field": "source.sweepDepth",
     "label": "Depth",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.gust",
     "label": "Gust",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.gustRate",
     "label": "Gust rate",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.02",
+     "0.5",
+     "0.005"
+    ]
    },
    {
     "field": "source.swell",
     "label": "Swell",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.burst",
     "label": "Density",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.burstSharp",
     "label": "Sharpness",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "call": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.octave",
     "label": "Octave",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.glide",
     "label": "Sweep",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-24",
+     "24",
+     "1"
+    ]
    },
    {
     "field": "source.glideCurve",
     "label": "Curve",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "source.formant1",
     "label": "Formant 1",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "source.formant2",
     "label": "Formant 2",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "source.cadence",
     "label": "Cadence",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.5",
+     "8",
+     "0.1"
+    ]
    },
    {
     "field": "source.irregular",
     "label": "Irregular",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ]
  },
@@ -2473,248 +4472,456 @@
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.pitch",
     "label": "Pitch",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-24",
+     "24",
+     "1"
+    ]
    },
    {
     "field": "source.noise",
     "label": "Noise",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "hand": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.pitch",
     "label": "Pitch",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-24",
+     "24",
+     "1"
+    ]
    },
    {
     "field": "source.noise",
     "label": "Noise",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "tick": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.pitch",
     "label": "Pitch",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-24",
+     "24",
+     "1"
+    ]
    },
    {
     "field": "source.noise",
     "label": "Noise",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ],
   "dust": [
    {
     "field": "source.shape1",
     "label": "Osc 1",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "source.pitch",
     "label": "Pitch",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "-24",
+     "24",
+     "1"
+    ]
    },
    {
     "field": "source.noise",
     "label": "Noise",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "filter.type",
     "label": "Type",
-    "kind": "select"
+    "kind": "select",
+    "range": null
    },
    {
     "field": "filter.cutoff",
     "label": "Cutoff",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "filter.q",
     "label": "Resonance",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0.1",
+     "20",
+     "0.1"
+    ]
    },
    {
     "field": "adsr.attack",
     "label": "Attack",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.decay",
     "label": "Decay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "adsr.sustain",
     "label": "Sustain",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "adsr.release",
     "label": "Release",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.001"
+    ]
    },
    {
     "field": "sends.reverb",
     "label": "Reverb",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    },
    {
     "field": "sends.delay",
     "label": "Delay",
-    "kind": "range"
+    "kind": "range",
+    "range": [
+     "0",
+     "1",
+     "0.01"
+    ]
    }
   ]
  }
