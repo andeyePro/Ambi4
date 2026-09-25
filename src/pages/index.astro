@@ -1718,7 +1718,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // The v3 Patch schema's sections, in editor order. Anything else on a
     // patch object (v14 `perKind`) is state, not an editable section.
     // v0.0.175: `fm` joined (the FM engine section; only FM voices publish it).
-    const PATCH_SECTIONS = ['source', 'fm', 'additive', 'filter', 'adsr', 'sends'];
+    const PATCH_SECTIONS = ['source', 'fm', 'additive', 'modal', 'filter', 'adsr', 'sends'];
 
     // Used only when a voice doesn't export .defaults (older engine-voices).
     const FALLBACK_PATCH = {
@@ -9550,6 +9550,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * an engine bundle without a registry, or a row without words, gives
        * '' and describe() then attaches nothing.
        */
+      /** v0.0.177: an enumeration row's legal values, else the literal list. */
+      function registryEnum(path, fallback) {
+        const table = engineModule && engineModule.PARAM_REGISTRY;
+        const row = table ? table[`patch.${path}`] : null;
+        return row && row.kind === 'enum' && Array.isArray(row.domain) ? row.domain.slice() : fallback;
+      }
+      const MATERIAL_LABELS = { metal: 'Metal', wood: 'Wood', glass: 'Glass', bell: 'Bell' };
+      const materialLabel = (id) => MATERIAL_LABELS[id] || id;
+
       function registryHint(path) {
         const table = engineModule && engineModule.PARAM_REGISTRY;
         const row = table ? table[`patch.${path}`] : null;
@@ -9818,6 +9827,40 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               onChange: (v) => { patch.additive[key] = v; commit(); },
             });
           }
+        }
+
+        // v0.0.177: the Modal section (see the knob editor's copy).
+        const modalSpecS = controlsSectionSpec(controls, 'modal');
+        const modalOnS = defaults && isPlainObject(defaults.modal) && isPlainObject(patch.modal) && controlsSectionVisible(modalSpecS);
+        const modalS = modalOnS ? veSection(container, 'Modal') : null;
+        if (modalS && controlsFieldAllowed(modalSpecS, 'material')) {
+          const materials = registryEnum('modal.material', ['metal', 'wood', 'glass', 'bell']);
+          veSelect(modalS, 'Material', {
+            hint: registryHint('modal.material'),
+            options: materials.map((m) => [m, materialLabel(m)]),
+            value: patch.modal.material,
+            onChange: (v) => { patch.modal.material = v; commit(); },
+          });
+        }
+        if (modalS && controlsFieldAllowed(modalSpecS, 'hardness')) {
+          const [lo, hi] = patchDomain('modal.hardness', 0, 2);
+          veRange(modalS, 'Hardness', {
+            hint: registryHint('modal.hardness'),
+            min: lo, max: hi, step: 0.01,
+            value: rangeMid(sanitiseRangeValueIn(patch.modal.hardness, lo, hi, defaults.modal.hardness)),
+            format: timesFormat,
+            onChange: (v) => { patch.modal.hardness = v; commit(); },
+          });
+        }
+        if (modalS && controlsFieldAllowed(modalSpecS, 'damping')) {
+          const [lo, hi] = patchDomain('modal.damping', 0.25, 4);
+          veRange(modalS, 'Damping', {
+            hint: registryHint('modal.damping'),
+            min: lo, max: hi, log: true,
+            value: rangeMid(sanitiseRangeValueIn(patch.modal.damping, lo, hi, defaults.modal.damping)),
+            format: timesFormat,
+            onChange: (v) => { patch.modal.damping = v; commit(); },
+          });
         }
 
         const filter = controlsSectionVisible(filterSpec) ? veSection(container, 'Filter') : null;
@@ -10567,6 +10610,64 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               },
             });
           }
+        }
+
+        // -- Modal (v0.0.177, unit 6) -- a struck object, on a voice that
+        // publishes `modal`. Material is an enumeration dial like Type.
+        const modalSpec = controlsSectionSpec(controls, 'modal');
+        const modalOn = isPlainObject(defaults.modal) && isPlainObject(patch.modal) && controlsSectionVisible(modalSpec);
+        const modalRow = modalOn ? knobSection('Modal') : null;
+        if (modalRow && allowed(modalSpec, 'material')) {
+          const materials = registryEnum('modal.material', ['metal', 'wood', 'glass', 'bell']);
+          const top = materials.length - 1;
+          addKnob(modalRow, {
+            label: 'Material',
+            field: 'modal.material',
+            allowRange: false, // an enumeration — see the Type dial
+            ghostMap: (v) => Math.max(0, materials.indexOf(v)),
+            min: 0,
+            max: top,
+            step: 1,
+            value: Math.max(0, materials.indexOf(patch.modal.material)),
+            marks: materials.map((_, i) => i),
+            format: (v) => materialLabel(materials[Math.round(clamp(v, 0, top))]),
+            defaultValue: Math.max(0, materials.indexOf(defaults.modal.material)),
+            onInput: (v) => {
+              patch.modal.material = materials[Math.round(clamp(v, 0, top))];
+              commit();
+            },
+          });
+        }
+        if (modalRow && allowed(modalSpec, 'hardness')) {
+          const [lo, hi] = regDomain('modal.hardness', 0, 2);
+          addKnob(modalRow, {
+            label: 'Hardness',
+            field: 'modal.hardness',
+            min: lo,
+            max: hi,
+            value: sanitiseRangeValueIn(patch.modal.hardness, lo, hi, defaults.modal.hardness),
+            format: timesFormat,
+            allowRange: true,
+            defaultValue: defaults.modal.hardness,
+            onInput: (v) => {
+              patch.modal.hardness = mapRV(v, (x) => clamp(x, lo, hi));
+              commit();
+            },
+          });
+        }
+        if (modalRow && allowed(modalSpec, 'damping')) {
+          const [lo, hi] = regDomain('modal.damping', 0.25, 4);
+          addLogKnob(
+            modalRow, 'Damping', lo, hi,
+            sanitiseRangeValueIn(patch.modal.damping, lo, hi, defaults.modal.damping),
+            timesFormat,
+            (v) => {
+              patch.modal.damping = mapRV(v, (x) => clamp(x, lo, hi));
+              commit();
+            },
+            { allowRange: true, field: 'modal.damping' },
+            defaults.modal.damping
+          );
         }
 
         // -- filter --

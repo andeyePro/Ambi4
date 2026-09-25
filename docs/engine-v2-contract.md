@@ -2184,3 +2184,23 @@ moves nothing. Levels are MULTIPLIERS (0–2, default 1) over the voice's own
 partial table; `stretch` (−0.1..0.1, default 0) offsets the i-th partial's
 ratio by `1 + stretch × i` (zero-based, so the fundamental is fixed). At the
 defaults every partial is the literal the voice shipped.
+
+## The Modal engine section (v0.0.177)
+
+Module ownership: **the registry** (`patch.modal.material` enum metal | wood |
+glass | bell, `.hardness`, `.damping`), **the voice library** (`struck()`,
+`MATERIAL_TABLES`, `modalOf`, `modalTable`, `modalPartial`, `strikeOf`; chimes
+and marimba publish `modal` and read it), both editors; gated by
+`tests/voices-smoke.mjs` (the defaults rebuild the shipped overtone stack
+exactly; material swaps the table; hardness lifts the upper partials by
+`1 + (h − 1) × 0.5 × i` with the fundamental fixed and scales the mallet
+click; damping divides every partial's ring), `tests/page-boot.mjs` (Marimba
+shows the three dials, Soft pluck none), and, parked,
+`tests/pending/modal-render-drive.mjs`.
+
+Contract: a voice publishes the section by carrying `modal` in its defaults.
+`metal` IS chimes' own table and `wood` IS marimba's, verbatim, so each
+voice's default material is the literal it always rang with; `glass` and
+`bell` are the two struck objects those did not cover. Hardness (0–2) and
+damping (0.25–4, log) default to 1. The membrane kits do not publish the
+section (docs/synthesis-programme.md § 5, unit 6, says why).

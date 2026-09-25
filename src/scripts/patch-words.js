@@ -151,9 +151,17 @@ export function describePatch({ engineType = '', patch, controls = true, detuneM
       }
       break;
     }
-    case 'physical':
-      source.push(kit ? 'a drum model: a bending skin over noise' : 'a struck-object model (modal)');
+    case 'physical': {
+      if (kit) { source.push('a drum model: a bending skin over noise'); break; }
+      const m = patch.modal || {};
+      const material = allowed(controls, 'modal', 'material') && typeof m.material === 'string' ? `, ${m.material}` : '';
+      source.push(`a struck-object model (modal${material})`);
+      const h = mid(m.hardness);
+      if (allowed(controls, 'modal', 'hardness') && h !== null && Math.abs(h - 1) > 0.005) source.push(`struck ${show(m.hardness, fmt.times)} as hard`);
+      const dmp = mid(m.damping);
+      if (allowed(controls, 'modal', 'damping') && dmp !== null && Math.abs(dmp - 1) > 0.005) source.push(`damped ${show(m.damping, fmt.times)}`);
       break;
+    }
     case 'noise':
       source.push('sculpted noise');
       break;
@@ -287,6 +295,8 @@ export function printableNumbers(patch) {
   const snd = (patch && patch.sends) || {};
   const fmp = (patch && patch.fm) || {};
   add(fmp.ratio, fmt.times); add(fmp.depth, fmt.times); add(fmp.bite, fmt.sec);
+  const modp = (patch && patch.modal) || {};
+  add(modp.hardness, fmt.times); add(modp.damping, fmt.times);
   const addp = (patch && patch.additive) || {};
   for (const [k, v] of Object.entries(addp)) {
     if (k === 'stretch') add(v, fmt.stretch);

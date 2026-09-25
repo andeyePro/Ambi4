@@ -1088,6 +1088,61 @@ const modulated = (defaults) => defaults.fm !== undefined;
  */
 const summed = (defaults) => defaults.additive !== undefined;
 
+/**
+ * True for a voice that publishes the Modal section (v0.0.177, unit 6): a
+ * struck object whose overtones come from a material table. Declared by
+ * publishing `modal`; chimes and marimba do, and their own tables are their
+ * default materials, so the defaults are the literals they always rang with.
+ */
+const struck = (defaults) => defaults.modal !== undefined;
+
+/**
+ * The overtone tables, `[ratio, mix, span]` per partial: the ratio over the
+ * note, the level, and how long that partial rings relative to the whole.
+ * `metal` IS chimes' table and `wood` IS marimba's, verbatim; glass and bell
+ * are the two struck objects those did not cover — a rung goblet and a
+ * church bell's hum, prime, tierce, quint and nominal.
+ */
+const MATERIAL_TABLES = Object.freeze({
+  metal: [[1, 0.42, 1], [2.76, 0.26, 0.7], [5.4, 0.16, 0.45], [8.93, 0.09, 0.28]],
+  wood: [[1, 1, 1], [4, 0.22, 0.35], [9.2, 0.07, 0.18]],
+  glass: [[1, 0.5, 1], [2.32, 0.3, 0.6], [4.25, 0.18, 0.4], [6.63, 0.1, 0.25]],
+  bell: [[1, 0.45, 1], [2, 0.3, 0.8], [2.4, 0.2, 0.7], [3, 0.15, 0.5], [4.2, 0.1, 0.4]],
+});
+const MATERIALS = Object.keys(MATERIAL_TABLES);
+
+/** The modal fields a struck voice plays, patch over defaults. */
+const modalOf = (patch, d) => {
+  const asked = part(patch, 'modal');
+  return {
+    material: oneOf(asked.material, MATERIALS, d.modal.material),
+    hardness: inRange(asked.hardness, 0, 2, d.modal.hardness),
+    damping: inRange(asked.damping, 0.25, 4, d.modal.damping),
+  };
+};
+
+/** The table a struck voice rings with: the patch's material, else its own. */
+function modalTable(p, own) {
+  const m = p && p.modal ? p.modal.material : own;
+  return MATERIAL_TABLES[m] || MATERIAL_TABLES[own];
+}
+
+/**
+ * One partial of a struck voice through the patch. Hardness tilts the upper
+ * partials (the fundamental never moves: `1 + (h - 1) * 0.5 * i`, so a hard
+ * strike brings the overtones up and a soft one loses them) and damping
+ * divides the ring. `i` is zero-based. At the defaults both are the literals.
+ */
+function modalPartial(p, i, ratio, mix, span) {
+  const m = p && p.modal ? p.modal : null;
+  const h = m && Number.isFinite(m.hardness) ? m.hardness : 1;
+  const damp = m && Number.isFinite(m.damping) ? m.damping : 1;
+  return { ratio, mix: Math.max(SILENCE, mix * (1 + (h - 1) * 0.5 * i)), span: span / damp };
+}
+
+/** The mallet click's level under the patch: hardness scales it, 1 as shipped. */
+const strikeOf = (p) => (p && p.modal && Number.isFinite(p.modal.hardness) ? p.modal.hardness : 1);
+
 /** The partial levels and stretch a summed voice plays, patch over table. */
 function additiveOf(patch, d) {
   const asked = part(patch, 'additive');
@@ -1248,6 +1303,8 @@ function patchFor(defaults, patch, kind = null) {
     } : {}),
     // v0.0.176: the Additive section, on the voices that publish it.
     ...(summed(d) ? { additive: additiveOf(patch, d) } : {}),
+    // v0.0.177: the Modal section, on the voices that publish it.
+    ...(struck(d) ? { modal: modalOf(patch, d) } : {}),
     // AUDIT FIX (voices cluster): the voice's OWN published values, so a
     // patch can be applied RELATIVE to what the voice authored rather than
     // replacing it. A kit publishes ONE adsr and ONE filter but plays three
@@ -1730,6 +1787,8 @@ const DEFAULTS = {
       filter: { type: 'highpass', cutoff: 250, q: 0.5, envAmount: 0 },
       adsr: { attack: 0.008, decay: 6.3, sustain: 0, release: 0.05 },
       sends: { reverb: 0.8, delay: 0.45 },
+      // v0.0.177: a tube's overtones, struck as shipped.
+      modal: { material: 'metal', hardness: 1, damping: 1 },
     },
     wash: {
       source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
@@ -1802,6 +1861,8 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 3184, q: 0.8, envAmount: 0 },
       adsr: { attack: 0.003, decay: 0.53, sustain: 0, release: 0.05 },
       sends: { reverb: 0.3, delay: 0.35 },
+      // v0.0.177: a rosewood bar's overtones, struck as shipped.
+      modal: { material: 'wood', hardness: 1, damping: 1 },
     },
     // v27: the damped comping pluck a funk guitarist or a keyboard player
     // chops sixteenths on. Shorter and more resonant than any arp before it.
@@ -1998,7 +2059,7 @@ const CONTROLS = {
   texture: {
     sparkle: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     grains: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
-    chimes: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    chimes: { source: ['detune', 'octave'], modal: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     // SPEC-CRITIC: shape1 only reaches the quiet 0.14-weight anchor tone
     // under the noise sweep — mechanically real, audibly marginal.
     wash: { source: ['shape1', 'octave'], filter: true, adsr: true, sends: true },
@@ -2013,7 +2074,7 @@ const CONTROLS = {
   arp: {
     softPluck: { source: true, filter: true, adsr: true, sends: true },
     crystal: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
-    marimba: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    marimba: { source: ['octave'], modal: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     muted: { source: true, filter: true, adsr: true, sends: true },
   },
   percussion: {
@@ -3353,11 +3414,14 @@ function textureChimes(ctx, destination, note, patch) {
 
   // Ratios from a struck tube: nothing here is a harmonic of anything else,
   // which is why the stack shimmers instead of fusing into one pitch.
-  const partials = [[1, 0.42, 1], [2.76, 0.26, 0.7], [5.4, 0.16, 0.45], [8.93, 0.09, 0.28]];
+  // v0.0.177: the table is the patch's material (metal IS this voice's own
+  // table); hardness and damping shape each partial, the literals at 1.
+  const partials = modalTable(p, 'metal');
   const life = clamp(dur * 1.2 + 1.5, 3, 7);
   const jitter = Math.abs(p ? p.source.detune : 3);
   let end = t;
-  for (const [ratio, mix, span] of partials) {
+  partials.forEach(([ratioOf, mixOf, spanOf], i) => {
+    const { ratio, mix, span } = modalPartial(p, i, ratioOf, mixOf, spanOf);
     const osc = rig.osc('sine', f * ratio, t, between(-jitter, jitter));
     const gain = rig.gain(SILENCE);
     osc.connect(gain);
@@ -3367,10 +3431,10 @@ function textureChimes(ctx, destination, note, patch) {
       peak: level(PEAK.texture, v) * mix * 2.4,
     }, p);
     if (done > end) end = done;
-  }
+  });
 
   noiseBurst(rig, amp, {
-    t, freq: clamp(f * 4, 800, 9000), q: 1.5, decay: 0.02, peak: 0.05 * v, attack: 0.001,
+    t, freq: clamp(f * 4, 800, 9000), q: 1.5, decay: 0.02, peak: 0.05 * v * strikeOf(p), attack: 0.001,
   });
 
   return rig.finish(end + 0.05);
@@ -3763,7 +3827,9 @@ function arpMarimba(ctx, destination, note, patch) {
   const life = clamp(dur * 1.4 + 0.18, 0.18, 0.6) * clamp(Math.pow(440 / f, 0.35), 0.7, 1.5);
   const peak = level(PEAK.arp * 0.85, v);
   let end = t;
-  for (const [ratio, mix, span] of [[1, 1, 1], [4, 0.22, 0.35], [9.2, 0.07, 0.18]]) {
+  // v0.0.177: wood IS this voice's own table; the patch may pick another.
+  modalTable(p, 'wood').forEach(([ratioOf, mixOf, spanOf], i) => {
+    const { ratio, mix, span } = modalPartial(p, i, ratioOf, mixOf, spanOf);
     const osc = rig.osc('sine', f * ratio, t);
     const gain = rig.gain(SILENCE);
     osc.connect(gain);
@@ -3772,10 +3838,10 @@ function arpMarimba(ctx, destination, note, patch) {
       attack: 0.003, decay: life * span, hold: dur, span, peak: peak * mix,
     }, p);
     if (done > end) end = done;
-  }
+  });
 
   noiseBurst(rig, amp, {
-    t, freq: clamp(f * 3.5, 700, 4000), q: 1.2, decay: 0.008, peak: 0.07 * v, attack: 0.001,
+    t, freq: clamp(f * 3.5, 700, 4000), q: 1.2, decay: 0.008, peak: 0.07 * v * strikeOf(p), attack: 0.001,
   });
 
   return rig.finish(end + 0.03);

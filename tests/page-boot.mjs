@@ -1290,6 +1290,35 @@ try {
       if (cells().length) failures.push('Warm, a subtractive pad, grew additive dials — the disclosure rule is broken');
     }
 
+    // v0.0.177 — the Modal section appears on Marimba and on no plucked arp.
+    {
+      const select = doc.getElementById('track-voice-arp');
+      const cells = () => doc.querySelectorAll('#voice-editor-arp .patch-controls .knob-cell[data-field^="modal."]');
+      const pick = async (voice) => {
+        select.value = voice;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        await openEditor('arp');
+        await waitUntil(() => doc.querySelectorAll('#voice-editor-arp .patch-controls .knob-cell').length > 0);
+      };
+      await pick('marimba');
+      if (!(await waitUntil(() => cells().length === 3))) {
+        failures.push(`Marimba's editor shows ${cells().length} modal dials, expected Material, Hardness and Damping`);
+      } else {
+        for (const cell of cells()) {
+          const row = registry[`patch.${cell.dataset.field}`];
+          const knob = cell.querySelector('.knob');
+          const descId = knob && knob.getAttribute('aria-describedby');
+          const desc = descId ? doc.getElementById(descId) : null;
+          if (!row || !desc || desc.textContent !== row.hint) failures.push(`${cell.dataset.field}: the modal dial does not carry its registry hint`);
+        }
+        const words = doc.querySelector('#voice-editor-arp .ve-words');
+        if (!words || !/\(modal, wood\)/.test(words.textContent)) failures.push(`Marimba's words line does not name its material: ${JSON.stringify(words && words.textContent)}`);
+      }
+      await pick('softPluck');
+      await new Promise((r) => setTimeout(r, 50));
+      if (cells().length) failures.push('Soft pluck, a subtractive arp, grew modal dials — the disclosure rule is broken');
+    }
+
     // v0.0.174 — "what makes this sound": the words line under the dials is
     // exactly what the pure module says for the sounding voice's patch, so the
     // page's wiring (voice, controls, detune mode, the live patch object) is

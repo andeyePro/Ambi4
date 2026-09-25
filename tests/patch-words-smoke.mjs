@@ -59,7 +59,8 @@ test('the engine class opens the sentence in its own words', () => {
   assert.match(describeVoice('melody', 'bell'), /^A sine carrier wobbled by a sine modulator \(FM\) at 3\.47× the note, bright for 0\.8 s/);
   assert.match(describeVoice('melody', 'stab'), /^6 partials summed at their own levels \(additive\)/);
   assert.match(describeVoice('pad', 'glass'), /^Two engines: 5 partials summed/);
-  assert.match(describeVoice('texture', 'chimes'), /struck-object model \(modal\)/);
+  assert.match(describeVoice('texture', 'chimes'), /^A struck-object model \(modal, metal\)/);
+  assert.match(describeVoice('arp', 'marimba'), /\(modal, wood\)/);
   assert.match(describeVoice('texture', 'colour'), /^Sculpted noise/);
   assert.match(describeVoice('pad', 'warm'), /^Saw and triangle/);
   assert.match(describeVoice('melody', 'pluck'), /^Two saws/);
@@ -83,6 +84,17 @@ test('the drawbars are described only when moved, and stretch as a signed percen
   const text = describeVoice('melody', 'stab', patch);
   assert.match(text, /partial 2 at 0\.5×/);
   assert.match(text, /stretched \+3% per partial/);
+  const allowed = printableNumbers(patch);
+  for (const n of printed(text)) assert.ok(allowed.has(n), `${n} is not a patch value: ${text}`);
+});
+
+test('a struck voice names its material, and hardness and damping only when moved', () => {
+  const patch = deepClone(VOICES.texture.chimes.defaults);
+  patch.modal.material = 'bell';
+  patch.modal.damping = 2;
+  const text = describeVoice('texture', 'chimes', patch);
+  assert.match(text, /\(modal, bell\), damped 2×/);
+  assert.doesNotMatch(text, /struck .* as hard/);
   const allowed = printableNumbers(patch);
   for (const n of printed(text)) assert.ok(allowed.has(n), `${n} is not a patch value: ${text}`);
 });

@@ -776,9 +776,15 @@ test('every voice publishes a complete, in-range default patch', () => {
       // v0.0.159: a kit also publishes each sound's own envelope in perKind.
       // v0.0.175: an FM voice also publishes its `fm` section (unit 4).
       // v0.0.176: an additive voice publishes its drawbars the same way.
-      const groups = Object.keys(defaults).filter((k) => k !== 'perKind' && k !== 'fm' && k !== 'additive').sort();
+      const groups = Object.keys(defaults).filter((k) => !['perKind', 'fm', 'additive', 'modal'].includes(k)).sort();
       assert.deepEqual(groups, ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      if (defaults.modal !== undefined) {
+        assert.equal(VOICES[track][id].engineType, 'physical', `${where}: publishes modal but is ${VOICES[track][id].engineType}`);
+        assert.deepEqual(Object.keys(defaults.modal).sort(), ['damping', 'hardness', 'material'], `${where}.modal: wrong fields`);
+        assert.equal(defaults.modal.hardness, 1, `${where}.modal.hardness: as struck today is 1`);
+        assert.equal(defaults.modal.damping, 1, `${where}.modal.damping: as shipped is 1`);
+      }
       if (defaults.additive !== undefined) {
         // Glass is hybrid (partials plus an FM shimmer); stab is additive outright.
         assert.ok(['additive', 'hybrid'].includes(VOICES[track][id].engineType), `${where}: publishes additive but is ${VOICES[track][id].engineType}`);
@@ -1647,8 +1653,10 @@ test('controls: schema shape, and every applicable field exists in defaults', ()
       assert.ok(controls && typeof controls === 'object', `${where}: missing`);
       // v0.0.175: an FM voice also declares `fm: true`, and only an FM voice —
       // the section a voice exposes is the section it publishes.
-      assert.deepEqual(Object.keys(controls).filter((k) => k !== 'fm' && k !== 'additive').sort(), ['adsr', 'filter', 'sends', 'source'],
+      assert.deepEqual(Object.keys(controls).filter((k) => !['fm', 'additive', 'modal'].includes(k)).sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      assert.equal('modal' in controls, defaults.modal !== undefined,
+        `${where}: modal control declared ${'modal' in controls} but defaults publish ${defaults.modal !== undefined}`);
       assert.equal('additive' in controls, defaults.additive !== undefined,
         `${where}: additive control declared ${'additive' in controls} but defaults publish ${defaults.additive !== undefined}`);
       assert.equal('fm' in controls, defaults.fm !== undefined,
@@ -2608,6 +2616,90 @@ test('v0.0.176 additive: a drawbar scales its own partial, stretch moves the upp
   glass.play(ctx, destination, note, { ...structuredClone(glass.defaults), additive: { ...glass.defaults.additive, stretch: -0.02 } });
   const gp = partialsOf().filter((r) => r[0] > 100);
   assert.ok(Math.abs(gp[gp.length - 1][0] - 440 * 6.97 * (1 - 0.02 * 4)) < 1e-3, `glass's top partial squeezes by four steps (${gp[gp.length - 1][0]})`);
+});
+
+// --------------------------------------------------------------------------
+// v0.0.177 — the Modal engine section (unit 6 of docs/synthesis-programme.md)
+// --------------------------------------------------------------------------
+
+const MODAL_VOICES = [['texture', 'chimes'], ['arp', 'marimba']];
+const SILENCE_FLOOR = 1e-4; // engine-voices' SILENCE
+
+/** The struck partials of one note: [frequency, peak level, last automation time], plus the click's peak. */
+function struckOf() {
+  const rows = [];
+  let click = 0;
+  for (const node of created) {
+    if (node.kind === 'oscillator' && node.type === 'sine') {
+      const gain = node.outputs.find((o) => o && o.kind === 'gain');
+      if (!gain || gain.outputs.some((t) => t && t.isParam)) continue;
+      const events = automation.filter((e) => e.paramId === gain.gain.paramId);
+      const last = events.length ? Math.max(...events.map((e) => e.time)) : 0;
+      rows.push([+node.frequency.max.toFixed(4), +gain.gain.max.toFixed(6), +last.toFixed(6)]);
+    }
+    if (node.kind === 'bufferSource') {
+      // the mallet click: noise → filter → gain
+      const filt = node.outputs.find((o) => o && o.kind === 'biquad');
+      const gain = filt && filt.outputs.find((o) => o && o.kind === 'gain');
+      if (gain) click = Math.max(click, gain.gain.max);
+    }
+  }
+  return { rows: rows.sort((a, b) => a[0] - b[0]), click: +click.toFixed(6) };
+}
+
+test('v0.0.177 modal: the material defaults reproduce the shipped overtone stack exactly', () => {
+  for (const [track, id] of MODAL_VOICES) {
+    const voice = VOICES[track][id];
+    assert.equal(voice.engineType, 'physical', `${track}.${id} is not classed physical`);
+    const note = { midi: 69, freq: null, kind: null, when: 0.5, duration: 0.5, velocity: 0.8, pan: 0 };
+    const runs = [];
+    for (const patch of [undefined, structuredClone(voice.defaults)]) {
+      const ctx = new MockAudioContext();
+      const destination = makeNode('gain');
+      created = []; startedSources = []; automation.length = 0;
+      voice.play(ctx, destination, note, patch);
+      runs.push(struckOf());
+    }
+    assert.ok(runs[0].rows.length >= 3, `${track}.${id}: expected at least three partials, saw ${runs[0].rows.length}`);
+    // Frequencies and peak levels: the ring's TIMING already differs between
+    // "no patch" and "the defaults" on every struck voice (struckEnv reads the
+    // patch's adsr when it has one), which is older than this section and not
+    // what it changes. Damping's own test compares two patched runs.
+    const stack = (run) => ({ click: run.click, rows: run.rows.map(([hz, peak]) => [hz, peak]) });
+    assert.deepEqual(stack(runs[1]), stack(runs[0]), `${track}.${id}: the defaults do not reproduce the literal stack`);
+  }
+});
+
+test('v0.0.177 modal: material swaps the overtone table, hardness tilts and clicks, damping shortens the ring', () => {
+  const voice = VOICES.texture.chimes;
+  const note = { midi: 69, freq: null, kind: null, when: 0.5, duration: 0.5, velocity: 0.8, pan: 0 };
+  const play = (modal) => {
+    const ctx = new MockAudioContext();
+    const destination = makeNode('gain');
+    created = []; startedSources = []; automation.length = 0;
+    voice.play(ctx, destination, note, { ...structuredClone(voice.defaults), modal: { ...voice.defaults.modal, ...modal } });
+    return struckOf();
+  };
+  const f = 440 * voice.defaults.source.octave === 0 ? 440 : 440; // chimes clamps its pitch to 200–2200: A4 is inside
+  const base = play({});
+  assert.deepEqual(base.rows.map((r) => r[0]), [1, 2.76, 5.4, 8.93].map((r) => +(f * r).toFixed(4)), 'metal is the tube table');
+  const wood = play({ material: 'wood' });
+  assert.deepEqual(wood.rows.map((r) => r[0]), [1, 4, 9.2].map((r) => +(f * r).toFixed(4)), 'wood is the bar table');
+  const bell = play({ material: 'bell' });
+  assert.equal(bell.rows.length, 5, 'bell rings five partials');
+  const hard = play({ hardness: 2 });
+  assert.equal(hard.rows[0][1], base.rows[0][1], 'hardness never moves the fundamental');
+  assert.ok(hard.rows[1][1] > base.rows[1][1] * 1.4, `hardness 2 lifts the second partial (${base.rows[1][1]} → ${hard.rows[1][1]})`);
+  assert.ok(Math.abs(hard.click / (base.click * 2) - 1) < 1e-3, `hardness 2 doubles the click (${base.click} → ${hard.click})`);
+  const soft = play({ hardness: 0 });
+  // A lost partial sits at the envelope floor (struckEnv's 2 × SILENCE), not at 0.
+  assert.ok(soft.rows[3][1] <= SILENCE_FLOOR * 2 + 1e-9 && soft.rows[3][1] < base.rows[3][1] * 0.1, `hardness 0 loses the top partial (${base.rows[3][1]} → ${soft.rows[3][1]})`);
+  const choked = play({ damping: 2 });
+  for (let i = 0; i < base.rows.length; i++) {
+    const ringBase = base.rows[i][2] - 0.5;
+    const ringChoked = choked.rows[i][2] - 0.5;
+    assert.ok(ringChoked < ringBase * 0.75, `damping 2 must shorten partial ${i + 1}'s ring (${ringBase.toFixed(3)} → ${ringChoked.toFixed(3)} s)`);
+  }
 });
 
 // --------------------------------------------------------------------------

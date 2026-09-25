@@ -42,6 +42,8 @@
 
 const OSC_TYPES = Object.freeze(['sine', 'triangle', 'sawtooth', 'square']);
 const FILTER_TYPES = Object.freeze(['lowpass', 'highpass', 'bandpass', 'notch']);
+// v0.0.177: the overtone tables a modal voice can ring with (unit 6).
+const MATERIALS = Object.freeze(['metal', 'wood', 'glass', 'bell']);
 
 /**
  * D7's reserved wire vocabulary, verbatim from the plan (2026-08-12). These
@@ -155,6 +157,16 @@ export const PARAM_REGISTRY = Object.freeze({
   'patch.additive.p7': number(0, 2, { hint: 'The seventh partial, a flat seventh two octaves up: the buzz in a brass tone.' }),
   'patch.additive.p8': number(0, 2, { hint: 'The eighth partial, three octaves up: pure top, air and edge.' }),
   'patch.additive.stretch': number(-0.1, 0.1, { hint: 'Pulls the upper partials off the harmonic series: at zero they sit in tune, to the right they go sharp and bell-like, to the left flat and dull.' }),
+  // v0.0.177 — the Modal engine section (docs/synthesis-programme.md § 2,
+  // unit 6): a struck object. Read only by a voice whose defaults publish
+  // `modal` (chimes, marimba). Material picks the overtone table — the
+  // voice's own table is its default, so metal on chimes and wood on marimba
+  // are the literals. Hardness scales the mallet click and tilts the upper
+  // partials (1 = as struck today); damping divides every partial's ring
+  // (1 = as shipped). No size dial: the note sets the pitch.
+  'patch.modal.material': enumeration(MATERIALS, { hint: 'What the struck object is made of: metal rings with the overtones of a tube, wood is short and hollow like a bar, glass is pure and high, bell is deep and clangorous.' }),
+  'patch.modal.hardness': number(0, 2, { hint: 'How hard the mallet strikes: soft is dull with little click, hard is bright with a sharp click and stronger upper overtones.' }),
+  'patch.modal.damping': number(0.25, 4, { curve: 'log', hint: 'How quickly the ring dies away: left rings on freely, right is choked as if a hand rests on it.' }),
   'patch.sends.reverb': number(0, 1, { hint: 'How much of this voice goes to the shared reverb: dry and close at the left, in a hall at the right.' }),
   'patch.sends.delay': number(0, 1, { hint: 'How much of this voice goes to the shared echo: none at the left, repeating in time at the right.' }),
 });
