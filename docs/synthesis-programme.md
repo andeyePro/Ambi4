@@ -127,11 +127,16 @@ already declares, made real as sections a person can turn.
 - **Every default is the voice as shipped.** An FM Depth of 1, a Stretch of 0,
   a Material at the voice's own value change nothing. A saved link from before
   the section existed sounds exactly as it did.
-- **A new voice starts from an engine template, not from nothing.** "New voice"
-  offers Subtractive, FM, Additive, Modal, Noise as five starting voices with a
-  name box; the result lives on this device, appears in the picker under the
-  track it was made on, and travels in a link as data (the instrument manifest
-  in the contract doc), never as code.
+- **A new voice starts from an engine template, not from nothing.** The
+  template is a stock voice of that engine — Warm for subtractive, Bell for
+  FM, Glass for additive, Chimes for modal, Coloured noise for noise — and a
+  voice of your own is that base plus the dials as you left them, under a
+  name (unit 8, v0.0.182). It lives on this device, appears under My voices in
+  the picker of every track that plays that voice set, and travels in a link
+  as data, never as code. It is deliberately NOT the contract's user-track
+  instrument manifest: a manifest is a user TRACK's document (its own dial
+  subset and ranges), and a voice made on the pad belongs in the pad's picker,
+  where a person looks for it.
 - **A dial says what you will hear.** Every core dial gets the same kind of
   hint the sculpt dials have: perceptual, present tense, what changes when you
   turn it. No dial anywhere is a bare label. The hint is a column of the

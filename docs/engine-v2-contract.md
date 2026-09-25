@@ -2229,3 +2229,21 @@ from it exactly as from a stock file; the genre joins that visit's My genres
 latest schema stamp, and a pre-181 build plays the diff on the defaults, as it
 does for any genre it lacks. The size race still picks the whole setup when
 that is shorter.
+
+## A voice of the person's own (v0.0.182)
+
+Module ownership: **the page** (`USER_VOICES`, `syncMyVoicesGroup`,
+`applyUserVoice`, `saveAsMyVoice`, `forgetMyVoice`, the editor's save row),
+storage under prefs `'voices'` (consent-gated, capped at 50); gated by
+`tests/page-boot.mjs` (save, the My voices group, pick away and back with the
+ENGINE's voice and patch checked, forget, and a second boot reading the stored
+format) and, parked, `tests/pending/user-voice-drive.mjs`.
+
+Contract: a user voice is `{ id: 'v-…', name, voiceSet, voice, patch }` — a
+stock base voice and a full patch, nothing the engine has not always played.
+Picking one sets the track's voice and stores the patch under that voice;
+`tracks[t].userVoice = { id, name }` tags the track for the picker, is a page
+field the engine's sanitiser ignores, and rides a share link so the name
+arrives with the sound (unit 9). The picker reads the tag as the voice's name
+while the stored patch equals the saved one, and as "<name> · edited" once a
+dial has moved.

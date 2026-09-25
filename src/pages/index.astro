@@ -1506,6 +1506,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * falls back to the whole setup, exactly as a hidden genre does — until
      * unit 13 carries the genre itself as data.
      */
+    /**
+     * v0.0.182 (unit 8 of docs/synthesis-programme.md): a person's OWN voices.
+     * A voice of your own is a stock voice you started from (the engine
+     * template: Bell for FM, Glass for additive, Chimes for modal, Warm for
+     * subtractive, Coloured noise for noise) plus the dials as you left them —
+     * a name over a base voice and its patch, nothing more, so the engine
+     * plays it exactly as it plays a stock voice with that patch. Per device
+     * under prefs 'voices', listed under "My voices" in the picker of every
+     * track that plays that voice set. NOT the contract's user-track
+     * instrument manifest: that is a user TRACK's document, and a voice you
+     * made on the pad belongs in the pad's picker.
+     */
+    const USER_VOICE_PREFIX = 'v-';
+    const USER_VOICE_CAP = 50;
+    const USER_VOICE_VALUE_PREFIX = 'mine:';
+    let USER_VOICES = [];
+    const isUserVoiceId = (id) => typeof id === 'string' && id.startsWith(USER_VOICE_PREFIX);
+    const userVoiceById = (id) => USER_VOICES.find((voice) => voice.id === id) || null;
+    function cleanUserVoices(list) {
+      if (!Array.isArray(list)) return [];
+      const out = [];
+      for (const entry of list) {
+        if (!isPlainObject(entry) || !isUserVoiceId(entry.id) || typeof entry.name !== 'string') continue;
+        if (typeof entry.voiceSet !== 'string' || !VOICE_LABELS[entry.voiceSet] || typeof entry.voice !== 'string') continue;
+        if (!isPlainObject(entry.patch) || out.some((v) => v.id === entry.id)) continue;
+        out.push(entry);
+        if (out.length >= USER_VOICE_CAP) break;
+      }
+      return out;
+    }
+
     const USER_GENRE_PREFIX = 'u-';
     const USER_GENRE_CAP = 50;
     let USER_GENRES = [];
@@ -3053,6 +3084,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       } catch {
         USER_GENRES = [];
       }
+      // v0.0.182: and their own voices.
+      try {
+        USER_VOICES = cleanUserVoices(prefs.get('voices'));
+      } catch {
+        USER_VOICES = [];
+      }
       let genrePrefs = { favourites: [], hideOthers: false, picked: false };
       try {
         const stored = prefs.get('genre');
@@ -4256,6 +4293,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           blend.textContent = 'Blend voices…';
           voiceSelect.append(blend);
         }
+        syncMyVoicesGroup(id);
         voiceSelect.addEventListener('change', () => {
           // The dynamic "what you're hearing" option is display-only and
           // disabled, so it can never be the user's pick — but a stray
@@ -4266,6 +4304,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             refreshVoiceSelect(id);
             return;
           }
+          // v0.0.182: a voice of the person's own — its base voice and its patch.
+          if (voiceSelect.value.startsWith(USER_VOICE_VALUE_PREFIX)) {
+            applyUserVoice(id, voiceSelect.value.slice(USER_VOICE_VALUE_PREFIX.length));
+            return;
+          }
+          delete settings.tracks[id].userVoice;
           settings.tracks[id].voice = voiceSelect.value;
           // v0.0.163: an explicit pick ends the blend, exactly as it ends the
           // wander — the title on the live option says so.
@@ -4280,6 +4324,109 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       for (const id of TRACK_IDS) wireTrackRowControls(id);
+
+      /**
+       * v0.0.182: the "My voices" group in one track's picker — every voice of
+       * the person's own that plays this track's voice set, rebuilt in place
+       * so a save or a forget on any track reaches every picker at once.
+       */
+      function syncMyVoicesGroup(track) {
+        const select = document.getElementById(`track-voice-${track}`);
+        if (!select) return;
+        const previous = select.querySelector('optgroup.my-voices');
+        if (previous) previous.remove();
+        const mine = USER_VOICES.filter((voice) => voice.voiceSet === voiceSetOf(track));
+        if (!mine.length) return;
+        const group = document.createElement('optgroup');
+        group.className = 'my-voices';
+        group.label = 'My voices';
+        for (const voice of mine) {
+          const option = document.createElement('option');
+          option.value = `${USER_VOICE_VALUE_PREFIX}${voice.id}`;
+          option.textContent = voice.name;
+          option.title = `${voice.name}: ${voiceLabel(track, voice.voice)} with your dials.`;
+          group.append(option);
+        }
+        const blend = [...select.options].find((o) => o.value === VOICE_BLEND_VALUE);
+        if (blend) select.insertBefore(group, blend);
+        else select.append(group);
+      }
+      function syncMyVoicesEverywhere() {
+        for (const id of TRACK_IDS) {
+          syncMyVoicesGroup(id);
+          refreshVoiceSelect(id);
+        }
+      }
+
+      /** v0.0.182: play a voice of the person's own on a track: its base voice and its patch. */
+      function applyUserVoice(track, id) {
+        const mine = userVoiceById(id);
+        if (!mine || mine.voiceSet !== voiceSetOf(track) || !settings.tracks[track]) {
+          refreshVoiceSelect(track);
+          return;
+        }
+        const patch = structuredClone(mine.patch);
+        settings.tracks[track].voice = mine.voice;
+        delete settings.tracks[track].voiceWeights;
+        settings.tracks[track].userVoice = { id: mine.id, name: mine.name };
+        if (!isPlainObject(settings.patches[track])) settings.patches[track] = {};
+        settings.patches[track][mine.voice] = patch;
+        engine.setParams({
+          tracks: { [track]: { voice: mine.voice, voiceWeights: null } },
+          patches: { [track]: { [mine.voice]: structuredClone(patch) } },
+        });
+        persistSettings();
+        soundingVoice.delete(track);
+        refreshVoiceSelect(track);
+        scheduleScopeRender(track, true);
+        const editor = document.getElementById(`voice-editor-${track}`);
+        if (editor && !editor.hidden) renderVoiceEditor(track);
+      }
+
+      /** v0.0.182: keep the sound a track is making as a voice of the person's own. */
+      function saveAsMyVoice(track, voiceId, name) {
+        const clean = String(name || '').trim().replace(/\s+/g, ' ');
+        if (!clean) {
+          sayUnderDials('Give your voice a name first.');
+          return null;
+        }
+        if (USER_VOICES.length >= USER_VOICE_CAP) {
+          sayUnderDials(`This device holds ${USER_VOICE_CAP} voices of your own already — forget one to make room.`);
+          return null;
+        }
+        const stored = isPlainObject(settings.patches[track]) && isPlainObject(settings.patches[track][voiceId])
+          ? settings.patches[track][voiceId]
+          : resolveTrackPatch(track, voiceId);
+        const mine = {
+          id: `${USER_VOICE_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+          name: clean,
+          voiceSet: voiceSetOf(track),
+          voice: voiceId,
+          patch: structuredClone(stored),
+        };
+        USER_VOICES.push(mine);
+        persistKey('voices', USER_VOICES);
+        if (settings.tracks[track]) settings.tracks[track].userVoice = { id: mine.id, name: mine.name };
+        persistSettings();
+        syncMyVoicesEverywhere();
+        sayUnderDials(`Saved: "${clean}" is in this track's picker under My voices.`);
+        return mine;
+      }
+
+      /** v0.0.182: drop a voice of the person's own; the track keeps playing what it plays. */
+      function forgetMyVoice(id) {
+        if (!userVoiceById(id)) return;
+        USER_VOICES = USER_VOICES.filter((voice) => voice.id !== id);
+        persistKey('voices', USER_VOICES);
+        for (const track of TRACK_IDS) {
+          if (settings.tracks[track] && isPlainObject(settings.tracks[track].userVoice) && settings.tracks[track].userVoice.id === id) {
+            delete settings.tracks[track].userVoice;
+          }
+        }
+        persistSettings();
+        syncMyVoicesEverywhere();
+        sayUnderDials('Forgotten. What is playing keeps playing.');
+      }
 
       // ---- voice editors (v3 patch model, v5 module look) ---------------
 
@@ -11274,6 +11421,52 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         wordsLine.className = 'hint ve-words';
         wordsLine.hidden = !wordsApi;
         container.append(wordsLine);
+        // v0.0.182 (unit 8): keep this sound as a voice of your own. A name
+        // box and Save under the words line; Forget when the track is playing
+        // one of the person's own voices on this base.
+        const saveRow = document.createElement('div');
+        saveRow.className = 've-save-row';
+        const voiceName = document.createElement('input');
+        voiceName.type = 'text';
+        voiceName.className = 've-voice-name';
+        voiceName.maxLength = 40;
+        voiceName.placeholder = 'Name this sound';
+        voiceName.setAttribute('aria-label', 'A name for your voice');
+        const saveVoice = document.createElement('button');
+        saveVoice.type = 'button';
+        saveVoice.className = 'secondary-button ve-save-voice';
+        saveVoice.textContent = 'Save as my voice';
+        describe(saveVoice, 'Keeps this voice with every dial as it is now, in this track\'s picker under My voices. It stays on this device.');
+        const forgetVoice = document.createElement('button');
+        forgetVoice.type = 'button';
+        forgetVoice.className = 'secondary-button ve-forget-voice';
+        forgetVoice.textContent = 'Forget this voice';
+        const currentMine = () => {
+          const tag = settings.tracks[track] && isPlainObject(settings.tracks[track].userVoice) ? settings.tracks[track].userVoice : null;
+          const mine = tag ? userVoiceById(tag.id) : null;
+          return mine && mine.voice === voiceId ? mine : null;
+        };
+        forgetVoice.hidden = !currentMine();
+        saveVoice.addEventListener('click', () => {
+          if (saveAsMyVoice(track, voiceId, voiceName.value)) {
+            voiceName.value = '';
+            forgetVoice.hidden = !currentMine();
+          }
+        });
+        voiceName.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            saveVoice.click();
+          }
+        });
+        forgetVoice.addEventListener('click', () => {
+          const mine = currentMine();
+          if (mine) forgetMyVoice(mine.id);
+          forgetVoice.hidden = true;
+        });
+        saveRow.append(voiceName, saveVoice, forgetVoice);
+        container.append(saveRow);
+
         function renderWords() {
           if (!wordsApi) return;
           try {
@@ -12978,6 +13171,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // happens to land on the stored pick.
         const blended = isPlainObject(settings.tracks[track].voiceWeights);
         let live = select.querySelector('.voice-live-option');
+        // v0.0.182: a voice of the person's own reads as itself while its
+        // dials stand where it saved them, and as "<name> · edited" once moved.
+        const mineTag = isPlainObject(settings.tracks[track].userVoice) ? settings.tracks[track].userVoice : null;
+        const mine = mineTag ? userVoiceById(mineTag.id) : null;
+        if (mine && mine.voice === chosen && sounding === chosen && !blended) {
+          const stored = isPlainObject(settings.patches[track]) ? settings.patches[track][chosen] : null;
+          if (JSON.stringify(stored || {}) === JSON.stringify(mine.patch || {})) {
+            if (live) live.remove();
+            select.value = `${USER_VOICE_VALUE_PREFIX}${mine.id}`;
+            return;
+          }
+        }
         if (!edited && sounding === chosen && !blended) {
           if (live) live.remove();
           select.value = chosen;
@@ -12999,9 +13204,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // escape hatch.
         const wandering = !edited && !blended && sounding !== chosen;
         const text = edited
-          ? engineType
-            ? `Custom (${engineType})`
-            : 'Custom'
+          ? mineTag && sounding === chosen
+            ? `${mineTag.name} · edited`
+            : engineType
+              ? `Custom (${engineType})`
+              : 'Custom'
           : blended
             ? `${voiceLabel(track, sounding)} · blend`
             : wandering
@@ -17846,7 +18053,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '.track-rows',
-          text: 'Six tracks, one line each. The coloured lamp beside the name cycles off, auto and on, the box beside it picks that track\'s voice, and the two dials are its level and its own randomness.',
+          text: 'Six tracks, one line each. The coloured lamp beside the name cycles off, auto and on, the box beside it picks that track\'s voice, and the two dials are its level and its own randomness. Save as my voice, under a track\'s dials, keeps a sound you made in that picker under My voices.',
         },
         {
           tab: 'advanced',
@@ -18476,6 +18683,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .rules-weight {
       width: 64px;
+    }
+
+    /* v0.0.182: the save row of a voice editor. */
+    .ve-save-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin: 2px 0 12px;
+    }
+
+    .ve-voice-name {
+      flex: 1 1 140px;
+      min-width: 0;
     }
 
     /* v0.0.180: the save row of the rules panel. */

@@ -1319,6 +1319,80 @@ try {
       if (cells().length) failures.push('Soft pluck, a subtractive arp, grew modal dials — the disclosure rule is broken');
     }
 
+    // v0.0.182 — unit 8: My voices. Pin the pad on Warm, move Cutoff through
+    // the real typed readout, save it under a name; the picker gains a My
+    // voices entry that is selected; picking Glass then picking the saved
+    // voice puts Warm back with that cutoff AT THE ENGINE; Forget removes it.
+    {
+      const select = doc.getElementById('track-voice-pad');
+      const engine = window.__ambi4Engine;
+      // Consent recorded here, deliberately: prefs writes then go to this
+      // window's storage and leave its in-memory layer — which the bundle's
+      // prefs module shares across the boots below, unlike a real reload —
+      // so the reload boot reads its OWN storage rather than a shadow.
+      doc.cookie = 'ambi4-consent=granted';
+      select.value = 'warm';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const editor = await openEditor('pad');
+      // Release, not Cutoff: cutoff opens as a SPAN by default (v7's rangeDefault
+      // list) and a typed single number is not a span; release is a plain dial.
+      await waitUntil(() => editor.querySelectorAll('.patch-controls .knob-cell[data-field="adsr.release"]').length === 1);
+      const cutoffCell = editor.querySelector('.patch-controls .knob-cell[data-field="adsr.release"]');
+      const readout = cutoffCell && cutoffCell.querySelector('.knob-value');
+      const nameBox = editor.querySelector('.ve-voice-name');
+      const saveButton = editor.querySelector('.ve-save-voice');
+      if (!readout || !nameBox || !saveButton) {
+        failures.push('the pad editor has no Release readout, name box or Save as my voice button');
+      } else {
+        readout.click();
+        const edit = cutoffCell.querySelector('.knob-value-edit');
+        if (!edit) {
+          failures.push('clicking the Release readout did not open its typed editor');
+        } else {
+          const releaseIs = (v) => (v && typeof v === 'object' ? Math.abs(v.min - 2.5) < 0.05 && Math.abs(v.max - 2.5) < 0.05 : Math.abs(Number(v) - 2.5) < 0.05);
+          edit.value = '2.5';
+          edit.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          const landed = await waitUntil(() => {
+            const p = engine.getParams().patches;
+            return p && p.pad && p.pad.warm && p.pad.warm.adsr && releaseIs(p.pad.warm.adsr.release);
+          });
+          if (!landed) failures.push(`typing 2.5 s into Release did not reach the engine's patch (${JSON.stringify(engine.getParams().patches && engine.getParams().patches.pad && engine.getParams().patches.pad.warm && engine.getParams().patches.pad.warm.adsr)})`);
+          nameBox.value = 'Dusk pad';
+          saveButton.click();
+          const group = () => select.querySelector('optgroup.my-voices');
+          const saved = await waitUntil(() => group() && group().querySelectorAll('option').length === 1);
+          if (!saved) {
+            failures.push('Save as my voice did not add a My voices entry to the pad picker');
+          } else {
+            const option = group().querySelector('option');
+            if (option.textContent !== 'Dusk pad') failures.push(`the saved voice is listed as ${JSON.stringify(option.textContent)}`);
+            if (select.value !== option.value) failures.push(`the picker did not read as the saved voice (reads ${select.value})`);
+            // Away to Glass, then back to the saved voice.
+            select.value = 'glass';
+            select.dispatchEvent(new window.Event('change', { bubbles: true }));
+            await waitUntil(() => engine.getParams().tracks.pad.voice === 'glass');
+            select.value = option.value;
+            select.dispatchEvent(new window.Event('change', { bubbles: true }));
+            const back = await waitUntil(() => {
+              const params = engine.getParams();
+              const patch = params.patches && params.patches.pad && params.patches.pad.warm;
+              return params.tracks.pad.voice === 'warm' && patch && patch.adsr && releaseIs(patch.adsr.release);
+            });
+            if (!back) failures.push('picking the saved voice did not put Warm with release 2.5 s back at the engine');
+            if (select.value !== option.value) failures.push('the picker does not read as the saved voice after picking it');
+            const forget = doc.querySelector('#voice-editor-pad .ve-forget-voice');
+            if (!forget || forget.hidden) {
+              failures.push('Forget this voice is hidden while the saved voice plays');
+            } else {
+              forget.click();
+              const gone = await waitUntil(() => !group());
+              if (!gone) failures.push('Forget this voice left the My voices group in the picker');
+            }
+          }
+        }
+      }
+    }
+
     // v0.0.174 — "what makes this sound": the words line under the dials is
     // exactly what the pure module says for the sounding voice's patch, so the
     // page's wiring (voice, controls, detune mode, the live patch object) is
@@ -1763,7 +1837,7 @@ try {
               // Next: a fresh draw from the saved genre keeps the ruled pad Off and the tempo 200.
               const seedBefore = engine.getParams().harmony && JSON.stringify(engine.getParams().harmony.seed);
               doc.getElementById('fast-forward').click();
-              const redrawn = await waitUntil(() => engine.getParams().genre === slug && JSON.stringify(engine.getParams().harmony && engine.getParams().harmony.seed) !== seedBefore);
+              const redrawn = await waitUntil(() => engine.getParams().genre === slug && JSON.stringify(engine.getParams().harmony && engine.getParams().harmony.seed) !== seedBefore, 8000);
               if (!redrawn) failures.push('Next did not draw a fresh piece from the saved genre');
               const pad = engine.getParams().tracks && engine.getParams().tracks.pad;
               if (!pad || pad.state !== 'off') failures.push(`a fresh draw from the saved genre has the pad ${JSON.stringify(pad && pad.state)}, not Off — the rule did not live in the genre`);
@@ -2335,6 +2409,91 @@ try {
       }
     } catch (err) {
       failures.push(`booting on a #p= share link threw: ${err && err.stack ? err.stack : err}`);
+    }
+  }
+
+  // v0.0.182 (unit 8): a voice of the person's own survives a reload — the
+  // storage format is what a fresh boot reads. Consent recorded, one voice
+  // under prefs 'voices', and the pad picker lists it; picking it puts its
+  // base and its patch at the engine.
+  {
+    const storedVoice = {
+      id: 'v-reloadtest',
+      name: 'Kept pad',
+      voiceSet: 'pad',
+      voice: 'strings',
+      patch: { source: {}, filter: { type: 'lowpass', cutoff: 777, q: 0.8, envAmount: 0 }, adsr: {}, sends: {} },
+    };
+    const reloadDom = new JSDOM(html, {
+      url: 'https://ambi4.work/',
+      pretendToBeVisual: true,
+      runScripts: 'outside-only',
+    });
+    const reloadWindow = reloadDom.window;
+    const reloadContexts = new WeakMap();
+    reloadWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
+      let ctx = reloadContexts.get(this);
+      if (!ctx) {
+        ctx = stubCanvasContext();
+        ctx.canvas = this;
+        reloadContexts.set(this, ctx);
+      }
+      return ctx;
+    };
+    reloadWindow.HTMLCanvasElement.prototype.toDataURL = () => 'data:,';
+    reloadWindow.AudioContext = StubAudioContext;
+    reloadWindow.OfflineAudioContext = undefined;
+    reloadWindow.devicePixelRatio = 1;
+    installClipboard(reloadWindow);
+    for (const key of passthrough) {
+      if (reloadWindow[key] !== undefined) globalThis[key] = reloadWindow[key];
+    }
+    globalThis.self = reloadWindow;
+    // prefs reads the GLOBAL document.cookie and localStorage — the bundle's
+    // view, whichever window the passthrough left in place — so the stored
+    // voice and the consent record go where it will look, and on the window.
+    for (const doc of new Set([reloadWindow.document, globalThis.document])) {
+      if (doc) doc.cookie = 'ambi4-consent=granted';
+    }
+    for (const store of new Set([reloadWindow.localStorage, globalThis.localStorage])) {
+      if (store && typeof store.setItem === 'function') store.setItem('ambi4:voices', JSON.stringify([storedVoice]));
+    }
+    try {
+      await import(`${pathToFileURL(bundlePath).href}?reload-voice`);
+      const reloadDoc = reloadWindow.document;
+      const booted = await waitUntil(() => {
+        const el = reloadDoc.getElementById('generator-app');
+        return Boolean(el) && !el.hidden;
+      }, 8000);
+      if (!booted) {
+        failures.push('the page did not boot with a stored voice of the person\'s own');
+      } else {
+        const select = reloadDoc.getElementById('track-voice-pad');
+        const group = select && select.querySelector('optgroup.my-voices');
+        const option = group && group.querySelector('option[value="mine:v-reloadtest"]');
+        if (!option || option.textContent !== 'Kept pad') {
+          const evidence = {
+            cookie: reloadDoc.cookie,
+            stored: reloadWindow.localStorage.getItem('ambi4:voices'),
+            globalStored: (globalThis.localStorage && globalThis.localStorage.getItem('ambi4:voices')) || null,
+            options: select ? Array.from(select.querySelectorAll('option')).map((o) => o.value) : null,
+            groups: select ? Array.from(select.querySelectorAll('optgroup')).map((g) => g.label) : null,
+          };
+          failures.push(`a stored voice of the person's own is not listed under My voices after a reload: ${JSON.stringify(evidence)}`);
+        } else {
+          select.value = option.value;
+          select.dispatchEvent(new reloadWindow.Event('change', { bubbles: true }));
+          const reloadEngine = reloadWindow.__ambi4Engine;
+          const played = await waitUntil(() => {
+            const params = reloadEngine && reloadEngine.getParams();
+            const patch = params && params.patches && params.patches.pad && params.patches.pad.strings;
+            return params && params.tracks.pad.voice === 'strings' && patch && patch.filter && Math.round(patch.filter.cutoff) === 777;
+          });
+          if (!played) failures.push('picking a reloaded voice did not put its base and patch at the engine');
+        }
+      }
+    } catch (err) {
+      failures.push(`booting with a stored voice threw: ${err && err.stack ? err.stack : err}`);
     }
   }
 
