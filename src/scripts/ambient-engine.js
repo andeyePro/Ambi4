@@ -409,6 +409,41 @@ export function metreAt(timeSignature, barIndex = 0) {
   return parts[i];
 }
 
+/**
+ * v0.0.171: the canonical spelling of a single 'N/d' metre — a leading zero on
+ * the numerator and stray whitespace are the same metre, and must store the
+ * same way every time. Built on metrePulses' own legality check rather than a
+ * second parser: this only reformats what metrePulses already accepts.
+ */
+function canonicalSingleMetre(part) {
+  const trimmed = typeof part === 'string' ? part.trim() : '';
+  const m = /^([0-9]{1,2})\/(2|4|8|16)$/.exec(trimmed);
+  if (!m) return null;
+  const canon = `${Number(m[1])}/${m[2]}`;
+  return Array.isArray(metrePulses(canon)) ? canon : null;
+}
+
+/**
+ * v0.0.171: the canonical spelling of ANY metre this engine accepts, plain or
+ * additive — a typed '04/4' or '4/4 + 3/4' normalises to '4/4' / '4/4+3/4'
+ * rather than storing verbatim or being refused. Anything metrePulses would
+ * refuse still answers null; the sanitiser runs the STORED value through this
+ * same gate every call, so a refusal there falls back to the stored spelling
+ * rather than the default.
+ */
+export function normaliseMetre(timeSignature) {
+  if (typeof timeSignature !== 'string') return null;
+  const trimmed = timeSignature.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes('+')) {
+    const parts = trimmed.split('+');
+    if (parts.length < 2 || parts.length > 4) return null;
+    const canon = parts.map(canonicalSingleMetre);
+    return canon.every((p) => p !== null) ? canon.join('+') : null;
+  }
+  return canonicalSingleMetre(trimmed);
+}
+
 /** Total quarter-note beats in a bar of the given time signature (the widest
  * bar of an additive cycle — see metrePulses). */
 export function beatsPerBar(timeSignature) {
@@ -1021,11 +1056,16 @@ export function captureSlot(seconds, { origin = 0, stepSeconds, stepCount } = {}
  * what the UI has to say out loud, because it is not what a keyboard implies.
  */
 export function quantiseCapture(notes, options = {}) {
-  const { lanes = null, stepSeconds } = options;
+  const { lanes = null, stepSeconds, stepBeats } = options;
   const laneIds = Array.isArray(lanes) && lanes.length
     ? lanes.filter((id) => typeof id === 'string')
     : null;
-  const blank = () => Array.from({ length: SEQUENCER_STEP_COUNT },
+  // v0.0.171: a blank lane is sized the same law sanitiseStepLane already
+  // honours — laneSlotsFor(stepBeats) — so a take on a finer-than-sixteenth
+  // track stores its whole window rather than the fixed twenty. A caller with
+  // no stepBeats (every one before this version) keeps the old size exactly.
+  const laneSize = stepBeats === undefined ? SEQUENCER_STEP_COUNT : laneSlotsFor(stepBeats);
+  const blank = () => Array.from({ length: laneSize },
     () => ({ ...DEFAULT_STEP, on: false }));
   const kit = laneIds && laneIds.length ? laneIds : null;
   const steps = kit ? Object.fromEntries(kit.map((id) => [id, blank()])) : blank();
@@ -2581,10 +2621,13 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   {
     const lfoAsked = at('lfo1');
     const lfoFrom = from.lfo1 && typeof from.lfo1 === 'object' ? from.lfo1 : {};
-    const rawBars = lfoAsked && typeof lfoAsked === 'object' && !Array.isArray(lfoAsked)
-      ? lfoAsked.bars : lfoFrom.bars;
-    const bars = Number.isFinite(Number(rawBars)) ? Math.round(Number(rawBars)) : 4;
-    out.lfo1 = { bars: Math.min(64, Math.max(1, bars)) };
+    const v = lfoAsked && typeof lfoAsked === 'object' && !Array.isArray(lfoAsked) ? lfoAsked : null;
+    const atLfo = (key) => (v && key in v ? v[key] : undefined);
+    // v0.0.171: an unusable (or absent) asked bars must MERGE against the
+    // stored value — same law sanitiseArp's nested numbers already follow —
+    // rather than falling straight to the default and resetting it.
+    const bars = Math.round(numberIn(atLfo('bars'), [1, 64], numberIn(lfoFrom.bars, [1, 64], 4)));
+    out.lfo1 = { bars };
     out.macro1 = numberIn(at('macro1'), [0, 1], numberIn(from.macro1, [0, 1], 0.5));
   }
   {
@@ -2596,12 +2639,13 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
   // v0.0.98: any metre metrePulses() can grid is legal — the named five plus
   // custom N/4 and N/8 inside the sequencer's bounds.
-  // Array-checked: metrePulses is hardened against inherited keys now, but a
-  // sanitiser must not depend on a helper's truthiness to decide what a metre
-  // IS — a crafted share payload is attacker-authored JSON.
-  const metreOf = (v) => (typeof v === 'string' && Array.isArray(metrePulses(v)) ? v : undefined);
-  out.timeSignature = metreOf(at('timeSignature'))
-    ?? metreOf(from.timeSignature)
+  // v0.0.171: normaliseMetre() is metrePulses' own legality check plus the
+  // canonical spelling — array-checked the same way, so a crafted share
+  // payload's inherited keys still cannot ride in as a metre. The STORED
+  // value runs through the same gate every call, so a refused asked value
+  // falls back to the (already canonical) stored one, never the default.
+  out.timeSignature = normaliseMetre(at('timeSignature'))
+    ?? normaliseMetre(from.timeSignature)
     ?? DEFAULT_PARAMS.timeSignature;
   // An explicit null clears the tag; anything unusable keeps the stored one, so
   // an unrelated edit can never silently strip a piece's genre.
@@ -5788,6 +5832,7 @@ export function createEngine(initialParams, options = {}) {
     activeSequencer.delete(name);
     sequencerPlayed.delete(name);
     wanderedVoice.delete(name);
+    sectionVoice.delete(name);
     monoNotes.delete(name);
     noteTimes.delete(name);
     // No new note is scheduled for the track from this moment: the plan it had
@@ -6451,10 +6496,15 @@ export function createEngine(initialParams, options = {}) {
     // (shorter) length. The capture grid is the TRACK's own grid.
     if (track === 'arp') {
       const rate = params.arp && ARP_RATES[params.arp.rate] !== undefined ? params.arp.rate : '1/8';
+      const rateBeats = ARP_RATES[rate] ?? 0.5;
       return {
         origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
-        stepSeconds: secPerBeat * (ARP_RATES[rate] ?? 0.5),
+        stepSeconds: secPerBeat * rateBeats,
         stepCount: arpLaneLength(metreAt(params.timeSignature, currentBarNumber), rate),
+        // v0.0.171: the blank lane quantiseCapture writes into is sized off
+        // this, laneSlotsFor(stepBeats) — the same law every other track's
+        // grid already carries below.
+        stepBeats: rateBeats,
       };
     }
     // A take is quantised onto the TRACK's own grid — its resolution as well
@@ -6464,6 +6514,7 @@ export function createEngine(initialParams, options = {}) {
       origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
       stepSeconds: secPerBeat * beats,
       stepCount: stepsPerBarAt(metreAt(params.timeSignature, currentBarNumber), beats),
+      stepBeats: beats,
     };
   }
 

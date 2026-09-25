@@ -9640,6 +9640,97 @@ test('v28 quantiseCapture: a kit take lands lane by lane, and a lane the kit los
   assert.equal(laneMask(steps.high), '01000000000000000000');
 });
 
+test('v0.0.171 normaliseMetre: a non-canonical spelling stores canonically, and never refuses instead', () => {
+  // Every canonical spelling round-trips byte for byte.
+  for (const canon of ['3/4', '4/4', '5/4', '6/8', '7/8', '5/8', '4/16', '2/2']) {
+    assert.equal(normaliseMetre(canon), canon, `${canon} must round-trip unchanged`);
+  }
+  // A leading zero and stray whitespace are the SAME metre, and must store as
+  // the canonical spelling — not verbatim, and not refused to the default.
+  assert.equal(normaliseMetre('04/4'), '4/4');
+  assert.equal(normaliseMetre(' 5/8 '), '5/8');
+  assert.equal(normaliseMetre('4/4 + 3/4'), '4/4+3/4');
+  assert.equal(normaliseMetre('04/4+03/4'), '4/4+3/4');
+  assert.equal(normaliseMetre('6/4'), null, 'still refused — six beats is past the lane window');
+  assert.equal(normaliseMetre(7), null);
+  assert.equal(normaliseMetre(null), null);
+
+  // The sanitiser must store the CANONICAL spelling, not the typed one, so a
+  // later switch to the canonical form never trips the "metre changed" gate
+  // that resets motif, bass groove, percussion bank and every frozen plan.
+  assert.equal(sanitiseParams({ timeSignature: '04/4' }).timeSignature, '4/4');
+  assert.equal(sanitiseParams({ timeSignature: '4/4 + 3/4' }).timeSignature, '4/4+3/4');
+  // An unusable value keeps the stored (already canonical) one, run through
+  // the same gate every time — never a refusal that drops to the default.
+  const stored = sanitiseParams({ timeSignature: '5/8' });
+  assert.equal(sanitiseParams({ timeSignature: '6/4' }, stored).timeSignature, '5/8');
+});
+
+
+test('v0.0.171: a partial lfo1 patch must merge bars, not reset it — same law as sanitiseArp', () => {
+  const stored = sanitiseParams({ lfo1: { bars: 16 } });
+  assert.equal(stored.lfo1.bars, 16);
+  const patched = sanitiseParams({ lfo1: {} }, stored);
+  assert.equal(patched.lfo1.bars, 16, 'an empty lfo1 patch must inherit the stored bars, not fall to the default');
+  // numberIn's own contract, applied here as everywhere else in the file:
+  // an unusable asked value inherits the stored one rather than collapsing.
+  assert.equal(sanitiseParams({ lfo1: { bars: null } }, stored).lfo1.bars, 16,
+    'bars: null must inherit the stored value');
+  assert.equal(sanitiseParams({ lfo1: { bars: 'x' } }, stored).lfo1.bars, 16,
+    'bars: "x" must inherit the stored value');
+  assert.equal(sanitiseParams({ lfo1: { bars: 20 } }, stored).lfo1.bars, 20,
+    'an asked bars value must still win over the stored one');
+});
+
+
+test('v0.0.171 forgetTrack: a re-added track must not inherit the removed track\'s drawn voice', async () => {
+  const engine = createEngine({
+    bpm: 240, speed: 2, complexity: 0.6, structure: 'abab', timeSignature: '4/4',
+  }, { rng: seededRng(6203) });
+  const bells = engine.addTrack({ label: 'Bells', family: 'melodic', voiceSet: 'pad' });
+  assert.equal(bells.id, 'bells');
+  // A one-voice pool draws deterministically, so the section entry is 'glass'
+  // regardless of the rng — the point under test is the leftover MAP entry,
+  // not the draw itself.
+  engine.setParams({ tracks: { bells: { state: 'on', voiceWeights: { glass: 1 } } } });
+  await engine.start();
+  await advance(6, { step: 0.12, sleep: 16 });
+  assert.equal(engine.getResolved().tracks.bells.voice, 'glass',
+    'the blend must have drawn its one weighted voice by the first section');
+  assert.equal(engine.removeTrack('bells'), true);
+  const readded = engine.addTrack({ label: 'Bells', family: 'melodic', voiceSet: 'pad' });
+  assert.equal(readded.id, 'bells', 'the freed id must be reused, same as any other label collision');
+  assert.equal(engine.getResolved().tracks.bells.voice, 'warm',
+    'a re-added track must sound its OWN default voice, not the dead track\'s drawn one — '
+    + 'and getResolved() must not lie about it either');
+  engine.stop();
+});
+
+
+test('v0.0.171 quantiseCapture: the blank lane is sized off stepBeats, not the fixed twenty', () => {
+  // A sixteenth-triplet-fine track (0.125 beats/slot) in 4/4 plays 32 slots
+  // but STORES 40 (laneSlotsFor) — the same split sanitiseStepLane already
+  // honours. A hit late in the played prefix must not leave the stored tail
+  // (slots 32-39) as sparse holes: a hole reads as "absent" downstream and
+  // inherits whatever the lane held before.
+  const grid = { origin: 0, stepSeconds: 0.25 * 0.125, stepCount: 32, stepBeats: 0.125 };
+  const { steps, written } = quantiseCapture([
+    { start: 0, end: null, velocity: 0.9 },
+  ], grid);
+  assert.equal(written, 1);
+  assert.equal(steps.length, laneSlotsFor(0.125), 'the lane must be the STORED size, forty slots');
+  assert.ok(steps.every((s, i) => i in steps), 'no holes anywhere in the stored lane');
+  // v0.0.171: the pending fixture asserted this against an 'x'/'-' mask that
+  // no laneMask in this file has ever produced (every other laneMask
+  // assertion here is a string of 1s and 0s) — corrected to match the helper
+  // actually in scope rather than inventing a second convention.
+  assert.equal(laneMask(steps), `1${'0'.repeat(39)}`);
+  // Every existing caller (no stepBeats given) stays byte-identical.
+  const legacy = quantiseCapture([{ start: 0, end: null, velocity: 0.9 }],
+    { origin: 0, stepSeconds: 0.25, stepCount: 16 });
+  assert.equal(legacy.steps.length, SEQUENCER_STEP_COUNT, 'a caller with no stepBeats keeps the old twenty');
+});
+
 
 test('v28 noteOn: a key sounds through the target track\'s own voice, patch and chain', async () => {
   const spy = keySpy();
