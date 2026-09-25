@@ -727,6 +727,17 @@ const VOICES: Record<string, [string, string][]> = {
            the first thing on the tab so there is nothing to distinguish it
            from. The explanatory line that used to sit underneath moved into an
            info button built by the page script. -->
+      <!-- v0.0.196: the rules' disclosure level. Every rule the engine obeys
+           is shown in one shape — Now, Chance, Pool — and this says how many of
+           those layers open by default; "more" on any rule opens the next. -->
+      <div class="rule-level-row">
+        <label for="rule-level">Rules show</label>
+        <select id="rule-level" class="genre-select">
+          <option value="simple">what plays</option>
+          <option value="advanced">+ chance</option>
+          <option value="expert">+ pool</option>
+        </select>
+      </div>
       <div class="module-panel sliders-module" id="advanced-dials">
         <div class="advanced-dial-row">
           {MAIN_DIALS.map(([id, label, lowMark, midMark, highMark]) => {
@@ -1813,6 +1824,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // an array is an explicit chip selection the user made.
       ui: {
         activeTab: 'simple',
+        // v0.0.196: how much of every rule shows — simple (Now), advanced
+        // (+ Chance), expert (+ Pool); any rule expands in place regardless.
+        level: 'advanced',
         processor: 'auto',
         tutorialOpen: false,
         tutorialStep: 0,
@@ -4555,10 +4569,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // scope.js → no scope head, knobs still work.
       let knobApi = null;
       let scopeApi = null;
+      // v0.0.196: the rule primitive — the one shape every rule is shown in
+      // (Now / Chance / Pool with a level and in-place expand). Optional like
+      // knob.js: without it the voice rule's controls fall back to the
+      // v0.0.195 row.
+      let ruleApi = null;
       try {
       const m = await import('../scripts/knob.js');
         if (m && typeof m.createKnob === 'function') knobApi = m;
       } catch {}
+      try {
+      const m = await import('../scripts/rule-control.js');
+        if (m && typeof m.createRule === 'function') ruleApi = m;
+      } catch {}
+      // The level select is wired HERE, after the import — the tab wiring
+      // above runs before `ruleApi` exists (the same temporal-dead-zone trap
+      // this file has hit before).
+      // v0.0.196: the rules' level.
+      {
+        const select = document.getElementById('rule-level');
+        if (select) {
+          select.value = ruleLevel();
+          select.addEventListener('change', () => setRuleLevel(select.value));
+          describe(select, 'How much of every rule opens by default: what plays only; plus its Chance (0 holds it, and when it may redraw); plus its Pool (what a redraw may pick from). "more" on any rule opens the next layer whatever this says.');
+          if (!ruleApi) select.closest('.rule-level-row')?.setAttribute('hidden', '');
+        }
+      }
+
       try {
       const m = await import('../scripts/scope.js');
         if (m && typeof m.renderPatchWave === 'function') scopeApi = m;
@@ -6347,8 +6384,78 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         cells.append(wrap);
       }
 
+      // v0.0.196: every mounted rule, so a level change reaches them all.
+      const mountedRules = new Set();
+      function ruleLevel() {
+        const level = settings.ui && typeof settings.ui.level === 'string' ? settings.ui.level : 'advanced';
+        return ruleApi && ruleApi.RULE_LEVELS.includes(level) ? level : 'advanced';
+      }
+      function setRuleLevel(level) {
+        if (!ruleApi || !ruleApi.RULE_LEVELS.includes(level)) return;
+        settings.ui.level = level;
+        for (const handle of mountedRules) {
+          if (!handle.el.isConnected) { mountedRules.delete(handle); continue; }
+          handle.setLevel(level);
+        }
+        const select = document.getElementById('rule-level');
+        if (select && select.value !== level) select.value = level;
+        persistSettings();
+      }
+
+      /**
+       * v0.0.196: the voice rule on the primitive — Now is the pick (a press
+       * goes to its picker), Chance is the knob the Randomise loop mounts
+       * into the slot, When is the primitive's, Pool is summarised with an
+       * Edit… that opens the pool editor.
+       */
+      function buildVoiceRule(container, track) {
+        if (!ruleApi || !engineCaps.vary[track]) return null;
+        const t = settings.tracks[track];
+        const derived = deriveVoiceRule(track);
+        const stored = isPlainObject(t.voiceRule) ? t.voiceRule : null;
+        const row = document.createElement('div');
+        row.className = 'vary-row rule-row';
+        const handle = ruleApi.createRule(row, {
+          id: 'voice',
+          name: 'Voice',
+          level: ruleLevel(),
+          describe,
+          now: {
+            text: voiceLabel(track, t.voice),
+            hint: 'The voice playing now — your pick. Press to go to its picker in the track row.',
+            onOpen: () => {
+              const select = document.getElementById(`track-voice-${track}`);
+              if (!select) return;
+              try { select.scrollIntoView({ block: 'center' }); } catch {}
+              select.focus();
+            },
+          },
+          chance: {
+            when: derived.when,
+            whenIds: { select: `voice-rule-when-${track}` },
+            onWhen: (value) => {
+              ensureVoiceRule(track).when = value;
+              commitVoiceRule(track);
+            },
+          },
+          pool: {
+            rows: derived.pool,
+            order: derived.order,
+            labelOf: (id) => voiceLabel(track, id),
+            hint: 'The voices a redraw may pick from, in order and weighted: add, remove, reorder, and choose by weight or in turn.',
+            ids: { edit: `voice-rule-pool-${track}` },
+            onEdit: () => openBlendEditor(track),
+          },
+        });
+        handle.setMark(Boolean(stored));
+        container.append(row);
+        mountedRules.add(handle);
+        return handle;
+      }
+
       function buildVaryRow(container, track, knobs) {
         if (!engineCaps.vary[track]) return;
+        const voiceRule = buildVoiceRule(container, track);
         const row = document.createElement('div');
         row.className = 'vary-row';
         const title = document.createElement('span');
@@ -6377,6 +6484,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               if (rule.chance !== 0 && !rule.pool.length) rule.pool = voiceBankIds(track).map((id) => ({ id, weight: 1 }));
               partial.voiceRule = structuredClone(rule);
               refreshVoiceSelect(track);
+              if (voiceRule) { voiceRule.setMark(true); voiceRule.setPool(rule.pool, rule.order); }
             }
             engine.setParams({ tracks: { [track]: partial } });
             persistSettings();
@@ -6390,10 +6498,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // happens to be sitting at the bottom of the scale (0%).
           let ranged = isPlainObject(stored);
           let built = false;
+          // v0.0.196: the voice knob is the rule's Chance layer.
+          const parent = key === 'voice' && voiceRule ? voiceRule.chanceSlot : cells;
           if (knobApi) {
             const cell = document.createElement('div');
             cell.className = 'vary-knob';
-            cells.append(cell);
+            parent.append(cell);
             try {
               const handle = knobApi.createKnob(cell, {
                 label,
@@ -6416,7 +6526,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               describe(
                 handle.el,
                 key === 'voice'
-                  ? `Voice chance: how likely ${TRACK_LABELS[track]} is to move to another voice from its pool, at each bar, section or piece (choose which beside it). 0 holds the voice you picked for good; at the left detent it follows this track's Randomness dial.`
+                  ? `Chance: how likely ${TRACK_LABELS[track]} is to move to another voice from its pool, at each bar, section or piece (the When beside it). 0 reads Hold and keeps the voice you picked for good; at the left detent it follows this track's Randomness dial.`
                   : `How much ${TRACK_LABELS[track]}'s ${label.toLowerCase()} varies. At the left detent it follows this track's Randomness dial; anywhere else overrides it.`
               );
               if (knobs) knobs.push(handle);
@@ -6457,9 +6567,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               commitVary(varyValueFromRaw(r));
             });
             wrap.append(lrow, input);
-            cells.append(wrap);
+            parent.append(wrap);
           }
-          if (key === 'voice') appendVoiceRuleControls(cells, track);
+          if (key === 'voice' && !voiceRule) appendVoiceRuleControls(cells, track);
         }
       }
 
@@ -20679,6 +20789,71 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       margin: 8px 0;
       font-size: 0.9rem;
     }
+    /* v0.0.196: the rule primitive — three layers, one shape. */
+    .rule-level-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 8px;
+      font-size: 0.85rem;
+    }
+    .rule-level-row select {
+      min-height: 30px;
+      padding: 2px 6px;
+      max-width: 14ch;
+    }
+    .rule {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+      width: 100%;
+    }
+    .rule-layer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .rule-layer[hidden] { display: none; }
+    .rule-name,
+    .rule-layer-name {
+      font-size: 0.8rem;
+      opacity: 0.8;
+      min-width: 4.5ch;
+    }
+    .rule-now-value {
+      background: none;
+      border: 1px solid currentColor;
+      border-radius: 6px;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      padding: 2px 8px;
+    }
+    .rule-mark { opacity: 0.8; }
+    .rule-chance-slot { display: flex; align-items: center; }
+    .rule-when {
+      min-height: 30px;
+      padding: 2px 6px;
+      font-size: 0.85rem;
+      max-width: 12ch;
+    }
+    .rule-pool-summary { font-size: 0.85rem; }
+    .rule-pool-edit { min-height: 30px; padding: 2px 8px; }
+    .rule-more {
+      background: none;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.8rem;
+      opacity: 0.8;
+      padding: 2px 6px;
+      text-decoration: underline;
+    }
+    .rule-more[hidden] { display: none; }
+
     .voice-rule-controls {
       display: flex;
       flex-direction: column;

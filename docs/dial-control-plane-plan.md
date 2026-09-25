@@ -452,10 +452,12 @@ picker is Now, the Randomise row's Voice knob is Chance (with When and Pool…
 beside it), the Pool editor is the pool. It retires the hidden wander law
 (p = 0.25 × Randomness per bar over every other voice) and the Blend voices
 editor of his 128 a into the same three layers, with an exact migration so
-no stored piece moves. Built inside index.astro as a one-off; the shared
-primitive every later rule must use is the next TODO item under
-"Reconstructible Ambi4", so the logic holds by construction rather than by
-review.
+no stored piece moves. **Shipped second (v0.0.196): the primitive.** `src/scripts/rule-control.js`
+is the one component every rule mounts on — the three layers, the global
+level (`#rule-level`: what plays / + chance / + pool, a preference) and the
+in-place "more" — and the voice rule now sits on it. The logic holds by
+construction: a later rule that does not mount on the module is a review
+finding.
 
 ## 6. Open decisions
 

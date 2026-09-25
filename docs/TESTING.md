@@ -1025,3 +1025,16 @@ owed to the bridge key (fromClaude 13).
       Keys, Next keeps it, the Pool editor, When, "· drawn", a pick holds,
       Blank slate zeroes). Browser drives parked in `tests/pending/`:
       blank-slate-first-minute-drive and voice-rule-drive (fromClaude 13).
+
+## v0.0.196 delta — the rule primitive (2026-09-25)
+
+- [ ] Advanced: a "Rules show" select sits above the dials — what plays / +
+      chance / + pool. Open the Melody editor: above Randomise there is one
+      block, Voice, in three layers: Now (the voice playing, press it to go to
+      the picker), Chance (the knob, Hold at 0, with each bar / section /
+      piece), Pool (one line naming the voices in order and by weight or in
+      turn, with Edit…). At "what plays" only Now shows; "more" opens Chance,
+      then Pool, in place; "less" folds back. At "+ pool" everything is open.
+- [ ] The knob, the When and Edit… behave exactly as in v0.0.195 (hold, Next
+      keeps it, the Pool editor); only where they sit changed.
+- [ ] Automated: rule-control-smoke and page-boot's primitive block.

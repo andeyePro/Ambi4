@@ -2348,3 +2348,24 @@ for 64 bars at Randomness 1 with Organ stab out of the pool, across three
 fresh compiles; Chance 1 draws only from the pool; In turn walks the pool;
 the legacy blend and the legacy wander unchanged), red on the old engine
 for every rule test.
+
+## The rule primitive (v0.0.196)
+
+Module ownership: **the page** (`src/scripts/rule-control.js`, pure DOM,
+imported beside knob.js and optional like it: `createRule(host, spec)` mounts
+one rule as three layers — Now, Chance with its When, Pool — with
+`layerShown(level, layer)` deciding which open at the global level (`simple`
+= Now, `advanced` = + Chance, `expert` = + Pool, stored as the preference
+`settings.ui.level` and set by `#rule-level` on the Advanced tab) and a
+"more" button opening the next layer in place whatever the level; a mark on
+Now says something is set beneath; `poolSummary` and `chanceSummary` say a
+pool and a chance in words). The voice rule is mounted on it: Now is the pick
+(a press goes to the row's picker), Chance is the Randomise loop's Voice knob
+mounted into the primitive's slot, When and the pool summary with its Edit…
+are the primitive's, and the ids `voice-rule-when-<track>` /
+`voice-rule-pool-<track>` are kept. Gated by `tests/rule-control-smoke.mjs`
+(the module in jsdom: levels, expand, summaries, the wired callbacks) and
+`page-boot` (the melody editor's rule has three layers, the level select
+opens and hides them, "more" opens Pool in place, the Chance layer holds the
+dial). Every later rule (chords, motif, groove, arp, kit, walks, ladder,
+blocks) mounts on this module and nothing else.

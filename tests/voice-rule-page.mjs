@@ -314,7 +314,7 @@ async function ensureTrackEditorOpen(win, doc, track) {
 function findVoiceChanceKnob(doc, track) {
   const editor = doc.getElementById(`voice-editor-${track}`);
   if (!editor) return null;
-  return [...editor.querySelectorAll('.vary-cells .knob')]
+  return [...editor.querySelectorAll('.vary-cells .knob, .rule-chance-slot .knob')]
     .find((k) => k.getAttribute('aria-label') === 'Voice chance') || null;
 }
 
@@ -380,7 +380,7 @@ async function check1(ctx) {
   await ensureTrackEditorOpen(win, doc, 'melody');
   const knobFound = await waitUntil(() => !!findVoiceChanceKnob(doc, 'melody'), 3000);
   if (!knobFound) {
-    record('[1b] Melody editor has a Voice chance knob', false, 'no .knob[aria-label="Voice chance"] found under #voice-editor-melody .vary-cells');
+    record('[1b] Melody editor has a Voice chance knob', false, 'no .knob[aria-label="Voice chance"] found under #voice-editor-melody (.vary-cells or .rule-chance-slot)');
     return;
   }
   typeKnobValue(win, doc, 'melody', '1'); // raw 1 = Hold = chance 0 (see typeKnobValue's comment)

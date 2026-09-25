@@ -56,7 +56,7 @@ export default async function drive(page) {
   await page.waitForSelector('#voice-editor-melody .vary-row');
   await page.waitForTimeout(300);
 
-  const voiceKnob = () => page.locator('#voice-editor-melody .vary-row .knob[aria-label="Voice chance"]');
+  const voiceKnob = () => page.locator('#voice-editor-melody .knob[aria-label="Voice chance"]');
   check('the Randomise row has a Voice chance knob', await voiceKnob().count(), 1);
 
   // ---- Layout: the When select and Pool button sit BESIDE the knob, on

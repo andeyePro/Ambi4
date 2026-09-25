@@ -1619,7 +1619,42 @@ try {
       }
     }
 
-    // v0.0.188 — the slider fallback editor, booted on purpose. With the seam
+    // v0.0.196 — the rule primitive: the melody editor's voice rule is one
+  // .rule with three layers; the level select decides which open by default
+  // (advanced = Now + Chance) and "more" opens the rest in place; the Chance
+  // layer holds the knob; the When select and the pool Edit… keep their ids.
+  {
+    const editor = await openEditor('melody');
+    const rule = editor && editor.querySelector('.rule[data-rule="voice"]');
+    if (!rule) failures.push('the melody editor has no voice rule on the primitive');
+    else {
+      const layer = (name) => rule.querySelector(`.rule-layer[data-layer="${name}"]`);
+      for (const name of ['now', 'chance', 'pool']) if (!layer(name)) failures.push(`the voice rule has no ${name} layer`);
+      if (layer('chance') && layer('chance').hidden) failures.push('at the default level (advanced) the Chance layer is hidden');
+      if (layer('pool') && !layer('pool').hidden) failures.push('at the default level (advanced) the Pool layer is open');
+      if (!rule.querySelector('.rule-chance-slot .knob, .rule-chance-slot input[type="range"]')) failures.push('the Chance layer holds no dial');
+      if (!rule.querySelector('#voice-rule-when-melody')) failures.push('the When select lost its id');
+      if (!rule.querySelector('#voice-rule-pool-melody')) failures.push('the pool Edit… lost its id');
+      const nowText = rule.querySelector('.rule-now-value') ? rule.querySelector('.rule-now-value').textContent : '';
+      if (!nowText) failures.push('the Now layer names no voice');
+      const more = rule.querySelector('.rule-more');
+      if (more) { more.click(); if (layer('pool').hidden) failures.push('"more" did not open the Pool layer in place'); }
+      const level = doc.getElementById('rule-level');
+      if (!level) failures.push('no #rule-level select');
+      else {
+        level.value = 'simple';
+        level.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (!layer('chance').hidden) failures.push('level simple did not hide the Chance layer');
+        level.value = 'expert';
+        level.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (layer('pool').hidden) failures.push('level expert did not open the Pool layer');
+        level.value = 'advanced';
+        level.dispatchEvent(new window.Event('change', { bubbles: true }));
+      }
+    }
+  }
+
+  // v0.0.188 — the slider fallback editor, booted on purpose. With the seam
     // set, every stock voice renders through the path the page takes when
     // knob.js is missing: every control names its field (pinned, with its
     // label and kind, in tests/fixtures/editor-controls-fallback.json — written
