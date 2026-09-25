@@ -365,6 +365,39 @@ function onsetPitches(steps) {
   return out;
 }
 
+/**
+ * v0.0.196: a plain typed note fills its whole BEAT (four sixteenth slots),
+ * tied together — not the single sixteenth-slot blip the engine used to
+ * write. `spans` is [{from, to, midi}, ...] in step-index order; this checks
+ * every slot in [from, to] is on with that midi, tied through every slot but
+ * the last of the span (the tie shape "-" itself builds — see writeTypedMelody
+ * in src/pages/index.astro), and that nothing outside the given spans is on.
+ */
+function checkStepSpans(steps, spans) {
+  const problems = [];
+  const covered = new Set();
+  for (const { from, to, midi } of spans) {
+    for (let s = from; s <= to; s++) {
+      covered.add(s);
+      const step = steps[s];
+      if (!step || !step.on || step.midi !== midi) {
+        problems.push(`slot ${s}: expected on with midi ${midi}, got ${step ? JSON.stringify({ on: step.on, midi: step.midi }) : 'undefined'}`);
+        continue;
+      }
+      const expectTie = s < to;
+      if (Boolean(step.tie) !== expectTie) {
+        problems.push(`slot ${s}: expected tie=${expectTie} (span ${from}-${to}), got tie=${Boolean(step.tie)}`);
+      }
+    }
+  }
+  for (let s = 0; s < steps.length; s++) {
+    if (covered.has(s)) continue;
+    const step = steps[s];
+    if (step && step.on) problems.push(`slot ${s}: expected off (outside every span), got on with midi ${step.midi}`);
+  }
+  return problems;
+}
+
 /** Walk downstream from a started oscillator to the nearest gain node it feeds. */
 function findFeedingGain(oscNode) {
   const seen = new Set();
@@ -447,7 +480,7 @@ async function checkGridPath(track, num) {
 // Checks 3 & 4 — TYPED PATH (bass, melody)
 // ===========================================================================
 
-async function checkTypedPath(track, text, expectedMidi, num) {
+async function checkTypedPath(track, text, expectedMidi, num, expectedSpans = null) {
   const { win, doc, engine, notes, Ctx } = await bootScenario();
   try {
     await openCreateAndBlank(win, doc);
@@ -503,6 +536,21 @@ async function checkTypedPath(track, text, expectedMidi, num) {
       `engine.getParams().tracks.${track}.sequencer.steps decode to onset pitches [${pitches.join(', ')}] ` +
         `for typed "${text}", expected [${expectedMidi.join(', ')}]`
     );
+
+    // v0.0.196: an unheld note is a whole BEAT, not one sixteenth-slot blip —
+    // "C2 - G2 A2" at 60bpm used to leave C2 sounding for 0.25s. Check the
+    // actual slot-by-slot occupancy and tie shape, not just the onset list
+    // onsetPitches collapses ties into (which already passed on the blip).
+    if (expectedSpans) {
+      const problems = checkStepSpans(steps, expectedSpans);
+      record(
+        `[${num}d] TYPED ${track}: each note fills and ties its whole beat's slots`,
+        problems.length === 0,
+        problems.length
+          ? `typed "${text}" onto ${track}: ${problems.join('; ')}`
+          : ''
+      );
+    }
   } finally {
     win.close();
   }
@@ -684,8 +732,16 @@ async function checkStagedCountdown() {
 
 await checkBlock('[1] GRID PATH bass', () => checkGridPath('bass', 1));
 await checkBlock('[2] GRID PATH melody', () => checkGridPath('melody', 2));
-await checkBlock('[3] TYPED PATH bass', () => checkTypedPath('bass', 'C2 - G2 A2', [36, 43, 45], 3));
-await checkBlock('[4] TYPED PATH melody', () => checkTypedPath('melody', 'C4 E4 G4', [60, 64, 67], 4));
+await checkBlock('[3] TYPED PATH bass', () => checkTypedPath(
+  'bass', 'C2 - G2 A2', [36, 43, 45], 3,
+  // C2 held two beats (slots 0-7, tied), G2 and A2 one beat each (4 slots).
+  [{ from: 0, to: 7, midi: 36 }, { from: 8, to: 11, midi: 43 }, { from: 12, to: 15, midi: 45 }]
+));
+await checkBlock('[4] TYPED PATH melody', () => checkTypedPath(
+  'melody', 'C4 E4 G4', [60, 64, 67], 4,
+  // Three unheld notes, one beat (4 slots) each.
+  [{ from: 0, to: 3, midi: 60 }, { from: 4, to: 7, midi: 64 }, { from: 8, to: 11, midi: 67 }]
+));
 await checkBlock('[5] LABEL', () => checkComposeLabel());
 await checkBlock('[6] BLANK BASS AUDIBLE', () => checkBlankBassAudible());
 await checkBlock('[7] STAGED COUNTDOWN', () => checkStagedCountdown());

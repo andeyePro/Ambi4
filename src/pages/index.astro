@@ -7486,7 +7486,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           updateScopeMode(track);
           updateFrontScope();
           const tip = document.getElementById('guided-tip');
-          if (tip) tip.textContent = `${TRACK_LABELS[track] || track} switched on: a step you tap plays.`;
+          if (tip) {
+            // v0.0.196: on a tuned track, a tapped step plays the chord's
+            // note, not a melody of its own choosing — say so, and point at
+            // how to give a step its own pitch, rather than leaving that
+            // discoverable only by reading the grid legend.
+            tip.textContent = `${TRACK_LABELS[track] || track} switched on: a step you tap plays` +
+              (TUNED_TRACKS.includes(track)
+                ? ', on the chord\u2019s note \u2014 press P to give it its own.'
+                : '.');
+          }
         }
       }
 
@@ -7607,7 +7616,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const SEQ_LEGEND_PITCH =
         ' Pitch: P types the step\u2019s own note (C#4 or a MIDI number; empty clears it) \u2014 ' +
         'a pinned step plays exactly that note, never re-pitched; Alt+drag a cell up or ' +
-        'down nudges the pin by semitones.';
+        'down nudges the pin by semitones. An unpinned step plays the chord\u2019s root ' +
+        '(or its fifth) until you give it one of its own \u2014 focus it and press P, or ' +
+        'Alt+drag it up or down.';
 
       const SEQ_LEGEND_RESOLUTION =
         ' Resolution: the \u00d72 / \u00f72 pair under the grid chooses the note value a '
@@ -16960,6 +16971,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (midi === null) { dropped.push(token); continue; }
             const slot = barBeat() * 4;
             steps[slot] = { ...blank(), on: true, midi };
+            // v0.0.196: a plain note fills its whole BEAT, not one sixteenth —
+            // an unheld note was a 0.25s blip at 60bpm. Tie the beat's four
+            // slots together, the same tie shape "-" builds above (a following
+            // hold just extends this chain into the next beat).
+            for (let s = slot; s < (barBeat() + 1) * 4 - 1 && s < 19; s++) {
+              steps[s].tie = true;
+              if (!steps[s + 1].on) {
+                steps[s + 1] = { ...blank(), on: true, midi };
+              }
+            }
             lastRef = { bar: barIndex(), slot };
             written += 1;
             beat += 1;
