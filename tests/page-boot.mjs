@@ -1380,6 +1380,30 @@ try {
             });
             if (!back) failures.push('picking the saved voice did not put Warm with release 2.5 s back at the engine');
             if (select.value !== option.value) failures.push('the picker does not read as the saved voice after picking it');
+            // v0.0.183 (unit 9): Share carries the voice's name beside its
+            // base and patch — the tag rides the diff, the sound already did.
+            const shareButton = doc.getElementById('preset-share');
+            if (shareButton) {
+              clipboard.text = '';
+              shareButton.click();
+              const copied = await waitUntil(() => clipboard.text.includes('#p='));
+              if (!copied) {
+                failures.push('Share while a voice of the person\'s own plays copied nothing');
+              } else {
+                const value = clipboard.text.slice(clipboard.text.indexOf('#p=') + 3);
+                let decoded = null;
+                try {
+                  decoded = JSON.parse(Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+                } catch (err) {
+                  failures.push(`the shared link did not decode: ${err && err.message}`);
+                }
+                const tag = decoded && ((decoded.d && decoded.d.tracks && decoded.d.tracks.pad && decoded.d.tracks.pad.userVoice)
+                  || (decoded.tracks && decoded.tracks.pad && decoded.tracks.pad.userVoice));
+                if (!tag || tag.name !== 'Dusk pad' || tag.id !== option.value.slice('mine:'.length)) {
+                  failures.push(`the shared link does not name the voice of the person's own (${JSON.stringify(tag)})`);
+                }
+              }
+            }
             const forget = doc.querySelector('#voice-editor-pad .ve-forget-voice');
             if (!forget || forget.hidden) {
               failures.push('Forget this voice is hidden while the saved voice plays');
@@ -2494,6 +2518,69 @@ try {
       }
     } catch (err) {
       failures.push(`booting with a stored voice threw: ${err && err.stack ? err.stack : err}`);
+    }
+  }
+
+  // v0.0.183 (unit 9): a link whose pad is tagged with a voice of someone's
+  // own arrives on a device that has never seen it: the sound plays (voice
+  // and patch, as any link), and the name joins this visit's My voices.
+  {
+    const payload = Buffer.from(JSON.stringify({
+      tracks: { pad: { voice: 'strings', state: 'on', userVoice: { id: 'v-arrivedtest', name: 'Arrived pad' } } },
+      patches: { pad: { strings: { filter: { type: 'lowpass', cutoff: 654, q: 0.8, envAmount: 0 } } } },
+      v: 2,
+    }), 'utf8').toString('base64url');
+    const voiceDom = new JSDOM(html, {
+      url: `https://ambi4.work/#p=${payload}`,
+      pretendToBeVisual: true,
+      runScripts: 'outside-only',
+    });
+    const voiceWindow = voiceDom.window;
+    const voiceContexts = new WeakMap();
+    voiceWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
+      let ctx = voiceContexts.get(this);
+      if (!ctx) {
+        ctx = stubCanvasContext();
+        ctx.canvas = this;
+        voiceContexts.set(this, ctx);
+      }
+      return ctx;
+    };
+    voiceWindow.HTMLCanvasElement.prototype.toDataURL = () => 'data:,';
+    voiceWindow.AudioContext = StubAudioContext;
+    voiceWindow.OfflineAudioContext = undefined;
+    voiceWindow.devicePixelRatio = 1;
+    installClipboard(voiceWindow);
+    for (const key of passthrough) {
+      if (voiceWindow[key] !== undefined) globalThis[key] = voiceWindow[key];
+    }
+    globalThis.self = voiceWindow;
+    try {
+      await import(`${pathToFileURL(bundlePath).href}?arriving-voice`);
+      const voiceDoc = voiceWindow.document;
+      const booted = await waitUntil(() => {
+        const el = voiceDoc.getElementById('generator-app');
+        return Boolean(el) && !el.hidden;
+      }, 8000);
+      if (!booted) {
+        failures.push('the page did not boot on a link naming a voice of someone\'s own');
+      } else {
+        const voiceEngine = voiceWindow.__ambi4Engine;
+        const params = voiceEngine && voiceEngine.getParams();
+        const patch = params && params.patches && params.patches.pad && params.patches.pad.strings;
+        if (!params || params.tracks.pad.voice !== 'strings' || !patch || !patch.filter || Math.round(patch.filter.cutoff) !== 654) {
+          failures.push('an arriving link\'s voice and patch did not reach the engine');
+        }
+        const select = voiceDoc.getElementById('track-voice-pad');
+        const option = select && select.querySelector('optgroup.my-voices option[value="mine:v-arrivedtest"]');
+        if (!option || option.textContent !== 'Arrived pad') {
+          failures.push('a voice named in an arriving link is not listed under My voices for this visit');
+        } else if (select.value !== option.value) {
+          failures.push(`the arriving pad does not read as its named voice (reads ${select.value})`);
+        }
+      }
+    } catch (err) {
+      failures.push(`booting on a link naming a voice threw: ${err && err.stack ? err.stack : err}`);
     }
   }
 

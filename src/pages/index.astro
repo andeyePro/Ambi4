@@ -3298,6 +3298,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try {
             const clone = structuredClone(expandSharedParams(sharedParams));
             migrateLegacyArpSteps(clone);
+            // v0.0.183: voices of someone's own named in the link join this visit.
+            adoptArrivingUserVoices(clone);
             settings = deepMerge(DEFAULTS, clone);
             normaliseV6Tracks(settings);
             settings.ui = ui;
@@ -4356,6 +4358,34 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           syncMyVoicesGroup(id);
           refreshVoiceSelect(id);
         }
+      }
+
+      /**
+       * v0.0.183 (unit 9): a link's tracks may carry `userVoice` tags — the
+       * name over a base voice and a patch that already travel as the track's
+       * voice and its patch. A tag naming a voice this device has not seen
+       * becomes a voice of this visit's own (not persisted by arriving; Save
+       * as my voice keeps it), built from the arriving voice and patch, so it
+       * lists under My voices exactly as it did where the link was made. A
+       * tag naming one this device HAS keeps this device's copy.
+       */
+      function adoptArrivingUserVoices(params) {
+        const tracks = isPlainObject(params && params.tracks) ? params.tracks : {};
+        const patches = isPlainObject(params && params.patches) ? params.patches : {};
+        let adopted = 0;
+        for (const [track, spec] of Object.entries(tracks)) {
+          const tag = isPlainObject(spec) && isPlainObject(spec.userVoice) ? spec.userVoice : null;
+          if (!tag || !isUserVoiceId(tag.id) || typeof tag.name !== 'string' || typeof spec.voice !== 'string') continue;
+          if (userVoiceById(tag.id) || USER_VOICES.length >= USER_VOICE_CAP) continue;
+          const voiceSet = voiceSetOf(track);
+          if (!VOICE_LABELS[voiceSet]) continue;
+          const patch = isPlainObject(patches[track]) && isPlainObject(patches[track][spec.voice])
+            ? structuredClone(patches[track][spec.voice])
+            : {};
+          USER_VOICES.push({ id: tag.id, name: tag.name.trim().slice(0, 40) || 'Untitled', voiceSet, voice: spec.voice, patch });
+          adopted += 1;
+        }
+        return adopted;
       }
 
       /** v0.0.182: play a voice of the person's own on a track: its base voice and its patch. */

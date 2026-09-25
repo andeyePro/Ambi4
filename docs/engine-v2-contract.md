@@ -2244,6 +2244,11 @@ stock base voice and a full patch, nothing the engine has not always played.
 Picking one sets the track's voice and stores the patch under that voice;
 `tracks[t].userVoice = { id, name }` tags the track for the picker, is a page
 field the engine's sanitiser ignores, and rides a share link so the name
-arrives with the sound (unit 9). The picker reads the tag as the voice's name
+arrives with the sound: on arrival (v0.0.183, unit 9) a tag naming a voice the
+device has not seen becomes a voice of that visit's own, built from the
+arriving voice and patch, listed under My voices and not persisted by arriving;
+a tag naming one the device has keeps the device's copy. No schema stamp: the
+tag is a page field a pre-183 build carries untouched and ignores, and the
+sound is identical either way. The picker reads the tag as the voice's name
 while the stored patch equals the saved one, and as "<name> · edited" once a
 dial has moved.
