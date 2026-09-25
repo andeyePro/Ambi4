@@ -1260,6 +1260,36 @@ try {
       }
     }
 
+    // v0.0.176 — the Additive section appears on Glass (five drawbars and a
+    // stretch, no sixth) and on no subtractive pad.
+    {
+      const select = doc.getElementById('track-voice-pad');
+      const cells = () => doc.querySelectorAll('#voice-editor-pad .patch-controls .knob-cell[data-field^="additive."]');
+      const pick = async (voice) => {
+        select.value = voice;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        await openEditor('pad');
+        await waitUntil(() => doc.querySelectorAll('#voice-editor-pad .patch-controls .knob-cell').length > 0);
+      };
+      await pick('glass');
+      if (!(await waitUntil(() => cells().length === 6))) {
+        failures.push(`Glass's editor shows ${cells().length} additive dials, expected P1–P5 and Stretch`);
+      } else {
+        const fields = Array.from(cells()).map((c) => c.dataset.field);
+        if (fields.includes('additive.p6')) failures.push('Glass has five partials but the editor shows a sixth drawbar');
+        for (const cell of cells()) {
+          const row = registry[`patch.${cell.dataset.field}`];
+          const knob = cell.querySelector('.knob');
+          const descId = knob && knob.getAttribute('aria-describedby');
+          const desc = descId ? doc.getElementById(descId) : null;
+          if (!row || !desc || desc.textContent !== row.hint) failures.push(`${cell.dataset.field}: the drawbar does not carry its registry hint`);
+        }
+      }
+      await pick('warm');
+      await new Promise((r) => setTimeout(r, 50));
+      if (cells().length) failures.push('Warm, a subtractive pad, grew additive dials — the disclosure rule is broken');
+    }
+
     // v0.0.174 — "what makes this sound": the words line under the dials is
     // exactly what the pure module says for the sounding voice's patch, so the
     // page's wiring (voice, controls, detune mode, the live patch object) is

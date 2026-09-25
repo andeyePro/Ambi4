@@ -8823,6 +8823,7 @@ test('v23 manifest: compiles to a controls/defaults pair the voice-editor shape 
   assert.deepEqual(compiled.controls, {
     source: ['detune', 'octave'],
     fm: false,
+    additive: false,
     filter: false,
     adsr: ['attack'],
     sends: false,
@@ -8843,7 +8844,7 @@ test('v23 manifest: compiles to a controls/defaults pair the voice-editor shape 
   // Every section a built-in editor knows about is answered for — an absent
   // key would read as "render everything", which is not what "no dials" means.
   // Registry order: the fm rows sit between adsr and sends in the table.
-  assert.deepEqual(Object.keys(compiled.controls), ['source', 'filter', 'adsr', 'fm', 'sends']);
+  assert.deepEqual(Object.keys(compiled.controls), ['source', 'filter', 'adsr', 'fm', 'additive', 'sends']);
 
   // Not for a built-in, not for an unknown id, not for a track without one.
   assert.equal(engine.getTrackManifest('pad'), null);

@@ -1081,6 +1081,38 @@ const folding = (defaults) => defaults.source.fold !== undefined;
  */
 const modulated = (defaults) => defaults.fm !== undefined;
 
+/**
+ * True for a voice that publishes the Additive section (v0.0.176, unit 5):
+ * its partials are drawbars. Declared by publishing `additive`, whose keys
+ * name exactly the partials the voice has (p1..pN) plus `stretch`.
+ */
+const summed = (defaults) => defaults.additive !== undefined;
+
+/** The partial levels and stretch a summed voice plays, patch over table. */
+function additiveOf(patch, d) {
+  const asked = part(patch, 'additive');
+  const out = {};
+  for (const key of Object.keys(d.additive)) {
+    out[key] = key === 'stretch'
+      ? inRange(asked.stretch, -0.1, 0.1, d.additive.stretch)
+      : inRange(asked[key], 0, 2, d.additive[key]);
+  }
+  return out;
+}
+
+/**
+ * One partial of a summed voice, through the patch: `[ratio, mix]` from the
+ * voice's own table, the level scaled by that partial's drawbar and the ratio
+ * stretched by the section's offset. `i` is zero-based; the fundamental never
+ * stretches. At the defaults (every level 1, stretch 0) both are the literals.
+ */
+function partialOf(p, i, ratio, mix) {
+  const a = p && p.additive ? p.additive : null;
+  const lvl = a && Number.isFinite(a[`p${i + 1}`]) ? a[`p${i + 1}`] : 1;
+  const st = a && Number.isFinite(a.stretch) ? a.stretch : 0;
+  return { ratio: ratio * (1 + st * i), mix: mix * lvl };
+}
+
 /** The noise-sculpting half of a v19 source, clamped to the schema. */
 const sculptFields = (source, d) => ({
   tilt: inRange(source.tilt, -1, 1, d.source.tilt),
@@ -1214,6 +1246,8 @@ function patchFor(defaults, patch, kind = null) {
         bite: inRange(part(patch, 'fm').bite, 0.02, 4, d.fm.bite),
       },
     } : {}),
+    // v0.0.176: the Additive section, on the voices that publish it.
+    ...(summed(d) ? { additive: additiveOf(patch, d) } : {}),
     // AUDIT FIX (voices cluster): the voice's OWN published values, so a
     // patch can be applied RELATIVE to what the voice authored rather than
     // replacing it. A kit publishes ONE adsr and ONE filter but plays three
@@ -1487,6 +1521,8 @@ const DEFAULTS = {
       filter: { type: 'highpass', cutoff: 180, q: 0.5, envAmount: 0 },
       adsr: { attack: 2.1, decay: 0.01, sustain: 1, release: 5 },
       sends: { reverb: 0.7, delay: 0.35 },
+      // v0.0.176: five drawbars over glass's own stretched partial table.
+      additive: { p1: 1, p2: 1, p3: 1, p4: 1, p5: 1, stretch: 0 },
     },
     strings: {
       source: {
@@ -1671,6 +1707,8 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 2640, q: 0.7, envAmount: 0 },
       adsr: { attack: 0.006, decay: 0.01, sustain: 1, release: 0.09 },
       sends: { reverb: 0.28, delay: 0.2 },
+      // v0.0.176: six drawbars, the tonewheel registration as shipped.
+      additive: { p1: 1, p2: 1, p3: 1, p4: 1, p5: 1, p6: 1, stretch: 0 },
     },
   },
   texture: {
@@ -1923,7 +1961,7 @@ const CALL_CONTROLS = [
 const CONTROLS = {
   pad: {
     warm: { source: true, filter: true, adsr: true, sends: true },
-    glass: { source: ['detune', 'octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    glass: { source: ['detune', 'octave'], additive: ['p1', 'p2', 'p3', 'p4', 'p5', 'stretch'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     strings: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     choir: { source: true, filter: true, adsr: true, sends: true },
     polysaw: { source: true, filter: true, adsr: true, sends: true },
@@ -1955,7 +1993,7 @@ const CONTROLS = {
     tines: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     nylon: { source: true, filter: true, adsr: true, sends: true },
     tape: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
-    stab: { source: ['octave'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    stab: { source: ['octave'], additive: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'stretch'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   texture: {
     sparkle: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
@@ -2224,16 +2262,21 @@ function padGlass(ctx, destination, note, patch) {
   // stack is additive, so osc types and mix have nothing to bite on here.
   const jitter = Math.abs(p ? p.source.detune : 4);
   const partials = [[1, 0.4], [2, 0.2], [3.01, 0.14], [4.98, 0.09], [6.97, 0.05]];
-  partials.forEach(([ratio, mix], i) => {
+  partials.forEach(([ratioOf, mixOf], i) => {
+    // v0.0.176: the drawbars — this partial's level and its stretched ratio,
+    // both the literal at the defaults.
+    const { ratio, mix } = partialOf(p, i, ratioOf, mixOf);
     const start = t + i * 0.28;
     const osc = rig.osc('sine', f * ratio, start, between(-jitter, jitter));
     const gain = rig.gain(SILENCE);
     osc.connect(gain);
     gain.connect(amp);
     // Each partial arrives in its own time, so the pad assembles rather than
-    // starts; the tremolo keeps the upper ones alive underneath.
+    // starts; the tremolo keeps the upper ones alive underneath. A drawbar at
+    // zero still ramps to SILENCE, never to 0: an exponential ramp to zero is
+    // an error, and a level that is not built cannot be turned back up.
     gain.gain.setValueAtTime(SILENCE, start);
-    gain.gain.exponentialRampToValueAtTime(mix, start + attack * 0.7);
+    gain.gain.exponentialRampToValueAtTime(Math.max(mix, SILENCE), start + attack * 0.7);
     if (i > 0) lfo(rig, gain.gain, { t: start, rate: between(0.08, 0.22), depth: mix * 0.35 });
   });
 
@@ -3177,12 +3220,15 @@ function melodyStab(ctx, destination, note, patch) {
   // The drawbars: fundamental, octave, twelfth, double octave, and the two
   // upper mutations that make the registration read as an organ rather than
   // as a filtered saw.
-  for (const [ratio, mix] of [[1, 0.5], [2, 0.28], [3, 0.18], [4, 0.12], [6, 0.07], [8, 0.05]]) {
+  [[1, 0.5], [2, 0.28], [3, 0.18], [4, 0.12], [6, 0.07], [8, 0.05]].forEach(([ratioOf, mixOf], i) => {
+    // v0.0.176: the drawbars are dials now (partialOf); the table is the
+    // registration as shipped, and a bar pulled to zero sits at SILENCE.
+    const { ratio, mix } = partialOf(p, i, ratioOf, mixOf);
     const osc = rig.osc('sine', f * ratio, t);
-    const gain = rig.gain(mix);
+    const gain = rig.gain(Math.max(mix, SILENCE));
     osc.connect(gain);
     gain.connect(amp);
-  }
+  });
 
   // Key click: the contact bounce, outside the envelope so the attack cannot
   // swallow it. It is most of what says "organ" on a short chord.

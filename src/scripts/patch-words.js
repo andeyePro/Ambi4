@@ -39,6 +39,7 @@ export const fmt = {
   plain: (v) => String(Math.round(v * 100) / 100),
   perBar: (v) => `${Math.round(v * 10) / 10} per bar`,
   times: (v) => `${Math.round(v * 100) / 100}×`,
+  stretch: (v) => `${v > 0 ? '+' : ''}${Math.round(v * 1000) / 10}%`,
 };
 
 const isRange = (v) => v && typeof v === 'object' && Number.isFinite(v.min) && Number.isFinite(v.max);
@@ -120,7 +121,13 @@ export function describePatch({ engineType = '', patch, controls = true, detuneM
   const shape1 = has(src.shape1) ? src.shape1 : (typeof src.osc1 === 'string' ? SHAPE_NAMES.indexOf(src.osc1.replace('sawtooth', 'saw')) : null);
   const shape2 = has(src.shape2) ? src.shape2 : (typeof src.osc2 === 'string' ? SHAPE_NAMES.indexOf(src.osc2.replace('sawtooth', 'saw')) : null);
   const twoOsc = can('source', 'shape2') && shape2 !== null && shape2 >= 0;
-  switch (engineType) {
+  // A hybrid voice runs two engines; the one it publishes dials for leads the
+  // sentence, and the opening says there are two.
+  const hybrid = engineType === 'hybrid';
+  const lead = hybrid
+    ? (patch.additive ? 'additive' : patch.fm ? 'fm' : 'subtractive')
+    : engineType;
+  switch (lead) {
     case 'fm': {
       const fm = patch.fm || {};
       const ratio = allowed(controls, 'fm', 'ratio') && has(fm.ratio) ? ` at ${show(fm.ratio, fmt.times)} the note` : '';
@@ -132,9 +139,18 @@ export function describePatch({ engineType = '', patch, controls = true, detuneM
       if (allowed(controls, 'fm', 'bite') && has(fm.bite)) source.push(`bright for ${show(fm.bite, fmt.sec)}`);
       break;
     }
-    case 'additive':
-      source.push('partials summed at their own levels (additive)');
+    case 'additive': {
+      const a = patch.additive || {};
+      const bars = Object.keys(a).filter((k) => /^p\d$/.test(k) && allowed(controls, 'additive', k));
+      source.push(`${bars.length || 'the'} partials summed at their own levels (additive)`);
+      const moved = bars.filter((k) => { const m = mid(a[k]); return m !== null && Math.abs(m - 1) > 0.005; });
+      if (moved.length) source.push(moved.map((k) => `partial ${k.slice(1)} at ${show(a[k], fmt.times)}`).join(', '));
+      const st = mid(a.stretch);
+      if (allowed(controls, 'additive', 'stretch') && st !== null && Math.abs(st) > 0.0005) {
+        source.push(`stretched ${show(a.stretch, fmt.stretch)} per partial`);
+      }
       break;
+    }
     case 'physical':
       source.push(kit ? 'a drum model: a bending skin over noise' : 'a struck-object model (modal)');
       break;
@@ -202,6 +218,7 @@ export function describePatch({ engineType = '', patch, controls = true, detuneM
     source.push(`formants at ${show(src.formant1, fmt.hz)} and ${show(src.formant2, fmt.hz)}`);
   }
   if (can('source', 'cadence')) source.push(`${show(src.cadence, fmt.perBar)}`);
+  if (hybrid && source.length) source[0] = `two engines: ${source[0]}`;
   if (source.length) sentences.push(sentence(source));
 
   // ---- the filter ---------------------------------------------------------
@@ -270,6 +287,11 @@ export function printableNumbers(patch) {
   const snd = (patch && patch.sends) || {};
   const fmp = (patch && patch.fm) || {};
   add(fmp.ratio, fmt.times); add(fmp.depth, fmt.times); add(fmp.bite, fmt.sec);
+  const addp = (patch && patch.additive) || {};
+  for (const [k, v] of Object.entries(addp)) {
+    if (k === 'stretch') add(v, fmt.stretch);
+    else { add(v, fmt.times); out.add(k.slice(1)); }
+  }
   add(src.mix, fmt.pct); add(src.detune, fmt.cents); add(src.octave, fmt.plain); add(src.pitch, fmt.semitones);
   add(src.noise, fmt.pct); add(src.fold, fmt.pct); add(src.bandCentre, fmt.hz); add(src.bandWidth, fmt.octaves);
   add(src.burst, fmt.pct); add(src.glide, fmt.semitones); add(src.formant1, fmt.hz); add(src.formant2, fmt.hz);

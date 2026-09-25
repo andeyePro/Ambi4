@@ -1718,7 +1718,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // The v3 Patch schema's sections, in editor order. Anything else on a
     // patch object (v14 `perKind`) is state, not an editable section.
     // v0.0.175: `fm` joined (the FM engine section; only FM voices publish it).
-    const PATCH_SECTIONS = ['source', 'fm', 'filter', 'adsr', 'sends'];
+    const PATCH_SECTIONS = ['source', 'fm', 'additive', 'filter', 'adsr', 'sends'];
 
     // Used only when a voice doesn't export .defaults (older engine-voices).
     const FALLBACK_PATCH = {
@@ -9272,6 +9272,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const plainFormat = (v) => String(Math.round(v * 100) / 100);
       // v0.0.175: a multiplier — the FM ratio (× the note) and depth (× as shipped).
       const timesFormat = (v) => `${Math.round(v * 100) / 100}×`;
+      // v0.0.176: the additive stretch, a signed percentage per partial step.
+      const stretchFormat = (v) => `${v > 0 ? '+' : ''}${Math.round(v * 1000) / 10}%`;
 
       const FILTER_ORDER = ['lowpass', 'highpass', 'bandpass', 'notch'];
       const FILTER_DIAL_LABELS = ['LP', 'HP', 'BP', 'Notch'];
@@ -9797,6 +9799,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             format: secFormat,
             onChange: (v) => { patch.fm.bite = v; commit(); },
           });
+        }
+
+        // v0.0.176: the Additive section (see the knob editor's copy).
+        const addSpecS = controlsSectionSpec(controls, 'additive');
+        const addOnS = defaults && isPlainObject(defaults.additive) && isPlainObject(patch.additive) && controlsSectionVisible(addSpecS);
+        const addS = addOnS ? veSection(container, 'Additive') : null;
+        if (addS) {
+          for (const key of Object.keys(defaults.additive)) {
+            if (!controlsFieldAllowed(addSpecS, key)) continue;
+            const isStretch = key === 'stretch';
+            const [lo, hi] = patchDomain(`additive.${key}`, isStretch ? -0.1 : 0, isStretch ? 0.1 : 2);
+            veRange(addS, isStretch ? 'Stretch' : `P${key.slice(1)}`, {
+              hint: registryHint(`additive.${key}`),
+              min: lo, max: hi, step: 0.01,
+              value: rangeMid(sanitiseRangeValueIn(patch.additive[key], lo, hi, defaults.additive[key])),
+              format: isStretch ? stretchFormat : timesFormat,
+              onChange: (v) => { patch.additive[key] = v; commit(); },
+            });
+          }
         }
 
         const filter = controlsSectionVisible(filterSpec) ? veSection(container, 'Filter') : null;
@@ -10519,6 +10540,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             { allowRange: true, field: 'fm.bite' },
             defaults.fm.bite
           );
+        }
+
+        // -- Additive (v0.0.176, unit 5) -- drawbars, on a voice that publishes
+        // `additive`, and only the partials it has (the controls list).
+        const addSpec = controlsSectionSpec(controls, 'additive');
+        const addOn = isPlainObject(defaults.additive) && isPlainObject(patch.additive) && controlsSectionVisible(addSpec);
+        const addRow = addOn ? knobSection('Additive') : null;
+        if (addRow) {
+          for (const key of Object.keys(defaults.additive)) {
+            if (!allowed(addSpec, key) || !isPlainObject(patch.additive)) continue;
+            const isStretch = key === 'stretch';
+            const [lo, hi] = regDomain(`additive.${key}`, isStretch ? -0.1 : 0, isStretch ? 0.1 : 2);
+            addKnob(addRow, {
+              label: isStretch ? 'Stretch' : `P${key.slice(1)}`,
+              field: `additive.${key}`,
+              min: lo,
+              max: hi,
+              value: sanitiseRangeValueIn(patch.additive[key], lo, hi, defaults.additive[key]),
+              format: isStretch ? stretchFormat : timesFormat,
+              allowRange: true,
+              defaultValue: defaults.additive[key],
+              onInput: (v) => {
+                patch.additive[key] = mapRV(v, (x) => clamp(x, lo, hi));
+                commit();
+              },
+            });
+          }
         }
 
         // -- filter --

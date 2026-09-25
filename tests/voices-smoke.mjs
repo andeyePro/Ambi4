@@ -775,9 +775,18 @@ test('every voice publishes a complete, in-range default patch', () => {
       assert.ok(defaults && typeof defaults === 'object', `${where}: missing`);
       // v0.0.159: a kit also publishes each sound's own envelope in perKind.
       // v0.0.175: an FM voice also publishes its `fm` section (unit 4).
-      const groups = Object.keys(defaults).filter((k) => k !== 'perKind' && k !== 'fm').sort();
+      // v0.0.176: an additive voice publishes its drawbars the same way.
+      const groups = Object.keys(defaults).filter((k) => k !== 'perKind' && k !== 'fm' && k !== 'additive').sort();
       assert.deepEqual(groups, ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      if (defaults.additive !== undefined) {
+        // Glass is hybrid (partials plus an FM shimmer); stab is additive outright.
+        assert.ok(['additive', 'hybrid'].includes(VOICES[track][id].engineType), `${where}: publishes additive but is ${VOICES[track][id].engineType}`);
+        const keys = Object.keys(defaults.additive);
+        assert.ok(keys.includes('stretch') && keys.length >= 3, `${where}.additive: needs partials and a stretch`);
+        for (const k of keys) assert.equal(defaults.additive[k], k === 'stretch' ? 0 : 1, `${where}.additive.${k}: the shipped voice is 1 / 0 by definition`);
+        assert.deepEqual(VOICES[track][id].controls.additive, keys, `${where}: the controls must list exactly the published partials`);
+      }
       if (defaults.fm !== undefined) {
         assert.equal(VOICES[track][id].engineType, 'fm', `${where}: publishes fm but is not an FM voice`);
         assert.deepEqual(Object.keys(defaults.fm).sort(), ['bite', 'depth', 'ratio'], `${where}.fm: wrong fields`);
@@ -1638,8 +1647,10 @@ test('controls: schema shape, and every applicable field exists in defaults', ()
       assert.ok(controls && typeof controls === 'object', `${where}: missing`);
       // v0.0.175: an FM voice also declares `fm: true`, and only an FM voice —
       // the section a voice exposes is the section it publishes.
-      assert.deepEqual(Object.keys(controls).filter((k) => k !== 'fm').sort(), ['adsr', 'filter', 'sends', 'source'],
+      assert.deepEqual(Object.keys(controls).filter((k) => k !== 'fm' && k !== 'additive').sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      assert.equal('additive' in controls, defaults.additive !== undefined,
+        `${where}: additive control declared ${'additive' in controls} but defaults publish ${defaults.additive !== undefined}`);
       assert.equal('fm' in controls, defaults.fm !== undefined,
         `${where}: fm control declared ${'fm' in controls} but defaults publish ${defaults.fm !== undefined}`);
       if ('fm' in controls) assert.equal(controls.fm, true, `${where}.fm: the whole section applies`);
@@ -2524,6 +2535,79 @@ test('v0.0.175 FM: ratio moves the modulator, depth scales the index, bite sets 
   const snap = play({ bite: 0.1 });
   assert.ok(Math.abs((snap.decayEnd - 0.5) - 0.1) < 1e-6, `bite 0.1 must end the index decay 0.1 s after onset (got ${snap.decayEnd - 0.5})`);
   assert.ok(Math.abs((base.decayEnd - 0.5) - 0.8) < 1e-6, `the default bite is bell's 0.8 s (got ${base.decayEnd - 0.5})`);
+});
+
+// --------------------------------------------------------------------------
+// v0.0.176 — the Additive engine section (unit 5 of docs/synthesis-programme.md)
+// --------------------------------------------------------------------------
+
+const ADDITIVE_VOICES = [['pad', 'glass'], ['melody', 'stab']];
+
+/** Every sine partial of one recorded note: [frequency, its gain's settled level]. */
+function partialsOf() {
+  const rows = [];
+  for (const osc of created) {
+    if (osc.kind !== 'oscillator' || osc.type !== 'sine') continue;
+    const gain = osc.outputs.find((o) => o && o.kind === 'gain');
+    if (!gain) continue;
+    // A gain that feeds an AudioParam is a modulator, not a partial.
+    if (gain.outputs.some((t) => t && t.isParam)) continue;
+    const ramps = automation.filter((e) => e.paramId === gain.gain.paramId && e.kind === 'exponential');
+    const level = ramps.length ? ramps[0].value : gain.gain.max;
+    rows.push([+osc.frequency.max.toFixed(4), +level.toFixed(6)]);
+  }
+  return rows.sort((a, b) => a[0] - b[0]);
+}
+
+test('v0.0.176 additive: the drawbar defaults reproduce the shipped partial stack exactly', () => {
+  for (const [track, id] of ADDITIVE_VOICES) {
+    const voice = VOICES[track][id];
+    assert.ok(['additive', 'hybrid'].includes(voice.engineType), `${track}.${id} is not classed additive or hybrid`);
+    const note = { midi: 69, freq: null, kind: null, when: 0.5, duration: 0.5, velocity: 0.8, pan: 0 };
+    const runs = [];
+    for (const patch of [undefined, structuredClone(voice.defaults)]) {
+      const ctx = new MockAudioContext();
+      const destination = makeNode('gain');
+      created = []; startedSources = []; automation.length = 0;
+      voice.play(ctx, destination, note, patch);
+      runs.push(partialsOf());
+    }
+    assert.ok(runs[0].length >= 5, `${track}.${id}: expected at least five sine partials, saw ${runs[0].length}`);
+    assert.deepEqual(runs[1], runs[0], `${track}.${id}: the defaults do not reproduce the literal stack`);
+  }
+});
+
+test('v0.0.176 additive: a drawbar scales its own partial, stretch moves the upper ratios, the fundamental never moves', () => {
+  const voice = VOICES.melody.stab;
+  const note = { midi: 69, freq: null, kind: null, when: 0.5, duration: 0.5, velocity: 0.8, pan: 0 };
+  const play = (additive) => {
+    const ctx = new MockAudioContext();
+    const destination = makeNode('gain');
+    created = []; startedSources = []; automation.length = 0;
+    voice.play(ctx, destination, note, { ...structuredClone(voice.defaults), additive: { ...voice.defaults.additive, ...additive } });
+    return partialsOf();
+  };
+  const base = play({});
+  // stab's table: ratios 1, 2, 3, 4, 6, 8 on A4.
+  assert.deepEqual(base.map((r) => r[0]), [440, 880, 1320, 1760, 2640, 3520].map((v) => +v.toFixed(4)));
+  const halfOctave = play({ p2: 0.5 });
+  assert.ok(Math.abs(halfOctave[1][1] - base[1][1] * 0.5) < 1e-9, `p2 0.5 must halve the octave partial (${base[1][1]} → ${halfOctave[1][1]})`);
+  assert.equal(halfOctave[0][1], base[0][1], 'p2 must leave the fundamental alone');
+  assert.equal(halfOctave[2][1], base[2][1], 'p2 must leave the twelfth alone');
+  const silent = play({ p3: 0 });
+  assert.ok(silent[2][1] > 0 && silent[2][1] < 1e-3, `a drawbar at zero sits at SILENCE, never 0 (got ${silent[2][1]})`);
+  const stretched = play({ stretch: 0.05 });
+  assert.equal(stretched[0][0], 440, 'stretch never moves the fundamental');
+  assert.ok(Math.abs(stretched[1][0] - 880 * 1.05) < 1e-6, `partial 2 stretches by one step (${stretched[1][0]})`);
+  assert.ok(Math.abs(stretched[2][0] - 1320 * 1.10) < 1e-6, `partial 3 stretches by two steps (${stretched[2][0]})`);
+  // glass's fifth partial lives at 6.97 and stretches the same way.
+  const glass = VOICES.pad.glass;
+  const ctx = new MockAudioContext();
+  const destination = makeNode('gain');
+  created = []; startedSources = []; automation.length = 0;
+  glass.play(ctx, destination, note, { ...structuredClone(glass.defaults), additive: { ...glass.defaults.additive, stretch: -0.02 } });
+  const gp = partialsOf().filter((r) => r[0] > 100);
+  assert.ok(Math.abs(gp[gp.length - 1][0] - 440 * 6.97 * (1 - 0.02 * 4)) < 1e-3, `glass's top partial squeezes by four steps (${gp[gp.length - 1][0]})`);
 });
 
 // --------------------------------------------------------------------------

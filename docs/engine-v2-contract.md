@@ -2165,3 +2165,22 @@ authored. `depth` (0–4) is a MULTIPLIER over the voice's own velocity-scaled
 index law, default exactly 1, so the shipped sound is unchanged at the
 defaults and a stored link from before the section sounds as it did. All three
 are rangeable, walk on `bar`, and are described by the words line.
+
+## The Additive engine section (v0.0.176)
+
+Module ownership: **the registry** (`patch.additive.p1`..`p8`, `.stretch`),
+**the voice library** (`summed()`, `additiveOf`, `partialOf`; glass and stab
+publish `additive` and read it), both editors; gated by `tests/voices-smoke.mjs`
+(the defaults rebuild the shipped partial stack exactly; a drawbar scales its
+own partial, stretch moves the upper ratios by `1 + stretch × i`, the
+fundamental never moves, a bar at zero sits at SILENCE), `tests/page-boot.mjs`
+(Glass shows P1–P5 and Stretch, never a P6; Warm shows none), and, parked,
+`tests/pending/additive-render-drive.mjs`.
+
+Contract: a voice publishes the section by carrying `additive` in its
+defaults, whose keys are exactly the partials it has plus `stretch`, and its
+`controls.additive` lists those same keys — the editor never draws a bar that
+moves nothing. Levels are MULTIPLIERS (0–2, default 1) over the voice's own
+partial table; `stretch` (−0.1..0.1, default 0) offsets the i-th partial's
+ratio by `1 + stretch × i` (zero-based, so the fundamental is fixed). At the
+defaults every partial is the literal the voice shipped.

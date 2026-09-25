@@ -138,6 +138,23 @@ export const PARAM_REGISTRY = Object.freeze({
   'patch.fm.ratio': number(0.25, 16, { curve: 'log', hint: 'How fast the modulator wobbles the carrier, as a multiple of the note: whole numbers sound harmonic and organ-like, in-between numbers ring like bells and metal.' }),
   'patch.fm.depth': number(0, 4, { hint: 'How hard the wobble drives the tone: none is a plain sine, 1 is the voice as shipped, more adds brightness and grit.' }),
   'patch.fm.bite': number(0.02, 4, { curve: 'log', unit: 's', hint: 'How long the brightness lasts after the note starts: short is a snap that mellows at once, long stays bright into the tail.' }),
+  // v0.0.176 — the Additive engine section (docs/synthesis-programme.md § 2,
+  // unit 5): drawbars. Read only by a voice whose defaults publish
+  // `additive` (glass, stab), and only the partials that voice HAS — glass
+  // is five sines, stab six — so the editor never shows a dial that moves
+  // nothing. Each level is a MULTIPLIER over the voice's own partial table
+  // (1 = as shipped); stretch is an OFFSET on the upper partials' ratios
+  // (0 = as shipped), because glass's partials are already stretched and a
+  // plain drawbar value would change the shipped sound.
+  'patch.additive.p1': number(0, 2, { hint: 'The fundamental: the note itself. Lower it and the upper partials carry the tone.' }),
+  'patch.additive.p2': number(0, 2, { hint: 'The second partial, an octave up: more of it is fuller and brighter.' }),
+  'patch.additive.p3': number(0, 2, { hint: 'The third partial, an octave and a fifth up: the hollow, reedy colour.' }),
+  'patch.additive.p4': number(0, 2, { hint: 'The fourth partial, two octaves up: adds shine without changing the pitch.' }),
+  'patch.additive.p5': number(0, 2, { hint: 'The fifth partial, two octaves and a third up: a sweet, slightly major glint.' }),
+  'patch.additive.p6': number(0, 2, { hint: 'The sixth partial, two octaves and a fifth up: thin and glassy.' }),
+  'patch.additive.p7': number(0, 2, { hint: 'The seventh partial, a flat seventh two octaves up: the buzz in a brass tone.' }),
+  'patch.additive.p8': number(0, 2, { hint: 'The eighth partial, three octaves up: pure top, air and edge.' }),
+  'patch.additive.stretch': number(-0.1, 0.1, { hint: 'Pulls the upper partials off the harmonic series: at zero they sit in tune, to the right they go sharp and bell-like, to the left flat and dull.' }),
   'patch.sends.reverb': number(0, 1, { hint: 'How much of this voice goes to the shared reverb: dry and close at the left, in a hall at the right.' }),
   'patch.sends.delay': number(0, 1, { hint: 'How much of this voice goes to the shared echo: none at the left, repeating in time at the right.' }),
 });

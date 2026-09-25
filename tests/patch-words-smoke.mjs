@@ -57,7 +57,8 @@ test('every stock voice gets a sentence, and every number in it is a patch value
 
 test('the engine class opens the sentence in its own words', () => {
   assert.match(describeVoice('melody', 'bell'), /^A sine carrier wobbled by a sine modulator \(FM\) at 3\.47× the note, bright for 0\.8 s/);
-  assert.match(describeVoice('melody', 'stab'), /^Partials summed at their own levels \(additive\)/);
+  assert.match(describeVoice('melody', 'stab'), /^6 partials summed at their own levels \(additive\)/);
+  assert.match(describeVoice('pad', 'glass'), /^Two engines: 5 partials summed/);
   assert.match(describeVoice('texture', 'chimes'), /struck-object model \(modal\)/);
   assert.match(describeVoice('texture', 'colour'), /^Sculpted noise/);
   assert.match(describeVoice('pad', 'warm'), /^Saw and triangle/);
@@ -73,6 +74,17 @@ test('the words follow the patch: a moved dial moves the number, and only that n
   assert.match(after, /Low-pass at 900 Hz/);
   assert.doesNotMatch(after, /3520/);
   assert.equal(before.replace('3520 Hz', '900 Hz'), after, 'only the cutoff number may change');
+});
+
+test('the drawbars are described only when moved, and stretch as a signed percentage', () => {
+  const patch = deepClone(VOICES.melody.stab.defaults);
+  patch.additive.p2 = 0.5;
+  patch.additive.stretch = 0.03;
+  const text = describeVoice('melody', 'stab', patch);
+  assert.match(text, /partial 2 at 0\.5×/);
+  assert.match(text, /stretched \+3% per partial/);
+  const allowed = printableNumbers(patch);
+  for (const n of printed(text)) assert.ok(allowed.has(n), `${n} is not a patch value: ${text}`);
 });
 
 test('a spread prints as its two ends, both of them patch values', () => {
