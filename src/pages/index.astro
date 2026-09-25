@@ -538,6 +538,19 @@ const VOICES: Record<string, [string, string][]> = {
             what you change, changes. + adds a rule, × removes one — remove a
             section's every rule and it stops ruling.
           </p>
+          <!-- v0.0.178 (unit 10 of docs/synthesis-programme.md): the genre's
+               ESSENCE is on screen too — tempo and swing as spread dials
+               (the draw lands inside the span), and the metres, modes and
+               chord-change rates as weighted rows. Everything the author
+               wrote into essence when the genre was made, re-ruleable. -->
+          <span class="genre-rules-label" id="genre-rules-tempo-label">Tempo and swing — each piece is drawn from inside the span</span>
+          <div id="genre-rules-tempo-ui" class="rules-dials" role="group" aria-labelledby="genre-rules-tempo-label"></div>
+          <span class="genre-rules-label" id="genre-rules-metres-label">Time signatures — the metres this genre draws from, and how often</span>
+          <div id="genre-rules-metres-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-metres-label"></div>
+          <span class="genre-rules-label" id="genre-rules-modes-label">Modes — the scales it draws from, and how often</span>
+          <div id="genre-rules-modes-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-modes-label"></div>
+          <span class="genre-rules-label" id="genre-rules-rhythm-label">Chord changes — bars per chord, and how often each rate is drawn</span>
+          <div id="genre-rules-rhythm-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-rhythm-label"></div>
           <span class="genre-rules-label" id="genre-rules-progressions-label">Chord progressions — the loop seeds from one row; click a chord to change it</span>
           <div id="genre-rules-progressions-ui" class="rules-rows" role="group" aria-labelledby="genre-rules-progressions-label"></div>
           <span class="genre-rules-label" id="genre-rules-subs-label">Substitutions — sometimes swap one chord for another, at the odds you set</span>
@@ -2374,7 +2387,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         && params.lfo1.bars !== defaults.lfo1.bars);
       const macroSet = !!(defaults && params.macro1 !== undefined
         && params.macro1 !== defaults.macro1);
-      return routed || sampled || lfoSet || macroSet ? SHARE_SCHEMA_LATEST : SHARE_SCHEMA;
+      // v0.0.178: an essence re-ruling (tempo, swing, metres, modes, chord
+      // change rates) is a genreRules key a pre-178 build reads past — the
+      // link would play with only the chord rules — so it carries the stamp.
+      const essenceRuled = isPlainObject(params.genreRules)
+        && ['bpm', 'swing', 'timeSignatures', 'modes', 'harmonicRhythm'].some((k) => params.genreRules[k] !== undefined);
+      return routed || sampled || lfoSet || macroSet || essenceRuled ? SHARE_SCHEMA_LATEST : SHARE_SCHEMA;
     }
 
     /** True when the link this visit arrived on was minted by a newer build. */
@@ -13516,14 +13534,45 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const pick = (over, base) => (
           Array.isArray(over) ? over : (Array.isArray(base) ? base : [])
         );
+        // v0.0.178: a range override is a two-number list; anything else is
+        // the genre's own (or a range of nothing, which the dial draws empty).
+        const range = (over, base) => {
+          const src = Array.isArray(over) && over.length >= 2 ? over : (Array.isArray(base) ? base : null);
+          return src && Number.isFinite(Number(src[0])) && Number.isFinite(Number(src[1]))
+            ? [Number(src[0]), Number(src[1])]
+            : null;
+        };
         return {
           progressionGrammar: pick(rules.progressionGrammar, essence.chordLanguage?.progressionGrammar),
           substitutionRules: pick(rules.substitutionRules, essence.chordLanguage?.substitutionRules),
           grooves: pick(rules.grooves, genre?.fallbackLists?.grooves),
           anchorPatterns: pick(rules.anchorPatterns, essence.grooveGrammar?.anchorPatterns),
           syncopationCells: pick(rules.syncopationCells, essence.grooveGrammar?.syncopationCells),
+          bpm: range(rules.bpm, essence.bpm),
+          swing: range(rules.swing, essence.swing),
+          timeSignatures: pick(rules.timeSignatures, essence.timeSignatures),
+          modes: pick(rules.modes, essence.modes),
+          harmonicRhythm: pick(rules.harmonicRhythm, essence.chordLanguage?.harmonicRhythm),
         };
       }
+
+      /** A weighted list as the model holds it: `{ value: string, weight }` rows. */
+      function weightedRows(list) {
+        return (Array.isArray(list) ? list : []).map((entry) => {
+          const value = isPlainObject(entry) ? entry.value : entry;
+          const weight = isPlainObject(entry) ? Number(entry.weight) : 1;
+          return { value: String(value), weight: Number.isFinite(weight) ? clamp(weight, 0, 10) : 1 };
+        }).filter((row) => row.value);
+      }
+
+      /** The essence field's legal values, from the compiler; a literal floor without one. */
+      function essenceChoices(field) {
+        const table = genreCompiler && genreCompiler.ESSENCE_CHOICES;
+        if (table && Array.isArray(table[field])) return table[field].slice();
+        return { timeSignatures: ['3/4', '4/4', '5/4', '6/8', '7/8'], modes: [], harmonicRhythm: ['auto', 'section', '1', '2', '4', '8'] }[field] || [];
+      }
+      const RHYTHM_WORDS = { auto: 'let the app decide', section: 'once a section' };
+      const rhythmLabel = (v) => RHYTHM_WORDS[v] || `${v} bar${v === '1' ? '' : 's'}`;
 
       function genreRulesEdited() {
         return isPlainObject(settings.genreRules) && Object.keys(settings.genreRules).length > 0;
@@ -13572,8 +13621,151 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }),
           anchorPatterns: rules.anchorPatterns.map(String),
           syncopationCells: rules.syncopationCells.map(String),
+          // v0.0.178: the essence.
+          bpm: rules.bpm ? [rules.bpm[0], rules.bpm[1]] : null,
+          swing: rules.swing ? [rules.swing[0], rules.swing[1]] : null,
+          timeSignatures: weightedRows(rules.timeSignatures),
+          modes: weightedRows(rules.modes),
+          harmonicRhythm: weightedRows(rules.harmonicRhythm),
         };
         rulesModelDirty = false;
+      }
+
+      /**
+       * v0.0.178: a spread dial for a genre range (tempo, swing) — the same
+       * knob every other dial is, so the horizontal drag that opens a span
+       * everywhere opens one here. The typed readout takes "lo-hi". Without
+       * knob.js the pair of number boxes below does the same job.
+       */
+      function rulesRangeDial(parent, key, { label, min, max, format, hint, step }) {
+        const m = rulesModel;
+        const current = m[key];
+        const cell = document.createElement('div');
+        cell.className = 'knob-cell rules-dial';
+        cell.dataset.field = `essence.${key}`;
+        parent.append(cell);
+        const write = (v) => {
+          const lo = isPlainObject(v) ? v.min : v;
+          const hi = isPlainObject(v) ? v.max : v;
+          m[key] = [clamp(Math.min(lo, hi), min, max), clamp(Math.max(lo, hi), min, max)];
+          rulesModelDirty = true;
+        };
+        if (knobApi) {
+          try {
+            const value = current ? (current[0] === current[1] ? current[0] : { min: current[0], max: current[1] }) : min;
+            const handle = knobApi.createKnob(cell, {
+              label,
+              min,
+              max,
+              ...(step ? { step } : {}),
+              value,
+              format,
+              parse: (n) => Number(n),
+              allowRange: true,
+              rangeDefault: true,
+              onInput: write,
+            });
+            describe(handle.el, hint);
+            return;
+          } catch {
+            cell.innerHTML = '';
+          }
+        }
+        for (const [end, index] of [['from', 0], ['to', 1]]) {
+          const input = document.createElement('input');
+          input.type = 'number';
+          input.min = String(min);
+          input.max = String(max);
+          input.step = String(step || 1);
+          input.value = current ? String(current[index]) : String(min);
+          input.setAttribute('aria-label', `${label} ${end}`);
+          input.addEventListener('change', () => {
+            const pair = m[key] ? [...m[key]] : [min, min];
+            pair[index] = clamp(Number(input.value) || min, min, max);
+            write({ min: pair[0], max: pair[1] });
+          });
+          describe(input, hint);
+          cell.append(input);
+        }
+      }
+
+      /** v0.0.178: one weighted row — a value from the engine's list, its weight, a ×. */
+      function weightedRow(parent, rows, index, { choices, labelOf, what }) {
+        const row = document.createElement('div');
+        row.className = 'rules-row';
+        const entry = rows[index];
+        const select = document.createElement('select');
+        select.className = 'rule-chip';
+        select.setAttribute('aria-label', `${what} ${index + 1}`);
+        for (const choice of choices) {
+          const opt = document.createElement('option');
+          opt.value = choice;
+          opt.textContent = labelOf(choice);
+          if (choice === entry.value) opt.selected = true;
+          select.append(opt);
+        }
+        if (!choices.includes(entry.value)) {
+          const opt = document.createElement('option');
+          opt.value = entry.value;
+          opt.textContent = entry.value;
+          opt.selected = true;
+          select.prepend(opt);
+        }
+        select.addEventListener('change', () => {
+          rulesModelDirty = true;
+          entry.value = select.value;
+        });
+        const weight = document.createElement('input');
+        weight.type = 'number';
+        weight.className = 'rules-weight';
+        weight.min = '0';
+        weight.max = '10';
+        weight.step = '0.05';
+        weight.value = String(entry.weight);
+        weight.setAttribute('aria-label', `${what} ${index + 1} weight`);
+        weight.addEventListener('change', () => {
+          rulesModelDirty = true;
+          entry.weight = clamp(Number(weight.value) || 0, 0, 10);
+          weight.value = String(entry.weight);
+        });
+        describe(weight, 'How often this one is drawn against the others: 0 never, 1 as often as another 1, 2 twice as often.');
+        row.append(select, weight);
+        row.append(rulesButton('×', `Remove ${what.toLowerCase()} ${index + 1}`, () => {
+          rows.splice(index, 1);
+        }, 'rules-mini-button rules-remove'));
+        parent.append(row);
+      }
+
+      /** v0.0.178: the essence sections of the panel. */
+      function renderEssenceRules() {
+        const m = rulesModel;
+        const tempo = document.getElementById('genre-rules-tempo-ui');
+        if (tempo) {
+          tempo.innerHTML = '';
+          rulesRangeDial(tempo, 'bpm', {
+            label: 'Tempo', min: 20, max: 220, step: 1, format: (v) => `${Math.round(v)} bpm`,
+            hint: 'The tempos this genre draws between. Drag sideways to widen the span; each new piece lands somewhere inside it.',
+          });
+          rulesRangeDial(tempo, 'swing', {
+            label: 'Swing', min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}%`,
+            hint: 'How much the off-beats lean, drawn from inside the span: none is straight, a little is a lilt, a lot is a shuffle.',
+          });
+        }
+        const lists = [
+          ['genre-rules-metres-ui', 'timeSignatures', { choices: essenceChoices('timeSignatures'), labelOf: (v) => v, what: 'Time signature', add: '+ metre', fresh: '4/4' }],
+          ['genre-rules-modes-ui', 'modes', { choices: essenceChoices('modes'), labelOf: (v) => v, what: 'Mode', add: '+ mode', fresh: 'aeolian' }],
+          ['genre-rules-rhythm-ui', 'harmonicRhythm', { choices: essenceChoices('harmonicRhythm'), labelOf: rhythmLabel, what: 'Chord change rate', add: '+ rate', fresh: '2' }],
+        ];
+        for (const [id, key, spec] of lists) {
+          const box = document.getElementById(id);
+          if (!box) continue;
+          box.innerHTML = '';
+          m[key].forEach((_, i) => weightedRow(box, m[key], i, spec));
+          box.append(rulesButton(spec.add, `Add a ${spec.what.toLowerCase()}`, () => {
+            const unused = spec.choices.find((c) => !m[key].some((r) => r.value === c));
+            m[key].push({ value: unused || spec.fresh, weight: 1 });
+          }, 'secondary-button rules-add'));
+        }
       }
 
       function rulesButton(label, title, onClick, className = 'rules-mini-button') {
@@ -13675,6 +13867,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function renderRulesUI() {
         if (!rulesModel) return;
         const m = rulesModel;
+        renderEssenceRules();
 
         const prog = document.getElementById('genre-rules-progressions-ui');
         if (prog) {
@@ -13872,6 +14065,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           progressionGrammar: [], substitutionRules: [], grooves: [], anchorPatterns: [], syncopationCells: [],
         };
         return {
+          // v0.0.178: the essence, as the compiler's override shape.
+          bpm: m.bpm ? [m.bpm[0], m.bpm[1]] : null,
+          swing: m.swing ? [m.swing[0], m.swing[1]] : null,
+          timeSignatures: (m.timeSignatures || []).map((r) => ({ value: r.value, weight: r.weight })),
+          modes: (m.modes || []).map((r) => ({ value: r.value, weight: r.weight })),
+          harmonicRhythm: (m.harmonicRhythm || []).map((r) => ({ value: r.value, weight: r.weight })),
           progressionGrammar: m.progressionGrammar
             .filter((line) => line.length)
             .map((line) => line.join(' ')),
@@ -13896,6 +14095,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       /** The first thing wrong with the form, in plain words — or null. */
       function validateGenreRules(form) {
+        // v0.0.178: the essence. Ranges are checked through the engine's own
+        // gate — a tempo the sanitiser would clamp is a tempo the piece could
+        // never play — and every weighted value must be one the engine names.
+        const gate = engineModule && engineModule.sanitiseParams;
+        if (form.bpm && gate) {
+          for (const end of form.bpm) {
+            if (!Number.isFinite(end) || gate({ bpm: end }).bpm !== end) {
+              return `Tempo ${end} is outside what the engine plays.`;
+            }
+          }
+        }
+        if (form.swing && gate) {
+          for (const end of form.swing) {
+            if (!Number.isFinite(end) || Math.abs(gate({ swing: end }).swing - end) > 1e-9) {
+              return `Swing ${Math.round(end * 100)}% is outside 0–100%.`;
+            }
+          }
+        }
+        for (const [key, what] of [['timeSignatures', 'time signature'], ['modes', 'mode'], ['harmonicRhythm', 'chord change rate']]) {
+          const choices = essenceChoices(key);
+          for (const row of form[key] || []) {
+            if (choices.length && !choices.includes(String(row.value))) {
+              return `"${row.value}" is not a ${what} the engine knows.`;
+            }
+            if (!Number.isFinite(row.weight) || row.weight < 0) return `A ${what} needs a weight of 0 or more.`;
+          }
+        }
         for (const line of form.progressionGrammar) {
           for (const token of line.split(/\s+/)) {
             if (!genreCompiler.parseChordToken(token)) {
@@ -13934,47 +14160,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return null;
       }
 
-      /** The genre deep-copied with the stored rule OVERRIDES laid on. */
+      /**
+       * The genre deep-copied with the stored rule OVERRIDES laid on. Since
+       * v0.0.178 the merge lives in the compiler (`applyGenreOverrides`), where
+       * Node can hold it; the page only hands the sparse `settings.genreRules`
+       * over. A compiler without it — none ships — leaves the genre as is.
+       */
       function genreWithOverrides(genre, overrides) {
-        const edited = structuredClone(genre);
-        edited.essence = edited.essence || {};
-        // Array.isArray throughout (v0.0.161): an EMPTY override is the
-        // user's "this rule stops ruling" and must be laid on, not skipped.
-        if (Array.isArray(overrides.progressionGrammar)) {
-          edited.essence.chordLanguage = edited.essence.chordLanguage || {};
-          edited.essence.chordLanguage.progressionGrammar = overrides.progressionGrammar;
-          // The seed pool also draws from fallbackLists.progressions (they
-          // weigh double, deliberately) — a user rewriting the chord rules
-          // means THESE rules, so the fallback pool empties too. An emptied
-          // grammar then seeds 'I' (the compiler's own floor): no chord
-          // rules means the loop sits at home.
-          edited.fallbackLists = edited.fallbackLists || {};
-          edited.fallbackLists.progressions = [];
+        if (genreCompiler && typeof genreCompiler.applyGenreOverrides === 'function') {
+          return genreCompiler.applyGenreOverrides(genre, overrides);
         }
-        if (Array.isArray(overrides.substitutionRules)) {
-          edited.essence.chordLanguage = edited.essence.chordLanguage || {};
-          edited.essence.chordLanguage.substitutionRules = overrides.substitutionRules;
-        }
-        if (Array.isArray(overrides.grooves)) {
-          edited.fallbackLists = edited.fallbackLists || {};
-          edited.fallbackLists.grooves = overrides.grooves.map((groove) => {
-            const clean = {};
-            for (const lane of ['low', 'mid', 'high']) {
-              if (groove[lane] !== undefined) clean[lane] = groove[lane];
-            }
-            return clean;
-          });
-        }
-        if (Array.isArray(overrides.anchorPatterns) || Array.isArray(overrides.syncopationCells)) {
-          edited.essence.grooveGrammar = edited.essence.grooveGrammar || {};
-          if (Array.isArray(overrides.anchorPatterns)) {
-            edited.essence.grooveGrammar.anchorPatterns = overrides.anchorPatterns;
-          }
-          if (Array.isArray(overrides.syncopationCells)) {
-            edited.essence.grooveGrammar.syncopationCells = overrides.syncopationCells;
-          }
-        }
-        return edited;
+        console.warn('[rules] this compiler cannot lay overrides on a genre; using the genre as written');
+        return structuredClone(genre);
       }
 
       /**
@@ -14065,6 +14262,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const differs = (lines, base) =>
           JSON.stringify(lines) !== JSON.stringify(base || []);
         const overrides = {};
+        // v0.0.178: the essence, stored only where it differs from the genre's own.
+        const ownRange = (r) => (Array.isArray(r) && r.length >= 2 ? [Number(r[0]), Number(r[1])] : null);
+        const sameRange = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        if (form.bpm && !sameRange(form.bpm, ownRange(own.bpm))) overrides.bpm = form.bpm;
+        if (form.swing && !sameRange(form.swing, ownRange(own.swing))) overrides.swing = form.swing;
+        const sameWeighted = (rows, base) => JSON.stringify(rows) === JSON.stringify(weightedRows(base));
+        if (!sameWeighted(form.timeSignatures, own.timeSignatures)) overrides.timeSignatures = form.timeSignatures;
+        if (!sameWeighted(form.modes, own.modes)) overrides.modes = form.modes;
+        if (!sameWeighted(form.harmonicRhythm, own.chordLanguage?.harmonicRhythm)) overrides.harmonicRhythm = form.harmonicRhythm;
         if (differs(form.progressionGrammar, own.chordLanguage?.progressionGrammar)) {
           overrides.progressionGrammar = form.progressionGrammar;
         }
@@ -17216,7 +17422,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#genre-select',
-          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices together, a different piece each time you pick it. Rules, beside the picker, opens those rules as controls — every one changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, at the foot of the list, chooses for you. Favourites keeps the ones you come back to.',
+          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices together, a different piece each time you pick it. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chord rules, every one changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, at the foot of the list, chooses for you. Favourites keeps the ones you come back to.',
         },
         {
           tab: 'simple',
@@ -17864,6 +18070,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       flex-direction: column;
       gap: 6px;
     }
+    /* v0.0.178: the essence sections of the rules panel. */
+    .rules-dials {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      margin-bottom: 10px;
+    }
+
+    .rules-dial input[type='number'] {
+      width: 72px;
+      margin-right: 6px;
+    }
+
+    .rules-weight {
+      width: 64px;
+    }
+
     .rules-row {
       display: flex;
       flex-wrap: wrap;

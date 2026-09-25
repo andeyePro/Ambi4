@@ -159,7 +159,10 @@ const {
   expandProgression,
   maskToLane,
   parseChordToken,
+  applyGenreOverrides,
+  ESSENCE_CHOICES,
 } = await import('../src/scripts/genre-compiler.js');
+const { SCALES: ENGINE_SCALES, HARMONY_RHYTHMS: ENGINE_RHYTHMS, sanitiseParams: engineSanitise } = engineModule;
 
 /** Every genre file, in slug order — the set the whole suite runs over. */
 const GENRE_DIR = new URL('../src/data/genres/', import.meta.url);
@@ -200,6 +203,82 @@ const test = (name, fn) => tests.push([name, fn]);
 // ---------------------------------------------------------------------------
 // 1. The compile pass
 // ---------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------
+// v0.0.178 — unit 10: a person's re-ruling of the essence (applyGenreOverrides)
+// --------------------------------------------------------------------------
+
+test('v0.0.178 applyGenreOverrides: a copy, never the genre; nothing given leaves it verbatim', () => {
+  const genre = GENRES.find((g) => g.slug === 'synthwave');
+  const before = JSON.stringify(genre);
+  const same = applyGenreOverrides(genre, {});
+  assert.notEqual(same, genre, 'must be a copy');
+  assert.equal(JSON.stringify(same), before, 'no override means the genre as written');
+  applyGenreOverrides(genre, { bpm: [200, 210], modes: [{ value: 'dorian', weight: 1 }] });
+  assert.equal(JSON.stringify(genre), before, 'the genre object must never be written through');
+});
+
+test('v0.0.178 the essence overrides reach the draws: tempo, swing, metre, mode, chord change rate', () => {
+  const genre = GENRES.find((g) => g.slug === 'synthwave');
+  const edited = applyGenreOverrides(genre, {
+    bpm: [200, 210],
+    swing: [0.4, 0.4],
+    timeSignatures: [{ value: '3/4', weight: 1 }],
+    modes: [{ value: 'lydian', weight: 3 }, { value: 'dorian', weight: 0 }],
+    harmonicRhythm: [{ value: '8', weight: 1 }],
+  });
+  for (let seed = 1; seed <= 40; seed++) {
+    const out = compileGenre(edited, { rng: seededRng(seed) });
+    assert.ok(out.bpm >= 200 && out.bpm <= 210, `seed ${seed}: bpm ${out.bpm} outside 200–210`);
+    assert.ok(Math.abs(out.swing - 0.4) < 1e-6, `seed ${seed}: swing ${out.swing}`);
+    assert.equal(out.timeSignature, '3/4', `seed ${seed}: metre`);
+    assert.equal(out.mode, 'lydian', `seed ${seed}: a zero-weight mode must never be drawn`);
+    assert.equal(out.harmony.rhythm, 8, `seed ${seed}: chord change rate stored as the engine's number`);
+  }
+  // Reversed ends are ordered, not refused.
+  const flipped = applyGenreOverrides(genre, { bpm: [150, 120] });
+  assert.deepEqual(flipped.essence.bpm, [120, 150]);
+});
+
+test('v0.0.178 an emptied essence list stops ruling: the compiler falls to the engine default', () => {
+  const genre = GENRES.find((g) => g.slug === 'synthwave');
+  const edited = applyGenreOverrides(genre, { timeSignatures: [], modes: [] });
+  const out = compileGenre(edited, { rng: seededRng(7) });
+  // weightedPick answers undefined on an empty pool and the partial omits the
+  // key, so the sanitiser's defaults decide — and still one rng call each.
+  assert.equal(out.timeSignature, engineSanitise({}).timeSignature);
+  assert.equal(out.mode, engineSanitise({}).mode);
+});
+
+test('v0.0.178 a value the engine does not know is dropped from a list; a malformed range is ignored', () => {
+  const genre = GENRES.find((g) => g.slug === 'synthwave');
+  const edited = applyGenreOverrides(genre, {
+    modes: [{ value: 'nonsense', weight: 5 }, { value: 'phrygian', weight: 1 }],
+    timeSignatures: [{ value: '11/8', weight: 1 }, '5/4'],
+    bpm: ['fast', 120],
+    swing: 0.3,
+  });
+  assert.deepEqual(edited.essence.modes, [{ value: 'phrygian', weight: 1 }]);
+  assert.deepEqual(edited.essence.timeSignatures, [{ value: '5/4', weight: 1 }]);
+  assert.deepEqual(edited.essence.bpm, genre.essence.bpm, 'a range that is not two numbers leaves the genre\'s own');
+  assert.deepEqual(edited.essence.swing, genre.essence.swing);
+});
+
+test('v0.0.178 the chord-rule overrides keep their v0.0.161 semantics after the move', () => {
+  const genre = GENRES.find((g) => g.slug === 'synthwave');
+  const edited = applyGenreOverrides(genre, { progressionGrammar: [], substitutionRules: [], syncopationCells: ['x-'] });
+  assert.deepEqual(edited.essence.chordLanguage.progressionGrammar, [], 'an empty list is a ruling');
+  assert.deepEqual(edited.fallbackLists.progressions, [], 'rewriting the chord rules empties the fallback pool');
+  assert.deepEqual(edited.essence.chordLanguage.substitutionRules, []);
+  assert.deepEqual(edited.essence.grooveGrammar.syncopationCells, ['x-']);
+  assert.deepEqual(edited.essence.grooveGrammar.anchorPatterns, genre.essence.grooveGrammar.anchorPatterns, 'untouched keys stay');
+});
+
+test('v0.0.178 ESSENCE_CHOICES is the engine\'s own vocabulary', () => {
+  assert.deepEqual([...ESSENCE_CHOICES.timeSignatures], Object.keys(TIME_SIGNATURES));
+  assert.deepEqual([...ESSENCE_CHOICES.modes], Object.keys(ENGINE_SCALES));
+  assert.deepEqual([...ESSENCE_CHOICES.harmonicRhythm], ENGINE_RHYTHMS.map(String));
+});
 
 test('every genre file compiles, and carries its own slug', () => {
   assert.equal(GENRES.length, GENRE_COUNT, `expected ${GENRE_COUNT} genre files`);

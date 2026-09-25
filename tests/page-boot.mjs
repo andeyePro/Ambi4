@@ -1667,6 +1667,61 @@ try {
     }
   }
 
+  // v0.0.178 — unit 10: the Rules panel shows the genre's essence, and an
+  // edit reaches the ENGINE. Pin the genre first (a fresh visit draws a
+  // random one). The Tempo dial's typed readout takes "lo-hi" — the same
+  // click-to-type every dial has — so the test edits through the real
+  // control, then Apply, then reads the engine's stored bpm, not the readout.
+  {
+    const genreSelect = doc.getElementById('genre-select');
+    const toggle = doc.getElementById('genre-rules-toggle');
+    const engine = window.__ambi4Engine;
+    if (!genreSelect || !toggle || !engine) {
+      failures.push('the rules panel needs #genre-select, #genre-rules-toggle and the engine seam');
+    } else {
+      genreSelect.value = 'g:synthwave';
+      genreSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await waitUntil(() => engine.getParams().genre === 'synthwave');
+      // The button shows once the compiler has loaded and the row is live.
+      if (!(await waitUntil(() => !toggle.hidden))) failures.push('the Rules button is hidden with a genre chosen');
+      toggle.click();
+      const panel = doc.getElementById('genre-rules');
+      await waitUntil(() => panel && !panel.hidden);
+      const tempoCell = doc.querySelector('#genre-rules-tempo-ui .rules-dial[data-field="essence.bpm"]');
+      const swingCell = doc.querySelector('#genre-rules-tempo-ui .rules-dial[data-field="essence.swing"]');
+      if (!tempoCell || !swingCell) failures.push('the rules panel has no Tempo and Swing dials');
+      const metres = doc.querySelectorAll('#genre-rules-metres-ui .rules-row').length;
+      const modes = doc.querySelectorAll('#genre-rules-modes-ui .rules-row').length;
+      const rates = doc.querySelectorAll('#genre-rules-rhythm-ui .rules-row').length;
+      if (metres !== 1 || modes !== 2 || rates !== 3) {
+        failures.push(`synthwave's essence rows: ${metres} metre(s), ${modes} mode(s), ${rates} rate(s) — expected 1, 2, 3 as its file declares`);
+      }
+      const before = engine.getParams().bpm;
+      const readout = tempoCell && tempoCell.querySelector('.knob-value');
+      if (readout) {
+        readout.click();
+        const edit = tempoCell.querySelector('.knob-value-edit');
+        if (!edit) {
+          failures.push('clicking the Tempo readout did not open its typed editor');
+        } else {
+          edit.value = '200-200';
+          edit.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          doc.getElementById('genre-rules-apply').click();
+          const landed = await waitUntil(() => engine.getParams().bpm === 200);
+          if (!landed) failures.push(`Apply with Tempo 200–200 left the engine at ${engine.getParams().bpm} bpm (was ${before})`);
+          if (toggle.textContent !== 'Rules · edited') failures.push(`the Rules button does not say edited after an essence change (says ${JSON.stringify(toggle.textContent)})`);
+          // Back to the genre's rules: the same seed redraws the genre's own tempo.
+          doc.getElementById('genre-rules-reset').click();
+          const restored = await waitUntil(() => engine.getParams().bpm !== 200);
+          if (!restored) failures.push('Back to the genre\'s rules left the essence override in place');
+        }
+      } else if (tempoCell) {
+        failures.push('the Tempo dial has no typed readout');
+      }
+      if (panel && !panel.hidden) toggle.click();
+    }
+  }
+
   // ---- v23 fallback table is still the built-in six -------------------------
   // FALLBACK_TRACKS is the branch an engine bundle WITHOUT getTracks() boots
   // on, and an engine that can addTrack necessarily HAS getTracks() — so that

@@ -31,6 +31,9 @@
  *   essence.bpm/swing            → params.bpm / params.swing (uniform draw)
  *   essence.timeSignatures       → params.timeSignature (weighted)
  *   essence.modes                → params.mode (weighted, SCALES-checked)
+ *   (unit 10, v0.0.178: applyGenreOverrides lays a person's re-ruling of
+ *   bpm, swing, timeSignatures, modes and harmonicRhythm onto a genre
+ *   before it is compiled; ESSENCE_CHOICES lists what each may hold)
  *   essence.energyArc            → params.structure (weighted, STRUCTURES-checked)
  *   chordLanguage.harmonicRhythm → params.harmony.rhythm (weighted)
  *   chordLanguage grammar + subs → params.harmony.seed (the expanded chord
@@ -617,6 +620,111 @@ const DENSITY_TRACKS = Object.freeze(['bass', 'melody', 'texture', 'arp', 'percu
  * the same genre), and `defiance` is a map of dial `param` path → position 0–1,
  * overlaid after everything the genre itself asked for.
  */
+/**
+ * v0.0.178 (unit 10 of docs/synthesis-programme.md): the essence fields a
+ * person may re-rule from the Rules panel, each with the engine's own list of
+ * legal values where one exists — the panel offers exactly these and the
+ * compiler's draws refuse anything else. `bpm` and `swing` are ranges; the
+ * three lists are weighted `{ value, weight }` entries.
+ */
+export const ESSENCE_CHOICES = Object.freeze({
+  timeSignatures: Object.freeze(Object.keys(TIME_SIGNATURES)),
+  modes: Object.freeze(Object.keys(SCALES)),
+  harmonicRhythm: Object.freeze(HARMONY_RHYTHMS.map((r) => String(r))),
+});
+
+/** A weighted list cleaned to `{ value, weight }` rows the draw can use. */
+function cleanWeighted(list, allowed) {
+  if (!Array.isArray(list)) return null;
+  const out = [];
+  for (const entry of list) {
+    const value = isObject(entry) ? entry.value : entry;
+    const key = String(value);
+    if (!allowed.includes(key)) continue;
+    const weight = numberOr(isObject(entry) ? entry.weight : 1, 1);
+    if (!(weight >= 0)) continue;
+    // The engine's enum spells harmonic rhythms as numbers past 'auto' and
+    // 'section'; a row typed as text stores what the engine compares against.
+    const stored = /^\d+$/.test(key) ? Number(key) : key;
+    out.push({ value: stored, weight });
+  }
+  return out;
+}
+
+/** A `[lo, hi]` range cleaned, ends ordered, or null when not a range. */
+function cleanRange(range) {
+  if (!Array.isArray(range) || range.length < 2) return null;
+  const lo = numberOr(range[0], undefined);
+  const hi = numberOr(range[1], undefined);
+  if (lo === undefined || hi === undefined) return null;
+  return [Math.min(lo, hi), Math.max(lo, hi)];
+}
+
+/**
+ * The genre, DEEP-COPIED, with a person's rule overrides laid on. Moved here
+ * from the page in v0.0.178 so it can be held in Node: the page stores the
+ * overrides sparsely (`settings.genreRules`) and this is the one place they
+ * become a genre the compiler draws from.
+ *
+ * Every override is laid on by Array.isArray, never by truthiness: an EMPTY
+ * list is a real ruling ("this section stops ruling", the owner's 130) and
+ * must not fall back to the genre's own. The chord keys (v0.0.161) keep
+ * their exact semantics; the essence keys (unit 10) are `bpm` and `swing` as
+ * `[lo, hi]`, and `timeSignatures`, `modes`, `harmonicRhythm` as weighted
+ * lists, each cleaned against the engine's own enum. An override the shape
+ * does not fit is ignored, so a stored link from a build that spelt one
+ * differently degrades to the genre's own rule rather than to a refusal.
+ */
+export function applyGenreOverrides(genreJson, overrides = {}) {
+  const edited = JSON.parse(JSON.stringify(isObject(genreJson) ? genreJson : {}));
+  const over = isObject(overrides) ? overrides : {};
+  edited.essence = isObject(edited.essence) ? edited.essence : {};
+  const essence = edited.essence;
+  if (Array.isArray(over.progressionGrammar)) {
+    essence.chordLanguage = isObject(essence.chordLanguage) ? essence.chordLanguage : {};
+    essence.chordLanguage.progressionGrammar = over.progressionGrammar;
+    // The seed pool also draws from fallbackLists.progressions (they weigh
+    // double, deliberately) — a person rewriting the chord rules means THESE
+    // rules, so the fallback pool empties too.
+    edited.fallbackLists = isObject(edited.fallbackLists) ? edited.fallbackLists : {};
+    edited.fallbackLists.progressions = [];
+  }
+  if (Array.isArray(over.substitutionRules)) {
+    essence.chordLanguage = isObject(essence.chordLanguage) ? essence.chordLanguage : {};
+    essence.chordLanguage.substitutionRules = over.substitutionRules;
+  }
+  if (Array.isArray(over.grooves)) {
+    edited.fallbackLists = isObject(edited.fallbackLists) ? edited.fallbackLists : {};
+    edited.fallbackLists.grooves = over.grooves.map((groove) => {
+      const clean = {};
+      for (const lane of ['low', 'mid', 'high']) {
+        if (isObject(groove) && groove[lane] !== undefined) clean[lane] = groove[lane];
+      }
+      return clean;
+    });
+  }
+  if (Array.isArray(over.anchorPatterns) || Array.isArray(over.syncopationCells)) {
+    essence.grooveGrammar = isObject(essence.grooveGrammar) ? essence.grooveGrammar : {};
+    if (Array.isArray(over.anchorPatterns)) essence.grooveGrammar.anchorPatterns = over.anchorPatterns;
+    if (Array.isArray(over.syncopationCells)) essence.grooveGrammar.syncopationCells = over.syncopationCells;
+  }
+  // -- unit 10: the essence --
+  const bpm = cleanRange(over.bpm);
+  if (bpm) essence.bpm = bpm;
+  const swing = cleanRange(over.swing);
+  if (swing) essence.swing = swing;
+  const metres = cleanWeighted(over.timeSignatures, ESSENCE_CHOICES.timeSignatures);
+  if (metres) essence.timeSignatures = metres;
+  const modes = cleanWeighted(over.modes, ESSENCE_CHOICES.modes);
+  if (modes) essence.modes = modes;
+  const rhythm = cleanWeighted(over.harmonicRhythm, ESSENCE_CHOICES.harmonicRhythm);
+  if (rhythm) {
+    essence.chordLanguage = isObject(essence.chordLanguage) ? essence.chordLanguage : {};
+    essence.chordLanguage.harmonicRhythm = rhythm;
+  }
+  return edited;
+}
+
 export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitComplexity } = {}) {
   const genre = isObject(genreJson) ? genreJson : {};
   const essence = isObject(genre.essence) ? genre.essence : {};
