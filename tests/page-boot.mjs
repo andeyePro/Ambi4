@@ -24,7 +24,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
-import { readTutorialSteps, resolveTutorialTargets } from './tutorial-smoke.mjs';
+import { readTutorialSteps, resolveTutorialTargets, readLessonChapters } from './tutorial-smoke.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = join(repoRoot, 'dist');
@@ -1415,6 +1415,55 @@ try {
           }
         }
       }
+    }
+
+    // v0.0.184 — unit 15: every lesson chapter's targets resolve to exactly
+    // one dial in its home editor on its home voice, and pressing the chip
+    // opens the lesson in the panel with the first dial highlighted; Next
+    // advances; closing the panel ends the lesson and the tour returns.
+    {
+      const chapters = readLessonChapters();
+      for (const chapter of chapters) {
+        const select = doc.getElementById(`track-voice-${chapter.track}`);
+        select.value = chapter.voice;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const editor = await openEditor(chapter.track);
+        await waitUntil(() => editor.querySelectorAll('.patch-controls .knob-cell[data-field]').length > 0);
+        await waitUntil(() => {
+          const chip = editor.querySelector('.ve-header .ve-engine');
+          return chip && chip.dataset.engine && editor.querySelector(chapter.steps[0].target);
+        });
+        for (const [i, step] of chapter.steps.entries()) {
+          const found = editor.querySelectorAll(step.target).length;
+          if (found !== 1) failures.push(`lesson "${chapter.label}" step ${i + 1}: ${step.target} matches ${found} dials in the ${chapter.track} editor on ${chapter.voice}`);
+        }
+        const chip = editor.querySelector('.ve-header .ve-engine');
+        if (!chip || chip.tagName !== 'BUTTON') {
+          failures.push(`the ${chapter.track} editor's engine chip is not a button`);
+          continue;
+        }
+        chip.click();
+        const panel = doc.getElementById('tutorial-panel');
+        const title = doc.getElementById('tutorial-title');
+        const opened = await waitUntil(() => panel && !panel.hidden && title && title.textContent === chapter.label);
+        if (!opened) {
+          failures.push(`pressing the ${chapter.engine} chip did not open "${chapter.label}" (panel ${panel && panel.hidden ? 'hidden' : 'open'}, title ${JSON.stringify(title && title.textContent)})`);
+          continue;
+        }
+        const first = editor.querySelector(chapter.steps[0].target);
+        if (!first || !first.classList.contains('tutorial-highlight')) failures.push(`"${chapter.label}" did not highlight its first dial`);
+        if (doc.getElementById('tutorial-progress').textContent !== `1 / ${chapter.steps.length}`) failures.push(`"${chapter.label}" progress reads ${doc.getElementById('tutorial-progress').textContent}`);
+        doc.getElementById('tutorial-next').click();
+        const second = editor.querySelector(chapter.steps[1].target);
+        if (!second || !second.classList.contains('tutorial-highlight')) failures.push(`"${chapter.label}" Next did not move the highlight to the second dial`);
+        doc.getElementById('tutorial-close').click();
+        if (!panel.hidden) failures.push(`closing "${chapter.label}" left the panel open`);
+        if (editor.querySelector('.tutorial-highlight')) failures.push(`closing "${chapter.label}" left a dial highlighted`);
+      }
+      // The tour itself is untouched by a lesson: opening it by its button shows the tour's title.
+      doc.getElementById('tutorial-toggle').click();
+      if (doc.getElementById('tutorial-title').textContent !== 'Guided tour') failures.push('after a lesson the tour opens under the wrong title');
+      doc.getElementById('tutorial-close').click();
     }
 
     // v0.0.174 — "what makes this sound": the words line under the dials is

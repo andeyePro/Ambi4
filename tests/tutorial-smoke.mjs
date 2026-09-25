@@ -52,6 +52,20 @@ export function readTutorialSteps(source = readFileSync(pageSourcePath, 'utf8'))
 }
 
 /**
+ * v0.0.184 (unit 15): the engine lesson chapters, read out of the page source
+ * the same way. Their targets are INSIDE an editor built at run time, so the
+ * static check here holds the copy and the shape; page-boot resolves every
+ * target in its home editor on its home voice (exactly one dial each).
+ */
+export function readLessonChapters(source = readFileSync(pageSourcePath, 'utf8')) {
+  const match = /const LESSON_CHAPTERS = (\[[\s\S]*?\n {6}\]);/.exec(source);
+  assert.ok(match, 'src/pages/index.astro has no LESSON_CHAPTERS array literal');
+  const chapters = new Function(`return ${match[1]};`)();
+  assert.ok(Array.isArray(chapters) && chapters.length, 'LESSON_CHAPTERS did not evaluate to a list');
+  return chapters;
+}
+
+/**
  * Every step target, resolved against a document. Shared with page-boot so the
  * booted-DOM gate and this one cannot disagree about what "resolves" means.
  * Returns a list of failure strings — empty means clean.
@@ -212,6 +226,43 @@ export function validateTutorial(steps, doc, tabIds, { runtimeAllowed = null } =
 // --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
+
+/** v0.0.184: the chapters' shape and copy, under the tour's own copy rules. */
+export async function validateLessons(chapters) {
+  const failures = [];
+  const { VOICES } = await import('../src/scripts/engine-voices.js');
+  const engines = new Set();
+  if (chapters.length !== 5) failures.push(`${chapters.length} lesson chapters, expected five — one per engine the programme adds or keeps`);
+  for (const [ci, chapter] of chapters.entries()) {
+    const c = `lesson chapter ${ci + 1}`;
+    if (!chapter || typeof chapter !== 'object') { failures.push(`${c}: not an object`); continue; }
+    if (engines.has(chapter.engine)) failures.push(`${c}: engine ${chapter.engine} has a chapter already`);
+    engines.add(chapter.engine);
+    const voice = VOICES[chapter.track] && VOICES[chapter.track][chapter.voice];
+    if (!voice) failures.push(`${c}: ${chapter.track}.${chapter.voice} is not a voice in the library`);
+    else if (voice.engineType !== chapter.engine && !(voice.engineType === 'hybrid' && voice.defaults[chapter.engine])) {
+      failures.push(`${c}: ${chapter.track}.${chapter.voice} is ${voice.engineType}, not ${chapter.engine}`);
+    }
+    if (typeof chapter.label !== 'string' || !/ in three moves$/.test(chapter.label)) failures.push(`${c}: label should read "<Engine> in three moves"`);
+    if (!Array.isArray(chapter.steps) || chapter.steps.length < 3 || chapter.steps.length > 4) failures.push(`${c}: ${chapter.steps && chapter.steps.length} steps, expected three or four moves`);
+    for (const [si, step] of (chapter.steps || []).entries()) {
+      const n = `${c} step ${si + 1}`;
+      if (!step || typeof step.target !== 'string' || !/^\.patch-controls \.knob-cell\[data-field="[a-z]+\.[a-zA-Z0-9]+"\]$/.test(step.target)) {
+        failures.push(`${n}: target must name one dial by its field inside .patch-controls (got ${JSON.stringify(step && step.target)})`);
+      }
+      const text = step && step.text;
+      if (typeof text !== 'string' || !text.trim()) { failures.push(`${n}: no copy`); continue; }
+      if (text.trim().length < MIN_TEXT_CHARS) failures.push(`${n}: copy is ${text.trim().length} chars — too short to say anything`);
+      if (text.length > MAX_TEXT_CHARS) failures.push(`${n}: copy is ${text.length} chars — longer than a lesson step should be`);
+      if (/[<>]/.test(text)) failures.push(`${n}: copy carries markup`);
+      for (const brand of BRAND_NAMES) if (new RegExp(`\\b${brand}\\b`, 'i').test(text)) failures.push(`${n}: names ${brand}`);
+      for (const us of US_SPELLINGS) if (new RegExp(`\\b${us}\\b`, 'i').test(text)) failures.push(`${n}: "${us}" is a US spelling`);
+      // Every move says what to DO and what to LISTEN for.
+      if (!/\b(drag|step|press|move)\b/i.test(text)) failures.push(`${n}: a move must say what to drag, step or press`);
+    }
+  }
+  return failures;
+}
 
 async function main() {
   if (!existsSync(indexHtml)) {
@@ -401,6 +452,19 @@ async function main() {
     'returns to Simple after Advanced'
   );
 
+  // v0.0.184: the lesson chapters.
+  {
+    const chapters = readLessonChapters();
+    const lessonFailures = await validateLessons(chapters);
+    assert.deepEqual(lessonFailures, []);
+    checks += 1;
+    // MUTATION: a chapter whose voice is not of its engine must be refused.
+    const wrong = structuredClone(chapters);
+    wrong[1].voice = 'pluck';
+    const wrongFailures = await validateLessons(wrong);
+    assert.ok(wrongFailures.some((f) => /not fm/.test(f)), 'a chapter on the wrong voice slipped through');
+    mutations += 1;
+  }
   console.log(
     `\ntutorial-smoke ok — ${checks} checks, ${mutations}/${mutations} mutation checks bit, ${steps.length} steps`
   );

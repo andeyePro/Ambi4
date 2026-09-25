@@ -2252,3 +2252,22 @@ tag is a page field a pre-183 build carries untouched and ignores, and the
 sound is identical either way. The picker reads the tag as the voice's name
 while the stored patch equals the saved one, and as "<name> · edited" once a
 dial has moved.
+
+## The engine lessons (v0.0.184)
+
+Module ownership: **the page** (`LESSON_CHAPTERS`, `lessonFor`, `openLesson`,
+the tour panel in lesson mode, the editor chip as a button); gated by
+`tests/tutorial-smoke.mjs` (`readLessonChapters`, `validateLessons`: five
+chapters, one per engine, each on a voice of that engine, three or four moves
+under the tour's own copy rules, every move naming what to drag, step or
+press; a mutation check refuses a chapter on the wrong voice) and
+`tests/page-boot.mjs` (every target resolves to exactly one dial in its home
+editor on its home voice; pressing the chip opens the chapter with the first
+dial highlighted, Next advances, closing ends it and the tour returns).
+
+Contract: a chapter is `{ engine, track, voice, label, steps: [{ target,
+text }] }`; targets are selectors inside `.patch-controls` naming one dial by
+its `data-field`, prefixed with the editor at run time. A hybrid voice opens
+the chapter of the section it publishes (additive before fm). A voice lacking
+a chapter's dials refuses the lesson with a line under the dials rather than
+a highlight of nothing. The tour's own fourteen steps are untouched.

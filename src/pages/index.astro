@@ -11300,12 +11300,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const engineWords = engineId
           ? ENGINE_WORDS[engineId] || { label: engineId[0].toUpperCase() + engineId.slice(1), words: '' }
           : null;
-        const engineChip = document.createElement('span');
+        // v0.0.184: the chip is a button — press it for a short lesson on
+        // this engine, on these dials.
+        const engineChip = document.createElement('button');
+        engineChip.type = 'button';
         engineChip.className = 've-engine';
         if (engineWords) {
           engineChip.dataset.engine = engineId;
           engineChip.textContent = engineWords.label;
-          describe(engineChip, engineWords.words);
+          const chapter = lessonFor(engineId, voiceEntry);
+          describe(engineChip, `${engineWords.words}${chapter ? ' Press for a short lesson on it.' : ''}`);
+          engineChip.addEventListener('click', () => {
+            if (!openLesson(track, chapter)) engineChip.blur();
+          });
         } else {
           engineChip.hidden = true;
         }
@@ -18093,7 +18100,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#voice-edit-toggle-texture',
-          text: 'Give Texture the Coloured noise or Grain cloud voice and its panel grows Spectral, Motion and Burst rows. Wind, rain and surf all live in there — you sculpt them with the dials rather than picking a sample. The Call voice does the same for birdsong: a pitch sweep, two formants and a cadence. Hover any dial to read what you will hear, and the chip by the track name says which kind of synthesis makes the sound.',
+          text: 'Give Texture the Coloured noise or Grain cloud voice and its panel grows Spectral, Motion and Burst rows. Wind, rain and surf all live in there — you sculpt them with the dials rather than picking a sample. The Call voice does the same for birdsong: a pitch sweep, two formants and a cadence. Hover any dial to read what you will hear; the chip by the track name says which kind of synthesis makes the sound, and pressing it opens a short lesson on it.',
         },
         {
           tab: 'advanced',
@@ -18111,6 +18118,134 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
       ];
 
+      // v0.0.184 (unit 15 of docs/synthesis-programme.md): the engine lessons.
+      // One chapter per engine, three or four moves each, on the real dials of
+      // the editor the chip was pressed in: every `target` is a selector INSIDE
+      // that editor (`#voice-editor-<track>` is prefixed at run time), and
+      // every step names the dial, says what to drag and what to listen for.
+      // The tour is capped at fourteen steps by its own test, so these are
+      // chapters of their own, rendered by the same panel and held by
+      // tests/tutorial-smoke.mjs (copy) and tests/page-boot.mjs (every target
+      // resolves to exactly one dial in its home editor, on its home voice).
+      const LESSON_CHAPTERS = [
+        {
+          engine: 'subtractive',
+          track: 'pad',
+          voice: 'warm',
+          label: 'Subtractive in three moves',
+          steps: [
+            {
+              target: '.patch-controls .knob-cell[data-field="filter.cutoff"]',
+              text: 'A subtractive voice starts bright and takes away. This is Cutoff, the filter: drag it down and the top end goes first, so the sound turns muffled and distant; drag it up and everything comes back. Listen for the moment the buzz of the saws disappears and only the body is left.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="filter.q"]',
+              text: 'Resonance is a peak at the cutoff. Drag it up a little and the sound gains body right where the filter sits; drag it far and it starts to whistle at one pitch. Now move Cutoff again and the whistle follows it — that following whistle is the sound of a synth being swept.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="filter.envAmount"]',
+              text: 'Env amount lets each note open the filter as it starts and let it close again. Drag it up and every note begins bright and settles dark, the shape a plucked or a struck sound has. Drag it to zero and the filter holds still, whatever the note does.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="adsr.release"]',
+              text: 'Release is how long a note takes to fade once it ends. Drag it short and the pad stops dead between chords; drag it long and each chord lingers under the next. Everything you just did is subtractive synthesis: a rich wave, a filter, an envelope. Every other engine still ends in these two dials.',
+            },
+          ],
+        },
+        {
+          engine: 'fm',
+          track: 'melody',
+          voice: 'bell',
+          label: 'FM in three moves',
+          steps: [
+            {
+              target: '.patch-controls .knob-cell[data-field="fm.ratio"]',
+              text: 'FM is one sine wobbling the pitch of another thousands of times a second, and the wobble adds overtones. Ratio is how fast the wobble runs, as a multiple of the note: drag it onto a whole number and the tone turns harmonic, organ-like; between whole numbers it rings like a bell or a piece of metal.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="fm.depth"]',
+              text: 'Depth is how hard the wobble drives the tone. Drag it down to nothing and you hear the bare carrier, a plain sine; drag it up and brightness and grit pour in. This dial is what a filter cutoff is to a subtractive voice: the amount of top end, only made rather than removed.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="fm.bite"]',
+              text: 'Bite is how long the brightness lasts after the note starts. Short and every note is a snap that mellows at once, the way a struck tine does; long and it stays bright into the tail. Listen to the first fifty milliseconds of each note as you move it: that is where FM sounds live.',
+            },
+          ],
+        },
+        {
+          engine: 'additive',
+          track: 'melody',
+          voice: 'stab',
+          label: 'Additive in three moves',
+          steps: [
+            {
+              target: '.patch-controls .knob-cell[data-field="additive.p1"]',
+              text: 'An additive voice is built up from partials, each a sine at its own level, the way an organ stacks drawbars. P1 is the fundamental, the note itself. Drag it down and the note thins to its overtones alone; drag it back up and the body returns. Nothing is filtered here, only added.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="additive.p3"]',
+              text: 'P3 is the third partial, an octave and a fifth above the note: the hollow, reedy colour of a clarinet or a drawbar organ. Drag it up and the tone turns nasal and bright; drag it to nothing and it goes round and flute-like. Each bar is one colour you can add or take away.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="additive.stretch"]',
+              text: 'Stretch pulls the upper partials off the harmonic series. At zero they sit in tune and the tone reads as one note; drag right and they go sharp, and the sound turns bell-like and shimmering; drag left and it goes flat and dull. Real bells and bars are stretched, which is why they ring rather than hum.',
+            },
+          ],
+        },
+        {
+          engine: 'physical',
+          track: 'arp',
+          voice: 'marimba',
+          label: 'Modal in three moves',
+          steps: [
+            {
+              target: '.patch-controls .knob-cell[data-field="modal.material"]',
+              text: 'A modal voice is a model of a struck object: the overtones a real bar, tube or skin rings at, each dying away at its own rate. Material picks the object. Step it from wood to metal and the same note rings with a tube\'s overtones instead of a bar\'s; glass is pure and high, bell deep and clangorous.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="modal.hardness"]',
+              text: 'Hardness is how hard the mallet strikes. Drag it down and the click softens and the upper overtones fall away, a felt mallet; drag it up and the strike sharpens and the overtones come forward, a hard rubber one. The note is the same; the way it is hit is what you are changing.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="modal.damping"]',
+              text: 'Damping is how quickly the ring dies. Left and the object rings freely; right and it is choked as if a hand rests on it. Listen to the tail of each note as you move it: in a modal voice the tail is the instrument, and damping is the difference between a marimba and a wood block.',
+            },
+          ],
+        },
+        {
+          engine: 'noise',
+          track: 'texture',
+          voice: 'colour',
+          label: 'Noise in three moves',
+          steps: [
+            {
+              target: '.patch-controls .knob-cell[data-field="source.tilt"]',
+              text: 'A noise voice has no pitch to start from: noise is the source and the dials sculpt it. Tilt is the colour of the bed. Drag it left and it turns brown and rumbling, like distant traffic; drag it right and it flattens to white, like a radio between stations. Wind, rain and surf all start here.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="source.bandCentre"]',
+              text: 'Band is where a resonant peak sits in the noise, the pitch you hear inside it. Drag it low and the bed rumbles; drag it high and it hisses and whistles. Width, beside it, decides whether that peak is a narrow whistle at one pitch or as wide as open weather.',
+            },
+            {
+              target: '.patch-controls .knob-cell[data-field="source.burst"]',
+              text: 'Density is how many grains land each second. Drag it up from nothing and single droplets become rain and then a downpour; Sharpness, beside it, is the character of each drop, soft and damp or dry and crackling. Nothing here is a recording: every grain is made as you listen.',
+            },
+          ],
+        },
+      ];
+
+      /** The chapter an editor's chip opens, by the engine and the sections the voice publishes. */
+      function lessonFor(engineId, voiceEntry) {
+        const defaults = voiceEntry && isPlainObject(voiceEntry.defaults) ? voiceEntry.defaults : {};
+        const key = engineId === 'hybrid'
+          ? (isPlainObject(defaults.additive) ? 'additive' : isPlainObject(defaults.fm) ? 'fm' : 'subtractive')
+          : engineId;
+        return LESSON_CHAPTERS.find((chapter) => chapter.engine === key) || null;
+      }
+
+      // v0.0.184: the lesson in progress — which editor, which chapter, which step.
+      let lesson = null;
+
       const tutorialPanel = document.getElementById('tutorial-panel');
       const tutorialToggle = document.getElementById('tutorial-toggle');
       const tutorialText = document.getElementById('tutorial-step-text');
@@ -18124,6 +18259,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       function renderTutorial() {
+        const title = document.getElementById('tutorial-title');
+        // v0.0.184: a lesson borrows the panel — its own steps, its own
+        // progress, its targets inside the editor it was opened from.
+        if (lesson) {
+          const steps = lesson.chapter.steps;
+          lesson.step = clamp(lesson.step | 0, 0, steps.length - 1);
+          const step = steps[lesson.step];
+          if (title) title.textContent = lesson.chapter.label;
+          tutorialText.textContent = step.text;
+          tutorialProgress.textContent = `${lesson.step + 1} / ${steps.length}`;
+          document.getElementById('tutorial-prev').disabled = lesson.step === 0;
+          document.getElementById('tutorial-next').disabled = lesson.step === steps.length - 1;
+          activateTab('advanced');
+          highlightTutorialTarget(`#voice-editor-${lesson.track} ${step.target}`);
+          return;
+        }
+        if (title) title.textContent = 'Guided tour';
         const index = clamp(settings.ui.tutorialStep | 0, 0, TUTORIAL_STEPS.length - 1);
         settings.ui.tutorialStep = index;
         const step = TUTORIAL_STEPS[index];
@@ -18135,7 +18287,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         highlightTutorialTarget(step.target);
       }
 
+      /**
+       * v0.0.184: open a chapter on one editor. The editor must be open (the
+       * chip lives in it, so it is); a chapter whose dials this voice lacks
+       * is refused with a line under the dials rather than a highlight of
+       * nothing.
+       */
+      function openLesson(track, chapter) {
+        if (!chapter) return false;
+        const editor = document.getElementById(`voice-editor-${track}`);
+        if (!editor || editor.hidden) return false;
+        const missing = chapter.steps.filter((step) => !editor.querySelector(step.target));
+        if (missing.length) {
+          sayUnderDials(`This voice has no ${chapter.label.split(' ')[0]} dials to show the lesson on.`);
+          return false;
+        }
+        lesson = { track, chapter, step: 0 };
+        settings.ui.tutorialOpen = true;
+        tutorialPanel.hidden = false;
+        tutorialToggle.setAttribute('aria-expanded', 'true');
+        renderTutorial();
+        persistSettings();
+        return true;
+      }
+
       function setTutorialOpen(open) {
+        // v0.0.184: closing, or opening the tour by its own button, ends a lesson.
+        lesson = null;
         settings.ui.tutorialOpen = open;
         tutorialPanel.hidden = !open;
         tutorialToggle.setAttribute('aria-expanded', String(open));
@@ -18150,12 +18328,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         tutorialToggle.focus();
       });
       document.getElementById('tutorial-prev').addEventListener('click', () => {
-        settings.ui.tutorialStep -= 1;
+        if (lesson) lesson.step -= 1;
+        else settings.ui.tutorialStep -= 1;
         renderTutorial();
         persistSettings();
       });
       document.getElementById('tutorial-next').addEventListener('click', () => {
-        settings.ui.tutorialStep += 1;
+        if (lesson) lesson.step += 1;
+        else settings.ui.tutorialStep += 1;
         renderTutorial();
         persistSettings();
       });
@@ -20728,6 +20908,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     /* v0.0.172: the engine chip beside the track name, and its sentence. */
     .ve-engine {
+      font: inherit;
+      cursor: pointer;
+      background: none;
       font-size: 11px;
       line-height: 1;
       letter-spacing: 0.04em;
