@@ -1524,18 +1524,31 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     let USER_VOICES = [];
     const isUserVoiceId = (id) => typeof id === 'string' && id.startsWith(USER_VOICE_PREFIX);
     const userVoiceById = (id) => USER_VOICES.find((voice) => voice.id === id) || null;
+    // v0.0.190 (review of the v0.0.172–189 arc): an id is the shape this page
+    // mints — a prefix and lower-case base-36, 32 at most, the engine's own
+    // genre-slug bound — and a base voice is an OWN key of its voice set's
+    // table, so a stored or arriving `'__proto__'` or `'nope'` is refused
+    // before it can reach settings.patches or a picker the engine disagrees with.
+    const USER_ID_SHAPE = (prefix) => new RegExp(`^${prefix}[a-z0-9]{1,30}$`);
+    const isStockVoice = (voiceSet, voice) => typeof voice === 'string'
+      && isPlainObject(VOICE_LABELS[voiceSet])
+      && Object.prototype.hasOwnProperty.call(VOICE_LABELS[voiceSet], voice);
     function cleanUserVoices(list) {
       if (!Array.isArray(list)) return [];
       const out = [];
       for (const entry of list) {
-        if (!isPlainObject(entry) || !isUserVoiceId(entry.id) || typeof entry.name !== 'string') continue;
-        if (typeof entry.voiceSet !== 'string' || !VOICE_LABELS[entry.voiceSet] || typeof entry.voice !== 'string') continue;
+        if (!isPlainObject(entry) || !isUserVoiceId(entry.id) || !USER_ID_SHAPE(USER_VOICE_PREFIX).test(entry.id)) continue;
+        if (typeof entry.name !== 'string' || !entry.name.trim()) continue;
+        if (typeof entry.voiceSet !== 'string' || !isStockVoice(entry.voiceSet, entry.voice)) continue;
         if (!isPlainObject(entry.patch) || out.some((v) => v.id === entry.id)) continue;
-        out.push(entry);
+        out.push({ ...entry, name: entry.name.trim().slice(0, 40) });
         if (out.length >= USER_VOICE_CAP) break;
       }
       return out;
     }
+
+    /** v0.0.190: what reaches storage — never an entry a link brought and nobody saved. */
+    const persistable = (list) => list.filter((entry) => !entry.transient);
 
     const USER_GENRE_PREFIX = 'u-';
     const USER_GENRE_CAP = 50;
@@ -1550,10 +1563,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       if (!Array.isArray(list)) return [];
       const out = [];
       for (const entry of list) {
-        if (!isPlainObject(entry) || !isUserGenreSlug(entry.slug) || typeof entry.name !== 'string') continue;
+        if (!isPlainObject(entry) || !isUserGenreSlug(entry.slug) || !USER_ID_SHAPE(USER_GENRE_PREFIX).test(entry.slug)) continue;
+        if (typeof entry.name !== 'string' || !entry.name.trim()) continue;
         if (!isPlainObject(entry.essence) || GENRE_BY_SLUG.has(entry.slug)) continue;
         if (out.some((g) => g.slug === entry.slug)) continue;
-        out.push(entry);
+        out.push({ ...entry, name: entry.name.trim().slice(0, 40) });
         if (out.length >= USER_GENRE_CAP) break;
       }
       return out;
@@ -3194,7 +3208,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const carried = carriedGenreFor(payload[SHARE_ORIGIN_KEY]?.id, payload[SHARE_GENRE_KEY]);
         try { base = baseFromOrigin(payload[SHARE_ORIGIN_KEY], carried); } catch { base = null; }
         if (base && carried && !USER_GENRES.some((genre) => genre.slug === carried.slug) && USER_GENRES.length < USER_GENRE_CAP) {
-          USER_GENRES.push(structuredClone(carried));
+          USER_GENRES.push({ ...structuredClone(carried), transient: true });
         }
         if (!base) {
           shareBaseMissing = true;
@@ -4378,11 +4392,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (!tag || !isUserVoiceId(tag.id) || typeof tag.name !== 'string' || typeof spec.voice !== 'string') continue;
           if (userVoiceById(tag.id) || USER_VOICES.length >= USER_VOICE_CAP) continue;
           const voiceSet = voiceSetOf(track);
-          if (!VOICE_LABELS[voiceSet]) continue;
+          // v0.0.190: a real base voice of this track's set, an id of the minted shape.
+          if (!isStockVoice(voiceSet, spec.voice) || !USER_ID_SHAPE(USER_VOICE_PREFIX).test(tag.id)) continue;
           const patch = isPlainObject(patches[track]) && isPlainObject(patches[track][spec.voice])
             ? structuredClone(patches[track][spec.voice])
             : {};
-          USER_VOICES.push({ id: tag.id, name: tag.name.trim().slice(0, 40) || 'Untitled', voiceSet, voice: spec.voice, patch });
+          // Transient: this visit's, not the device's, until Save as my voice.
+          USER_VOICES.push({ id: tag.id, name: tag.name.trim().slice(0, 40) || 'Untitled', voiceSet, voice: spec.voice, patch, transient: true });
           adopted += 1;
         }
         return adopted;
@@ -4434,8 +4450,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           voice: voiceId,
           patch: structuredClone(stored),
         };
+        // v0.0.190: saving over a voice a link brought replaces it — one entry, now kept.
+        const tagged = settings.tracks[track] && isPlainObject(settings.tracks[track].userVoice) ? userVoiceById(settings.tracks[track].userVoice.id) : null;
+        if (tagged && tagged.transient) USER_VOICES = USER_VOICES.filter((voice) => voice.id !== tagged.id);
         USER_VOICES.push(mine);
-        persistKey('voices', USER_VOICES);
+        persistKey('voices', persistable(USER_VOICES));
         if (settings.tracks[track]) settings.tracks[track].userVoice = { id: mine.id, name: mine.name };
         persistSettings();
         syncMyVoicesEverywhere();
@@ -4447,7 +4466,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function forgetMyVoice(id) {
         if (!userVoiceById(id)) return;
         USER_VOICES = USER_VOICES.filter((voice) => voice.id !== id);
-        persistKey('voices', USER_VOICES);
+        persistKey('voices', persistable(USER_VOICES));
         for (const track of TRACK_IDS) {
           if (settings.tracks[track] && isPlainObject(settings.tracks[track].userVoice) && settings.tracks[track].userVoice.id === id) {
             delete settings.tracks[track].userVoice;
@@ -13946,10 +13965,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         cell.className = 'knob-cell rules-dial';
         cell.dataset.field = field;
         parent.append(cell);
+        // v0.0.190: the latest pair lives here, so the second of two number
+        // boxes builds on the first's edit instead of on the render-time value.
+        let latest = current ? [...current] : null;
         const write = (v) => {
           const lo = isPlainObject(v) ? v.min : v;
           const hi = isPlainObject(v) ? v.max : v;
-          store([clamp(Math.min(lo, hi), min, max), clamp(Math.max(lo, hi), min, max)]);
+          latest = [clamp(Math.min(lo, hi), min, max), clamp(Math.max(lo, hi), min, max)];
+          store([...latest]);
           rulesModelDirty = true;
         };
         if (knobApi) {
@@ -13982,7 +14005,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           input.value = current ? String(current[index]) : String(min);
           input.setAttribute('aria-label', `${label} ${end}`);
           input.addEventListener('change', () => {
-            const pair = current ? [...current] : [min, min];
+            const pair = latest ? [...latest] : [min, min];
             pair[index] = clamp(Number(input.value) || min, min, max);
             if (!span) pair[1] = pair[0];
             write({ min: pair[0], max: pair[1] });
@@ -14753,16 +14776,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // v0.0.179: unless the LINE-UP itself was ruled — a person who set a
         // track's state, voice, level or variation in Rules means those to
         // land, and only for the tracks they ruled.
+        // v0.0.190 (review): a row lands when it CHANGES — against the rules
+        // last applied, not the genre file — so a pad ruled Off and then set
+        // by hand stays as set through every later Apply; and it lands only
+        // the fields it sets, so "any voice" keeps the voice you chose. The
+        // track's own-voice tag rides along whenever its voice does.
+        const lastRuled = isPlainObject(settings.genreRules) && isPlainObject(settings.genreRules.perTrack)
+          ? settings.genreRules.perTrack
+          : {};
         for (const [id, track] of Object.entries(next.tracks || {})) {
           const mine = settings.tracks?.[id];
           if (!isPlainObject(mine)) continue;
-          if (ruledTracks.includes(id)) {
-            if (mine.mono !== undefined) track.mono = mine.mono;
-            continue;
+          const row = ruledTracks.includes(id) && overrides.perTrack ? overrides.perTrack[id] : null;
+          const fresh = row && JSON.stringify(row) !== JSON.stringify(lastRuled[id]);
+          const sets = (key) => fresh && row[key] !== undefined;
+          if (!sets('voice') && typeof mine.voice === 'string') {
+            track.voice = mine.voice;
+            if (isPlainObject(mine.userVoice)) track.userVoice = structuredClone(mine.userVoice);
           }
-          if (typeof mine.voice === 'string') track.voice = mine.voice;
-          if (typeof mine.state === 'string') track.state = mine.state;
-          if (mine.level !== undefined) track.level = structuredClone(mine.level);
+          if (!sets('state') && typeof mine.state === 'string') track.state = mine.state;
+          if (!sets('level') && mine.level !== undefined) track.level = structuredClone(mine.level);
+          if (!sets('randomness') && mine.randomness !== undefined) track.randomness = structuredClone(mine.randomness);
           if (mine.mono !== undefined) track.mono = mine.mono;
         }
         // Patches are the sound outright: carried over whole, and a patch for a
@@ -14814,6 +14848,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           say(`This device holds ${USER_GENRE_CAP} genres of your own already — forget one to make room.`);
           return;
         }
+        // v0.0.190: what you keep must be what is playing. An edit not yet
+        // applied would save a genre whose draw at this seed is not the piece
+        // you hear, so Apply first.
+        if (rulesModelDirty) {
+          say('Apply your changes first, so the genre you keep is the one you are hearing.');
+          return;
+        }
         const form = readGenreRulesForm(genreKitPath(genre));
         const error = validateGenreRules(form);
         if (error) {
@@ -14838,8 +14879,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             structuredClone(settings.patches)
           );
         }
+        // v0.0.190: saving a genre a link brought replaces it — one entry, now kept.
+        if (genre.transient) USER_GENRES = USER_GENRES.filter((entry) => entry.slug !== genre.slug);
+        delete mine.transient;
         USER_GENRES.push(mine);
-        persistKey('genres', USER_GENRES);
+        persistKey('genres', persistable(USER_GENRES));
         // The current setup is a draw of the new genre; its rules are baked in.
         settings.genre = mine.slug;
         delete settings.genreRules;
@@ -14858,7 +14902,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const genre = currentGenre();
         if (!genre || !isUserGenreSlug(genre.slug)) return;
         USER_GENRES = USER_GENRES.filter((entry) => entry.slug !== genre.slug);
-        persistKey('genres', USER_GENRES);
+        persistKey('genres', persistable(USER_GENRES));
         genrePrefs.favourites = genrePrefs.favourites.filter((slug) => slug !== genre.slug);
         const back = typeof genre.madeFrom === 'string' && GENRE_BY_SLUG.has(genre.madeFrom) ? genre.madeFrom : null;
         settings.genre = back;
@@ -17370,6 +17414,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // out bigger than the tree it was diffed against, send the tree. The
         // whole point of this change is that a link stays paste-able.
         const full = shareSnapshot();
+        // v0.0.190: a genre can only travel in the compact form (the whole-tree
+        // form has nowhere for it), so a link carrying one never trades it away
+        // for a shorter tree that would arrive naming a genre it does not hold.
+        if (carried) return compact;
         return JSON.stringify(compact).length < JSON.stringify(full).length ? compact : full;
       }
 
@@ -17668,8 +17716,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        */
       function carriedGenreFor(id, carried) {
         if (!isPlainObject(carried) || !isUserGenreSlug(id) || carried.slug !== id) return null;
-        if (GENRE_BY_SLUG.has(id) || !isPlainObject(carried.essence) || typeof carried.name !== 'string') return null;
-        return carried;
+        // v0.0.190: the same shape and bounds a stored genre must have.
+        const [clean] = cleanUserGenres([carried]);
+        return clean || null;
       }
 
       /** The current origin's genre when it is one of the person's own, else null. */

@@ -1420,6 +1420,21 @@ try {
                 }
               }
             }
+            // v0.0.190 (review #4): an Apply of the genre rules keeps the tag,
+            // so the picker still names the voice rather than "Warm · edited".
+            const rulesToggle = doc.getElementById('genre-rules-toggle');
+            if (rulesToggle && !rulesToggle.hidden && engine.getParams().genre) {
+              rulesToggle.click();
+              await waitUntil(() => !doc.getElementById('genre-rules').hidden);
+              doc.getElementById('genre-rules-apply').click();
+              await new Promise((r) => setTimeout(r, 150));
+              if (select.value !== option.value) failures.push(`an Apply of the rules dropped the own-voice tag: the picker reads ${JSON.stringify(select.value)}`);
+              rulesToggle.click();
+              // Apply may have redrawn the pad's voice from the genre; put the saved one back for Forget.
+              select.value = option.value;
+              select.dispatchEvent(new window.Event('change', { bubbles: true }));
+              await new Promise((r) => setTimeout(r, 60));
+            }
             const forget = doc.querySelector('#voice-editor-pad .ve-forget-voice');
             if (!forget || forget.hidden) {
               failures.push('Forget this voice is hidden while the saved voice plays');
@@ -2077,6 +2092,16 @@ try {
             doc.getElementById('genre-rules-apply').click();
             const padOff = await waitUntil(() => engine.getParams().tracks && engine.getParams().tracks.pad && engine.getParams().tracks.pad.state === 'off');
             if (!padOff) failures.push(`ruling the pad Off in the line-up left the engine at ${JSON.stringify(engine.getParams().tracks && engine.getParams().tracks.pad && engine.getParams().tracks.pad.state)}`);
+            // v0.0.190 (review #3): a ruled row lands ONCE. Pick Strings on the
+            // pad by hand, Apply again with nothing changed in Rules: Strings
+            // stays — the row said "Poly saw" when it was ruled, not now.
+            const padPicker = doc.getElementById('track-voice-pad');
+            padPicker.value = 'strings';
+            padPicker.dispatchEvent(new window.Event('change', { bubbles: true }));
+            await waitUntil(() => engine.getParams().tracks.pad.voice === 'strings');
+            doc.getElementById('genre-rules-apply').click();
+            await new Promise((r) => setTimeout(r, 120));
+            if (engine.getParams().tracks.pad.voice !== 'strings') failures.push(`a second Apply with no rule changed re-landed the pad's ruled voice over the hand-picked one (${engine.getParams().tracks.pad.voice})`);
           }
           // v0.0.180 (unit 12): Save as my genre. The rules above (pad Off, tempo
           // 200) become a genre of the person's own: it appears under My genres,
@@ -2091,6 +2116,17 @@ try {
             saveButton.click();
             const errorEl = doc.getElementById('genre-rules-error');
             if (!errorEl || errorEl.hidden) failures.push('Save with no name did not ask for one');
+            // v0.0.190 (review #5): an unapplied edit is refused — what you keep
+            // must be what is playing.
+            const metreSelect = doc.querySelector('#genre-rules-metres-ui .rules-row select');
+            if (metreSelect) {
+              metreSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+              nameInput.value = 'Night pads';
+              saveButton.click();
+              if (!errorEl || errorEl.hidden || !/Apply your changes first/.test(errorEl.textContent)) failures.push(`Save as my genre with an unapplied edit was not refused (${JSON.stringify(errorEl && errorEl.textContent)})`);
+              doc.getElementById('genre-rules-apply').click();
+              await new Promise((r) => setTimeout(r, 120));
+            }
             nameInput.value = 'Night pads';
             saveButton.click();
             const mineGroup = () => Array.from(doc.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'My genres');
@@ -2794,7 +2830,11 @@ try {
   // and patch, as any link), and the name joins this visit's My voices.
   {
     const payload = Buffer.from(JSON.stringify({
-      tracks: { pad: { voice: 'strings', state: 'on', userVoice: { id: 'v-arrivedtest', name: 'Arrived pad' } } },
+      tracks: {
+        pad: { voice: 'strings', state: 'on', userVoice: { id: 'v-arrivedtest', name: 'Arrived pad' } },
+        // v0.0.190 (review #2): a base that is no voice of the set is refused.
+        melody: { voice: 'nope', userVoice: { id: 'v-badbase', name: 'Bad base' } },
+      },
       patches: { pad: { strings: { filter: { type: 'lowpass', cutoff: 654, q: 0.8, envAmount: 0 } } } },
       v: 2,
     }), 'utf8').toString('base64url');
@@ -2823,6 +2863,7 @@ try {
       if (voiceWindow[key] !== undefined) globalThis[key] = voiceWindow[key];
     }
     globalThis.self = voiceWindow;
+    for (const d of new Set([voiceWindow.document, globalThis.document])) if (d) d.cookie = 'ambi4-consent=granted';
     try {
       await import(`${pathToFileURL(bundlePath).href}?arriving-voice`);
       const voiceDoc = voiceWindow.document;
@@ -2845,6 +2886,26 @@ try {
           failures.push('a voice named in an arriving link is not listed under My voices for this visit');
         } else if (select.value !== option.value) {
           failures.push(`the arriving pad does not read as its named voice (reads ${select.value})`);
+        }
+        const melodyPicker = voiceDoc.getElementById('track-voice-melody');
+        if (melodyPicker && melodyPicker.querySelector('option[value="mine:v-badbase"]')) {
+          failures.push('a link naming a voice on a base that is no voice of the set was adopted anyway');
+        }
+        // v0.0.190 (review #1): an arrival is this visit's, not the device's.
+        // Save a DIFFERENT voice of one's own on the melody: storage then holds
+        // that one, and not the arrival nobody saved.
+        const melodyToggle = voiceDoc.getElementById('voice-edit-toggle-melody');
+        const melodyEditor = voiceDoc.getElementById('voice-editor-melody');
+        if (melodyToggle && melodyEditor) {
+          if (melodyEditor.hidden) melodyToggle.click();
+          await waitUntil(() => !melodyEditor.hidden && melodyEditor.querySelector('.ve-save-voice'));
+          const nameBox = melodyEditor.querySelector('.ve-voice-name');
+          nameBox.value = 'Kept melody';
+          melodyEditor.querySelector('.ve-save-voice').click();
+          await new Promise((r) => setTimeout(r, 100));
+          const stored = voiceWindow.localStorage.getItem('ambi4:voices') || (globalThis.localStorage && globalThis.localStorage.getItem('ambi4:voices')) || '';
+          if (!stored.includes('Kept melody')) failures.push(`saving a voice after an arrival did not persist it (${stored.slice(0, 120)})`);
+          if (stored.includes('v-arrivedtest')) failures.push('an arriving voice nobody saved was persisted when another voice was saved');
         }
       }
     } catch (err) {
