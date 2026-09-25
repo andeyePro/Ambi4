@@ -1661,6 +1661,19 @@ try {
       }
     }
 
+    // v0.0.191 — the engine's genre table is registered: a slug no genre
+    // has is refused at the engine rather than kept as an opaque tag (the
+    // call that should have done this never ran). Saved and carried user
+    // genres still tag the engine — the checks further on hold that half.
+    {
+      const engine = window.__ambi4Engine;
+      const before = engine.getParams().genre;
+      engine.setParams({ genre: 'not-a-genre' });
+      await new Promise((r) => setTimeout(r, 30));
+      if (engine.getParams().genre === 'not-a-genre') failures.push('the engine kept a genre slug no genre has — its genre table was never registered');
+      engine.setParams({ genre: before ?? null });
+    }
+
     // v0.0.174 — "what makes this sound": the words line under the dials is
     // exactly what the pure module says for the sounding voice's patch, so the
     // page's wiring (voice, controls, detune mode, the live patch object) is

@@ -3076,14 +3076,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         } catch {
           // no compiler → the genre row hides itself below
         }
-        // The engine's table is the page's list: with it registered, a slug
-        // arriving from a share link is checked against the genres that
-        // actually exist rather than kept as an opaque tag.
-        if (typeof engine.setGenreTable === 'function') {
-          try {
-            engine.setGenreTable(GENRES);
-          } catch {}
-        }
       }
 
       /**
@@ -3098,6 +3090,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       } catch {
         USER_GENRES = [];
       }
+      /**
+       * v0.0.191: the engine's genre table is the page's list — the stock
+       * genres AND the person's own — so a slug arriving from a link is
+       * checked against genres that exist rather than kept as an opaque tag.
+       * `setGenreTable` is a MODULE export: the call this replaces asked the
+       * engine instance for it, found nothing, and never ran (found by the
+       * v0.0.190 review). Re-run whenever the person's own list changes.
+       */
+      function registerGenreTable() {
+        if (!engineModule || typeof engineModule.setGenreTable !== 'function') return;
+        try {
+          engineModule.setGenreTable([...GENRES, ...USER_GENRES]);
+        } catch {}
+      }
+      registerGenreTable();
       // v0.0.182: and their own voices.
       try {
         USER_VOICES = cleanUserVoices(prefs.get('voices'));
@@ -3209,6 +3216,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         try { base = baseFromOrigin(payload[SHARE_ORIGIN_KEY], carried); } catch { base = null; }
         if (base && carried && !USER_GENRES.some((genre) => genre.slug === carried.slug) && USER_GENRES.length < USER_GENRE_CAP) {
           USER_GENRES.push({ ...structuredClone(carried), transient: true });
+          registerGenreTable();
         }
         if (!base) {
           shareBaseMissing = true;
@@ -14884,6 +14892,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         delete mine.transient;
         USER_GENRES.push(mine);
         persistKey('genres', persistable(USER_GENRES));
+        registerGenreTable();
         // The current setup is a draw of the new genre; its rules are baked in.
         settings.genre = mine.slug;
         delete settings.genreRules;
@@ -14903,6 +14912,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (!genre || !isUserGenreSlug(genre.slug)) return;
         USER_GENRES = USER_GENRES.filter((entry) => entry.slug !== genre.slug);
         persistKey('genres', persistable(USER_GENRES));
+        registerGenreTable();
         genrePrefs.favourites = genrePrefs.favourites.filter((slug) => slug !== genre.slug);
         const back = typeof genre.madeFrom === 'string' && GENRE_BY_SLUG.has(genre.madeFrom) ? genre.madeFrom : null;
         settings.genre = back;
