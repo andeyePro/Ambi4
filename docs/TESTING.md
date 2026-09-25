@@ -1038,3 +1038,12 @@ owed to the bridge key (fromClaude 13).
 - [ ] The knob, the When and Edit… behave exactly as in v0.0.195 (hold, Next
       keeps it, the Pool editor); only where they sit changed.
 - [ ] Automated: rule-control-smoke and page-boot's primitive block.
+
+## v0.0.198–199 delta — live numbers and the recipe (2026-09-25)
+
+- [ ] Spread any dial (drag sideways) and press Play: under its label a small
+      "now 0.42" follows the walk each bar; a screen reader hears "min, max,
+      now". Collapse the spread: the line goes.
+- [ ] Automated: `node tests/recipe-roundtrip.mjs` prints the secret-layers
+      table — what the recipe names and what the engine still decides in
+      secret; `node tests/all.mjs` 29 suites.

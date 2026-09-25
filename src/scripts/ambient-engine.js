@@ -26,6 +26,11 @@ import { PARAM_REGISTRY, patchSectionRows, patchSections } from './param-registr
 // SAME table the sanitiser above is built from — the phase-1 contract.
 export { PARAM_REGISTRY, RESERVED_TOKENS, paramRow, isRangeable } from './param-registry.js';
 
+// The recipe schema (TODO.md "Reconstructible Ambi4"): a pure module, no
+// import of this one, so getRecipe()/applyRecipe() below are read/write seams
+// over it rather than a second copy of what a recipe is.
+import { recipeFromParams } from './recipe.js';
+
 // ---------------------------------------------------------------------------
 // 1. Music theory
 // ---------------------------------------------------------------------------
@@ -9313,6 +9318,25 @@ export function createEngine(initialParams, options = {}) {
   }
 
   /**
+   * The recipe schema's read seam: RECIPE_FIELDS lifted out of this engine's
+   * OWN getParams(), never the internal `params` directly, so a recipe can
+   * never see anything setParams itself would not have sanitised.
+   */
+  function getRecipe() {
+    return recipeFromParams(getParams());
+  }
+
+  /**
+   * The recipe schema's write seam: a recipe is already shaped like a params
+   * partial (recipeFromParams walks each field into the SAME dotted path), so
+   * applying one is exactly a setParams call — no rng, no behaviour beyond
+   * what setParams already does.
+   */
+  function applyRecipe(recipe) {
+    setParams(recipe);
+  }
+
+  /**
    * v14 live readouts: the numbers the engine is ACTUALLY playing right now,
    * for dials that show a drifting value. Every RangeValue is resolved through
    * its current walk position, the voice is the one sounding (wander included,
@@ -9509,6 +9533,8 @@ export function createEngine(initialParams, options = {}) {
     clearLoopRegion,
     setParams,
     getParams,
+    getRecipe,
+    applyRecipe,
     getResolved,
     // v0.0.194: the bar a track first may sound in (null when off), so the
     // transport can say "Bass enters in 2 bars" instead of playing silence.

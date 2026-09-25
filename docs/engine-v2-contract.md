@@ -2379,3 +2379,15 @@ into aria-valuetext; null hides it and the span reads as drifting again).
 Gated by `tests/knob-gesture.mjs`. The page already feeds every spread dial
 (globals, track rows, patch dials) from `getResolved()` at 4 Hz; nothing
 changed there.
+
+## The recipe (v0.0.199)
+
+Module ownership: **recipe.js** (pure; `RECIPE_FIELDS` in canonical order,
+`recipeFromParams`, `recipeToText` / `recipeFromText` round-trip) and **the
+engine** (`getRecipe()` = the recipe of `getParams()`, `applyRecipe(recipe)`
+= `setParams` of its fields; no rng, no behaviour). Gated by
+`tests/recipe-roundtrip.mjs`: the text round-trip, the schema's own field
+discipline, a same-seed rebuild of every stock genre (byte-identical), and the
+secret-layers table — per layer, does the recipe carry the realised choice —
+pinned in `tests/fixtures/recipe-secret-layers.json`, which a layer may enter
+and never leave. Every later rule flips its row there in the same commit.
