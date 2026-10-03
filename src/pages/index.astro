@@ -487,6 +487,14 @@ const VOICES: Record<string, [string, string][]> = {
       <div class="genre-row popover-anchor">
         <label class="visually-hidden" for="genre-select">Genre</label>
         <select id="genre-select" class="genre-select"></select>
+        <!-- v0.0.206: shown while anything is edited away from the genre. -->
+        <button
+          type="button"
+          id="genre-factory"
+          class="secondary-button genre-factory"
+          title="Put the whole setup back to this genre's factory sound: its rules, and every voice."
+          hidden
+        >↺ Back to factory</button>
         <div
           id="genre-favourites"
           class="popover module-panel genre-favourites"
@@ -4300,6 +4308,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const soundingVoice = new Map();
       const VOICE_LIVE_VALUE = '__live';
       const VOICE_BLEND_VALUE = '__blend';
+      const VOICE_DRAFT_VALUE_PREFIX = 'draft:';
 
       /**
        * Wire one track row's lamp and voice selector. Extracted from the boot
@@ -4368,7 +4377,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             applyUserVoice(id, voiceSelect.value.slice(USER_VOICE_VALUE_PREFIX.length));
             return;
           }
+          // v0.0.206: a pick under Edited brings that parked edit back; a pick
+          // under Stock always plays the factory sound, parking any edit of
+          // that voice under Edited rather than losing it.
+          let pickedVoice = voiceSelect.value;
+          const fromDraft = pickedVoice.startsWith(VOICE_DRAFT_VALUE_PREFIX);
+          if (fromDraft) pickedVoice = pickedVoice.slice(VOICE_DRAFT_VALUE_PREFIX.length);
           delete settings.tracks[id].userVoice;
+          if (fromDraft) {
+            const draft = settings.voiceDrafts?.[id]?.[pickedVoice];
+            if (isPlainObject(draft)) {
+              if (!isPlainObject(settings.patches[id])) settings.patches[id] = {};
+              settings.patches[id][pickedVoice] = structuredClone(draft);
+              delete settings.voiceDrafts[id][pickedVoice];
+              if (engineCaps.patchClear) engine.setParams({ patches: { [id]: null } });
+              engine.setParams({ patches: { [id]: structuredClone(settings.patches[id]) } });
+            }
+          } else if (patchIsEdited(id, pickedVoice)) {
+            if (!isPlainObject(settings.voiceDrafts)) settings.voiceDrafts = {};
+            if (!isPlainObject(settings.voiceDrafts[id])) settings.voiceDrafts[id] = {};
+            settings.voiceDrafts[id][pickedVoice] = structuredClone(settings.patches[id][pickedVoice]);
+            settings.tracks[id].voice = pickedVoice;
+            resetVoiceToFactory(id, pickedVoice, { quiet: true });
+          }
+          voiceSelect.value = pickedVoice;
           settings.tracks[id].voice = voiceSelect.value;
           // v0.0.163: an explicit pick ends the blend, exactly as it ends the
           // wander — the title on the live option says so. v0.0.195: under a
@@ -4404,7 +4436,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (!mine.length) return;
         const group = document.createElement('optgroup');
         group.className = 'my-voices';
-        group.label = 'My voices';
+        // v0.0.206: his word for the saved ones — User (not Mine, not Yours).
+        group.label = 'User';
         for (const voice of mine) {
           const option = document.createElement('option');
           option.value = `${USER_VOICE_VALUE_PREFIX}${voice.id}`;
@@ -4412,9 +4445,89 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           option.title = `${voice.name}: ${voiceLabel(track, voice.voice)} with your dials.`;
           group.append(option);
         }
-        const blend = [...select.options].find((o) => o.value === VOICE_BLEND_VALUE);
-        if (blend) select.insertBefore(group, blend);
-        else select.append(group);
+        const stock = groupStockVoices(select);
+        select.insertBefore(group, stock);
+      }
+
+      /**
+       * v0.0.206: the stock voices under a Stock heading. Headings are the one
+       * marking every browser shows inside a native picker (Safari and iOS
+       * ignore bold, italic and colour on an option), so the three kinds read
+       * as Edited, User and Stock. Idempotent; returns the group.
+       */
+      function groupStockVoices(select) {
+        let stock = select.querySelector('optgroup.stock-voices');
+        if (!stock) {
+          stock = document.createElement('optgroup');
+          stock.className = 'stock-voices';
+          stock.label = 'Stock';
+          const loose = [...select.children].filter((el) => el.tagName === 'OPTION'
+            && el.value !== VOICE_LIVE_VALUE && el.value !== VOICE_BLEND_VALUE
+            && !el.value.startsWith(USER_VOICE_VALUE_PREFIX) && !el.value.startsWith(VOICE_DRAFT_VALUE_PREFIX));
+          const first = loose[0];
+          if (first) select.insertBefore(stock, first);
+          else select.append(stock);
+          for (const option of loose) stock.append(option);
+        }
+        return stock;
+      }
+
+      /**
+       * v0.0.206: the Edited heading — the sounding voice when its dials have
+       * moved (the live option), and every edit parked by a pick or a load
+       * (settings.voiceDrafts), each one pick away.
+       */
+      function syncEditedGroup(track, select, liveEdited) {
+        let group = select.querySelector('optgroup.edited-voices');
+        const drafts = isPlainObject(settings.voiceDrafts?.[track]) ? settings.voiceDrafts[track] : {};
+        const live = select.querySelector('.voice-live-option');
+        const sounding = soundingVoice.get(track) || settings.tracks[track]?.voice;
+        const draftIds = Object.keys(drafts).filter((id) => VOICE_LABELS[voiceSetOf(track)]?.[id] && !(liveEdited && id === sounding));
+        if (!liveEdited && !draftIds.length) {
+          if (live && live.parentElement === group) select.prepend(live);
+          group?.remove();
+          if (live) live.selected = true;
+          return;
+        }
+        if (!group) {
+          group = document.createElement('optgroup');
+          group.className = 'edited-voices';
+          group.label = 'Edited';
+        }
+        select.prepend(group);
+        for (const old of [...group.querySelectorAll('.voice-draft-option')]) old.remove();
+        if (liveEdited && live) group.prepend(live);
+        else if (live && live.parentElement === group) select.prepend(live);
+        for (const id of draftIds) {
+          const option = document.createElement('option');
+          option.className = 'voice-draft-option';
+          option.value = `${VOICE_DRAFT_VALUE_PREFIX}${id}`;
+          option.textContent = `${voiceLabel(track, id)} · edited`;
+          option.title = `Your earlier edit of ${voiceLabel(track, id)}, kept when you moved on. Pick it to hear it again.`;
+          group.append(option);
+        }
+        if (live && live.parentElement !== group && live.parentElement === select) select.prepend(live);
+        // Moving an option can drop its selection; the live one is what plays.
+        if (live) live.selected = true;
+      }
+
+      /** The track row's Back to factory: shown only while what plays there is edited. */
+      function syncTrackFactoryButton(track, edited) {
+        const select = document.getElementById(`track-voice-${track}`);
+        if (!select) return;
+        let button = document.getElementById(`track-factory-${track}`);
+        if (!button) {
+          button = document.createElement('button');
+          button.type = 'button';
+          button.id = `track-factory-${track}`;
+          button.className = 'secondary-button track-factory';
+          button.textContent = '↺ Factory';
+          button.setAttribute('aria-label', `Back to factory: ${TRACK_LABELS[track] || track}`);
+          button.title = 'Put this voice back to its factory sound — the genre\'s own where it ships one.';
+          button.addEventListener('click', () => trackBackToFactory(track));
+          select.after(button);
+        }
+        button.hidden = !edited;
       }
       function syncMyVoicesEverywhere() {
         for (const id of TRACK_IDS) {
@@ -4512,7 +4625,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (settings.tracks[track]) settings.tracks[track].userVoice = { id: mine.id, name: mine.name };
         persistSettings();
         syncMyVoicesEverywhere();
-        sayUnderDials(`Saved: "${clean}" is in this track's picker under My voices.`);
+        sayUnderDials(`Saved: "${clean}" is in this track's picker under User.`);
         return mine;
       }
 
@@ -12287,7 +12400,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         saveVoice.type = 'button';
         saveVoice.className = 'secondary-button ve-save-voice';
         saveVoice.textContent = 'Save as my voice';
-        describe(saveVoice, 'Keeps this voice with every dial as it is now, in this track\'s picker under My voices. It stays on this device.');
+        describe(saveVoice, 'Keeps this voice with every dial as it is now, in this track\'s picker under User. It stays on this device.');
         const forgetVoice = document.createElement('button');
         forgetVoice.type = 'button';
         forgetVoice.className = 'secondary-button ve-forget-voice';
@@ -12545,18 +12658,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             scheduleScopeRender(track, true);
             return;
           }
-          if (settings.patches[track]) {
-            delete settings.patches[track][voiceId];
-            if (Object.keys(settings.patches[track]).length === 0) {
-              delete settings.patches[track];
-            }
-          }
-          // An empty patch merges over the voice defaults engine-side; when
-          // the defaults are known, send them explicitly for robustness.
-          sendPatch(track, voiceId, defaults ? structuredClone(defaults) : {});
-          persistSettings();
-          refreshVoiceSelect(track);
-          renderVoiceEditor(track);
+          // v0.0.206: back to FACTORY — the genre's own patch where it ships
+          // one (Synthwave's Poly saw), the saved one for a User voice — and
+          // past two changes it asks first, listing them.
+          confirmBackToFactory(`${TRACK_LABELS[track] || track}: ${voiceLabel(track, voiceId)}`,
+            patchChanges(track, voiceId).map(describeChange),
+            () => resetVoiceToFactory(track, voiceId));
         });
 
         buildPatchControls(); // also sets the reset button's label
@@ -13994,22 +14101,177 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return copy;
       }
 
-      /** Does the stored patch for this voice differ from the voice's own defaults? */
-      function patchIsEdited(track, voiceId) {
-        const stored = (settings.patches[track] || {})[voiceId];
-        if (!isPlainObject(stored)) return false;
+      /**
+       * v0.0.206 — factory, edited and user (owner brief 2026-10-03: "far too
+       * easy to break Ambi4 - turn some dials and it's ruined forever").
+       *
+       * FACTORY for a voice is its stock defaults with the GENRE's own patch
+       * over them: Synthwave ships its own Poly saw, and that is factory
+       * Synthwave — before this, the comparison was against the bare voice, so
+       * a factory Synthwave read as edited. A voice of the person's own (a
+       * User voice) has its saved patch as its baseline instead.
+       */
+      function genrePatchFor(track, voiceId) {
+        const own = currentGenre()?.essence?.instrumentation?.patches?.[track]?.[voiceId];
+        return isPlainObject(own) ? own : null;
+      }
+      function voiceBasePatch(track, voiceId) {
         const entry = voicesTable?.[voiceSetOf(track)]?.[voiceId];
-        const base = normalisedPatch(deepMerge(FALLBACK_PATCH, (entry && entry.defaults) || {}));
-        const live = normalisedPatch(deepMerge(base, stored));
-        if (isPlainObject(live.perKind) && Object.keys(live.perKind).length) return true;
+        return normalisedPatch(deepMerge(FALLBACK_PATCH, (entry && entry.defaults) || {}));
+      }
+      /** The stored patch a voice goes back to: the User voice's save, else the genre's, else none. */
+      function baselineStoredPatch(track, voiceId) {
+        const tag = isPlainObject(settings.tracks[track]?.userVoice) ? settings.tracks[track].userVoice : null;
+        const mine = tag ? userVoiceById(tag.id) : null;
+        if (mine && mine.voice === voiceId && isPlainObject(mine.patch)) return mine.patch;
+        return genrePatchFor(track, voiceId);
+      }
+      /** Every field where this voice's stored patch differs from its baseline: [{ field, from, to }]. */
+      function patchChanges(track, voiceId) {
+        const stored = (settings.patches[track] || {})[voiceId];
+        const baseStored = baselineStoredPatch(track, voiceId);
+        if (!isPlainObject(stored) && !baseStored) return [];
+        const base = voiceBasePatch(track, voiceId);
+        const factory = normalisedPatch(deepMerge(base, baseStored || {}));
+        const live = normalisedPatch(deepMerge(base, isPlainObject(stored) ? stored : {}));
+        const out = [];
+        if (JSON.stringify(live.perKind || {}) !== JSON.stringify(factory.perKind || {})) {
+          out.push({ field: 'kit sounds', from: 'stock', to: 'your own' });
+        }
         for (const section of PATCH_SECTIONS) {
-          const from = isPlainObject(base[section]) ? base[section] : {};
+          const from = isPlainObject(factory[section]) ? factory[section] : {};
           const to = isPlainObject(live[section]) ? live[section] : {};
           for (const field of new Set([...Object.keys(from), ...Object.keys(to)])) {
-            if (JSON.stringify(from[field]) !== JSON.stringify(to[field])) return true;
+            if (JSON.stringify(from[field]) !== JSON.stringify(to[field])) {
+              out.push({ field: `${section}.${field}`, from: from[field], to: to[field] });
+            }
           }
         }
-        return false;
+        return out;
+      }
+      /** Does the stored patch for this voice differ from its factory (or saved) sound? */
+      function patchIsEdited(track, voiceId) {
+        return patchChanges(track, voiceId).length > 0;
+      }
+      /** One change as a line a person can read: "Release: 1.2 → 2.5". */
+      function describeChange(change) {
+        const row = engineModule?.PARAM_REGISTRY?.[`patch.${change.field}`];
+        const name = (row && row.label) || change.field;
+        const show = (v) => (v === undefined || v === null ? 'off'
+          : typeof v === 'number' ? String(Math.round(v * 1000) / 1000)
+            : isPlainObject(v) && 'min' in v ? `${show(v.min)}–${show(v.max)}`
+              : typeof v === 'object' ? 'set' : String(v));
+        return `${name}: ${show(change.from)} → ${show(change.to)}`;
+      }
+
+      /**
+       * v0.0.206: going back to factory asks first when more than two changes
+       * would go (his rule) — the count, and a disclosure listing each one.
+       * Two or fewer, it simply happens.
+       */
+      function confirmBackToFactory(what, changes, run) {
+        if (changes.length <= 2) { run(); return; }
+        document.getElementById('factory-confirm')?.remove();
+        const panel = document.createElement('div');
+        panel.className = 'module-panel blend-editor factory-confirm';
+        panel.id = 'factory-confirm';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-labelledby', 'factory-confirm-title');
+        const title = document.createElement('span');
+        title.className = 'panel-label popover-title';
+        title.id = 'factory-confirm-title';
+        title.textContent = `Back to factory — ${what}`;
+        const lead = document.createElement('p');
+        lead.className = 'hint factory-confirm-count';
+        lead.textContent = `This undoes ${changes.length} changes.`;
+        const details = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = 'Show them';
+        const list = document.createElement('ul');
+        list.className = 'factory-confirm-list';
+        for (const line of changes) {
+          const item = document.createElement('li');
+          item.textContent = line;
+          list.append(item);
+        }
+        details.append(summary, list);
+        const actions = document.createElement('div');
+        actions.className = 'genre-fav-actions';
+        const go = document.createElement('button');
+        go.type = 'button';
+        go.className = 'secondary-button factory-confirm-go';
+        go.textContent = 'Back to factory';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'secondary-button factory-confirm-cancel';
+        cancel.textContent = 'Cancel';
+        go.addEventListener('click', () => { panel.remove(); run(); });
+        cancel.addEventListener('click', () => panel.remove());
+        actions.append(go, cancel);
+        panel.append(title, lead, details, actions);
+        document.body.append(panel);
+        go.focus();
+      }
+
+      /** The voice back to its baseline, at the page AND the engine (the engine merges patches, so it is cleared first). */
+      function resetVoiceToFactory(track, voiceId, { quiet = false } = {}) {
+        const baseline = baselineStoredPatch(track, voiceId);
+        if (!isPlainObject(settings.patches[track])) settings.patches[track] = {};
+        if (baseline) settings.patches[track][voiceId] = structuredClone(baseline);
+        else delete settings.patches[track][voiceId];
+        if (!Object.keys(settings.patches[track]).length) delete settings.patches[track];
+        if (engineCaps.patchClear) engine.setParams({ patches: { [track]: null } });
+        engine.setParams({ patches: { [track]: structuredClone(settings.patches[track] || {}) } });
+        const factory = deepMerge(voiceBasePatch(track, voiceId), baseline || {});
+        sendPatch(track, voiceId, factory);
+        // quiet: the caller (a pick) refreshes and re-renders once itself.
+        if (quiet) return;
+        persistSettings();
+        refreshVoiceSelect(track);
+        renderVoiceEditorIfOpen(track);
+        scheduleScopeRender(track, true);
+      }
+
+      /** Press "Back to factory" on a track: what is sounding there goes back. */
+      function trackBackToFactory(track) {
+        const voiceId = soundingVoice.get(track) || settings.tracks[track]?.voice;
+        if (!voiceId) return;
+        const changes = patchChanges(track, voiceId).map(describeChange);
+        confirmBackToFactory(`${TRACK_LABELS[track] || track}: ${voiceLabel(track, voiceId)}`, changes,
+          () => resetVoiceToFactory(track, voiceId));
+      }
+
+      /** Is anything in the setup edited away from the genre it came from? */
+      function setupChanges() {
+        const out = [];
+        if (genreRulesEdited()) {
+          for (const key of Object.keys(settings.genreRules)) out.push(`Rules: ${key}`);
+        }
+        for (const id of TRACK_IDS) {
+          const voiceId = settings.tracks[id]?.voice;
+          if (!voiceId) continue;
+          for (const change of patchChanges(id, voiceId)) {
+            out.push(`${TRACK_LABELS[id] || id} · ${describeChange(change)}`);
+          }
+        }
+        return out;
+      }
+
+      /** The genre picker's "· edited" and the Back to factory beside it. */
+      function syncSetupEditedMark() {
+        const button = document.getElementById('genre-factory');
+        const genre = currentGenre();
+        const edited = Boolean(genre) && setupChanges().length > 0;
+        if (button) button.hidden = !edited;
+        const picker = document.getElementById('genre-select');
+        const current = picker && genre
+          ? [...picker.options].find((o) => o.value === `g:${genre.slug}`)
+          : null;
+        if (current) {
+          const plain = current.textContent.replace(/ · edited.*$/, '');
+          const text = edited ? `${plain} · edited` : plain;
+          if (current.textContent !== text) current.textContent = text;
+        }
       }
 
       // ---- v0.0.163 (his 128 a): the voice-blend editor -----------------
@@ -14209,6 +14471,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function refreshVoiceSelect(track) {
         const select = document.getElementById(`track-voice-${track}`);
         if (!select || !settings.tracks[track]) return;
+        groupStockVoices(select);
+        refreshVoiceSelectInner(track, select);
+        const live = select.querySelector('.voice-live-option');
+        const sounding = soundingVoice.get(track) || settings.tracks[track].voice;
+        const edited = patchIsEdited(track, sounding);
+        syncEditedGroup(track, select, Boolean(live && edited));
+        syncTrackFactoryButton(track, edited);
+        syncSetupEditedMark();
+      }
+      function refreshVoiceSelectInner(track, select) {
         const chosen = settings.tracks[track].voice;
         const sounding = soundingVoice.get(track) || chosen;
         const edited = patchIsEdited(track, sounding);
@@ -14959,13 +15231,44 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * quantised engine-side, so a pick while playing lands on the next bar
        * rather than cutting the current one off.
        */
-      function applyGenre(genre, seed = randomSeed()) {
+      /**
+       * v0.0.206: park every edited voice under Edited before a load replaces
+       * it — a genre always starts at its factory sound (his ruling), and an
+       * edit is never silently thrown away: it stays one pick away.
+       */
+      function parkEditedVoices() {
+        for (const id of TRACK_IDS) {
+          const stored = settings.patches?.[id];
+          if (!isPlainObject(stored)) continue;
+          for (const voiceId of Object.keys(stored)) {
+            if (!patchIsEdited(id, voiceId)) continue;
+            if (!isPlainObject(settings.voiceDrafts)) settings.voiceDrafts = {};
+            if (!isPlainObject(settings.voiceDrafts[id])) settings.voiceDrafts[id] = {};
+            settings.voiceDrafts[id][voiceId] = structuredClone(stored[voiceId]);
+          }
+        }
+      }
+
+      function applyGenre(genre, seed = randomSeed(), { factory = false } = {}) {
         const compiled = compileGenreParams(genre, seed);
         if (!compiled) return false;
+        if (!factory) parkEditedVoices();
         const next = settingsFromGenre(compiled, genre.slug);
+        // v0.0.206: a held User voice keeps its saved patch through Next.
+        for (const id of Object.keys(next.tracks || {})) {
+          const mine = settings.tracks?.[id];
+          const tag = isPlainObject(mine?.userVoice) ? mine.userVoice : null;
+          const saved = tag ? userVoiceById(tag.id) : null;
+          if (factory || !saved || !isPlainObject(mine.voiceRule) || mine.voiceRule.chance !== 0) continue;
+          if (!isPlainObject(next.patches)) next.patches = {};
+          if (!isPlainObject(next.patches[id])) next.patches[id] = {};
+          next.patches[id][saved.voice] = structuredClone(saved.patch || {});
+          if (isPlainObject(next.tracks[id])) next.tracks[id].userVoice = structuredClone(tag);
+        }
         // v0.0.195 (owner ruling): Chance 0 means yours — Next keeps a held
         // voice rule and the pick under it, and redraws everything else.
-        for (const id of Object.keys(next.tracks || {})) {
+        // v0.0.206: Back to factory keeps nothing.
+        for (const id of factory ? [] : Object.keys(next.tracks || {})) {
           const mine = settings.tracks?.[id];
           if (!isPlainObject(mine) || !isPlainObject(mine.voiceRule) || mine.voiceRule.chance !== 0) continue;
           if (!isPlainObject(next.tracks[id])) continue;
@@ -14974,7 +15277,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           delete next.tracks[id].voiceWeights;
         }
         // v0.0.203: and a held groove rule on the bass, the same way.
-        const myGroove = settings.tracks?.bass?.grooveRule;
+        const myGroove = factory ? null : settings.tracks?.bass?.grooveRule;
         if (isPlainObject(myGroove) && myGroove.chance === 0 && isPlainObject(next.tracks?.bass)) {
           next.tracks.bass.grooveRule = structuredClone(myGroove);
         }
@@ -14982,7 +15285,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // 0, the first tab for good) and a fill set to Off are yours, and a
         // fresh kit keeps them. A rule that draws belongs to the old kit's
         // tabs and goes with them.
-        const kitMine = settings.tracks?.percussion;
+        const kitMine = factory ? null : settings.tracks?.percussion;
         if (isPlainObject(kitMine) && isPlainObject(next.tracks?.percussion)) {
           // A fill set to Off must still own the NEW kit's fill tab, or the
           // tabs' weights would visit it as a variant: read it off the bank.
@@ -16298,11 +16601,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         // The tag stays honest: a genre playing under edited rules says so
         // right in the picker, where the claim is made.
-        if (genreRulesEdited() && settings.genre) {
-          const current = [...genreSelect.options].find((o) => o.value === `g:${settings.genre}`);
-          if (current) current.textContent += ' · edited rules';
-        }
+        // v0.0.206: rules or sound — one "· edited", with Back to factory beside it.
         genreSelect.value = settings.genre ? `g:${settings.genre}` : '';
+        syncSetupEditedMark();
         syncGenreRulesUI();
       }
 
@@ -16313,6 +16614,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (genreRow.hidden) return;
         renderGenreSelect();
       }
+
+      // v0.0.206: the whole setup back to the genre's factory sound — the
+      // same genre at the same seed, its rules and every voice as shipped.
+      document.getElementById('genre-factory')?.addEventListener('click', () => {
+        const genre = currentGenre();
+        if (!genre) return;
+        confirmBackToFactory(genre.name, setupChanges(), () => {
+          settings.genreRules = {};
+          applyGenre(genre, Number.isFinite(settings.origin?.seed) ? settings.origin.seed : randomSeed(), { factory: true });
+          syncGenreUI();
+        });
+      });
 
       genreSelect.addEventListener('change', () => {
         const value = genreSelect.value;
@@ -18826,12 +19139,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // v0.0.164: like ui, the raw take is session bookkeeping a snapshot
         // never carries — loading one must not throw the performance away.
         const lastTake = settings.lastTake;
+        const drafts = isPlainObject(settings.voiceDrafts) ? structuredClone(settings.voiceDrafts) : null;
         const clone = structuredClone(params);
         migrateLegacyArpSteps(clone);
         settings = deepMerge(DEFAULTS, clone);
         normaliseV6Tracks(settings);
         settings.ui = ui;
         if (isPlainObject(lastTake)) settings.lastTake = lastTake;
+        // v0.0.206: edits the person parked under Edited survive any load.
+        if (isPlainObject(drafts)) settings.voiceDrafts = drafts;
+        // v0.0.206: the engine MERGES patches, so a load that names fewer (a
+        // genre ships few or none) left the last piece's dial edits sounding
+        // under a page that showed none — the likely "discordant Synthwave".
+        // Clear them first; the snapshot then states exactly its own.
+        clearEnginePatches();
         engine.setParams(engineParamsFrom(settings));
         syncUIFromSettings();
         applyDensityScale();
@@ -19454,7 +19775,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '.track-rows',
-          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in the track\'s editor: 0 holds your pick, Pool… chooses what it may move to; the bass\'s Groove rule works the same way. Save as my voice keeps a sound you made under My voices.',
+          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in the track\'s editor: 0 holds your pick, Pool… chooses what it may move to; the bass\'s Groove rule works the same way. Edited sounds are listed under Edited, with ↺ Factory to go back; Save as my voice keeps one under User.',
         },
         {
           tab: 'advanced',
@@ -21678,6 +21999,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     /* v0.0.163: the voice-blend dialog — small, fixed, self-contained. */
+    /* v0.0.206: Back to factory, on a track row and beside the genre. */
+    .track-factory,
+    .genre-factory {
+      min-height: 28px;
+      padding: 0 8px;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+    .track-factory[hidden],
+    .genre-factory[hidden] { display: none; }
+    .factory-confirm-list {
+      margin: 4px 0 0;
+      padding-left: 18px;
+      max-height: 40vh;
+      overflow: auto;
+      font-size: 0.85rem;
+    }
+
     .blend-editor {
       position: fixed;
       left: 50%;

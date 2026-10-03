@@ -526,6 +526,14 @@ Oscilloscope
 - [ ] Your legend selection survives a reload.
 - [ ] The old chip row above the legend is gone.
 
+Factory, edited and user (v0.0.206)
+- [ ] Pick Synthwave fresh: no track picker shows "· edited", no ↺ Factory on any row, none beside the genre.
+- [ ] Each picker reads in headings: Edited (only when something is), User (saved voices), Stock.
+- [ ] Move any dial: the picker reads "<voice> · edited" under Edited, the row shows ↺ Factory, the genre reads "Synthwave · edited" with ↺ Back to factory beside it.
+- [ ] ↺ Factory on the row puts that voice back at once (two changes or fewer); with three or more it asks, counts them, and "Show them" lists each.
+- [ ] Pick another genre, or pick the same voice under Stock: it plays the factory sound, and your edit waits under Edited — pick it to hear it again.
+- [ ] ↺ Back to factory beside the genre: the same genre, same seed, every voice and rule as shipped.
+
 Voice selector honesty (Advanced → track rows)
 - [ ] With everything at defaults, each row's voice select reads the voice you
       chose, as before.

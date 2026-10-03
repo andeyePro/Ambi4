@@ -1992,6 +1992,11 @@ try {
         continue;
       }
       if (!voice) continue;
+      // v0.0.206: a fresh visit draws a genre, and a genre may ship its own
+      // patch for the voice (Synthwave's Poly saw) — then the line describes
+      // that, and the picker reads it as factory, not edited. Skip those.
+      const enginePatches = window.__ambi4Engine && window.__ambi4Engine.getParams().patches;
+      if (enginePatches && enginePatches[track] && enginePatches[track][select.value]) continue;
       // A fresh boot stores no patch, so the page describes the voice's own
       // defaults; an edited patch is the smoke test's business.
       const want = wordsModule.describePatch({
@@ -3023,6 +3028,120 @@ try {
       select.dispatchEvent(new window.Event('change', { bubbles: true }));
       if (rows().length !== 0 && !doc.getElementById('structure-blocks').hidden) failures.push('preset blocks: Waves should show no blocks');
       if (!/16-bar swell/.test(note.textContent)) failures.push(`preset blocks: Waves should say it is a curve: ${JSON.stringify(note.textContent)}`);
+    }
+  }
+
+  // ---- v0.0.206 factory, edited and user ------------------------------------
+  // His brief: good defaults, clarity when not on them, an easy way back.
+  // A genre loads at FACTORY (its own shipped patches read as factory, not
+  // edited); an edit shows under an Edited heading with Back to factory on the
+  // row and beside the genre; a load clears the ENGINE's old edits (it merges
+  // patches, so they used to sound on under a page that showed none) and
+  // parks them under Edited; more than two changes ask first, listing them.
+  {
+    const engine = window.__ambi4Engine;
+    const genrePick = doc.getElementById('genre-select');
+    const padSelect = doc.getElementById('track-voice-pad');
+    const genreFactory = doc.getElementById('genre-factory');
+    const loadSynthwave = async () => {
+      genrePick.value = 'g:synthwave';
+      genrePick.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await waitUntil(() => engine.getParams().genre === 'synthwave');
+      await new Promise((r) => setTimeout(r, 80));
+    };
+    const typeInto = async (editor, field, value) => {
+      const cell = editor.querySelector(`.patch-controls .knob-cell[data-field="${field}"]`);
+      const readout = cell && cell.querySelector('.knob-value');
+      if (!readout) return false;
+      readout.click();
+      const box = cell.querySelector('.knob-value-edit');
+      if (!box) return false;
+      box.value = String(value);
+      box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await new Promise((r) => setTimeout(r, 40));
+      return true;
+    };
+    const near = (v, want) => (v && typeof v === 'object' ? Math.abs(v.min - want) < 0.05 : Math.abs(Number(v) - want) < 0.05);
+    const padWarm = () => (engine.getParams().patches && engine.getParams().patches.pad && engine.getParams().patches.pad.warm) || {};
+    if (!genrePick || !padSelect || !genreFactory || !engine || ![...genrePick.options].some((o) => o.value === 'g:synthwave')) {
+      failures.push('factory: the genre picker, Synthwave, the pad picker, Back to factory or the engine seam is missing');
+    } else {
+      await loadSynthwave();
+      for (const id of ['pad', 'arp', 'melody', 'bass', 'texture', 'percussion']) {
+        const sel = doc.getElementById(`track-voice-${id}`);
+        if (!sel) continue;
+        if (!sel.querySelector('optgroup.stock-voices[label="Stock"]')) failures.push(`factory: ${id}'s picker has no Stock heading`);
+        const live = sel.querySelector('.voice-live-option');
+        if (live && live.selected && / · edited$/.test(live.textContent)) failures.push(`factory: factory Synthwave reads ${id} as edited ("${live.textContent}")`);
+        const button = doc.getElementById(`track-factory-${id}`);
+        if (button && !button.hidden) failures.push(`factory: ${id} offers Back to factory on a factory Synthwave`);
+      }
+      if (!genreFactory.hidden) failures.push('factory: Back to factory shows beside a factory Synthwave');
+
+      padSelect.value = 'warm';
+      padSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      let editor = await openEditor('pad');
+      await waitUntil(() => editor.querySelectorAll('.patch-controls .knob-cell[data-field="adsr.release"]').length === 1);
+      if (!(await typeInto(editor, 'adsr.release', 2.5)) || !(await waitUntil(() => near(padWarm().adsr && padWarm().adsr.release, 2.5)))) {
+        failures.push('factory: typing Release 2.5 on Warm did not reach the engine');
+      } else {
+        const edited = padSelect.querySelector('optgroup.edited-voices[label="Edited"] .voice-live-option');
+        if (!edited || !edited.selected || edited.textContent !== 'Warm · edited') failures.push(`factory: an edited Warm is not shown selected under Edited (${edited ? JSON.stringify(edited.textContent) : 'absent'})`);
+        const rowButton = doc.getElementById('track-factory-pad');
+        if (!rowButton || rowButton.hidden) failures.push('factory: the pad row offers no Back to factory while Warm is edited');
+        const genreOption = [...genrePick.options].find((o) => o.value === 'g:synthwave');
+        if (!genreOption || !/ · edited$/.test(genreOption.textContent)) failures.push(`factory: the genre picker does not say Synthwave is edited (${genreOption && genreOption.textContent})`);
+        if (genreFactory.hidden) failures.push('factory: no Back to factory beside the genre while a voice is edited');
+        // One change: back at once, at the engine too.
+        if (rowButton) rowButton.click();
+        await new Promise((r) => setTimeout(r, 60));
+        if (doc.getElementById('factory-confirm')) failures.push('factory: one change should not ask first');
+        if (near(padWarm().adsr && padWarm().adsr.release, 2.5)) failures.push('factory: the row\'s Back to factory left Release 2.5 at the engine');
+        if (rowButton && !rowButton.hidden) failures.push('factory: Back to factory still shows after going back');
+
+        // A genre load clears the engine's edit and parks it under Edited.
+        editor = await openEditor('pad');
+        await typeInto(editor, 'adsr.release', 2.5);
+        await waitUntil(() => near(padWarm().adsr && padWarm().adsr.release, 2.5));
+        await loadSynthwave();
+        if (near(padWarm().adsr && padWarm().adsr.release, 2.5)) failures.push('factory: a genre load left the old Release edit sounding at the engine');
+        const draft = padSelect.querySelector('optgroup.edited-voices option[value="draft:warm"]');
+        if (!draft) {
+          failures.push('factory: the edit a genre load replaced is not parked under Edited');
+        } else {
+          padSelect.value = 'draft:warm';
+          padSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+          if (!(await waitUntil(() => near(padWarm().adsr && padWarm().adsr.release, 2.5)))) failures.push('factory: picking the parked edit did not bring Release 2.5 back');
+          // Picking Stock Warm plays factory and parks the edit again.
+          padSelect.value = 'warm';
+          padSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 60));
+          if (near(padWarm().adsr && padWarm().adsr.release, 2.5)) failures.push('factory: picking Stock Warm kept the edit instead of the factory sound');
+          if (!padSelect.querySelector('option[value="draft:warm"]')) failures.push('factory: picking Stock Warm lost the edit instead of parking it');
+        }
+
+        // Three changes: Back to factory beside the genre asks, and lists them.
+        editor = await openEditor('pad');
+        await typeInto(editor, 'adsr.release', 2.5);
+        await typeInto(editor, 'adsr.attack', 0.9);
+        await typeInto(editor, 'sends.delay', 0.7);
+        await new Promise((r) => setTimeout(r, 60));
+        genreFactory.click();
+        const dialog = await waitUntil(() => doc.getElementById('factory-confirm'));
+        if (!dialog) {
+          failures.push('factory: three changes went back without asking');
+        } else {
+          const items = doc.querySelectorAll('#factory-confirm .factory-confirm-list li').length;
+          const count = doc.querySelector('#factory-confirm .factory-confirm-count');
+          if (items < 3 || !count || !/\d+ changes/.test(count.textContent)) failures.push(`factory: the confirmation does not count and list the changes (${items} listed, "${count && count.textContent}")`);
+          doc.querySelector('#factory-confirm .factory-confirm-go').click();
+          await new Promise((r) => setTimeout(r, 100));
+          const warm = padWarm();
+          if (near(warm.adsr && warm.adsr.release, 2.5) || near(warm.sends && warm.sends.delay, 0.7)) failures.push(`factory: Back to factory left edits at the engine (${JSON.stringify(warm)})`);
+          if (!genreFactory.hidden) failures.push('factory: Back to factory still shows after the setup went back');
+          if (engine.getParams().genre !== 'synthwave') failures.push('factory: Back to factory left Synthwave');
+        }
+      }
     }
   }
 
