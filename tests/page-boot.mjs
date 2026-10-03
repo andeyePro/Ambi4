@@ -2849,6 +2849,46 @@ try {
     }
   }
 
+  // ---- v0.0.202 preset blocks, shown and taken over -----------------------
+  // abab shows its own two blocks (not only Custom); the first edit turns the
+  // structure Custom starting from exactly those blocks, with the edit — and
+  // the ENGINE holds it, not just the DOM. A curve preset says it has none.
+  {
+    const engine = window.__ambi4Engine;
+    const select = doc.getElementById('structure');
+    const builder = doc.getElementById('custom-structure-builder');
+    const note = doc.getElementById('structure-blocks-note');
+    if (!select || !builder || !note || !engine) {
+      failures.push('preset blocks: the structure select, builder, note or engine seam is missing');
+    } else {
+      select.value = 'abab';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const rows = () => doc.querySelectorAll('#structure-blocks .structure-block');
+      if (builder.hidden) failures.push('preset blocks: ABAB chosen, but the blocks panel is hidden');
+      if (rows().length !== 2) failures.push(`preset blocks: ABAB should show its 2 blocks, shows ${rows().length}`);
+      if (!/ABAB's blocks/.test(note.textContent)) failures.push(`preset blocks: the note does not say whose blocks these are: ${JSON.stringify(note.textContent)}`);
+      if (engine.getParams().structure !== 'abab') failures.push('preset blocks: showing the blocks must not change the structure');
+      const intensity = rows()[1] && rows()[1].querySelector('input[type="range"]');
+      if (!intensity) {
+        failures.push('preset blocks: block 2 has no intensity slider');
+      } else {
+        intensity.value = '0.9';
+        intensity.dispatchEvent(new window.Event('input', { bubbles: true }));
+        const p = engine.getParams();
+        if (p.structure !== 'custom') failures.push(`preset blocks: an edit should take the structure over as Custom, engine has ${p.structure}`);
+        if (select.value !== 'custom') failures.push('preset blocks: the select did not follow the takeover');
+        const blocks = p.customStructure || [];
+        if (blocks.length !== 2 || blocks[0].label !== 'A' || blocks[0].intensity !== 0.4 || blocks[1].label !== 'B' || blocks[1].intensity !== 0.9) {
+          failures.push(`preset blocks: Custom should start from ABAB's blocks with the edit, engine has ${JSON.stringify(blocks)}`);
+        }
+      }
+      select.value = 'waves';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      if (rows().length !== 0 && !doc.getElementById('structure-blocks').hidden) failures.push('preset blocks: Waves should show no blocks');
+      if (!/16-bar swell/.test(note.textContent)) failures.push(`preset blocks: Waves should say it is a curve: ${JSON.stringify(note.textContent)}`);
+    }
+  }
+
   // ---- v27 blank slate (fromMartin 25) --------------------------------------
   // Clicking Blank slate must leave every track OFF — the "all you" state.
   // Runs LAST: it rewrites the whole params object, so it must follow every

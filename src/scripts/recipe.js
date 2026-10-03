@@ -79,6 +79,7 @@ export const RECIPE_FIELDS = Object.freeze([
   { path: 'mode', label: 'Mode', kind: 'enum' },
   { path: 'swing', label: 'Swing', kind: 'number' },
   { path: 'structure', label: 'Structure', kind: 'enum' },
+  { path: 'customStructure', label: 'Structure blocks', kind: 'json' },
   { path: 'complexity', label: 'Complexity', kind: 'number' },
   { path: 'repetition', label: 'Repetition', kind: 'number' },
   { path: 'reverbTail', label: 'Reverb tail', kind: 'number' },

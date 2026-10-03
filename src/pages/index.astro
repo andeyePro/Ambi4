@@ -913,7 +913,7 @@ const VOICES: Record<string, [string, string][]> = {
         <span class="panel-label">Structure blocks</span>
         <div id="structure-blocks" class="structure-blocks"></div>
         <button type="button" id="add-structure-block" class="secondary-button">Add block</button>
-        <p class="hint">Loops forever, in order. Up to 8 blocks.</p>
+        <p class="hint" id="structure-blocks-note">Loops forever, in order. Up to 8 blocks.</p>
       </div>
 
       <p class="hint factory-presets-link">
@@ -13649,9 +13649,61 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         ? [...engineModule.STRUCTURE_LABELS]
         : ['A', 'B', 'C', 'D', 'V', 'V1', 'V2', 'V3', 'V4'];
 
+      /**
+       * v0.0.202 — preset blocks are shown and editable for every block
+       * preset, not only Custom (owner brief 2026-09-25: "learn exactly how
+       * it is built and then reconstruct it"). abab and journey (picked, or
+       * what Auto resolves to) show their own blocks, read from the engine's
+       * PRESET_BLOCKS; the first edit of any of them takes the structure over
+       * as Custom starting from exactly those blocks, and the engine keys the
+       * playhead on the blocks, so the bar after the edit carries on from
+       * where it was. Drone, waves and build are curves, not blocks: they say
+       * so instead of showing nothing.
+       */
+      let previewBlocks = null;
+      function resolvedStructure() {
+        return engineModule?.resolveStructure
+          ? engineModule.resolveStructure(settings.structure, settings.complexity, settings.customStructure)
+          : settings.structure;
+      }
+      function blocksNow() {
+        return settings.structure === 'custom' ? settings.customStructure : (previewBlocks || []);
+      }
+      function takeOverStructure() {
+        if (settings.structure === 'custom' || !previewBlocks) return;
+        settings.customStructure = previewBlocks;
+        previewBlocks = null;
+        settings.structure = 'custom';
+        structureSelect.value = 'custom';
+        structureBlocksNote.textContent = STRUCTURE_BLOCKS_CUSTOM_NOTE;
+      }
+      const structureBlocksNote = document.getElementById('structure-blocks-note');
+      const STRUCTURE_BLOCKS_CUSTOM_NOTE = 'Loops forever, in order. Up to 8 blocks.';
+      const STRUCTURE_CURVE_NOTE = {
+        drone: 'Drone is one long section, not blocks. Choose Custom to write blocks of your own.',
+        waves: 'Waves is a 16-bar swell, not blocks. Choose Custom to write blocks of your own.',
+        build: 'Build is a 32-bar climb and an 8-bar fall, not blocks. Choose Custom to write blocks of your own.',
+      };
+
       function renderStructureBlocks() {
         structureBlocks.innerHTML = '';
-        settings.customStructure.forEach((block, index) => {
+        const resolved = resolvedStructure();
+        previewBlocks = settings.structure === 'custom'
+          ? null
+          : (engineModule?.structureBlocksFor?.(resolved, blocksNow()) || null);
+        const showBlocks = settings.structure === 'custom' || Boolean(previewBlocks);
+        customBuilder.hidden = !showBlocks && !STRUCTURE_CURVE_NOTE[resolved];
+        structureBlocks.hidden = !showBlocks;
+        addBlockButton.hidden = !showBlocks;
+        if (structureBlocksNote) {
+          structureBlocksNote.textContent = settings.structure === 'custom'
+            ? STRUCTURE_BLOCKS_CUSTOM_NOTE
+            : previewBlocks
+              ? `${settings.structure === 'auto' ? 'Auto is playing ' : ''}${resolved === 'abab' ? 'ABAB' : resolved[0].toUpperCase() + resolved.slice(1)}'s blocks, bar by bar. Change any of them and the structure becomes Custom, starting from exactly these.`
+              : (STRUCTURE_CURVE_NOTE[resolved] || '');
+        }
+        if (!showBlocks) return;
+        blocksNow().forEach((block, index) => {
           const row = document.createElement('div');
           row.className = 'structure-block';
 
@@ -13665,7 +13717,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             labelSelect.append(opt);
           }
           labelSelect.addEventListener('change', () => {
-            settings.customStructure[index].label = labelSelect.value;
+            takeOverStructure();
+            blocksNow()[index].label = labelSelect.value;
             commitCustomStructure();
           });
 
@@ -13680,9 +13733,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           titleInput.value = typeof block.title === 'string' ? block.title : '';
           titleInput.setAttribute('aria-label', `Block ${index + 1} title`);
           titleInput.addEventListener('change', () => {
+            takeOverStructure();
             const t = titleInput.value.trim().slice(0, 24);
-            if (t) settings.customStructure[index].title = t;
-            else delete settings.customStructure[index].title;
+            if (t) blocksNow()[index].title = t;
+            else delete blocksNow()[index].title;
             commitCustomStructure();
           });
 
@@ -13706,8 +13760,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           barsInput.addEventListener('input', () => {
             const parsed = parseInt(barsInput.value, 10);
             if (!Number.isFinite(parsed)) return; // mid-edit blank; keep stored value
+            takeOverStructure();
             const bars = Math.round(clamp(parsed, 1, 32));
-            settings.customStructure[index].bars = bars;
+            blocksNow()[index].bars = bars;
             // Reflect the clamp so UI, stored state and engine can't diverge.
             if (barsInput.value !== String(bars)) barsInput.value = String(bars);
             commitCustomStructure();
@@ -13733,7 +13788,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           };
           showIntensity();
           intensityInput.addEventListener('input', () => {
-            settings.customStructure[index].intensity = parseFloat(intensityInput.value);
+            takeOverStructure();
+            blocksNow()[index].intensity = parseFloat(intensityInput.value);
             showIntensity();
             commitCustomStructure();
           });
@@ -13745,8 +13801,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           upButton.setAttribute('aria-label', `Move block ${index + 1} up`);
           upButton.disabled = index === 0;
           upButton.addEventListener('click', () => {
+            takeOverStructure();
             if (index === 0) return;
-            const blocks = settings.customStructure;
+            const blocks = blocksNow();
             [blocks[index - 1], blocks[index]] = [blocks[index], blocks[index - 1]];
             commitCustomStructure();
             renderStructureBlocks();
@@ -13757,9 +13814,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           downButton.className = 'block-move';
           downButton.textContent = '↓';
           downButton.setAttribute('aria-label', `Move block ${index + 1} down`);
-          downButton.disabled = index === settings.customStructure.length - 1;
+          downButton.disabled = index === blocksNow().length - 1;
           downButton.addEventListener('click', () => {
-            const blocks = settings.customStructure;
+            takeOverStructure();
+            const blocks = blocksNow();
             if (index === blocks.length - 1) return;
             [blocks[index + 1], blocks[index]] = [blocks[index], blocks[index + 1]];
             commitCustomStructure();
@@ -13771,10 +13829,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           removeButton.className = 'block-remove';
           removeButton.textContent = 'Remove';
           removeButton.setAttribute('aria-label', `Remove block ${index + 1}`);
-          removeButton.disabled = settings.customStructure.length <= 1;
+          removeButton.disabled = blocksNow().length <= 1;
           removeButton.addEventListener('click', () => {
-            if (settings.customStructure.length <= 1) return;
-            settings.customStructure.splice(index, 1);
+            takeOverStructure();
+            if (blocksNow().length <= 1) return;
+            blocksNow().splice(index, 1);
             commitCustomStructure();
             renderStructureBlocks();
           });
@@ -13805,15 +13864,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             button.type = 'button';
             button.className = 'block-track';
             const paint = () => {
-              const state = settings.customStructure[index].tracks?.[id];
+              const state = blocksNow()[index].tracks?.[id];
               button.textContent = TRACK_LABELS[id].slice(0, 1);
               button.dataset.state = state || 'auto';
-              button.title = `${TRACK_LABELS[id]} in section ${settings.customStructure[index].label}: ${
+              button.title = `${TRACK_LABELS[id]} in section ${blocksNow()[index].label}: ${
                 state === 'on' ? 'always plays' : state === 'off' ? 'never plays' : 'the app decides'}`;
               button.setAttribute('aria-label', button.title);
             };
             button.addEventListener('click', () => {
-              const block = settings.customStructure[index];
+              takeOverStructure();
+              const block = blocksNow()[index];
               if (!block.tracks || typeof block.tracks !== 'object') block.tracks = {};
               const current = block.tracks[id];
               const next = CYCLE[(CYCLE.indexOf(current === 'on' ? 'on' : current === 'off' ? 'off' : undefined) + 1) % CYCLE.length];
@@ -13831,16 +13891,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           structureBlocks.append(row);
         });
 
-        addBlockButton.disabled = settings.customStructure.length >= 8;
+        addBlockButton.disabled = blocksNow().length >= 8;
       }
 
       function commitCustomStructure() {
-        engine.setParams({ customStructure: settings.customStructure });
+        engine.setParams({ structure: settings.structure, customStructure: settings.customStructure });
         updateComplexityDisplay();
         persistSettings();
       }
 
       addBlockButton.addEventListener('click', () => {
+        takeOverStructure();
         if (settings.customStructure.length >= 8) return;
         settings.customStructure.push({ label: 'A', bars: 8, intensity: 0.4 });
         commitCustomStructure();
@@ -13849,18 +13910,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       function syncStructureUI() {
         structureSelect.value = settings.structure;
-        customBuilder.hidden = settings.structure !== 'custom';
         renderStructureBlocks();
         updateComplexityDisplay();
       }
 
       structureSelect.addEventListener('change', () => {
         settings.structure = structureSelect.value;
-        customBuilder.hidden = settings.structure !== 'custom';
+        // v0.0.202: Custom chosen with no blocks of its own starts from what
+        // was playing, if that was a block preset — never from an empty list.
+        if (settings.structure === 'custom' && !settings.customStructure.length && previewBlocks) {
+          settings.customStructure = previewBlocks;
+        }
         const partial = { structure: settings.structure };
         if (settings.structure === 'custom') partial.customStructure = settings.customStructure;
         engine.setParams(partial);
         updateComplexityDisplay();
+        renderStructureBlocks();
         persistSettings();
       });
 

@@ -144,8 +144,14 @@ off `getComputedStyle(canvas)`; devicePixelRatio-aware; rAF only while `engine.r
 - Per-track panel: 3-state segmented control Off / Auto / On + voice `<select>` (labels from
   this contract; UI hardcodes them — do not import engine-voices.js into frontmatter).
 - Advanced concertina gains: Structure `<select>` (Auto/Drone/Waves/Build/ABAB/Journey/Custom)
-  + custom builder shown only for Custom: up to 8 blocks, each label A–D select, bars 1–32
-  number, intensity slider; add/remove/reorder (up/down buttons).
+  + block builder: up to 8 blocks, each label A–D select, bars 1–32 number, intensity
+  slider; add/remove/reorder (up/down buttons). Since v0.0.202 it also shows the blocks of
+  ABAB and Journey (picked, or what Auto resolves to; `PRESET_BLOCKS` and
+  `structureBlocksFor()` are engine exports), and the first edit takes the structure over as
+  Custom starting from exactly those blocks — the engine keys the playhead on the blocks
+  (`blocks:<count>:<labels>`), so the takeover does not restart the cycle. Drone, Waves and
+  Build are curves and say so. `getRecipe()` names the blocks a block preset plays as
+  `customStructure`.
 - Arpeggiator editor: Auto/Manual toggle; pattern, rate, octaves and gate are always shown.
   Under Auto they read what Complexity chose (`getResolved().arp`, tagged "· auto", dimmed),
   and touching one takes over in Manual starting from exactly that choice (v0.0.201, "auto

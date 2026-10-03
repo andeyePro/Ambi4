@@ -3793,20 +3793,34 @@ const WAVES_PERIOD = 16;
 const BUILD_BARS = 32;
 const BUILD_RELEASE_BARS = 8;
 
-const PRESET_BLOCKS = Object.freeze({
-  abab: [
-    { label: 'A', bars: 8, intensity: 0.4 },
-    { label: 'B', bars: 8, intensity: 0.7 },
-  ],
-  journey: [
-    { label: 'A', bars: 8, intensity: 0.35 },
-    { label: 'A', bars: 8, intensity: 0.45 },
-    { label: 'B', bars: 8, intensity: 0.65 },
-    { label: 'A', bars: 8, intensity: 0.45 },
-    { label: 'C', bars: 8, intensity: 0.8 },
-    { label: 'B', bars: 8, intensity: 0.6 },
-  ],
+// v0.0.202: exported (deep-frozen) so the page can SHOW a preset's blocks
+// bar by bar and a person can take one over as Custom from exactly what was
+// playing — the preset is no longer decided in secret.
+export const PRESET_BLOCKS = Object.freeze({
+  abab: Object.freeze([
+    Object.freeze({ label: 'A', bars: 8, intensity: 0.4 }),
+    Object.freeze({ label: 'B', bars: 8, intensity: 0.7 }),
+  ]),
+  journey: Object.freeze([
+    Object.freeze({ label: 'A', bars: 8, intensity: 0.35 }),
+    Object.freeze({ label: 'A', bars: 8, intensity: 0.45 }),
+    Object.freeze({ label: 'B', bars: 8, intensity: 0.65 }),
+    Object.freeze({ label: 'A', bars: 8, intensity: 0.45 }),
+    Object.freeze({ label: 'C', bars: 8, intensity: 0.8 }),
+    Object.freeze({ label: 'B', bars: 8, intensity: 0.6 }),
+  ]),
 });
+
+/**
+ * v0.0.202: the blocks a resolved preset plays, as plain copies — the
+ * preset's own for abab / journey, the person's for custom, and null for the
+ * shapeless presets (drone, waves, build), which are curves, not blocks.
+ */
+export function structureBlocksFor(preset, customStructure = []) {
+  const blocks = preset === 'custom' ? customStructure : PRESET_BLOCKS[preset];
+  if (!Array.isArray(blocks) || !blocks.length) return null;
+  return blocks.map((block) => ({ ...block }));
+}
 
 /**
  * Which preset actually plays. 'auto' picks from complexity; 'custom' with no
@@ -7014,7 +7028,8 @@ export function createEngine(initialParams, options = {}) {
    * is more honest than pretending a boundary exists.
    */
   function sectionBarsLeft() {
-    const preset = params.structure;
+    // v0.0.202: the RESOLVED preset — 'auto' playing abab has abab's blocks.
+    const preset = resolveStructure(params.structure, params.complexity, params.customStructure);
     const blocks = preset === 'custom' ? params.customStructure : PRESET_BLOCKS[preset];
     if (!Array.isArray(blocks) || !blocks.length) return 1;
     const total = blocks.reduce((sum, block) => sum + block.bars, 0);
@@ -8330,16 +8345,21 @@ export function createEngine(initialParams, options = {}) {
     // Keyed on block count + labels only: dragging a block's intensity (or
     // bars) slider is an in-place edit of the playing structure, not a new
     // structure that should reset playback to bar 0 of block 1.
-    const key = preset === 'custom'
-      ? `custom:${params.customStructure.length}:${params.customStructure.map((b) => b.label).join('')}`
+    // v0.0.202: a block preset keys on its blocks the same way, so taking
+    // abab or journey over as Custom with the same blocks (what the page does
+    // on the first edit) keeps the playhead where it was instead of jumping
+    // back to bar zero of block one.
+    const keyBlocks = preset === 'custom' ? params.customStructure : PRESET_BLOCKS[preset];
+    const key = Array.isArray(keyBlocks)
+      ? `blocks:${keyBlocks.length}:${keyBlocks.map((b) => b.label).join('')}`
       : preset;
     if (key !== structureKey) {
       // A new structure starts from its own bar zero rather than mid-cycle.
       structureKey = key;
       structureBar = 0;
-    } else if (preset === 'custom') {
+    } else if (Array.isArray(keyBlocks)) {
       // A bars edit may have shrunk the cycle; keep the position inside it.
-      const total = params.customStructure.reduce((sum, block) => sum + block.bars, 0);
+      const total = keyBlocks.reduce((sum, block) => sum + block.bars, 0);
       if (total > 0) structureBar %= total;
     }
     const section = sectionAtBar(preset, structureBar, params.customStructure);
@@ -9392,6 +9412,18 @@ export function createEngine(initialParams, options = {}) {
       recipe.arp.rate = arpNow.rate;
       recipe.arp.octaves = arpNow.octaves;
     }
+    // v0.0.202: the blocks the piece plays, named — a block preset's (abab,
+    // journey) as well as a custom one's, so a person reading the recipe sees
+    // the bar-by-bar plan. Under a block preset this is the preset's own
+    // blocks, which setParams stores but the preset ignores, so applying the
+    // recipe back plays the same; drone, waves and build are curves named by
+    // the structure field alone.
+    const blocks = structureBlocksFor(
+      resolveStructure(params.structure, params.complexity, params.customStructure),
+      params.customStructure,
+    );
+    if (blocks) recipe.customStructure = blocks;
+    else delete recipe.customStructure;
     return recipe;
   }
 
