@@ -23,6 +23,10 @@ export default async function drive(page) {
   await page.waitForTimeout(300);
   await page.click('#play-along-open');
   await page.waitForTimeout(300);
+  // The Create rebuild: each Write row is hidden until chosen, so choose
+  // it first, as a person must.
+  await page.selectOption('#create-write', 'beat');
+  await page.waitForTimeout(150);
 
   const present = await page.evaluate(() => ({
     input: !!document.getElementById('compose-beat-text'),

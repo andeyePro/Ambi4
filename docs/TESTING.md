@@ -146,7 +146,7 @@ a sweep that cries wolf is a sweep that stops being run.
 | dial-drive | pointer gestures on the dials |
 | spread-all-drive | every rangeable dial takes a spread, engine-verified |
 | simple-tempo-drive | Simple's Tempo view moves engine bpm; beat/bar landing |
-| create-drive | the Create door: blank slate silences (incl. FX), Zero buttons, seeding, tap-a-rhythm, silent-under-Play |
+| create-drive | the Create door: two doors (Start, Write), blank slate silences (incl. FX), Strip a layer, seeding, Write → Tap a rhythm, silent-under-Play |
 | play-along-drive | musical typing reaches noteOn/noteOff; typing guards; stays armed on close |
 | popover-drive | popovers stay on screen at 1280 and 390 |
 | latency-drive | desktop output routes DIRECT (no media-element hop); reports the context's latency floor |
@@ -309,10 +309,10 @@ Sequencer 2.0 (Edit panel of melody / bass / arp / percussion)
 - [ ] Click-drag SIDEWAYS across cells: they merge into one long tied note (a bridge shows between them). Drag back to shorten. Keyboard: T on a focused cell.
 - [ ] A row of dots sits below each lane, beside the probability bars. With no groups yet, each step shows ONE empty dot; press it and that step joins group 1 — and a second, empty dot appears on every step. Press group 1's dot on any other steps, gaps allowed, to paint them in; press the dot a step already holds to take it out; press the empty dot to start the next group. Six groups is the cap (one per colour) and the empty dot stops appearing there. Keyboard: G on a focused cell paints into the selected group, or starts the next one.
 - [ ] Press Help me start: a question about the feel, then one about the genre, each with "Something else" last. Answering seeds that genre's voices, names the instrument its writers start with, and starts nothing playing. "Something else" twice offers every listed genre plus a no-genre way in; pressing the button again puts the questions away.
-- [ ] Every compose row that writes notes has an instrument picker beside it (MIDI import, Type a melody, Type the words, Type a beat — the beat one lists KITS, the note ones list tuned tracks). Point Type the words at **Bass** and press Sing it: the bass grid fills, the bass comes on, the melody is untouched, and the line under the buttons starts "Bass sings…". The kit is not in the melody/words pickers — it has no note names to type or sing.
-- [ ] Create → **Type the words**: paste two lines of a lyric and press Sing it. One note per syllable lands on the melody grid, the stressed syllables on the beats, the pitches drawn from the chord sequence (type the chords first to hear that); a poem that scans in threes moves the metre to 6/8 and the line under the buttons says so. Every note is an ordinary pinned step — drag one and it stays where you put it.
-- [ ] Create → **Type a beat**: `K H s H KH H S H` writes eight steps onto the kit — kicks on 1 and 5, hats on the odd steps and on 5 (the KH token), a QUIET snare on 3 and a hard one on 7. A line longer than a bar becomes tabs played In order; `|` starts a new bar; letters that name no drum are reported and change nothing.
-- [ ] Import a MIDI file you have to hand (Create → Import a MIDI file, picking an instrument): its notes appear as pinned steps on that grid, longer files become tabs played In order, and the line under the buttons says how many notes landed plus anything that could not fit (chords sharing a step, bars past eight, a different time signature).
+- [ ] Every Write row that writes notes has an instrument picker beside it (MIDI file, Melody, Words, Beat — the beat one lists KITS, the note ones list tuned tracks). Choose Write → Words, point it at **Bass** and press Sing it: the bass grid fills, the bass comes on, the melody is untouched, and the line under the buttons starts "Bass sings…". The kit is not in the melody/words pickers — it has no note names to type or sing.
+- [ ] Create → Write → **Words**: paste two lines of a lyric and press Sing it. One note per syllable lands on the melody grid, the stressed syllables on the beats, the pitches drawn from the chord sequence (type the chords first to hear that); a poem that scans in threes moves the metre to 6/8 and the line under the buttons says so. Every note is an ordinary pinned step — drag one and it stays where you put it.
+- [ ] Create → Write → **Beat**: `K H s H KH H S H` writes eight steps onto the kit — kicks on 1 and 5, hats on the odd steps and on 5 (the KH token), a QUIET snare on 3 and a hard one on 7. A line longer than a bar becomes tabs played In order; `|` starts a new bar; letters that name no drum are reported and change nothing.
+- [ ] Import a MIDI file you have to hand (Create → Write → MIDI file → Import a MIDI file, picking an instrument): its notes appear as pinned steps on that grid, longer files become tabs played In order, and the line under the buttons says how many notes landed plus anything that could not fit (chords sharing a step, bars past eight, a different time signature).
 - [ ] Under a melodic grid, press ÷2: the cells double in number, the readout names the note value (semiquavers → demi-semiquavers), and a step you draw on the fine grid sounds where you drew it. ×2 walks back up; the pair stops at crotchets and at hemi-demi-semiquavers.
 - [ ] Time signature → **Custom…**: the beat unit offers 2, 4, 8 and 16. Try 2/2 (16 cells at sixteenths, beat marks on beats 1 and 3), 7/16 (7 cells, marks grouped 2+2+3) and 20/16 (20 cells). Ask for 21/16 or 3/2 and the readout snaps back — five quarter-note beats is what a lane can hold.
 - [ ] A long note under the dials (drag Simple's Tempo sideways) stays up long enough to read to the end, and clicking it dismisses it.
@@ -1066,3 +1066,29 @@ owed to the bridge key (fromClaude 13).
 - [ ] Automated: `node tests/recipe-roundtrip.mjs` prints the secret-layers
       table — what the recipe names and what the engine still decides in
       secret; `node tests/all.mjs` 29 suites.
+
+## Create rebuild — two doors (2026-10-03)
+
+His "indecipherably complex", rebuilt on the one-model, progressive rule.
+
+- [ ] Open Create on a fresh visit: the panel shows the title and its ⓘ, ONE
+      Start row (Blank slate, Help me start, Seed voices from…, Strip a
+      layer… with a Strip button greyed until a layer is chosen), ONE Write…
+      picker, and Musical typing below. No text boxes, no Zero buttons, no
+      Fit chords, no Re-fit.
+- [ ] Strip a layer → Notes → Strip: the melodic grids empty and go Manual,
+      the drums and chords keep playing (what Zero notes did). Voices,
+      Chords, Rhythms and FX strip their one layer each.
+- [ ] Write → Melody: exactly the melody row opens (box, "onto", picker,
+      Write it). Each other choice swaps it for its own row; Write… closes it.
+- [ ] Write → Chords on a blank slate shows only Type the chords. Write a
+      melody, come back to Chords: Fit chords to the tune is now beside it,
+      pointed at the track that carries the tune.
+- [ ] Write → Tap a rhythm, tap a few beats, stop: Re-fit the last take
+      appears. Switch Write to another row while tapping: tap mode stands
+      down (Space is a plain key again).
+- [ ] Reload: Create reopens on the last Write choice.
+- [ ] Automated: page-boot's Create block (visible-control count at first
+      open, Melody shows exactly its row, Strip → Notes at the ENGINE).
+      Layout unmeasured until `.vibe/measure.sh local overlaps` runs on it,
+      at desktop and 390×844.

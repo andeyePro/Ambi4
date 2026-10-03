@@ -281,37 +281,60 @@ const VOICES: Record<string, [string, string][]> = {
             <span class="panel-label popover-title" id="play-along-title">Create</span>
             <span id="create-info"></span>
           </div>
-          <!-- v0.0.89 (his 103): one title, buttons not paragraphs, the
-               instructions in the ⓘ. Blank slate is the real one; the Zero
-               buttons strip one layer at a time so ANY preset can be the
-               source. -->
-          <div class="create-row">
+          <!-- The Create rebuild (his "indecipherably complex", 2026-10-03; the
+               one-model, progressive-complexity rule in CLAUDE.md): the
+               surface is two doors and nothing else. START is a fresh
+               beginning — Blank slate, Help me start, a genre's voices, or
+               strip ONE layer off what is there (the five Zero buttons live
+               on, hidden, as the Strip button's targets, so their ids and
+               handlers are unchanged). WRITE is one choice that opens one
+               input row; every row keeps its ids and handlers and is merely
+               hidden until chosen. Re-fit and Fit chords show only when
+               there is a take / a tune for them to act on. Instructions stay
+               in the ⓘ, buttons not paragraphs (his 103). -->
+          <div id="create-doors" class="create-doors">
+          <div class="create-row" id="create-start-row">
             <button type="button" id="create-blank" class="secondary-button">Blank slate</button>
-            <button type="button" id="zero-voices" class="secondary-button">Zero voices</button>
-            <button type="button" id="zero-chords" class="secondary-button">Zero chords</button>
-            <button type="button" id="zero-notes" class="secondary-button">Zero notes</button>
-            <button type="button" id="zero-rhythms" class="secondary-button">Zero rhythms</button>
-            <button type="button" id="zero-fx" class="secondary-button">Zero FX</button>
-          </div>
-          <div class="create-row">
             <button type="button" id="guided-start" class="secondary-button">Help me start</button>
-            <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
-            <button type="button" id="create-refit" class="secondary-button" hidden>Re-fit the last take</button>
             <label class="visually-hidden" for="create-seed">Seed the instrument voices from a genre</label>
-            <select id="create-seed" class="genre-select create-seed">
-              <option value="">Seed voices from…</option>
+            <select id="create-seed" class="genre-select create-seed create-door-select">
+              <option value="">Voices from…</option>
             </select>
-            <button type="button" id="compose-chords" class="secondary-button">Type the chords</button>
+            <label class="visually-hidden" for="create-strip">Strip which layer</label>
+            <select id="create-strip" class="genre-select create-door-select">
+              <option value="">Strip a layer…</option>
+              <option value="voices">Voices</option>
+              <option value="chords">Chords</option>
+              <option value="notes">Notes</option>
+              <option value="rhythms">Rhythms</option>
+              <option value="fx">FX</option>
+            </select>
+            <button type="button" id="create-strip-go" class="secondary-button" disabled>Strip</button>
+            <span id="zero-buttons" hidden>
+              <button type="button" id="zero-voices" class="secondary-button">Zero voices</button>
+              <button type="button" id="zero-chords" class="secondary-button">Zero chords</button>
+              <button type="button" id="zero-notes" class="secondary-button">Zero notes</button>
+              <button type="button" id="zero-rhythms" class="secondary-button">Zero rhythms</button>
+              <button type="button" id="zero-fx" class="secondary-button">Zero FX</button>
+            </span>
           </div>
-          <div class="create-row create-midi-row">
-            <label class="secondary-button create-midi-label" for="compose-midi">
-              Import a MIDI file
-              <input type="file" id="compose-midi" accept=".mid,.midi,audio/midi,audio/x-midi" class="visually-hidden" />
-            </label>
-            <label class="visually-hidden" for="compose-midi-track">Import onto which instrument</label>
-            <select id="compose-midi-track" class="genre-select create-midi-track"></select>
+          <div id="guided-tree" class="create-row create-guided-tree" hidden>
+            <p class="hint guided-question" id="guided-question"></p>
+            <div class="create-row guided-choices" id="guided-choices"></div>
           </div>
-          <div class="create-row create-melody-row">
+          <div class="create-row" id="create-write-row">
+            <label class="visually-hidden" for="create-write">Write what</label>
+            <select id="create-write" class="genre-select create-door-select">
+              <option value="">Write…</option>
+              <option value="melody">Melody</option>
+              <option value="chords">Chords</option>
+              <option value="beat">Beat</option>
+              <option value="words">Words</option>
+              <option value="tap">Tap a rhythm</option>
+              <option value="midi">MIDI file</option>
+            </select>
+          </div>
+          <div class="create-row create-melody-row" data-write="melody" hidden>
             <label class="visually-hidden" for="compose-melody-text">Type a melody, one note per beat</label>
             <input
               type="text"
@@ -325,21 +348,15 @@ const VOICES: Record<string, [string, string][]> = {
             <select id="compose-melody-track" class="genre-select create-midi-track"></select>
             <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
           </div>
-          <div class="create-row create-words-row">
-            <label class="visually-hidden" for="compose-words-text">Type the words, one line per phrase</label>
-            <textarea
-              id="compose-words-text"
-              class="create-words-input"
-              rows="2"
-              placeholder="Type the words, a line at a time — the metre comes out of them and the melody from your chords"
-              autocomplete="off"
-              spellcheck="false"
-            ></textarea>
-            <label class="visually-hidden" for="compose-words-track">Sing onto which instrument</label>
-            <select id="compose-words-track" class="genre-select create-midi-track"></select>
-            <button type="button" id="compose-words-write" class="secondary-button">Sing it</button>
+          <div class="create-row create-harmonise-row" data-write="chords" hidden>
+            <button type="button" id="compose-chords" class="secondary-button">Type the chords</button>
+            <span id="create-harmonise-wrap" class="create-harmonise-wrap" hidden>
+              <button type="button" id="compose-harmonise" class="secondary-button">Fit chords to the tune</button>
+              <label class="visually-hidden" for="compose-harmonise-track">Fit chords to which instrument&rsquo;s tune</label>
+              <select id="compose-harmonise-track" class="genre-select create-midi-track"></select>
+            </span>
           </div>
-          <div class="create-row create-melody-row">
+          <div class="create-row create-melody-row" data-write="beat" hidden>
             <label class="visually-hidden" for="compose-beat-text">Type a beat, one token per step</label>
             <input
               type="text"
@@ -353,14 +370,32 @@ const VOICES: Record<string, [string, string][]> = {
             <select id="compose-beat-track" class="genre-select create-midi-track"></select>
             <button type="button" id="compose-beat-write" class="secondary-button">Write it</button>
           </div>
-          <div class="create-row create-harmonise-row">
-            <button type="button" id="compose-harmonise" class="secondary-button">Fit chords to the tune</button>
-            <label class="visually-hidden" for="compose-harmonise-track">Fit chords to which instrument&rsquo;s tune</label>
-            <select id="compose-harmonise-track" class="genre-select create-midi-track"></select>
+          <div class="create-row create-words-row" data-write="words" hidden>
+            <label class="visually-hidden" for="compose-words-text">Type the words, one line per phrase</label>
+            <textarea
+              id="compose-words-text"
+              class="create-words-input"
+              rows="2"
+              placeholder="Type the words, a line at a time — the metre comes out of them and the melody from your chords"
+              autocomplete="off"
+              spellcheck="false"
+            ></textarea>
+            <label class="visually-hidden" for="compose-words-track">Sing onto which instrument</label>
+            <select id="compose-words-track" class="genre-select create-midi-track"></select>
+            <button type="button" id="compose-words-write" class="secondary-button">Sing it</button>
           </div>
-          <div id="guided-tree" class="create-row create-guided-tree" hidden>
-            <p class="hint guided-question" id="guided-question"></p>
-            <div class="create-row guided-choices" id="guided-choices"></div>
+          <div class="create-row" data-write="tap" hidden>
+            <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
+            <button type="button" id="create-refit" class="secondary-button" hidden>Re-fit the last take</button>
+          </div>
+          <div class="create-row create-midi-row" data-write="midi" hidden>
+            <label class="secondary-button create-midi-label" for="compose-midi">
+              Import a MIDI file
+              <input type="file" id="compose-midi" accept=".mid,.midi,audio/midi,audio/x-midi" class="visually-hidden" />
+            </label>
+            <label class="visually-hidden" for="compose-midi-track">Import onto which instrument</label>
+            <select id="compose-midi-track" class="genre-select create-midi-track"></select>
+          </div>
           </div>
           <p class="hint" id="guided-tip" aria-live="polite"></p>
           <div class="control-label-row">
@@ -1855,6 +1890,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // and (for the total trace) the engine can honour them.
         scopeSpread: false,
         scopeTotal: false,
+        // The Create panel's last Write choice ('' = none yet), so the
+        // panel reopens on the row the listener was using.
+        createWrite: '',
       },
     };
 
@@ -17936,7 +17974,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Blank slate silences and empties everything — instruments off, grids cleared, no genre, FX zeroed — so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing): start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. The Zero buttons strip ONE layer (voices, chords, notes, rhythms or FX) so any preset or genre can be your starting material. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so Re-fit the last take can land the same performance on a new time signature or tempo. Seed voices borrows a genre\u2019s instruments without playing a note, and names what that genre\u2019s composers usually start with. Type the chords opens the chord editor, Type a melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests) \u2014 and Type a beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Import a MIDI file brings in a phrase composed elsewhere. Type the words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody for them on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, and the pitches from your chord sequence. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. And the derivation runs the other way too: Fit chords to the tune reads whatever tune an instrument already carries \u2014 typed, sung, imported or drawn \u2014 and writes the chord loop that fits it, notes on the beat deciding each bar\u2019s chord and notes between passing.'
+              'Two doors. START: Blank slate silences and empties everything \u2014 instruments off, grids cleared, no genre, FX zeroed \u2014 so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing); start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. Help me start asks what you want to make and names what that genre\u2019s composers usually start with. Seed voices borrows a genre\u2019s instruments without playing a note. Strip a layer takes ONE layer away \u2014 voices back to stock, chords to one, melodic notes, the drum pattern, or the FX \u2014 and keeps the rest, so any preset or genre can be your starting material. WRITE: choose what to write and only that row opens. Melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). Chords opens the chord editor; once an instrument carries a tune \u2014 typed, sung, imported or drawn \u2014 Fit chords to the tune appears beside it and writes the chord loop that fits, notes on the beat deciding each bar\u2019s chord and notes between passing. Beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, the pitches from your chords. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so once there is a take Re-fit the last take appears and lands the same performance on a new time signature or tempo. MIDI file brings in a phrase composed elsewhere. The panel remembers your last Write choice.'
             );
           }
           const typingInfo = document.getElementById('musical-typing-info');
@@ -18060,8 +18098,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                   closeGuidedTree();
                   if (guidedTip) {
                     guidedTip.textContent =
-                      'Nothing seeded. Three ways in with no genre at all: Tap a rhythm for a groove, '
-                      + 'Type the chords for harmony, or the keys below for a tune.';
+                      'Nothing seeded. Three ways in with no genre at all: Write \u2192 Tap a rhythm for a groove, '
+                      + 'Write \u2192 Chords for harmony, or the keys below for a tune.';
                   }
                 },
               },
@@ -18836,6 +18874,74 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           setPlayAlongUI();
         });
         describe(createRefit, 'Lands your last take on the grid as it is NOW — change the time signature or tempo first, and the raw timing you played is re-fitted to it. Your take stays on this device, even across a reload, until a new one replaces it.');
+
+        // ---- The Create rebuild (his "indecipherably complex", 2026-10-03) ---
+        // Two doors, one row at a time. Strip a layer is a select of WHAT and
+        // a button that DOES it (an action never hides inside a select), and
+        // it presses the matching Zero button, so each layer keeps the one
+        // handler it always had. Write opens exactly one input row and is
+        // remembered as a ui preference, so the next visit opens where the
+        // last one left off.
+        const stripSelect = document.getElementById('create-strip');
+        const stripGo = document.getElementById('create-strip-go');
+        const syncStripGo = () => {
+          if (stripGo) stripGo.disabled = !(stripSelect && stripSelect.value);
+        };
+        stripSelect?.addEventListener('change', syncStripGo);
+        stripGo?.addEventListener('click', () => {
+          const layer = stripSelect ? stripSelect.value : '';
+          if (!layer) return;
+          document.getElementById(`zero-${layer}`)?.click();
+        });
+        syncStripGo();
+        describe(stripSelect, 'Which ONE layer to strip from what is playing now: the voices back to stock, the chords to a single chord, the melodic notes, the drum pattern, or the effects. Everything else is kept.');
+        describe(stripGo, 'Strips the chosen layer, so any preset or genre can be your starting material.');
+
+        const writeSelect = document.getElementById('create-write');
+        const WRITE_CHOICES = ['melody', 'chords', 'beat', 'words', 'tap', 'midi'];
+        const harmoniseWrap = document.getElementById('create-harmonise-wrap');
+        // A tune to fit chords to: any tuned, sequenced track whose stored grid
+        // carries a pitched step — exactly what deriveChordsFromTrack reads.
+        const tracksWithTune = () => tunedSequenced().filter((id) => {
+          const track = settings.tracks[id];
+          const seqs = Array.isArray(track?.sequencers) && track.sequencers.length
+            ? track.sequencers
+            : (track && track.sequencer ? [track.sequencer] : []);
+          return seqs.some((seq) => Array.isArray(seq?.steps)
+            && seq.steps.some((step) => step && step.on && Number.isFinite(step.midi)));
+        });
+        function syncCreateWrite() {
+          const choice = writeSelect && WRITE_CHOICES.includes(writeSelect.value) ? writeSelect.value : '';
+          for (const row of document.querySelectorAll('#create-doors [data-write]')) {
+            row.hidden = row.dataset.write !== choice;
+          }
+          if (choice === 'chords' && harmoniseWrap) {
+            const tuned = tracksWithTune();
+            harmoniseWrap.hidden = !tuned.length;
+            if (tuned.length && harmoniseTrackSelect && !tuned.includes(harmoniseTrackSelect.value)) {
+              harmoniseTrackSelect.value = tuned[0];
+            }
+          }
+          // Tap mode remaps Space; with its button hidden it would be state
+          // with nothing on screen, so leaving the Tap row stands it down —
+          // the same reasoning as closing the panel.
+          if (choice !== 'tap' && tapMode && createTap) createTap.click();
+          setPlayAlongUI();
+        }
+        if (writeSelect) {
+          const remembered = settings.ui && typeof settings.ui.createWrite === 'string' ? settings.ui.createWrite : '';
+          writeSelect.value = WRITE_CHOICES.includes(remembered) ? remembered : '';
+          writeSelect.addEventListener('change', () => {
+            settings.ui.createWrite = WRITE_CHOICES.includes(writeSelect.value) ? writeSelect.value : '';
+            syncCreateWrite();
+            persistSettings();
+          });
+          describe(writeSelect, 'What to write: a melody, the chords, a beat, words to sing, a rhythm tapped on Space, or a MIDI file. Only the one you choose is shown.');
+        }
+        // Re-read on every open: a tune typed, sung, imported or captured since
+        // the panel was last shown is what makes Fit chords appear.
+        playAlongOpen?.addEventListener('click', () => syncCreateWrite());
+        syncCreateWrite();
       }
 
       setupPopover('timers-toggle', 'timers-popover');
@@ -19961,7 +20067,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#play-along',
-          text: 'The orange piano icon — Create — is the app\'s second main door. Blank slate empties everything, FX included, so what follows is yours (a tapped step switches a silent instrument on; a typed line plays); the Zero buttons strip one layer at a time; Tap a rhythm turns the Space bar into a drum; and Musical typing hands your computer keyboard, or a MIDI one, to a track, with Capture recording what you play into its grid. The panel\'s two ⓘs hold the detail.',
+          text: 'The orange piano icon — Create — is the app\'s second main door, with two doors of its own. Start: Blank slate empties everything, FX included; Help me start asks what you want to make; Strip a layer takes one layer away. Write: pick Melody, Chords, Beat, Words, Tap a rhythm or MIDI file and only that row opens. Musical typing hands your computer keyboard, or a MIDI one, to a track, with Capture recording what you play. The two ⓘs hold the detail.',
         },
         {
           target: '#front-scope-module',
@@ -19970,7 +20076,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#control-progression',
-          text: 'Chords is the loop the piece keeps coming back to. Each chord has a card: press one to hear it, and the notes it plays are printed on it, so you never have to imagine a chord from its name. The arrows move a chord through the scale and the button beside them makes it wider. Leave the box empty and the app writes the loop itself — or press Fit chords to the tune, on Create, and it fits one to a tune you already have.',
+          text: 'Chords is the loop the piece keeps coming back to. Each chord has a card: press one to hear it, and the notes it plays are printed on it, so you never have to imagine a chord from its name. The arrows move a chord through the scale and the button beside them makes it wider. Leave the box empty and the app writes the loop itself — or, on Create, Write → Chords offers Fit chords to the tune, which fits one to a tune you already have.',
         },
         {
           tab: 'advanced',
@@ -21165,6 +21271,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       font-size: 0.85rem;
       opacity: 0.8;
       flex: 0 0 auto;
+    }
+
+    /* The Create rebuild: the door selects (Seed, Strip, Write) sit at
+       button height like the compose pickers, for the same reason. */
+    .create-row .create-door-select {
+      min-height: 34px;
+      padding: 4px 6px;
+      max-width: 18ch;
+    }
+
+    .create-harmonise-wrap {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
     }
 
     .create-row .create-midi-track {

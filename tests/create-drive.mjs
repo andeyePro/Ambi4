@@ -52,10 +52,19 @@ export default async function drive(page) {
       .every((id) => !!document.getElementById(id)),
     infos: !!document.querySelector('#create-info button') && !!document.querySelector('#musical-typing-info button'),
     seedOptions: document.getElementById('create-seed')?.options.length ?? 0,
+    // The Create rebuild: two doors — the Start row and ONE Write picker —
+    // and no input row until a Write choice opens it.
+    doorsShown: ['create-start-row', 'create-write-row'].every((id) => {
+      const el = document.getElementById(id);
+      return !!el && el.offsetParent !== null;
+    }),
+    rowsShown: [...document.querySelectorAll('#create-doors [data-write]')].filter((el) => el.offsetParent !== null).length,
   }));
   check('the panel opens', doors.open, (v) => v === true);
   check('ONE Create title, and Musical typing below it', doors.titles.filter((t) => t === 'Create').length === 1 && doors.titles.includes('Musical typing'), (v) => v === true);
-  check('the five Zero buttons are there', doors.zeros, (v) => v === true);
+  check('the five Zero buttons are there (hidden, as Strip\u2019s targets)', doors.zeros, (v) => v === true);
+  check('the Start row and the Write picker show', doors.doorsShown, (v) => v === true);
+  check('…and no Write row opens until one is chosen', doors.rowsShown, 0);
   check('the instructions live in ⓘ buttons', doors.infos, (v) => v === true);
   check('the seed list carries the public genres', doors.seedOptions >= 3, (v) => v === true);
 
@@ -189,6 +198,8 @@ export default async function drive(page) {
     await page.click('#play-along-open');
     await page.waitForTimeout(200);
   }
+  await page.selectOption('#create-write', 'chords');
+  await page.waitForTimeout(150);
   await page.click('#compose-chords');
   await page.waitForTimeout(700);
   const composeLanding = await page.evaluate(() => ({
@@ -210,6 +221,8 @@ export default async function drive(page) {
     await page.click('#play-along-open');
     await page.waitForTimeout(250);
   }
+  await page.selectOption('#create-write', 'tap');
+  await page.waitForTimeout(150);
   await page.click('#create-tap');
   await page.waitForTimeout(300);
   const tapState = await page.evaluate(() => ({
@@ -268,7 +281,12 @@ export default async function drive(page) {
       const all = JSON.parse(localStorage.getItem('ambi4:generator') || '{}');
       return { level: all?.tracks?.texture?.level ?? null, tail: all?.reverbTail ?? null };
     });
-    await page.click('#zero-chords');
+    if (await page.evaluate(() => document.getElementById('play-along').hidden)) {
+      await page.click('#play-along-open');
+      await page.waitForTimeout(200);
+    }
+    await page.selectOption('#create-strip', 'chords');
+    await page.click('#create-strip-go');
     await page.waitForTimeout(600);
     const afterZero = await page.evaluate(() => {
       const all = JSON.parse(localStorage.getItem('ambi4:generator') || '{}');

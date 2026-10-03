@@ -335,7 +335,16 @@ async function clickPlay(win, doc) {
   await sleep(300);
 }
 
+/** Create's Write door: open one input row, as a person must before typing. */
+function chooseWrite(win, doc, choice) {
+  const select = doc.getElementById('create-write');
+  if (!select) return;
+  select.value = choice;
+  select.dispatchEvent(new win.Event('change', { bubbles: true }));
+}
+
 function writeTyped(win, doc, track, text) {
+  chooseWrite(win, doc, 'melody');
   const picker = doc.getElementById('compose-melody-track');
   picker.value = track;
   picker.dispatchEvent(new win.Event('change', { bubbles: true }));
@@ -564,6 +573,7 @@ async function checkComposeLabel() {
   const { win, doc } = await bootScenario();
   try {
     await openCreateAndBlank(win, doc);
+    chooseWrite(win, doc, 'melody');
 
     const picker = doc.getElementById('compose-melody-track');
     const label = doc.querySelector('label[for="compose-melody-track"]');

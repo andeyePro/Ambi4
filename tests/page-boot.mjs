@@ -3265,6 +3265,107 @@ try {
     }
   }
 
+  // ---- The Create rebuild: two doors (his "indecipherably complex") ------
+  // The progressive rule, counted: at first open the Create part of the panel
+  // shows the Start row and the Write picker and NOTHING else; choosing Melody
+  // opens exactly the melody row; and Strip a layer → Notes does at the
+  // ENGINE what Zero notes did — every melodic grid empty and Manual, the drum
+  // grid untouched. Visibility is the `hidden` attribute up the tree (the
+  // page's [hidden] rule is !important), which is what jsdom can see.
+  {
+    const engine = window.__ambi4Engine;
+    const panel = doc.getElementById('play-along');
+    const doors = doc.getElementById('create-doors');
+    const writeSelect = doc.getElementById('create-write');
+    const strip = doc.getElementById('create-strip');
+    const stripGo = doc.getElementById('create-strip-go');
+    const opener = doc.getElementById('play-along-open');
+    if (!panel || !doors || !writeSelect || !strip || !stripGo || !opener || !engine) {
+      failures.push(`create doors: missing ${[
+        !doors && '#create-doors', !writeSelect && '#create-write', !strip && '#create-strip',
+        !stripGo && '#create-strip-go', !opener && '#play-along-open', !engine && 'engine seam',
+      ].filter(Boolean).join(', ')}`);
+    } else {
+      if (panel.hidden) opener.click();
+      await new Promise((r) => setTimeout(r, 30));
+      const shown = (el) => {
+        for (let n = el; n && n !== panel; n = n.parentElement) if (n.hidden) return false;
+        return true;
+      };
+      const visibleControls = () => Array.from(
+        doors.querySelectorAll('button, select, input:not([type="file"]), textarea, label.secondary-button')
+      ).filter(shown).map((el) => el.id || el.className);
+      const firstOpen = visibleControls();
+      const expected = ['create-blank', 'guided-start', 'create-seed', 'create-strip', 'create-strip-go', 'create-write'];
+      if (panel.hidden) failures.push('create doors: the panel did not open');
+      if (firstOpen.length !== expected.length || expected.some((id) => !firstOpen.includes(id))) {
+        failures.push(`create doors: at first open exactly the Start row and the Write select should show (${expected.length} controls), showing ${firstOpen.length}: ${firstOpen.join(', ')}`);
+      }
+      if (!stripGo.disabled) failures.push('create doors: Strip should be disabled until a layer is chosen');
+
+      writeSelect.value = 'melody';
+      writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const melodyRow = ['compose-melody-text', 'compose-melody-track', 'compose-melody-write'];
+      const afterMelody = visibleControls();
+      const extra = afterMelody.filter((id) => !expected.includes(id));
+      if (extra.length !== melodyRow.length || melodyRow.some((id) => !extra.includes(id))) {
+        failures.push(`create doors: choosing Melody should show exactly the melody row (${melodyRow.join(', ')}), shows ${extra.join(', ') || 'nothing'}`);
+      }
+
+      // Put notes on the melody through the row just opened, so Strip has
+      // something real to strip, and count the kit's steps to prove it stays.
+      const seqsOf = (t) => (Array.isArray(t && t.sequencers) && t.sequencers.length ? t.sequencers : (t && t.sequencer ? [t.sequencer] : []));
+      const onCount = (seq) => {
+        const steps = seq && seq.steps;
+        if (Array.isArray(steps)) return steps.filter((st) => st && st.on).length;
+        if (steps && typeof steps === 'object') return Object.values(steps).reduce((n, lane) => n + (Array.isArray(lane) ? lane.filter((st) => st && st.on).length : 0), 0);
+        return 0;
+      };
+      const melodyTrack = doc.getElementById('compose-melody-track');
+      melodyTrack.value = 'melody';
+      melodyTrack.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const box = doc.getElementById('compose-melody-text');
+      box.value = 'C4 E4 G4 C5';
+      box.dispatchEvent(new window.Event('input', { bubbles: true }));
+      doc.getElementById('compose-melody-write').click();
+      await waitUntil(() => seqsOf(engine.getParams().tracks.melody).some((q) => onCount(q) > 0));
+      const before = engine.getParams();
+      const melodyBefore = seqsOf(before.tracks.melody).reduce((n, q) => n + onCount(q), 0);
+      const kitBefore = seqsOf(before.tracks.percussion).reduce((n, q) => n + onCount(q), 0);
+      if (!melodyBefore) failures.push('create doors: Write it on the melody row put no notes on the melody at the engine');
+      const fitWrap = doc.getElementById('create-harmonise-wrap');
+      const chooseChords = () => {
+        writeSelect.value = 'chords';
+        writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      };
+      chooseChords();
+      if (!fitWrap || !shown(fitWrap)) failures.push('create doors: with a tune on the melody, Write → Chords should offer Fit chords to the tune');
+
+      strip.value = 'notes';
+      strip.dispatchEvent(new window.Event('change', { bubbles: true }));
+      if (stripGo.disabled) failures.push('create doors: Strip stayed disabled with Notes chosen');
+      stripGo.click();
+      await waitUntil(() => seqsOf(engine.getParams().tracks.melody).every((q) => onCount(q) === 0));
+      const after = engine.getParams();
+      const notStripped = [];
+      for (const [id, t] of Object.entries(after.tracks || {})) {
+        if (id === 'percussion' || !t.sequencer) continue;
+        for (const q of seqsOf(t)) {
+          if (onCount(q) || q.mode !== 'manual') notStripped.push(`${id} (${onCount(q)} on, ${q.mode})`);
+        }
+      }
+      if (notStripped.length) failures.push(`create doors: Strip → Notes left melodic grids at the ENGINE: ${notStripped.join(', ')}`);
+      const kitAfter = seqsOf(after.tracks.percussion).reduce((n, q) => n + onCount(q), 0);
+      if (kitAfter !== kitBefore) failures.push(`create doors: Strip → Notes touched the drum grid (${kitBefore} → ${kitAfter} steps on)`);
+      chooseChords();
+      if (fitWrap && shown(fitWrap)) failures.push('create doors: with no tune left anywhere, Fit chords to the tune should be hidden');
+
+      writeSelect.value = '';
+      writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      if (!panel.hidden) opener.click();
+    }
+  }
+
   // ---- v27 blank slate (fromMartin 25) --------------------------------------
   // Clicking Blank slate must leave every track OFF — the "all you" state.
   // Runs LAST: it rewrites the whole params object, so it must follow every

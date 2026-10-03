@@ -30,6 +30,10 @@ export default async function drive(page) {
     await page.click('#play-along-open');
     await page.waitForTimeout(250);
   }
+  // The Create rebuild: each Write row is hidden until chosen, so choose
+  // it first, as a person must.
+  await page.selectOption('#create-write', 'tap');
+  await page.waitForTimeout(150);
   await page.click('#create-tap');
   await page.waitForTimeout(300);
   for (let i = 0; i < 3; i++) {

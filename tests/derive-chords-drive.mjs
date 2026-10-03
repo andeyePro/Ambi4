@@ -40,6 +40,16 @@ export default async function drive(page) {
   await page.waitForTimeout(400);
   await page.click('#play-along-open');
   await page.waitForTimeout(300);
+  // The Create rebuild: Fit chords lives on the Write → Chords row, and the
+  // typed tune on Write → Melody; each row is hidden until chosen, so the
+  // drive chooses it first, as a person must.
+  await page.evaluate(() => {
+    window.__chooseWrite = (choice) => {
+      const w = document.getElementById('create-write');
+      w.value = choice;
+      w.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+  });
 
   const boot = await page.evaluate(() => {
     const select = document.getElementById('compose-harmonise-track');
@@ -62,6 +72,7 @@ export default async function drive(page) {
   // NOT touch the loop that is already set.
   const refusal = await page.evaluate(async () => {
     window.__ambi4Engine.setParams({ harmony: { seed: [{ degree: 3, extension: -1 }] } });
+    window.__chooseWrite('chords');
     const before = JSON.stringify(window.__ambi4Engine.getParams().harmony.seed);
     const select = document.getElementById('compose-harmonise-track');
     select.value = 'bass';
@@ -79,6 +90,7 @@ export default async function drive(page) {
 
   // Type a two-bar tune — a C arpeggio then a G arpeggio — and fit chords to it.
   const fitted = await page.evaluate(async () => {
+    window.__chooseWrite('melody');
     const melodySelect = document.getElementById('compose-melody-track');
     melodySelect.value = 'melody';
     melodySelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -87,6 +99,8 @@ export default async function drive(page) {
     box.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('compose-melody-write').click();
     await new Promise((r) => setTimeout(r, 900));
+    window.__chooseWrite('chords');
+    const fitShown = !document.getElementById('create-harmonise-wrap')?.hidden;
     const select = document.getElementById('compose-harmonise-track');
     select.value = 'melody';
     select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -96,8 +110,10 @@ export default async function drive(page) {
     return {
       seed: p.harmony?.seed ?? null,
       tip: document.getElementById('guided-tip')?.textContent || '',
+      fitShown,
     };
   });
+  check('Write → Chords shows Fit chords once there is a tune', fitted.fitShown, true);
   check('the derived loop landed in the ENGINE\'s harmony.seed',
     Array.isArray(fitted.seed) && fitted.seed.length >= 1, (v) => v === true);
   check('every slot is a degree object the seed law accepted',
@@ -148,6 +164,7 @@ export default async function drive(page) {
 
   // Any-track: the same button fits chords to a tune on the BASS.
   const onBass = await page.evaluate(async () => {
+    window.__chooseWrite('melody');
     const melodySelect = document.getElementById('compose-melody-track');
     melodySelect.value = 'bass';
     melodySelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -156,6 +173,8 @@ export default async function drive(page) {
     box.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('compose-melody-write').click();
     await new Promise((r) => setTimeout(r, 900));
+    window.__chooseWrite('chords');
+    const fitShown = !document.getElementById('create-harmonise-wrap')?.hidden;
     const select = document.getElementById('compose-harmonise-track');
     select.value = 'bass';
     select.dispatchEvent(new Event('change', { bubbles: true }));

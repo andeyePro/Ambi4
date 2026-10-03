@@ -36,6 +36,10 @@ export default async function drive(page) {
 
   await page.click('#play-along-open');
   await page.waitForTimeout(300);
+  // The Create rebuild: each Write row is hidden until chosen, so choose
+  // it first, as a person must.
+  await page.selectOption('#create-write', 'melody');
+  await page.waitForTimeout(150);
 
   await page.fill('#compose-melody-text', 'C4 E4 G4 -');
   await page.click('#compose-melody-write');

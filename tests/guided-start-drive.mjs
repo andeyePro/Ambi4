@@ -106,7 +106,7 @@ export default async function drive(page) {
   }));
   check('choosing no genre closes the tree', escaped.closed, true);
   check('…and names the three ways in that need none',
-    /Tap a rhythm/.test(escaped.tip) && /Type the chords/.test(escaped.tip), (v) => v === true);
+    /Tap a rhythm/.test(escaped.tip) && /Write \u2192 Chords/.test(escaped.tip), (v) => v === true);
 
   // The button is a toggle, not a one-way door.
   await page.click('#guided-start');
