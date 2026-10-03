@@ -55,6 +55,10 @@ function trackFields(track) {
     rows.push({ path: `tracks.${track}.dissonance`, label: `${label} dissonance`, kind: 'range' });
   }
   rows.push({ path: `tracks.${track}.density`, label: `${label} density`, kind: 'range' });
+  // v0.0.203: the bass groove — feel, articulation, anchor and cells — as a rule.
+  if (track === 'bass') {
+    rows.push({ path: 'tracks.bass.grooveRule', label: 'Bass groove rule', kind: 'grooveRule' });
+  }
   for (const aspect of VARY_ASPECTS) {
     rows.push({ path: `tracks.${track}.vary.${aspect}`, label: `${label} vary ${aspect}`, kind: 'range' });
   }
@@ -232,12 +236,71 @@ function parseVoiceRuleText(text) {
   return { chance: chanceText === 'hold' ? null : Number(chanceText), when, order, pool };
 }
 
+/**
+ * v0.0.203: one groove as "feel/articulation/anchor/cells", cells joined by
+ * "+" ("none" for an empty list); a field the groove leaves to the engine is
+ * "-". So "mixed/longShort/kick/and+push", or "held/-/-/-".
+ */
+function formatGroove(choice) {
+  const field = (value) => (value === undefined ? '-' : value);
+  const cells = choice.cells === undefined ? '-' : choice.cells.length ? choice.cells.join('+') : 'none';
+  return [field(choice.feel), field(choice.articulation), field(choice.anchor), cells].join('/');
+}
+
+function parseGroove(text) {
+  const parts = text.split('/');
+  if (parts.length !== 4) throw new Error(`recipeFromText: unreadable groove "${text}"`);
+  const [feel, articulation, anchor, cells] = parts;
+  const out = {};
+  if (feel !== '-') out.feel = feel;
+  if (articulation !== '-') out.articulation = articulation;
+  if (anchor !== '-') out.anchor = anchor;
+  if (cells !== '-') out.cells = cells === 'none' ? [] : cells.split('+');
+  return out;
+}
+
+/**
+ * The groove rule as a sentence: "now <groove|drawn> chance <n|auto> when
+ * <bar|section|piece> order <weight|turn> pool <groove:weight,...|empty>".
+ * Chance "auto" is the engine's own law (null): redrawn at every restatement.
+ */
+function formatGrooveRule(rule) {
+  if (!rule) return 'none';
+  const now = rule.now ? formatGroove(rule.now) : 'drawn';
+  const chance = rule.chance === null ? 'auto' : String(rule.chance);
+  const pool = rule.pool && rule.pool.length
+    ? rule.pool.map((entry) => `${formatGroove(entry)}:${entry.weight}`).join(',')
+    : 'empty';
+  return `now ${now} chance ${chance} when ${rule.when} order ${rule.order} pool ${pool}`;
+}
+
+const GROOVE_RULE_TEXT = /^now (\S+) chance (\S+) when (\S+) order (\S+) pool (.+)$/;
+
+function parseGrooveRuleText(text) {
+  const trimmed = text.trim();
+  if (trimmed === 'none') return null;
+  const match = GROOVE_RULE_TEXT.exec(trimmed);
+  if (!match) throw new Error(`recipeFromText: unreadable groove rule "${text}"`);
+  const [, nowText, chanceText, when, order, poolText] = match;
+  const rule = {};
+  if (nowText !== 'drawn') rule.now = parseGroove(nowText);
+  rule.chance = chanceText === 'auto' ? null : Number(chanceText);
+  rule.when = when;
+  rule.pool = poolText === 'empty' ? [] : poolText.split(',').map((entry) => {
+    const at = entry.lastIndexOf(':');
+    return { ...parseGroove(entry.slice(0, at)), weight: Number(entry.slice(at + 1)) };
+  });
+  rule.order = order;
+  return rule;
+}
+
 function formatValue(row, value) {
   switch (row.kind) {
     case 'number': return formatNumber(row.path, value);
     case 'enum': return String(value);
     case 'range': return formatRange(value);
     case 'voiceRule': return formatVoiceRule(value);
+    case 'grooveRule': return formatGrooveRule(value);
     // 'sequencers' and 'json': structured data too shapeless for prose — a
     // person reads it as a data line, the way they would in a JSON preset.
     default: return JSON.stringify(value);
@@ -250,6 +313,7 @@ function parseValue(row, text) {
     case 'enum': return parseEnumText(text);
     case 'range': return parseRangeText(text);
     case 'voiceRule': return parseVoiceRuleText(text);
+    case 'grooveRule': return parseGrooveRuleText(text);
     default: return JSON.parse(text);
   }
 }

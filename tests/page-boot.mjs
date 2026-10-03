@@ -1752,6 +1752,48 @@ try {
     }
   }
 
+  // v0.0.203 — the bass groove rule on the primitive: Now is four pickers,
+  // Chance a dial with When, Pool an inline list. A pick writes the ENGINE's
+  // rule (not just the select) and holds it; Add what plays grows the pool.
+  {
+    const engine = window.__ambi4Engine;
+    const editor = await openEditor('bass');
+    const rule = editor && editor.querySelector('.rule[data-rule="groove"]');
+    if (!rule) failures.push('the bass editor has no groove rule on the primitive');
+    else {
+      const layer = (name) => rule.querySelector(`.rule-layer[data-layer="${name}"]`);
+      for (const name of ['now', 'chance', 'pool']) if (!layer(name)) failures.push(`the groove rule has no ${name} layer`);
+      if (!rule.querySelector('.rule-chance-slot .knob, .rule-chance-slot input[type="range"]')) failures.push('the groove Chance layer holds no dial');
+      if (!rule.querySelector('#groove-rule-when')) failures.push('the groove When select lost its id');
+      if (!rule.querySelector('#groove-rule-pool')) failures.push('the groove pool Edit… lost its id');
+      for (const field of ['feel', 'articulation', 'anchor', 'cells']) {
+        if (!rule.querySelector(`#groove-now-${field}`)) failures.push(`the groove Now has no ${field} picker`);
+      }
+      const feel = rule.querySelector('#groove-now-feel');
+      if (feel) {
+        feel.value = 'staccato';
+        feel.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const stored = engine.getParams().tracks.bass.grooveRule;
+        if (!stored || !stored.now || stored.now.feel !== 'staccato') failures.push(`a feel pick did not reach the engine: ${JSON.stringify(stored)}`);
+        else if (stored.chance !== 0) failures.push(`a feel pick should hold (Chance 0), engine has ${stored.chance}`);
+        else if (!['articulation', 'anchor', 'cells'].every((f) => f in stored.now)) failures.push(`a pick should write all four choices as Now: ${JSON.stringify(stored.now)}`);
+      }
+      const edit = rule.querySelector('#groove-rule-pool');
+      const panel = rule.querySelector('#groove-pool-panel');
+      const add = rule.querySelector('#groove-pool-add');
+      if (!panel || !add) failures.push('the groove pool has no inline panel or Add what plays');
+      else {
+        if (edit) edit.click();
+        if (panel.hidden) failures.push('Edit… did not open the groove pool');
+        add.click();
+        const pool = engine.getParams().tracks.bass.grooveRule.pool;
+        if (pool.length !== 1 || pool[0].feel !== 'staccato') failures.push(`Add what plays did not put the held groove in the engine's pool: ${JSON.stringify(pool)}`);
+        const summary = rule.querySelector('.rule-pool-summary');
+        if (summary && !/Staccato/.test(summary.textContent)) failures.push(`the pool summary does not name the groove: "${summary.textContent}"`);
+      }
+    }
+  }
+
   // v0.0.188 — the slider fallback editor, booted on purpose. With the seam
     // set, every stock voice renders through the path the page takes when
     // knob.js is missing: every control names its field (pinned, with its

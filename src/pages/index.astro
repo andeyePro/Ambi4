@@ -2773,6 +2773,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         patchDetuneBipolar: false,
         // v0.0.163: weighted-by-section voice blends (sanitiser probe below).
         voiceBlend: false,
+        // v0.0.203: the bass groove rule (sanitiser probe below).
+        grooveRule: false,
         randomness: {},
         dissonance: {},
         vary: {},
@@ -2940,6 +2942,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         engineCaps.voiceBlend =
           blendProbe && isPlainObject(blendProbe.pad) && isPlainObject(blendProbe.pad.voiceWeights)
           && blendProbe.pad.voiceWeights.warm === 1;
+
+        // v0.0.203: the bass groove rule — the Groove row renders only where
+        // the engine keeps the rule it is handed.
+        const grooveProbe = probeTracks({ bass: { grooveRule: { chance: 0, now: { feel: 'held' } } } });
+        engineCaps.grooveRule = Boolean(grooveProbe && isPlainObject(grooveProbe.bass)
+          && isPlainObject(grooveProbe.bass.grooveRule) && grooveProbe.bass.grooveRule.chance === 0
+          && isPlainObject(grooveProbe.bass.grooveRule.now) && grooveProbe.bass.grooveRule.now.feel === 'held');
 
         // v0.0.111: the per-step pitch pin (v0.0.109 schema), probed the same way.
         const pitchProbe = probeTracks({ melody: { sequencer: { steps: [{ on: true, midi: 72 }] } } });
@@ -6453,6 +6462,291 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return handle;
       }
 
+      // ---- v0.0.203: the bass groove as a rule ------------------------------
+      // buildBassGroove's four secret choices — the feel (how long its notes
+      // are), the articulation (which notes ring and which clip), the anchor
+      // (lock to the kick, or keep its own stride) and the offbeat cell — on
+      // the same Now / Chance / Pool primitive as the voice rule. Now is four
+      // pickers showing what plays (the engine's live readout); an explicit
+      // pick holds (Chance to 0 when it was Auto), exactly as a voice pick does.
+      const GROOVE_FEELS = [['held', 'Held'], ['mixed', 'Mixed'], ['staccato', 'Staccato']];
+      const GROOVE_ARTICULATIONS = [['even', 'Even'], ['longShort', 'Long-short'], ['shortLong', 'Short-long'], ['holdOne', 'Hold one']];
+      const GROOVE_ANCHORS = [['kick', 'On the kick'], ['own', 'Own stride']];
+      const GROOVE_CELLS = [['none', 'No offbeat'], ['and', 'The and'], ['push', 'The push'], ['pickup', 'Pickup'], ['straddle', 'Straddle']];
+      const grooveWord = (list, value) => (list.find(([v]) => v === value) || [null, value])[1];
+      /** One groove as words: "Mixed · Long-short · On the kick · The and". */
+      function grooveLabel(choice) {
+        if (!isPlainObject(choice)) return 'drawn';
+        const bits = [];
+        if (choice.feel) bits.push(grooveWord(GROOVE_FEELS, choice.feel));
+        if (choice.articulation) bits.push(grooveWord(GROOVE_ARTICULATIONS, choice.articulation));
+        if (choice.anchor) bits.push(grooveWord(GROOVE_ANCHORS, choice.anchor));
+        if (Array.isArray(choice.cells)) {
+          bits.push(choice.cells.length ? choice.cells.map((c) => grooveWord(GROOVE_CELLS, c)).join(' + ') : 'No offbeat');
+        }
+        return bits.length ? bits.join(' · ') : 'drawn';
+      }
+      /** The live groove (engine readout), last seen at the 4 Hz poll. */
+      let grooveLive = null;
+      let grooveUi = null;
+      function ensureGrooveRule() {
+        const t = settings.tracks.bass;
+        if (!isPlainObject(t.grooveRule)) t.grooveRule = { chance: null, when: 'section', pool: [], order: 'weight' };
+        if (!Array.isArray(t.grooveRule.pool)) t.grooveRule.pool = [];
+        return t.grooveRule;
+      }
+      /** Every field of what plays: the rule's Now over the live readout. */
+      function grooveNowFull() {
+        const rule = settings.tracks.bass.grooveRule;
+        const now = isPlainObject(rule) && isPlainObject(rule.now) ? rule.now : {};
+        const live = isPlainObject(grooveLive) ? grooveLive : {};
+        return {
+          feel: now.feel ?? live.feel ?? 'mixed',
+          articulation: now.articulation ?? live.articulation ?? 'even',
+          anchor: now.anchor ?? live.anchor ?? 'kick',
+          cells: Array.isArray(now.cells) ? now.cells.slice() : Array.isArray(live.cells) ? live.cells.slice() : [],
+        };
+      }
+      function commitGrooveRule() {
+        const rule = settings.tracks.bass.grooveRule;
+        engine.setParams({ tracks: { bass: { grooveRule: isPlainObject(rule) ? structuredClone(rule) : null } } });
+        persistSettings();
+        refreshGrooveUi();
+      }
+      function refreshGrooveUi() {
+        if (!grooveUi || !grooveUi.handle.el.isConnected) { grooveUi = null; return; }
+        const rule = settings.tracks.bass.grooveRule;
+        const stored = isPlainObject(rule) ? rule : null;
+        const shown = stored && isPlainObject(stored.now) && stored.chance !== null ? grooveNowFull() : (grooveLive || (stored && stored.now));
+        grooveUi.handle.setNow(grooveLabel(shown));
+        grooveUi.handle.setMark(Boolean(stored && (stored.chance !== null || stored.pool.length)));
+        grooveUi.handle.setPool((stored ? stored.pool : []).map((entry) => ({ id: grooveLabel(entry), weight: entry.weight })), stored ? stored.order : 'weight');
+        const full = isPlainObject(shown) ? shown : {};
+        for (const [field, select] of Object.entries(grooveUi.selects)) {
+          if (document.activeElement === select) continue;
+          const value = field === 'cells'
+            ? (Array.isArray(full.cells) ? (full.cells[0] ?? 'none') : '')
+            : (full[field] ?? '');
+          if (value && select.value !== value) select.value = value;
+        }
+        if (grooveUi.renderPool) grooveUi.renderPool();
+      }
+      /** The 4 Hz poll's hook: only a CHANGE redraws anything. */
+      function applyResolvedGroove(entry) {
+        const live = entry && isPlainObject(entry.groove) ? entry.groove : null;
+        if (JSON.stringify(live) === JSON.stringify(grooveLive)) return;
+        grooveLive = live;
+        refreshGrooveUi();
+      }
+
+      function buildGrooveRule(container, track) {
+        if (track !== 'bass' || !ruleApi || !engineCaps.grooveRule) return null;
+        const stored = isPlainObject(settings.tracks.bass.grooveRule) ? settings.tracks.bass.grooveRule : null;
+        const row = document.createElement('div');
+        row.className = 'vary-row rule-row groove-rule-row';
+        const nowRow = document.createElement('div');
+        nowRow.className = 'groove-now';
+        const selects = {};
+        const handle = ruleApi.createRule(row, {
+          id: 'groove',
+          name: 'Groove',
+          level: ruleLevel(),
+          describe,
+          now: {
+            text: grooveLabel(stored && stored.now),
+            hint: 'The groove the bass line is playing now: its feel, which notes ring and which clip, what it locks to, and its offbeat figure. Press to pick them.',
+            onOpen: () => { try { selects.feel.focus(); } catch {} },
+          },
+          chance: {
+            when: stored ? stored.when : 'section',
+            whenIds: { select: 'groove-rule-when' },
+            onWhen: (value) => {
+              ensureGrooveRule().when = value;
+              commitGrooveRule();
+            },
+          },
+          pool: {
+            rows: (stored ? stored.pool : []).map((entry) => ({ id: grooveLabel(entry), weight: entry.weight })),
+            order: stored ? stored.order : 'weight',
+            hint: 'The grooves a redraw may pick from, in order and weighted. Add what plays, reorder, remove, and choose by weight or in turn.',
+            ids: { edit: 'groove-rule-pool' },
+            onEdit: () => {
+              poolPanel.hidden = !poolPanel.hidden;
+              if (!poolPanel.hidden) renderPool();
+            },
+          },
+        });
+
+        // -- Now: four pickers. An explicit pick holds (Auto becomes Hold).
+        const pickers = [
+          ['feel', 'Feel', GROOVE_FEELS, 'How long the notes are: held notes lean into each other, staccato leaves air between them, mixed holds the anchor and clips the offbeats.'],
+          ['articulation', 'Lengths', GROOVE_ARTICULATIONS, 'Which notes of the bar ring and which clip, as a cycle: even, long-short, short-long, or hold the first and clip the rest.'],
+          ['anchor', 'Anchor', GROOVE_ANCHORS, 'What the line counts from: the kick drum\'s hits when a kit is playing, or its own stride through the beats.'],
+          ['cells', 'Offbeat', GROOVE_CELLS, 'The figure hung between the beats, where the fifth and octave live. How many the bar carries still follows Energy; this picks which figure. No offbeat keeps the line on the beats.'],
+        ];
+        for (const [field, label, options, hint] of pickers) {
+          const select = document.createElement('select');
+          select.className = 'genre-select groove-now-select';
+          select.id = `groove-now-${field}`;
+          select.setAttribute('aria-label', `Groove ${label.toLowerCase()}`);
+          for (const [value, text] of options) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = text;
+            select.append(option);
+          }
+          describe(select, hint);
+          select.addEventListener('change', () => {
+            const rule = ensureGrooveRule();
+            const now = grooveNowFull();
+            if (field === 'cells') now.cells = select.value === 'none' ? [] : [select.value];
+            else now[field] = select.value;
+            rule.now = now;
+            if (rule.chance === null) rule.chance = 0;
+            if (grooveUi && grooveUi.chanceKnob && typeof grooveUi.chanceKnob.set === 'function') {
+              try { grooveUi.chanceKnob.set(grooveChanceRaw(rule.chance)); } catch {}
+            }
+            commitGrooveRule();
+          });
+          selects[field] = select;
+          nowRow.append(select);
+        }
+        handle.el.querySelector('.rule-now')?.append(nowRow);
+
+        // -- Chance: Auto (the engine's own law) at the left detent, then Hold, then 5..100 %.
+        const grooveChanceRaw = (chance) => (chance === null || chance === undefined ? 0 : 1 + Math.round(clamp(chance, 0, 1) * 20));
+        const grooveChanceFromRaw = (raw) => (Math.round(raw) <= 0 ? null : (Math.round(raw) - 1) / 20);
+        const grooveChanceFormat = (raw) => (Math.round(raw) <= 0 ? 'Auto' : Math.round(raw) === 1 ? 'Hold' : `${(Math.round(raw) - 1) * 5}%`);
+        let chanceKnob = null;
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = 'vary-knob';
+          handle.chanceSlot.append(cell);
+          try {
+            chanceKnob = knobApi.createKnob(cell, {
+              label: 'Groove chance',
+              min: 0,
+              max: 21,
+              step: 1,
+              value: grooveChanceRaw(stored ? stored.chance : null),
+              marks: [0],
+              format: grooveChanceFormat,
+              defaultValue: 0,
+              onInput: (v) => {
+                const rule = ensureGrooveRule();
+                rule.chance = grooveChanceFromRaw(v);
+                // Hold or any number keeps what you hear: write it down as Now.
+                if (rule.chance !== null && !isPlainObject(rule.now)) rule.now = grooveNowFull();
+                commitGrooveRule();
+              },
+            });
+            describe(chanceKnob.el, 'Chance: how likely the bass is to move to another groove from its pool, at each bar, section or piece (the When beside it). Hold keeps the groove you hear for good; at the left detent, Auto, the app redraws it whenever a section or the energy moves, as it always has.');
+          } catch {
+            cell.remove();
+          }
+        }
+
+        // -- Pool: an inline list — add what plays, reorder, remove, by weight or in turn.
+        const poolPanel = document.createElement('div');
+        poolPanel.className = 'groove-pool';
+        poolPanel.id = 'groove-pool-panel';
+        poolPanel.hidden = true;
+        const poolList = document.createElement('div');
+        poolList.className = 'blend-rows';
+        poolPanel.append(poolList);
+        function renderPool() {
+          if (poolPanel.hidden) return;
+          const rule = isPlainObject(settings.tracks.bass.grooveRule) ? settings.tracks.bass.grooveRule : null;
+          const rows = rule ? rule.pool : [];
+          poolList.innerHTML = '';
+          if (!rows.length) {
+            const empty = document.createElement('p');
+            empty.className = 'hint';
+            empty.textContent = 'Empty: a redraw has nothing to move to, so the groove holds.';
+            poolList.append(empty);
+          }
+          rows.forEach((entry, index) => {
+            const line = document.createElement('div');
+            line.className = 'blend-row groove-pool-row';
+            const name = document.createElement('span');
+            name.textContent = grooveLabel(entry);
+            const weight = document.createElement('input');
+            weight.type = 'number';
+            weight.min = '1';
+            weight.max = '10';
+            weight.step = '1';
+            weight.value = String(clamp(Math.round(entry.weight), 1, 10));
+            weight.setAttribute('aria-label', `Weight of ${grooveLabel(entry)}`);
+            weight.hidden = rule.order === 'turn';
+            weight.addEventListener('change', () => {
+              entry.weight = clamp(Math.round(Number(weight.value) || 1), 1, 10);
+              commitGrooveRule();
+            });
+            const move = (to) => { rows.splice(to, 0, rows.splice(index, 1)[0]); commitGrooveRule(); };
+            const up = document.createElement('button');
+            up.type = 'button';
+            up.className = 'secondary-button blend-move';
+            up.textContent = '▲';
+            up.disabled = index === 0;
+            up.setAttribute('aria-label', `Move ${grooveLabel(entry)} up`);
+            up.addEventListener('click', () => move(index - 1));
+            const down = document.createElement('button');
+            down.type = 'button';
+            down.className = 'secondary-button blend-move';
+            down.textContent = '▼';
+            down.disabled = index === rows.length - 1;
+            down.setAttribute('aria-label', `Move ${grooveLabel(entry)} down`);
+            down.addEventListener('click', () => move(index + 1));
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'secondary-button blend-remove';
+            remove.textContent = '×';
+            remove.setAttribute('aria-label', `Remove ${grooveLabel(entry)} from the pool`);
+            remove.addEventListener('click', () => { rows.splice(index, 1); commitGrooveRule(); });
+            line.append(name, weight, up, down, remove);
+            poolList.append(line);
+          });
+        }
+        const poolFoot = document.createElement('div');
+        poolFoot.className = 'blend-order groove-pool-foot';
+        const addNow = document.createElement('button');
+        addNow.type = 'button';
+        addNow.className = 'secondary-button';
+        addNow.id = 'groove-pool-add';
+        addNow.textContent = 'Add what plays';
+        describe(addNow, 'Put the groove playing now into the pool, as one more a redraw may pick.');
+        addNow.addEventListener('click', () => {
+          const rule = ensureGrooveRule();
+          if (rule.pool.length >= 16) return;
+          rule.pool.push({ ...grooveNowFull(), weight: 1 });
+          commitGrooveRule();
+        });
+        const order = document.createElement('select');
+        order.className = 'genre-select';
+        order.id = 'groove-pool-order';
+        order.setAttribute('aria-label', 'Groove pool: draw order');
+        for (const [value, text] of [['weight', 'By weight'], ['turn', 'In turn']]) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = text;
+          order.append(option);
+        }
+        order.value = stored ? stored.order : 'weight';
+        order.addEventListener('change', () => {
+          ensureGrooveRule().order = order.value;
+          commitGrooveRule();
+        });
+        poolFoot.append(addNow, order);
+        poolPanel.append(poolFoot);
+        handle.el.querySelector('.rule-pool')?.after(poolPanel);
+
+        container.append(row);
+        mountedRules.add(handle);
+        grooveUi = { handle, selects, chanceKnob, renderPool };
+        refreshGrooveUi();
+        return handle;
+      }
+
       function buildVaryRow(container, track, knobs) {
         if (!engineCaps.vary[track]) return;
         const voiceRule = buildVoiceRule(container, track);
@@ -6571,6 +6865,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           if (key === 'voice' && !voiceRule) appendVoiceRuleControls(cells, track);
         }
+        // v0.0.203: the bass's groove rule sits under its Randomise row.
+        buildGrooveRule(container, track);
       }
 
       // ---- v12 mono + glide (melodic tracks; engine params since v12) -----
@@ -13268,6 +13564,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           readout.textContent = bits.join(' · ');
         }
+        // v0.0.203: the Groove rule's Now follows the groove actually playing.
+        applyResolvedGroove(tracks ? tracks.bass : null);
         // v18: the row's <select> follows the SOUNDING voice too (through its
         // display-only first option — the stored choice is never overwritten).
         // Only a CHANGE redraws it: this runs at 4 Hz.
@@ -14313,6 +14611,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           next.tracks[id].voiceRule = structuredClone(mine.voiceRule);
           if (typeof mine.voice === 'string') next.tracks[id].voice = mine.voice;
           delete next.tracks[id].voiceWeights;
+        }
+        // v0.0.203: and a held groove rule on the bass, the same way.
+        const myGroove = settings.tracks?.bass?.grooveRule;
+        if (isPlainObject(myGroove) && myGroove.chance === 0 && isPlainObject(next.tracks?.bass)) {
+          next.tracks.bass.grooveRule = structuredClone(myGroove);
         }
         // The SEED is the half of the provenance that was being thrown away.
         // `settings.genre` said which genre; nothing said which compile, and
@@ -15449,6 +15752,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           mine.essence.instrumentation = isPlainObject(mine.essence.instrumentation) ? mine.essence.instrumentation : {};
           const per = isPlainObject(mine.essence.instrumentation.perTrack) ? mine.essence.instrumentation.perTrack : {};
           per[id] = { ...(isPlainObject(per[id]) ? per[id] : {}), voiceRule: structuredClone(rule) };
+          mine.essence.instrumentation.perTrack = per;
+        }
+        // v0.0.203: the bass's groove rule is the genre's now, too.
+        const grooveRule = settings.tracks?.bass?.grooveRule;
+        if (isPlainObject(grooveRule)) {
+          mine.essence.instrumentation = isPlainObject(mine.essence.instrumentation) ? mine.essence.instrumentation : {};
+          const per = isPlainObject(mine.essence.instrumentation.perTrack) ? mine.essence.instrumentation.perTrack : {};
+          per.bass = { ...(isPlainObject(per.bass) ? per.bass : {}), grooveRule: structuredClone(grooveRule) };
           mine.essence.instrumentation.perTrack = per;
         }
         // The sound: the patches set on this device are the genre's now.
@@ -18231,6 +18542,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // zeroed).
           delete t.voiceWeights;
           t.voiceRule = { chance: 0, when: 'bar', pool: [], order: 'weight' };
+          // v0.0.203: the bass's groove rule likewise — Chance 0, Pool empty:
+          // a generated line on a blank bass keeps the groove it first states.
+          if (track === 'bass') t.grooveRule = { chance: 0, when: 'section', pool: [], order: 'weight' };
           if (typeof t.voice === 'string') {
             // The kit keeps its authored sound and loses only its sends; every
             // tuned track opens on the init patch above.
@@ -18746,7 +19060,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '.track-rows',
-          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in the track\'s editor (Randomise row): 0 holds your pick, Pool… chooses which voices it may move to and in what order. Save as my voice keeps a sound you made under My voices.',
+          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in the track\'s editor: 0 holds your pick, Pool… chooses what it may move to; the bass\'s Groove rule works the same way. Save as my voice keeps a sound you made under My voices.',
         },
         {
           tab: 'advanced',
@@ -21058,6 +21372,36 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       text-decoration: underline;
     }
     .rule-more[hidden] { display: none; }
+
+    /* v0.0.203: the Groove rule's four Now pickers and its inline pool. */
+    .groove-now {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      width: 100%;
+    }
+    .groove-now-select {
+      min-height: 30px;
+      padding: 2px 6px;
+      font-size: 0.85rem;
+      max-width: 14ch;
+    }
+    .groove-pool {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      font-size: 0.85rem;
+    }
+    .groove-pool[hidden] { display: none; }
+    .groove-pool-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    .groove-pool-row span { flex: 1 1 16ch; min-width: 0; overflow-wrap: anywhere; }
+    .groove-pool-row input[type='number'] { width: 5ch; }
 
     .voice-rule-controls {
       display: flex;

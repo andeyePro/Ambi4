@@ -776,6 +776,9 @@ export function applyGenreOverrides(genreJson, overrides = {}) {
       if (randomness !== undefined) clean.randomness = randomness;
       // v0.0.195: the voice rule rides through as the engine sanitises it.
       if (spec.voiceRule === null || isObject(spec.voiceRule)) clean.voiceRule = spec.voiceRule;
+      // v0.0.203: the bass groove rule, the same pass-through (the engine
+      // sanitises it and keeps it on the bass only).
+      if (name === 'bass' && (spec.grooveRule === null || isObject(spec.grooveRule))) clean.grooveRule = spec.grooveRule;
       // v0.0.198: the auto ladder — the same sparse pass-through, a plain
       // number 0..1 rather than an object.
       const autoThreshold = numberOr(spec.autoThreshold, undefined);
@@ -867,6 +870,7 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
       if (spec.level !== undefined) track.level = spec.level;
       if (spec.randomness !== undefined) track.randomness = spec.randomness;
       if (spec.voiceRule !== undefined) track.voiceRule = spec.voiceRule;
+      if (name === 'bass' && spec.grooveRule !== undefined) track.grooveRule = spec.grooveRule;
       if (spec.autoThreshold !== undefined) track.autoThreshold = spec.autoThreshold;
     }
     if (dissonance !== undefined && TUNED_TRACKS.includes(name)) track.dissonance = dissonance;

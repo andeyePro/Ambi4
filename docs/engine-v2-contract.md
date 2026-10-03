@@ -2412,3 +2412,43 @@ through buildRulesModel → readGenreRulesForm → diffRuleOverrides → Apply;
 "joins at N %" in a track's live row while on Auto) and **the recipe**
 (`tracks.<t>.autoThreshold`, so the secret-layers table names the ladder).
 Gated by `tests/auto-ladder-smoke.mjs` and page-boot.
+
+## The bass groove as a rule (v0.0.203)
+
+Module ownership: **the engine** (`sanitiseGrooveRule`; `tracks.bass.grooveRule
+= { now, chance, when, pool, order }`, bass only and sparse — absent, every
+draw `buildBassGroove` makes is the one it always made, so no stored piece and
+no frozen reference moves). `now` is `{ feel, articulation, anchor, cells }`:
+feel `held | mixed | staccato` (the gate table), articulation `even |
+longShort | shortLong | holdOne` (the length cycle over the pulse spine),
+anchor `kick | own` (lock to the kit's low lane, the old law, or keep the
+bass's own stride with a kit playing) and cells, up to two of `and | push |
+pickup | straddle` (the figure each hung offbeat cell takes, cycling; `[]` is
+no offbeat; how MANY cells hang still follows Energy). `buildBassGroove({
+choice })` makes every draw it always made and lets a named field replace
+the draw, returning the realised four as `groove.choice`. `chance` null is
+Auto, the engine's own law whole (every restatement — a new section, a moved
+energy band — draws afresh; When and Pool are not consulted); 0 holds the
+choice for good; above 0 is the odds of a pool redraw at each `when` (bar,
+section — the default — or the piece's first statement), the choice held
+across restatements in between. `pool` is an ordered list of grooves (any
+subset of the four fields, plus `weight`), drawn by weight or in turn;
+empty holds. `now` rules the first statement of a performance and the next
+bar after any edit that sends a different one; writing down the groove
+already playing restates nothing. Every change lands at a bar's plan, never
+mid-note. `getResolved().tracks.bass.groove` is the live Now; `getRecipe()`
+names the rule always — no rule is reported as Auto with the realised
+OPENING groove as Now, which a Blank-slate rebuild opens on at any seed and
+replays to the byte at the same one), **the compiler** (perTrack
+pass-through on the bass, like voiceRule), **the recipe** (`Bass groove
+rule: now mixed/longShort/kick/and chance auto when section order weight pool
+empty`, round-tripped) and **the page** (the bass editor's Groove rule under
+its Randomise row: Now is four pickers — Feel, Lengths, Anchor, Offbeat —
+following the live groove, and a pick holds (Auto becomes Chance 0); Chance
+is a dial from Auto through Hold to 100 %, with When; Pool is an inline list
+with Add what plays, ▲▼, ×, weights and By weight / In turn; Next keeps a
+held groove; Blank slate writes Chance 0 and an empty pool; Save as my genre
+carries it). Gated by `tests/groove-rule-smoke.mjs` (12 checks, 11 red on the
+old engine — the twelfth, a held rule never consulting its pool, is a guard)
+and page-boot's groove block (red on the old page); the secret-layers row
+`bassGroove` is named.

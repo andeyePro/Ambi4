@@ -1942,6 +1942,100 @@ function sanitiseVoiceRule(value, base) {
   return { chance, when, pool, order };
 }
 
+/**
+ * v0.0.203: the bass GROOVE rule — the same Now / Chance / Pool logic as the
+ * voice rule, over the four choices buildBassGroove used to make in secret:
+ * the FEEL (the gate table), the ARTICULATION (the length cycle over the
+ * pulse spine), the ANCHOR (lock to the kit's low lane, or keep the bass's
+ * own stride) and the syncopation CELLS hung off the pulses.
+ *
+ *   now     { feel, articulation, anchor, cells } — what plays. Applied at the
+ *           first statement of the piece and after every edit that sends it;
+ *           a field left out is drawn as before.
+ *   chance  null: the engine's own law, whole (every restatement of the
+ *           groove — a new section, a moved energy band — draws afresh from
+ *           its density-shaped lists; When and Pool are not consulted). 0:
+ *           hold the choice for good. Above 0: at each When, the odds of a
+ *           redraw from the Pool; between moments the choice is held, even
+ *           across restatements.
+ *   when    'bar' | 'section' | 'piece' (default section — a groove is a
+ *           section's idea).
+ *   pool    ordered, weighted grooves a redraw may pick from; empty holds.
+ *   order   'weight' | 'turn'.
+ *
+ * Sparse and bass-only: absent, the engine draws exactly the stream it
+ * always drew. The name lists are literals here (not BASS_FEEL_NAMES and
+ * friends, which are declared further down the module) so a sanitise at
+ * module load can never meet them in their temporal dead zone.
+ */
+const GROOVE_RULE_FEELS = Object.freeze(['staccato', 'held', 'mixed']);
+const GROOVE_RULE_ARTICULATIONS = Object.freeze(['even', 'longShort', 'shortLong', 'holdOne']);
+const GROOVE_RULE_ANCHORS = Object.freeze(['kick', 'own']);
+const GROOVE_RULE_CELLS = Object.freeze(['and', 'push', 'pickup', 'straddle']);
+const GROOVE_RULE_CELL_CAP = 2; // buildBassGroove hangs at most two
+const GROOVE_RULE_POOL_CAP = 16;
+const GROOVE_RULE_WHEN = VOICE_RULE_WHEN;
+const GROOVE_RULE_ORDER = VOICE_RULE_ORDER;
+
+/** One groove choice, cleaned: only the fields it names, null when it names none. */
+function sanitiseGrooveChoice(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = {};
+  if (GROOVE_RULE_FEELS.includes(value.feel)) out.feel = value.feel;
+  if (GROOVE_RULE_ARTICULATIONS.includes(value.articulation)) out.articulation = value.articulation;
+  if (GROOVE_RULE_ANCHORS.includes(value.anchor)) out.anchor = value.anchor;
+  if (Array.isArray(value.cells)) {
+    out.cells = value.cells.filter((cell) => GROOVE_RULE_CELLS.includes(cell)).slice(0, GROOVE_RULE_CELL_CAP);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+const copyGrooveChoice = (choice) => (choice
+  ? { ...choice, ...(Array.isArray(choice.cells) ? { cells: choice.cells.slice() } : {}) }
+  : null);
+
+function copyGrooveRule(rule) {
+  if (!rule) return rule;
+  const out = {};
+  if (rule.now) out.now = copyGrooveChoice(rule.now);
+  out.chance = rule.chance;
+  out.when = rule.when;
+  out.pool = rule.pool.map((entry) => ({ ...copyGrooveChoice(entry), weight: entry.weight }));
+  out.order = rule.order;
+  return out;
+}
+
+function sanitiseGrooveRule(value, base) {
+  if (value === null) return null;
+  const from = base && typeof base === 'object' && !Array.isArray(base) ? base : null;
+  const v = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  if (!v && !from) return null;
+  const at = (key) => (v && key in v ? v[key] : from ? from[key] : undefined);
+  const chanceRaw = at('chance');
+  const chance = chanceRaw === null || chanceRaw === undefined
+    ? null
+    : Number.isFinite(Number(chanceRaw)) ? clamp(Number(chanceRaw), 0, 1) : null;
+  const now = at('now') === null ? null : sanitiseGrooveChoice(at('now'));
+  const pool = [];
+  const poolRaw = at('pool');
+  if (Array.isArray(poolRaw)) {
+    for (const entry of poolRaw) {
+      const choice = sanitiseGrooveChoice(entry);
+      if (!choice) continue;
+      const w = Number(entry.weight);
+      pool.push({ ...choice, weight: Number.isFinite(w) && w > 0 ? clamp(w, 0.01, 100) : 1 });
+      if (pool.length >= GROOVE_RULE_POOL_CAP) break;
+    }
+  }
+  const rule = {};
+  if (now) rule.now = now;
+  rule.chance = chance;
+  rule.when = oneOf(at('when'), GROOVE_RULE_WHEN, 'section');
+  rule.pool = pool;
+  rule.order = oneOf(at('order'), GROOVE_RULE_ORDER, 'weight');
+  return rule;
+}
+
 function sanitiseVoiceWeights(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const out = {};
@@ -2014,6 +2108,13 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
       partial && 'voiceRule' in partial ? partial.voiceRule : undefined, baseTrack.voiceRule
     );
     if (rule) track.voiceRule = rule;
+    // v0.0.203: the bass groove rule — sparse the same way, bass only.
+    if (name === 'bass') {
+      const groove = sanitiseGrooveRule(
+        partial && 'grooveRule' in partial ? partial.grooveRule : undefined, baseTrack.grooveRule
+      );
+      if (groove) track.grooveRule = groove;
+    }
     // v0.0.198: the auto ladder — owner ruling 2026-09-25, every such
     // decision is a visible, editable rule. Sparse: the KEY is omitted
     // (not stored as null) when there is no override, so a piece that
@@ -2790,6 +2891,7 @@ function copyTrack(track) {
   };
   if ('dissonance' in track) out.dissonance = copyRangeValue(track.dissonance);
   if (track.lanes) out.lanes = track.lanes.map((lane) => ({ ...lane }));
+  if (track.grooveRule) out.grooveRule = copyGrooveRule(track.grooveRule);
   if (track.sequencers) {
     out.sequencers = track.sequencers.map(copySequencer);
     // The alias survives the copy: the caller edits one object, not two.
@@ -3496,6 +3598,9 @@ const BASS_CELLS = Object.freeze([
   [0.25, 0.75],     // a syncopated pair straddling the beat
 ]);
 
+/** v0.0.203: the cells by name, index for index — what the groove rule calls them. */
+export const BASS_CELL_NAMES = GROOVE_RULE_CELLS;
+
 /**
  * The runs a fill is drawn from: beats BEFORE the barline, paired with the tone
  * each takes. Every placement is off the pulse, so the root discipline survives
@@ -3522,22 +3627,31 @@ export const BASS_GROOVE_OPS = Object.freeze([
  */
 export function buildBassGroove({
   starts = [0, 1, 2, 3], beats = 4, intensity = 0.5, complexity = 0.5,
-  lowLane = null, densityScale = 1, timingVary = 0, rng = Math.random,
+  lowLane = null, densityScale = 1, timingVary = 0, rng = Math.random, choice = null,
 } = {}) {
+  // v0.0.203: `choice` is the groove rule's Now (or a pool draw) — any field it
+  // names REPLACES the draw for that field, and every draw is still made, so
+  // the rest of the stream is the one the engine would have drawn anyway. The
+  // realised four choices come back as `groove.choice`, which is what the
+  // rule's Now reads and what the recipe names.
+  const want = choice && typeof choice === 'object' ? choice : {};
   // v21 densityScale (0–2) is the track's own density param: it multiplies the
   // rate the groove was going to have, and 1 leaves it exactly where it was.
   const scale = Number.isFinite(Number(densityScale)) ? clamp(Number(densityScale), 0, 2) : 1;
   const density = clamp(
     (0.2 + clamp(intensity, 0, 1) * 0.5 + clamp(complexity, 0, 1) * 0.3) * scale, 0, 1,
   );
-  const feelName = pick(
+  const drawnFeel = pick(
     density < 0.45 ? ['held', 'mixed'] : density < 0.75 ? ['mixed', 'staccato', 'held'] : ['staccato', 'mixed'],
     rng,
   );
+  const feelName = BASS_FEELS[want.feel] ? want.feel : drawnFeel;
   const gates = BASS_FEELS[feelName];
-  const articulation = BASS_ARTICULATIONS[pick(
+  const drawnArticulation = pick(
     density < 0.4 ? ['holdOne', 'longShort'] : ['longShort', 'shortLong', 'holdOne', 'even'], rng,
-  )];
+  );
+  const articulationName = BASS_ARTICULATIONS[want.articulation] ? want.articulation : drawnArticulation;
+  const articulation = BASS_ARTICULATIONS[articulationName];
   const pocket = bassPocketSeconds(timingVary, rng);
 
   // v24: the anchor grid the groove is built against. With a kit playing it is
@@ -3545,7 +3659,10 @@ export function buildBassGroove({
   // with no kit it is a stride through the bar's felt pulses, drawn once. Either
   // way the line has a spine it keeps, instead of an independent coin flip on
   // every beat, which is what a drummerless bass used to be.
-  const locked = Array.isArray(lowLane) && lowLane.length ? lowLane : null;
+  // v0.0.203: anchor 'own' is the rule saying "keep your own stride even with
+  // a kit playing" — the lock is the default ('kick'), as it always was.
+  const anchorName = want.anchor === 'own' ? 'own' : 'kick';
+  const locked = anchorName === 'kick' && Array.isArray(lowLane) && lowLane.length ? lowLane : null;
   const stride = density > 0.66 ? 1 : density > 0.4 ? 2 : 2 + Math.floor(rng() * 2);
   const anchors = locked ?? starts.filter((_, i) => i % stride === 0);
   const near = (beat) => anchors.some((hit) => Math.abs(hit - beat) < 0.13);
@@ -3609,8 +3726,22 @@ export function buildBassGroove({
   const cellComplexity = clamp(complexity, 0, 1);
   const baseCell = cellComplexity >= 0.5 ? 1 : rng() < cellComplexity * 1.9 ? 1 : 0;
   const cells = baseCell + (density > 0.6 && rng() < density ? 1 : 0);
+  // v0.0.203: a rule's cells name the figure each hung cell takes, in order
+  // (cycling); an EMPTY list is "no syncopation" and hangs none. The count
+  // and every draw stay the engine's, so only the figure moves.
+  const wantCells = Array.isArray(want.cells) ? want.cells.filter((name) => BASS_CELL_NAMES.includes(name)) : null;
+  const cellNames = [];
   for (let c = 0; c < cells; c++) {
-    const cell = pick(BASS_CELLS, rng);
+    const drawnCell = pick(BASS_CELL_NAMES, rng);
+    if (wantCells && !wantCells.length) {
+      // Consume the pulse draw this cell would have made; its notes' own
+      // draws are skipped with them (only ever under a rule).
+      rng();
+      continue;
+    }
+    const cellName = wantCells ? wantCells[c % wantCells.length] : drawnCell;
+    cellNames.push(cellName);
+    const cell = BASS_CELLS[BASS_CELL_NAMES.indexOf(cellName)];
     const pulse = starts[1 + (Math.floor(rng() * Math.max(1, starts.length - 1)) % Math.max(1, starts.length - 1))]
       ?? starts[0];
     for (const offset of cell) {
@@ -3658,7 +3789,20 @@ export function buildBassGroove({
   const tail = sorted[sorted.length - 1];
   if (tail) tail.gate = feelName === 'held' ? 1 : Math.min(tail.gate ?? 0.9, 0.45);
 
-  return { feel: feelName, beats, pocket, steps: sorted };
+  return {
+    feel: feelName,
+    beats,
+    pocket,
+    steps: sorted,
+    // A rule's named figures are reported as named, even on a statement too
+    // quiet to hang any: the count is the engine's, the figures are the rule's.
+    choice: {
+      feel: feelName,
+      articulation: articulationName,
+      anchor: anchorName,
+      cells: wantCells && wantCells.length ? wantCells.slice() : cellNames,
+    },
+  };
 }
 
 const sortGroove = (steps) => steps.slice().sort((a, b) => a.beat - b.beat);
@@ -3669,6 +3813,7 @@ export function cloneBassGroove(groove) {
     beats: groove.beats,
     pocket: groove.pocket ?? 0,
     steps: groove.steps.map((step) => ({ ...step })),
+    ...(groove.choice ? { choice: copyGrooveChoice(groove.choice) } : {}),
   };
 }
 
@@ -4679,6 +4824,19 @@ export function createEngine(initialParams, options = {}) {
   let bassGrooveKey = '';
   let bassGrooveBar = 0;
   let bassGrooveOpLast = 'state';
+  // v0.0.203: the groove rule's live state. `grooveChoice` is the Now that is
+  // playing (the four choices the current groove was built from);
+  // `grooveOpening` the first one this performance stated, which is what the
+  // recipe names when no rule says otherwise. `grooveNowPending` makes the
+  // next statement take the rule's Now (at start, and after an edit that
+  // sends one); `grooveDirty` forces a restatement at the next bar without
+  // restarting the section's four- and eight-bar clocks.
+  let grooveChoice = null;
+  let grooveOpening = null;
+  let grooveNowPending = true;
+  let grooveDirty = false;
+  let grooveSectionMoment = false;
+  let groovePiecePending = true;
   // The line's lay-back: ONE constant every bass note of the section shares
   // (v24). Null until the groove — or, on a manual grid, the first bar — draws it.
   let bassPocket = null;
@@ -5438,6 +5596,9 @@ export function createEngine(initialParams, options = {}) {
           bassGrooveBar = 0;
           bassGrooveOpLast = 'state';
           bassPocket = null;
+          // v0.0.203: a re-roll lets go of the live choice — a held rule's Now
+          // still rules the redraw (Chance 0 means yours), nothing else does.
+          grooveChoice = null;
           break;
         case 'melody':
           motifBank.clear();
@@ -7467,7 +7628,7 @@ export function createEngine(initialParams, options = {}) {
       currentSection.label, bassIntensityBand(), metreAt(params.timeSignature, currentBarNumber),
       band(params.complexity), band(trackDensity('bass')),
     ].join(':');
-    if (bassGroove && bassGrooveKey === key) return bassGroove;
+    if (bassGroove && bassGrooveKey === key && !grooveDirty) return bassGroove;
     // The four- and eight-bar counts the groove is developed against belong to
     // the SECTION, not to one statement of the line: a swell that restates the
     // groove mid-section must not also restart the turnaround clock, or a
@@ -7486,9 +7647,99 @@ export function createEngine(initialParams, options = {}) {
       densityScale: trackDensity('bass'),
       timingVary: varyAmount('bass', 'timing'),
       rng,
+      choice: grooveChoiceForBuild(),
     });
+    grooveDirty = false;
+    grooveChoice = copyGrooveChoice(bassGroove.choice);
+    if (!grooveOpening) grooveOpening = copyGrooveChoice(bassGroove.choice);
     bassPocket = bassGroove.pocket;
     return bassGroove;
+  }
+
+  // -- v0.0.203: the groove rule ----------------------------------------------
+  function grooveRuleFor() {
+    const config = params.tracks.bass;
+    return config && config.grooveRule ? config.grooveRule : null;
+  }
+
+  /** What the next statement of the groove is built from; null draws it all. */
+  function grooveChoiceForBuild() {
+    const rule = grooveRuleFor();
+    const pending = grooveNowPending;
+    grooveNowPending = false;
+    if (!rule) return null;
+    if (pending && rule.now) return rule.now;
+    // Auto: the engine's own law — every restatement draws afresh.
+    if (rule.chance === null) return null;
+    // Any number holds the live choice between its moments.
+    return grooveChoice ?? rule.now ?? null;
+  }
+
+  /** Does a pool row (which may name only some fields) describe `choice`? */
+  const grooveFieldsMatch = (entry, choice) => Boolean(choice) && ['feel', 'articulation', 'anchor']
+    .every((field) => entry[field] === undefined || entry[field] === choice[field])
+    && (entry.cells === undefined || JSON.stringify(entry.cells) === JSON.stringify(choice.cells));
+
+  /** One draw from the pool: by weight over the whole pool, or the next in turn. */
+  function drawGroovePool(rule) {
+    const pool = rule.pool;
+    if (!pool.length) return null;
+    let entry;
+    if (rule.order === 'turn') {
+      const at = pool.findIndex((row) => grooveFieldsMatch(row, grooveChoice));
+      entry = pool[(at + 1) % pool.length];
+    } else {
+      const total = pool.reduce((sum, row) => sum + row.weight, 0);
+      let at = rng() * total;
+      entry = pool[pool.length - 1];
+      for (const row of pool) {
+        at -= row.weight;
+        if (at <= 1e-12) { entry = row; break; }
+      }
+    }
+    const { weight, ...choice } = entry;
+    return copyGrooveChoice(choice);
+  }
+
+  /**
+   * A numeric Chance's moment: at each bar, at a new section, or at the
+   * piece's first statement, the odds of a redraw from the Pool. A redraw is
+   * heard from the NEXT bar's plan — notes already scheduled are never cut.
+   * Auto (null) and Hold (0) spend no draw at all.
+   */
+  function grooveRuleMoment() {
+    const section = grooveSectionMoment;
+    const piece = groovePiecePending;
+    grooveSectionMoment = false;
+    groovePiecePending = false;
+    const rule = grooveRuleFor();
+    if (!rule || rule.chance === null || rule.chance <= 0) return;
+    const due = rule.when === 'bar' || (rule.when === 'section' && section) || (rule.when === 'piece' && piece);
+    if (!due) return;
+    if (rule.chance < 1 && rng() >= rule.chance) return;
+    const drawn = drawGroovePool(rule);
+    // A draw of the groove already playing is no change: the line is not
+    // restated (its other draws re-rolled) for landing where it stood.
+    if (!drawn || grooveFieldsMatch(drawn, grooveChoice)) return;
+    grooveChoice = drawn;
+    grooveNowPending = false;
+    grooveDirty = true;
+  }
+
+  /** An edit that sends the rule's Now is heard at the next bar, as a restatement. */
+  function noteGrooveRuleEdit(partial) {
+    const bass = partial && typeof partial === 'object' && partial.tracks
+      && typeof partial.tracks === 'object' ? partial.tracks.bass : null;
+    if (!bass || typeof bass !== 'object' || !('grooveRule' in bass)) return;
+    const rule = bass.grooveRule;
+    const stored = grooveRuleFor();
+    if (!rule || typeof rule !== 'object' || !('now' in rule) || !stored || !stored.now) return;
+    // Writing down the groove that is ALREADY playing (Hold pressed on what
+    // you hear) is no edit to the line: it is not restated, so nothing in it
+    // moves. Anything else is heard from the next bar's plan.
+    if (grooveChoice && grooveFieldsMatch(stored.now, grooveChoice)) return;
+    grooveNowPending = true;
+    grooveDirty = true;
   }
 
   /** The section's energy, to the nearest quarter — the groove's own resolution. */
@@ -7509,6 +7760,7 @@ export function createEngine(initialParams, options = {}) {
 
   function planBass() {
     if (isManual('bass')) return planBassManual();
+    grooveRuleMoment();
     const groove = ensureBassGroove();
     // The groove is stated, then developed — the same relationship the melody
     // has with its motif. randomness 0 states it every bar and draws nothing.
@@ -8387,6 +8639,8 @@ export function createEngine(initialParams, options = {}) {
       sectionAnnounced = true;
       // v0.0.162: a new section is when a blended track re-draws its voice.
       drawSectionVoices(time);
+      // v0.0.203: and when a groove rule whose When is 'section' may redraw.
+      grooveSectionMoment = true;
       // A section change picks the hook variant that suits the new intensity —
       // at the next pass boundary, never mid-loop, so the loop stays a loop —
       // and, in the same spirit, its own motif at the next phrase boundary.
@@ -9234,6 +9488,12 @@ export function createEngine(initialParams, options = {}) {
       bassGrooveBar = 0;
       bassGrooveOpLast = 'state';
       bassPocket = null;
+      grooveChoice = null;
+      grooveOpening = null;
+      grooveNowPending = true;
+      grooveDirty = false;
+      grooveSectionMoment = false;
+      groovePiecePending = true;
       monoNotes.clear();
       // A performance starts from a fresh set of decisions: no frozen bar from
       // the last run, and drift walks that begin wherever this run takes them.
@@ -9374,6 +9634,7 @@ export function createEngine(initialParams, options = {}) {
     resolvedPatches.clear();
     invalidateEditedPlans(partial);
     clearWanderedVoices(partial);
+    noteGrooveRuleEdit(partial);
     if (ctx && graph) applyLevels(0.15);
     ensureReverbTail();
     // Announced once the whole edit has landed, so a listener that re-renders
@@ -9424,6 +9685,22 @@ export function createEngine(initialParams, options = {}) {
     );
     if (blocks) recipe.customStructure = blocks;
     else delete recipe.customStructure;
+    // v0.0.203: the groove is a rule too. No rule set is the engine's own law
+    // (Chance auto), and the choice it REALISED for the opening statement is
+    // named as Now — applied to a Blank slate, that Now is what the rebuild
+    // opens on at any seed, and at the same seed it replays to the byte.
+    if (recipe.tracks && recipe.tracks.bass) {
+      const stated = recipe.tracks.bass.grooveRule
+        ?? { chance: null, when: 'section', pool: [], order: 'weight' };
+      const rule = {};
+      const now = stated.now ?? grooveOpening;
+      if (now) rule.now = copyGrooveChoice(now);
+      rule.chance = stated.chance;
+      rule.when = stated.when;
+      rule.pool = stated.pool;
+      rule.order = stated.order;
+      recipe.tracks.bass.grooveRule = rule;
+    }
     return recipe;
   }
 
@@ -9458,6 +9735,8 @@ export function createEngine(initialParams, options = {}) {
         autoThreshold: autoThresholdFor(name),
         voice: effectiveVoice(name),
         level: resolveRange(name, 'level', config.level),
+        // v0.0.203: the bass groove's live Now — the four choices playing.
+        ...(name === 'bass' && grooveChoice ? { groove: copyGrooveChoice(grooveChoice) } : {}),
         randomness: trackRandomness(name),
         // v21 followers, resolved: the feel this track is actually swung by
         // (its own, or the global dial it follows) and the multiplier its

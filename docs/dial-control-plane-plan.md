@@ -458,6 +458,11 @@ level (`#rule-level`: what plays / + chance / + pool, a preference) and the
 in-place "more" — and the voice rule now sits on it. The logic holds by
 construction: a later rule that does not mount on the module is a review
 finding.
+**Then (v0.0.203): the bass groove.** `tracks.bass.grooveRule` — Now is the
+four choices the line is built from (feel, lengths, anchor, offbeat figure),
+four pickers that follow what plays; Chance runs Auto (the old redraw at every
+section and energy move) → Hold → 100 %; the Pool is a list of whole grooves.
+A pick holds, exactly as a voice pick does.
 
 ## 6. Open decisions
 
