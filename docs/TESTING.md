@@ -530,8 +530,8 @@ Voice selector honesty (Advanced → track rows)
 - [ ] With everything at defaults, each row's voice select reads the voice you
       chose, as before.
 - [ ] Open a voice editor and move any dial: the row's select now reads
-      "Custom (…)" — the bracket names that voice's synthesis class
-      (Subtractive / FM / Noise / Physical / Hybrid). Press "Reset to default"
+      "<voice> · edited" (since v0.0.205; it read "Custom (…)" before) and
+      its tooltip names the synthesis class (Subtractive / FM / Noise / Physical / Hybrid). Press "Reset to default"
       in the editor: it goes back to the voice name.
 - [ ] Choosing a voice from the list still works and is still what gets saved:
       reload after a Custom reading and your chosen voice is intact.
@@ -869,7 +869,7 @@ Every dial says what you will hear (v0.0.172)
       the top end gets through…"). No dial anywhere is a bare label.
 - [ ] The chip beside the track name in the editor header names the engine
       (Subtractive, FM, Additive, Modal, Noise, Hybrid) and a sentence under
-      the header says what that engine does. The picker's "Custom (…)" label
+      the header says what that engine does. The picker's "· edited" tooltip
       uses the same word.
 
 What makes this sound (v0.0.173)

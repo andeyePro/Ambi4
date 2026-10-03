@@ -6440,12 +6440,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           describe,
           now: {
             text: voiceLabel(track, t.voice),
-            hint: 'The voice playing now — your pick. Press to go to its picker in the track row.',
+            hint: 'The voice playing now — your pick. Press to open the voice list.',
             onOpen: () => {
+              // v0.0.205: his report — scrolling a few pixels to the row's
+              // picker and focusing it did not read as anything happening.
+              // Open the list itself where the browser allows it, and flash
+              // the picker so the eye lands on it either way.
               const select = document.getElementById(`track-voice-${track}`);
               if (!select) return;
               try { select.scrollIntoView({ block: 'center' }); } catch {}
               select.focus();
+              select.classList.remove('voice-picker-flash');
+              void select.offsetWidth;
+              select.classList.add('voice-picker-flash');
+              try { if (typeof select.showPicker === 'function') select.showPicker(); } catch {}
             },
           },
           chance: {
@@ -14250,15 +14258,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const text = edited
           ? mineTag && sounding === chosen
             ? `${mineTag.name} · edited`
-            : engineType
-              ? `Custom (${engineType})`
-              : 'Custom'
+            // v0.0.205: the voice keeps its own name once edited (his report:
+            // picking an edited Pluck read "Custom (Subtractive)", as if the
+            // pick had failed). The engine word moves to the title.
+            : `${voiceLabel(track, sounding)} · edited`
           : blended
             ? `${voiceLabel(track, sounding)} · ${ruled ? 'drawn' : 'blend'}`
             : wandering
               ? `${voiceLabel(track, sounding)} · wandering`
               : voiceLabel(track, sounding);
-        live.title = ruled
+        live.title = edited && !(mineTag && sounding === chosen)
+          ? `${voiceLabel(track, sounding)}${engineType ? ` (${engineType})` : ''}, with its dials moved from the stock sound. Reset to default in its editor brings the stock sound back.`
+          : ruled
           ? 'This track draws its voice by its rule — Voice chance and its pool, in the Randomise row of its editor. Chance 0 holds it; picking a voice holds it too.'
           : blended
             ? 'Several voices share this track by weight; each new section draws one. Pool of voices… changes the weights; picking a voice ends the blend.'
@@ -21755,6 +21766,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       text-decoration: underline;
     }
     .rule-more[hidden] { display: none; }
+
+    /* v0.0.205: the voice rule's Now lands the eye on the track's picker. */
+    @keyframes voice-picker-flash {
+      from { box-shadow: 0 0 0 3px var(--link); }
+      to { box-shadow: 0 0 0 0 transparent; }
+    }
+    .voice-picker-flash { animation: voice-picker-flash 1.2s ease-out; }
+    @media (prefers-reduced-motion: reduce) {
+      .voice-picker-flash { animation: none; outline: 2px solid var(--link); }
+    }
 
     /* v0.0.203: the Groove rule's four Now pickers and its inline pool. */
     .groove-now {

@@ -2131,8 +2131,8 @@ are now contract:
   `physical`, because drawbars are the one engine a listener reads at a glance
   and the chip would otherwise teach the wrong word. The page's `ENGINE_WORDS`
   gives each class its chip label (physical shows as **Modal**) and one
-  sentence, rendered under every editor's header. The picker's "Custom (…)"
-  label uses the same word.
+  sentence, rendered under every editor's header. The picker's "<voice> · edited"
+  tooltip uses the same word (v0.0.205; it read "Custom (…)" before).
 
 The engine sections the programme adds (FM, Additive, Modal) will each land as
 registry rows with hints and as a section a voice shows only when its defaults
