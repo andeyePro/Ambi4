@@ -146,8 +146,11 @@ off `getComputedStyle(canvas)`; devicePixelRatio-aware; rAF only while `engine.r
 - Advanced concertina gains: Structure `<select>` (Auto/Drone/Waves/Build/ABAB/Journey/Custom)
   + custom builder shown only for Custom: up to 8 blocks, each label A–D select, bars 1–32
   number, intensity slider; add/remove/reorder (up/down buttons).
-- Arpeggiator editor: Auto/Manual toggle; manual reveals pattern, rate, octaves, gate,
-  16-step toggle grid.
+- Arpeggiator editor: Auto/Manual toggle; pattern, rate, octaves and gate are always shown.
+  Under Auto they read what Complexity chose (`getResolved().arp`, tagged "· auto", dimmed),
+  and touching one takes over in Manual starting from exactly that choice (v0.0.201, "auto
+  writes its choice into Now"); `getRecipe()` names the resolved pattern/rate/octaves under
+  Auto. Plus the 16-step toggle grid.
 - Voices slider (v1) is removed. localStorage key becomes `ambi4-generator-settings-v2`
   (ignore/discard v1 key).
 - `<canvas id="track-visualiser">` above the sliders; page script calls

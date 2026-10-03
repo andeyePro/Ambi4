@@ -1087,6 +1087,104 @@ try {
     }
   }
 
+  // v0.0.201 — owner ruling 2026-09-25, "auto writes its choice into Now":
+  // the arp's Pattern/Rate/Octaves readouts must equal the ENGINE's own
+  // getResolved().arp while auto is playing — never a page-side
+  // recomputation — and touching one of them must drop the arp into manual
+  // seeded from exactly what auto had just chosen, so the sound does not
+  // jump. Asserted at the ENGINE (getParams()), not just the DOM, per the
+  // house rule that a DOM-only pass has hidden this exact failure before.
+  {
+    const engine = window.__ambi4Engine;
+    const toggle = doc.getElementById('voice-edit-toggle-arp');
+    const editorEl = doc.getElementById('voice-editor-arp');
+    if (!engine || !toggle || !editorEl) {
+      failures.push('the arp editor/engine seam is missing — cannot check the auto Now readout');
+    } else if (typeof engine.getResolved !== 'function') {
+      console.log('SKIP arp-now-readout: this engine build has no getResolved()');
+    } else {
+      // Pin complexity to a value whose auto pick (autoArpSettings) is known
+      // and distinctive, then force a REBUILD of the arp editor so its
+      // controls pick up this complexity rather than whatever was resolved
+      // when it was last opened above.
+      engine.setParams({ complexity: 0.83, arp: { mode: 'auto' } });
+      if (!editorEl.hidden) toggle.click(); // close
+      await waitUntil(() => editorEl.hidden);
+      toggle.click(); // reopen — rebuilds arpUI fresh against complexity 0.83
+      await waitUntil(() => !editorEl.hidden);
+
+      const autoRadio = doc.getElementById('arp-mode-auto');
+      const manualRadio = doc.getElementById('arp-mode-manual');
+      const patternSelect = doc.getElementById('arp-pattern');
+      const rateSelect = doc.getElementById('arp-rate');
+      const octavesInput = doc.getElementById('arp-octaves');
+      const patternOut = patternSelect && patternSelect.closest('.control').querySelector('.value-readout');
+      const rateOut = rateSelect && rateSelect.closest('.control').querySelector('.value-readout');
+      const octavesOut = octavesInput && octavesInput.closest('.control').querySelector('.value-readout');
+      if (!autoRadio || !manualRadio || !patternSelect || !rateSelect || !octavesInput
+        || !patternOut || !rateOut || !octavesOut) {
+        failures.push('the arp editor is missing a mode radio, a Pattern/Rate/Octaves control, or its readout');
+      } else {
+        if (!autoRadio.checked) failures.push('the arp editor did not reopen in auto mode');
+        const resolved = engine.getResolved().arp;
+        if (!resolved || resolved.auto !== true) {
+          failures.push(`getResolved().arp did not report auto: true while arp.mode is auto (${JSON.stringify(resolved)})`);
+        }
+        if (patternSelect.value !== resolved.pattern) {
+          failures.push(`the Pattern control shows ${JSON.stringify(patternSelect.value)} while the engine resolves ${JSON.stringify(resolved.pattern)} — the readout is not reading the engine`);
+        }
+        if (rateSelect.value !== resolved.rate) {
+          failures.push(`the Rate control shows ${JSON.stringify(rateSelect.value)} while the engine resolves ${JSON.stringify(resolved.rate)}`);
+        }
+        if (octavesInput.value !== String(resolved.octaves)) {
+          failures.push(`the Octaves control shows ${octavesInput.value} while the engine resolves ${resolved.octaves}`);
+        }
+        if (!/auto/i.test(patternOut.textContent)) {
+          failures.push(`the Pattern readout does not mark itself auto-resolved: ${JSON.stringify(patternOut.textContent)}`);
+        }
+        if (!/auto/i.test(rateOut.textContent)) {
+          failures.push(`the Rate readout does not mark itself auto-resolved: ${JSON.stringify(rateOut.textContent)}`);
+        }
+        if (!/auto/i.test(octavesOut.textContent)) {
+          failures.push(`the Octaves readout does not mark itself auto-resolved: ${JSON.stringify(octavesOut.textContent)}`);
+        }
+
+        // Touching Octaves while auto is playing: the mode must flip to
+        // manual, Octaves must take the touched value, and Pattern/Rate
+        // must be SEEDED from exactly what auto had just resolved — proof
+        // that the first manual bar equals the last auto bar's settings,
+        // checked at the engine.
+        const lastAutoPattern = resolved.pattern;
+        const lastAutoRate = resolved.rate;
+        const untouchedOctaves = resolved.octaves;
+        const nextOctaves = untouchedOctaves === 1 ? 2 : 1;
+        octavesInput.value = String(nextOctaves);
+        octavesInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+        const switched = await waitUntil(() => engine.getParams().arp.mode === 'manual');
+        const afterParams = engine.getParams().arp;
+        if (!switched || afterParams.mode !== 'manual') {
+          failures.push('touching Octaves while the arp was in auto did not switch it to manual');
+        }
+        if (afterParams.octaves !== nextOctaves) {
+          failures.push(`touching Octaves to ${nextOctaves} left the engine at ${afterParams.octaves}`);
+        }
+        if (afterParams.pattern !== lastAutoPattern) {
+          failures.push(`the first manual bar's pattern (${JSON.stringify(afterParams.pattern)}) does not match `
+            + `the last auto bar's (${JSON.stringify(lastAutoPattern)}) — the sound would have jumped`);
+        }
+        if (afterParams.rate !== lastAutoRate) {
+          failures.push(`the first manual bar's rate (${JSON.stringify(afterParams.rate)}) does not match `
+            + `the last auto bar's (${JSON.stringify(lastAutoRate)}) — the sound would have jumped`);
+        }
+        if (!manualRadio.checked || autoRadio.checked) {
+          failures.push('the mode radios did not follow the switch to manual triggered by touching Octaves');
+        }
+        // Reset for whatever runs after this block.
+        engine.setParams({ complexity: 0.5, arp: { mode: 'auto' } });
+      }
+    }
+  }
+
   // v26 OSC 2 ↔ Mix linkage: Mix is the BALANCE between the two oscillators,
   // so with Osc 2 switched off there is nothing for it to balance and it must
   // hide with the toggle. Switching Osc 2 back on brings it straight back —

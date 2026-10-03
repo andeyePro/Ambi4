@@ -9515,9 +9515,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           lab.textContent = m === 'auto' ? 'Auto' : 'Manual';
           input.addEventListener('change', () => {
             if (!input.checked) return;
+            // Owner ruling 2026-09-25: auto writes its ACTUAL choice into Now
+            // rather than switching to whatever Manual was last left at, so
+            // the sound does not jump on the mode toggle either.
+            seedArpManualFromResolved(m === 'manual' && settings.arp.mode === 'auto');
             settings.arp.mode = m;
-            manual.hidden = m !== 'manual';
-            engine.setParams({ arp: { mode: m } });
+            engine.setParams({ arp: m === 'manual'
+              ? { mode: m, pattern: settings.arp.pattern, rate: settings.arp.rate, octaves: settings.arp.octaves }
+              : { mode: m } });
+            syncArpUI();
             updateComplexityDisplay();
             persistSettings();
           });
@@ -9525,7 +9531,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           modeRadios.push(input);
         }
         panel.append(modeGroup);
+        describe(modeGroup, 'Auto decides Pattern, Rate and Octaves from Complexity, and writes what it '
+          + 'chose here — Now. Touching a field below takes over from there, starting from what Auto just played.');
 
+        // v0.0.201: no longer hidden in auto — the manual fields double as the
+        // live "Now" readout for what auto is actually playing (see
+        // applyResolvedArp / the arp-auto-tag readouts next to Pattern/Rate,
+        // and the octaves readout's " · auto" suffix).
         const manual = document.createElement('div');
         manual.className = 'arp-manual';
         panel.append(manual);
@@ -9534,9 +9546,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const wrap = document.createElement('div');
           wrap.className = 'control';
           const id = `arp-${labelText.toLowerCase()}`;
+          const row = document.createElement('div');
+          row.className = 'control-label-row';
           const lab = document.createElement('label');
           lab.htmlFor = id;
           lab.textContent = labelText;
+          // v0.0.201: "up · auto" beside the select while auto is resolving
+          // it — hidden in manual, where the select's own value already says
+          // everything there is to say.
+          const readout = document.createElement('span');
+          readout.className = 'value-readout arp-auto-tag';
+          readout.hidden = true;
+          row.append(lab, readout);
           const select = document.createElement('select');
           select.id = id;
           for (const [v, text] of options) {
@@ -9547,9 +9568,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           select.value = value;
           select.addEventListener('change', () => onChange(select.value));
-          wrap.append(lab, select);
+          wrap.append(row, select);
           manual.append(wrap);
-          return select;
+          return { select, readout };
         }
 
         function arpRange(labelText, { min, max, step, value, onChange }) {
@@ -9581,31 +9602,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return { input, readout };
         }
 
-        const pattern = arpSelect('Pattern', ARP_PATTERNS, settings.arp.pattern, (v) => {
-          settings.arp.pattern = v;
-          engine.setParams({ arp: { pattern: v } });
-          persistSettings();
+        const patternField = arpSelect('Pattern', ARP_PATTERNS, settings.arp.pattern, (v) => {
+          touchArpManual({ pattern: v });
         });
-        const rate = arpSelect('Rate', ARP_RATES, settings.arp.rate, (v) => {
-          settings.arp.rate = v;
-          engine.setParams({ arp: { rate: v } });
+        const rateField = arpSelect('Rate', ARP_RATES, settings.arp.rate, (v) => {
+          touchArpManual({ rate: v });
           updateComplexityDisplay();
-          persistSettings();
           // The arp lane's length/pulse-marks are rate-derived (v8 ruling):
           // re-render its sequencer grid, same as a time-signature change.
           try {
             openEditors.get('arp')?.seq?.refresh();
           } catch {}
         });
+        const pattern = patternField.select;
+        const rate = rateField.select;
         const octaves = arpRange('Octaves', {
           min: 1,
           max: 3,
           step: 1,
           value: settings.arp.octaves,
           onChange: (v) => {
-            settings.arp.octaves = parseInt(v, 10);
-            engine.setParams({ arp: { octaves: settings.arp.octaves } });
-            persistSettings();
+            touchArpManual({ octaves: parseInt(v, 10) });
           },
         });
         const gate = arpRange('Gate', {
@@ -9625,7 +9642,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           modeRadios,
           manual,
           pattern,
+          patternOut: patternField.readout,
           rate,
+          rateOut: rateField.readout,
           octaves: octaves.input,
           octavesOut: octaves.readout,
           gate: gate.input,
@@ -13223,6 +13242,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function applyResolved(resolved) {
         applyResolvedGlobals(resolved && resolved.globals);
         applyResolvedTracks(resolved && resolved.tracks);
+        applyResolvedArp(resolved && resolved.arp);
         const tracks = resolved && isPlainObject(resolved.tracks) ? resolved.tracks : null;
         for (const id of TRACK_IDS) {
           const readout = document.getElementById(`resolved-${id}`);
@@ -13846,19 +13866,92 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // ---- arpeggiator sync (controls live in the Arp Edit panel) -------
 
+      /** The label ARP_PATTERNS shows for a pattern id, for the "up · auto" tag. */
+      function arpPatternLabel(value) {
+        const found = ARP_PATTERNS.find(([id]) => id === value);
+        return found ? found[1] : value;
+      }
+
+      /**
+       * v0.0.201: Pattern/Rate/Octaves show what auto is ACTUALLY playing
+       * this bar while `settings.arp.mode === 'auto'` — read straight off
+       * `getResolved().arp`, never recomputed on the page, per the owner's
+       * "measure, don't recompute" rule. `arp` is `resolved.arp` (or null
+       * against an engine/poll tick with nothing to report).
+       */
+      function applyResolvedArp(arp) {
+        if (!arpUI) return;
+        const auto = settings.arp.mode === 'auto' && isPlainObject(arp);
+        arpUI.pattern.classList.toggle('arp-auto-resolved', auto);
+        arpUI.rate.classList.toggle('arp-auto-resolved', auto);
+        arpUI.octaves.classList.toggle('arp-auto-resolved', auto);
+        arpUI.patternOut.hidden = !auto;
+        arpUI.rateOut.hidden = !auto;
+        if (!auto) {
+          arpUI.octavesOut.textContent = String(settings.arp.octaves);
+          return;
+        }
+        arpUI.pattern.value = arp.pattern;
+        arpUI.rate.value = arp.rate;
+        arpUI.octaves.value = String(arp.octaves);
+        arpUI.patternOut.textContent = `${arpPatternLabel(arp.pattern)} · auto`;
+        arpUI.rateOut.textContent = `${arp.rate} · auto`;
+        arpUI.octavesOut.textContent = `${arp.octaves} · auto`;
+      }
+
+      /**
+       * v0.0.201: called just before a manual edit takes over from auto —
+       * copies what auto is playing RIGHT NOW into the manual fields, so the
+       * bar that follows the switch sounds identical to the one before it
+       * (owner ruling 2026-09-25, "auto writes its choice into Now"). A
+       * no-op unless `apply` is true, so a plain field edit already in
+       * manual mode cannot clobber the other two fields with a live reading.
+       */
+      function seedArpManualFromResolved(apply) {
+        if (!apply) return;
+        const resolved = engineCaps.getResolved ? engine.getResolved().arp : null;
+        if (!resolved) return;
+        settings.arp.pattern = resolved.pattern;
+        settings.arp.rate = resolved.rate;
+        settings.arp.octaves = resolved.octaves;
+      }
+
+      /** Touching Pattern/Rate/Octaves: seed from auto's Now, apply the one
+       *  field the user actually touched, and land in manual. */
+      function touchArpManual(patch) {
+        seedArpManualFromResolved(settings.arp.mode === 'auto');
+        Object.assign(settings.arp, patch);
+        settings.arp.mode = 'manual';
+        engine.setParams({
+          arp: {
+            mode: 'manual',
+            pattern: settings.arp.pattern,
+            rate: settings.arp.rate,
+            octaves: settings.arp.octaves,
+          },
+        });
+        syncArpUI();
+        persistSettings();
+      }
+
       function syncArpUI() {
         updateComplexityDisplay();
         if (!arpUI) return; // arp editor closed — nothing rendered to sync
         for (const radio of arpUI.modeRadios) {
           radio.checked = radio.value === settings.arp.mode;
         }
-        arpUI.manual.hidden = settings.arp.mode !== 'manual';
         arpUI.pattern.value = settings.arp.pattern;
         arpUI.rate.value = settings.arp.rate;
         arpUI.octaves.value = String(settings.arp.octaves);
         arpUI.octavesOut.textContent = String(settings.arp.octaves);
         arpUI.gate.value = String(settings.arp.gate);
         arpUI.gateOut.textContent = String(settings.arp.gate);
+        // Auto's Now, read straight from the engine rather than waiting on
+        // the 4 Hz poll (which only runs while the transport is live) — the
+        // editor must show the live reading the instant it opens.
+        applyResolvedArp(
+          settings.arp.mode === 'auto' && engineCaps.getResolved ? engine.getResolved().arp : null
+        );
       }
 
       // ---- transport (Play / Finish / Stop now) -------------------------
@@ -21598,6 +21691,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .arp-manual {
       margin-top: 10px;
+    }
+
+    /* v0.0.201: Pattern/Rate/Octaves stay visible and touchable while auto
+       is resolving them — dimmed (readable, not disabled) so the "up ·
+       auto" tag beside them reads as the value in charge. */
+    .arp-auto-tag {
+      font-style: italic;
+    }
+
+    select.arp-auto-resolved,
+    input.arp-auto-resolved {
+      opacity: 0.6;
     }
 
     /* -- v6: shared step sequencer (melody/bass/arp single-lane,

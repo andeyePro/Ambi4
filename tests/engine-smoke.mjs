@@ -627,6 +627,86 @@ test('autoArpSettings gets slower, narrower and sparser as complexity falls', ()
   assert.equal(autoArpSettings(1).pattern, 'random');
 });
 
+// v0.0.201 — owner ruling 2026-09-25, "auto writes its choice into Now":
+// getResolved().arp is the readout of what the arp is ACTUALLY playing this
+// bar, so a control that shows it can never lie about it. Two contract halves
+// (auto tracks autoArpSettings(complexity); manual echoes the params
+// verbatim) plus the hard constraint the owner named explicitly: reading the
+// readout must never perturb the piece, because it is polled at 4 Hz from
+// the page whether or not anyone is looking at it.
+test('getResolved().arp matches autoArpSettings(complexity) under auto, and the params under manual', () => {
+  const engine = createEngine({ complexity: 0.2 });
+  assert.ok(typeof engine.getResolved === 'function',
+    'this engine build has no getResolved() to extend — v0.0.201 assumes v14 landed');
+
+  for (const complexity of [0, 0.2, 0.5, 0.8, 1]) {
+    engine.setParams({ complexity });
+    const resolved = engine.getResolved().arp;
+    const expected = autoArpSettings(complexity);
+    assert.equal(resolved.pattern, expected.pattern, `complexity ${complexity}: pattern`);
+    assert.equal(resolved.rate, expected.rate, `complexity ${complexity}: rate`);
+    assert.equal(resolved.octaves, expected.octaves, `complexity ${complexity}: octaves`);
+    assert.equal(resolved.density, expected.density, `complexity ${complexity}: density`);
+    assert.equal(resolved.auto, true, `complexity ${complexity}: auto flag`);
+  }
+
+  // Manual: the params verbatim, not the complexity-derived ones — set
+  // complexity high enough that auto's own pick (random/1-16/3) would be
+  // visibly different from the manual choice below, so a resolver that
+  // secretly stayed on the auto path would be caught red-handed.
+  engine.setParams({
+    complexity: 0.95,
+    arp: { mode: 'manual', pattern: 'down', rate: '1/4', octaves: 1 },
+  });
+  const manualResolved = engine.getResolved().arp;
+  assert.equal(manualResolved.pattern, 'down');
+  assert.equal(manualResolved.rate, '1/4');
+  assert.equal(manualResolved.octaves, 1);
+  assert.equal(manualResolved.auto, false);
+  engine.stop();
+});
+
+test('getResolved() draws no randomness, ever — reading it, once or a dozen times in a row, consumes zero rng draws', () => hiddenTab(async () => {
+  // A direct rng-draw count rather than a two-engine byte-identical replay:
+  // the latter races the scheduler's own setInterval against the test's
+  // setTimeout-driven clock advances, so a fixed dose of extra synchronous
+  // work (a getResolved() call) can shift which real tick a bar's material
+  // gets computed on and change the piece for reasons that have nothing to
+  // do with getResolved() drawing rng — a false positive this version does
+  // not risk, because nothing here awaits or advances the clock between the
+  // counted calls, so the engine's ticker cannot fire in between.
+  let draws = 0;
+  const countingRng = () => {
+    draws += 1;
+    return Math.random();
+  };
+  const engine = createEngine(
+    { tracks: tracksAll('auto'), arp: { mode: 'auto' } },
+    { rng: countingRng },
+  );
+  await engine.start();
+  // Staged entry (v8 ruling): arp is 5th in TRACK_ORDER, so at the default
+  // 60 bpm/4-4 (4 s/bar) it enters at bar 4 — clear it so effectiveArp's own
+  // step-mask reroll (the one rng draw this unit must never touch) is live.
+  await advance(24, FAST);
+  // getResolved()'s FIRST-EVER call on an engine primes a few lazy per-track
+  // caches (wander/section-voice picks) that draw rng once and never again —
+  // pre-existing, unrelated to this unit's arp field. Prime it once so the
+  // loop below measures only repeat reads, which is the property this unit
+  // actually owns: that reading the arp readout costs nothing, however many
+  // times the 4 Hz poll asks.
+  engine.getResolved();
+  const before = draws;
+  for (let i = 0; i < 12; i++) {
+    const arp = engine.getResolved().arp;
+    assert.equal(typeof arp.pattern, 'string');
+  }
+  assert.equal(draws, before,
+    'getResolved() drew from rng — the live readout must read state only, per the owner\'s '
+      + '"no behaviour change, no rng change" ruling');
+  engine.stop();
+}));
+
 test('buildArpSequence covers every pattern and octave span', () => {
   const chord = [60, 64, 67];
   assert.deepEqual(buildArpSequence(chord, 'up', 1), [60, 64, 67]);

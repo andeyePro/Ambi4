@@ -7877,6 +7877,34 @@ export function createEngine(initialParams, options = {}) {
     return events;
   }
 
+  /**
+   * v0.0.201: the arp readout for getResolved() — owner ruling 2026-09-25,
+   * "auto writes its choice into Now". Complexity-derived under auto, via the
+   * same pure autoArpSettings() effectiveArp() calls, so the readout can never
+   * drift from what the bar actually plays; the manual params verbatim
+   * otherwise. Reads state only — no rng, so polling it can never perturb
+   * playback (unlike effectiveArp, which may reroll the auto step mask).
+   */
+  function resolvedArpSettings() {
+    if (params.arp.mode === 'manual') {
+      return {
+        pattern: params.arp.pattern,
+        rate: params.arp.rate,
+        octaves: params.arp.octaves,
+        density: trackDensity('arp'),
+        auto: false,
+      };
+    }
+    const auto = autoArpSettings(params.complexity);
+    return {
+      pattern: auto.pattern,
+      rate: auto.rate,
+      octaves: auto.octaves,
+      density: auto.density,
+      auto: true,
+    };
+  }
+
   /** Manual arp settings verbatim, or the complexity-derived auto ones. */
   function effectiveArp(intensity, needMask) {
     if (params.arp.mode === 'manual') return params.arp;
@@ -9353,6 +9381,17 @@ export function createEngine(initialParams, options = {}) {
       if (!recipe.tracks || !recipe.tracks[name]) continue;
       if (recipe.tracks[name].autoThreshold === undefined) recipe.tracks[name].autoThreshold = autoThresholdFor(name);
     }
+    // v0.0.201: the same for the arp under auto — the pattern, rate and octaves
+    // it plays are Complexity's choice, and the recipe names that choice
+    // rather than the manual fields auto is ignoring. Applying it back keeps
+    // mode 'auto', so the rebuild plays the same bar; switching to manual
+    // afterwards starts from what auto was playing.
+    if (recipe.arp && recipe.arp.mode === 'auto') {
+      const arpNow = resolvedArpSettings();
+      recipe.arp.pattern = arpNow.pattern;
+      recipe.arp.rate = arpNow.rate;
+      recipe.arp.octaves = arpNow.octaves;
+    }
     return recipe;
   }
 
@@ -9425,6 +9464,7 @@ export function createEngine(initialParams, options = {}) {
       globals,
       tracks,
       patches,
+      arp: resolvedArpSettings(),
     };
   }
 
