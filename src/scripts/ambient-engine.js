@@ -2036,6 +2036,58 @@ function sanitiseGrooveRule(value, base) {
   return rule;
 }
 
+/**
+ * The kit's TAB rules — "Kit variant schedule and fills as rules"
+ * (TODO.md, Reconstructible Ambi4). The same Now / Chance / Pool logic as the
+ * voice rule, over the step grid's tabs (a percussive track's `sequencers`):
+ *
+ *   variantRule  which tab plays. CHANCE is how likely a redraw is at each
+ *                `when` (bar, the first bar of each section, or once — the
+ *                first bar the kit sounds); 0 holds the tab playing for good;
+ *                NULL follows the tabs' own Shuffle weights / In order chain,
+ *                byte for byte the law every build before this had. POOL is
+ *                the ordered, weighted tabs a redraw may land on, by weight
+ *                (the whole pool, the playing tab included) or in turn; an
+ *                empty pool holds.
+ *   fillRule     a one-bar visit that always hands back. CHANCE (never null:
+ *                0 is "no fills") is how likely a fill is at each `when` (any
+ *                bar, the LAST bar of each section, or once — the last bar of
+ *                the first section); POOL is the tabs a fill is drawn from.
+ *                A tab in the fill pool plays only as a fill: every variant
+ *                draw, ruled or by the tabs' weights, steps over it.
+ *
+ * Pool entries are `{ tab, weight }`, tab a 0-based index into the list. Both
+ * rules are sparse, merge field by field, and null clears; a tab the list no
+ * longer has is pruned here, so getParams never names a tab that is not there.
+ */
+const TAB_RULE_KEYS = Object.freeze(['variantRule', 'fillRule']);
+function sanitiseTabRule(value, base, tabs, nullableChance) {
+  if (value === null) return null;
+  const from = base && typeof base === 'object' && !Array.isArray(base) ? base : null;
+  const v = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  if (!v && !from) return null;
+  const at = (key) => (v && key in v ? v[key] : from ? from[key] : undefined);
+  const chanceRaw = at('chance');
+  const chanceNum = chanceRaw === null || chanceRaw === undefined || chanceRaw === '' ? NaN : Number(chanceRaw);
+  const chance = Number.isFinite(chanceNum) ? clamp(chanceNum, 0, 1) : nullableChance ? null : 0;
+  const when = oneOf(at('when'), VOICE_RULE_WHEN, 'bar');
+  const order = oneOf(at('order'), VOICE_RULE_ORDER, 'weight');
+  const poolRaw = at('pool');
+  const pool = [];
+  const seen = new Set();
+  if (Array.isArray(poolRaw)) {
+    for (const entry of poolRaw) {
+      const raw = entry && typeof entry === 'object' ? entry.tab : entry;
+      const tab = typeof raw === 'number' ? raw : Number.NaN;
+      if (!Number.isInteger(tab) || tab < 0 || tab >= tabs || seen.has(tab)) continue;
+      const w = entry && typeof entry === 'object' ? Number(entry.weight) : 1;
+      pool.push({ tab, weight: Number.isFinite(w) && w > 0 ? clamp(w, 0.01, 100) : 1 });
+      seen.add(tab);
+    }
+  }
+  return { chance, when, pool, order };
+}
+
 function sanitiseVoiceWeights(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const out = {};
@@ -2157,6 +2209,19 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
         ? partial.sequencerAdvance
         : baseTrack.sequencerAdvance;
       if (advance === 'chain') track.sequencerAdvance = 'chain';
+      // The kit's tab rules (sanitiseTabRule): sparse, percussive tracks
+      // only, sanitised AFTER the list so a pool can be held to the tabs
+      // that exist. Absent keys stay absent — every stored piece reads back
+      // byte-identical.
+      if (shape.percussive) {
+        for (const key of TAB_RULE_KEYS) {
+          const tabRule = sanitiseTabRule(
+            partial && key in partial ? partial[key] : undefined,
+            baseTrack[key], track.sequencers.length, key === 'variantRule'
+          );
+          if (tabRule) track[key] = tabRule;
+        }
+      }
     }
     tracks[name] = track;
   }
@@ -4866,6 +4931,12 @@ export function createEngine(initialParams, options = {}) {
   // Tracks that have played at least one bar since the transport started. The
   // FIRST bar of a sequence is slot 0, so the advance below skips it once.
   const sequencerPlayed = new Set();
+  // The kit's fill rule (sanitiseTabRule): the tab a playing fill hands back
+  // to, the last fill tab drawn (In turn walks on from it), and the tracks
+  // whose once-per-piece fill has had its moment. All ephemeral.
+  const fillReturn = new Map();
+  const fillLast = new Map();
+  const fillPieceSpent = new Set();
   // vary.voice wander: EPHEMERAL, so it never reaches params/getParams.
   const wanderedVoice = new Map();  // track → the voice id actually sounding
   // v0.0.162 (his 128 a): the section's draw from a track's voiceWeights —
@@ -5354,8 +5425,26 @@ export function createEngine(initialParams, options = {}) {
       // which is why the frozen reference moves for the multi-sequencer
       // genres — deliberately, and stated in the commit.
       if (!isActive(track)) continue;
+      const variantRule = ruledVariant(track);
+      const fillRule = params.tracks[track].fillRule || null;
       if (!sequencerPlayed.has(track)) {
         sequencerPlayed.add(track);
+        // A once-per-piece variant rule draws HERE — the first bar the kit
+        // sounds is the only bar 'piece' names.
+        if (variantRule || fillRule) {
+          const fills = fillTabsOf(fillRule, list);
+          let next = firstUnfilled(list, fills, 0);
+          if (variantRule && variantRule.when === 'piece') next = drawVariantTab(variantRule, list, next, fills);
+          if (next !== 0) clearFrozen(track);
+          activeSequencer.set(track, next);
+        }
+        continue;
+      }
+      // The tab rules, when one is set, are the whole policy. A variant rule
+      // whose chance is null with no fill rule beside it is the old law below,
+      // to the byte.
+      if (variantRule || fillRule) {
+        advanceByTabRules(track, list, variantRule, fillRule);
         continue;
       }
       const from = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
@@ -5382,6 +5471,131 @@ export function createEngine(initialParams, options = {}) {
       if (next !== from) clearFrozen(track);
       activeSequencer.set(track, next);
     }
+  }
+
+  // -- the kit's tab rules (sanitiseTabRule) -----------------------------------
+
+  /** The track's variant rule when it decides anything itself; null chance follows the tabs. */
+  function ruledVariant(track) {
+    const rule = params.tracks[track].variantRule;
+    return rule && rule.chance !== null ? rule : null;
+  }
+
+  /** The tabs a fill rule owns — they play only as fills. */
+  function fillTabsOf(rule, list) {
+    const tabs = new Set();
+    if (!rule) return tabs;
+    for (const entry of rule.pool) if (entry.tab < list.length) tabs.add(entry.tab);
+    return tabs;
+  }
+
+  /** The first tab at or after `from` that the fill rule does not own. */
+  function firstUnfilled(list, fills, from) {
+    for (let k = 0; k < list.length; k++) {
+      const i = (from + k) % list.length;
+      if (!fills.has(i)) return i;
+    }
+    return from;
+  }
+
+  /** One weighted pick from pool entries, on the engine's own rng. */
+  function weightedTab(pool) {
+    const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
+    let at = rng() * total;
+    for (const entry of pool) {
+      at -= entry.weight;
+      if (at <= 1e-12) return entry.tab;
+    }
+    return pool[pool.length - 1].tab;
+  }
+
+  /**
+   * A variant rule's moment: with its chance, the next tab from its pool — by
+   * weight over the whole pool (the playing tab included, the blend law the
+   * voice rule has), or the entry after the playing one in turn. Chance 0, a
+   * missed chance or an empty pool keep the tab playing.
+   */
+  function drawVariantTab(rule, list, current, fills) {
+    const p = rule.chance;
+    if (!(p > 0)) return current;
+    if (p < 1 && rng() >= p) return current;
+    const pool = rule.pool.filter((entry) => entry.tab < list.length && !fills.has(entry.tab));
+    if (!pool.length) return current;
+    if (rule.order === 'turn') {
+      const at = pool.findIndex((entry) => entry.tab === current);
+      return pool[(at + 1) % pool.length].tab;
+    }
+    return weightedTab(pool);
+  }
+
+  /** The tabs' own law (Shuffle weights / In order) with the fill tabs stepped over. */
+  function tabsOwnLaw(track, list, current, fills) {
+    if (params.tracks[track].sequencerAdvance === 'chain') {
+      for (let k = 1; k <= list.length; k++) {
+        const next = (current + k) % list.length;
+        if (!fills.has(next)) return next;
+      }
+      return current;
+    }
+    if (isFrozenTrack(track)) return current;
+    const weights = list[current].weights.map((weight, i) => (fills.has(i) ? 0 : Math.max(0, weight)));
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    if (total <= 0) return current;
+    let r = rng() * total;
+    for (let i = 0; i < weights.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return i;
+    }
+    return current;
+  }
+
+  /** Is this bar one of a fill rule's moments? */
+  function fillDue(track, rule) {
+    if (rule.when === 'bar') return true;
+    if (!sectionEndsThisBar()) return false;
+    if (rule.when === 'section') return true;
+    if (fillPieceSpent.has(track)) return false;
+    fillPieceSpent.add(track);
+    return true;
+  }
+
+  /**
+   * End of a loop under the tab rules. A playing fill hands back first, to
+   * the tab it interrupted; then the variant law moves (the rule's own draw
+   * at its moment, or the tabs' weights when it has no chance of its own);
+   * then a fill may interrupt — never on the bar a fill has just handed back.
+   */
+  function advanceByTabRules(track, list, variantRule, fillRule) {
+    const from = clamp(activeSequencer.get(track) ?? 0, 0, list.length - 1);
+    const fills = fillTabsOf(fillRule, list);
+    const back = fillReturn.get(track);
+    fillReturn.delete(track);
+    let next = back !== undefined ? clamp(back, 0, list.length - 1) : from;
+    if (variantRule) {
+      const due = variantRule.when === 'bar' || (variantRule.when === 'section' && samplingSectionFresh);
+      if (due) next = drawVariantTab(variantRule, list, next, fills);
+    } else {
+      next = tabsOwnLaw(track, list, next, fills);
+    }
+    // A fill tab never plays as a variant: a hold on one (the rule set while
+    // it was playing) steps to the first tab the fill rule does not own.
+    if (fills.has(next)) next = firstUnfilled(list, fills, next);
+    if (fillRule && back === undefined && fillRule.chance > 0 && fills.size && fillDue(track, fillRule)
+      && (fillRule.chance >= 1 || rng() < fillRule.chance)) {
+      const pool = fillRule.pool.filter((entry) => entry.tab < list.length);
+      let tab;
+      if (fillRule.order === 'turn') {
+        const at = pool.findIndex((entry) => entry.tab === fillLast.get(track));
+        tab = pool[(at + 1) % pool.length].tab;
+      } else {
+        tab = weightedTab(pool);
+      }
+      fillLast.set(track, tab);
+      fillReturn.set(track, next);
+      next = tab;
+    }
+    if (next !== from) clearFrozen(track);
+    activeSequencer.set(track, next);
   }
 
   /**
@@ -9528,6 +9742,9 @@ export function createEngine(initialParams, options = {}) {
       lastNoteEnd = 0;
       activeSequencer.clear();
       sequencerPlayed.clear();
+      fillReturn.clear();
+      fillLast.clear();
+      fillPieceSpent.clear();
       // A performance opens on the hook's tonic. Establishing here rather than
       // at the first barline is also what resets a loop the last run left
       // mid-pass, and re-reads a mode or repetition changed while stopped.
@@ -9701,6 +9918,14 @@ export function createEngine(initialParams, options = {}) {
       rule.order = stated.order;
       recipe.tracks.bass.grooveRule = rule;
     }
+    // The kit's variant schedule is a rule too: with none set, the tabs' own
+    // weights decide each bar — chance null, the law the recipe now names
+    // alongside the weights it lifts with every tab (recipe.js). Applying
+    // that named rule back is the same law to the byte (ruledVariant).
+    const kit = recipe.tracks && recipe.tracks.percussion;
+    if (kit && kit.variantRule === undefined) {
+      kit.variantRule = { chance: null, when: 'bar', pool: [], order: 'weight' };
+    }
     return recipe;
   }
 
@@ -9752,6 +9977,8 @@ export function createEngine(initialParams, options = {}) {
       if (config.lanes) resolved.lanes = config.lanes.map((lane) => ({ ...lane }));
       if (config.sequencers && config.sequencers.length > 1) {
         resolved.sequencer = clamp(activeSequencer.get(name) ?? 0, 0, config.sequencers.length - 1);
+        // The kit's fill rule: true for the one bar a fill is playing.
+        if (config.fillRule) resolved.fill = fillReturn.has(name);
       }
       tracks[name] = resolved;
     }

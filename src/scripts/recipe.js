@@ -66,6 +66,12 @@ function trackFields(track) {
     rows.push({ path: `tracks.${track}.sequencers`, label: `${label} sequencers`, kind: 'sequencers' });
     rows.push({ path: `tracks.${track}.sequencerAdvance`, label: `${label} sequencer advance`, kind: 'enum' });
   }
+  if (track === 'percussion') {
+    // The kit's tab rules (ambient-engine.js sanitiseTabRule): which tab plays
+    // when, and the one-bar fills that always hand back.
+    rows.push({ path: `tracks.${track}.variantRule`, label: `${label} variant rule`, kind: 'tabRule' });
+    rows.push({ path: `tracks.${track}.fillRule`, label: `${label} fill rule`, kind: 'tabRule' });
+  }
   return rows;
 }
 
@@ -124,18 +130,16 @@ const cloneValue = (value) => (value === undefined ? undefined : JSON.parse(JSON
 
 /**
  * A track's `sequencers` list, reduced to what the recipe names — mode, the
- * step grid, and `hand` when a person wrote it. The transition WEIGHTS
- * between alternates (a kit's fill, a groove's alternate bar) are deliberately
- * left out: they are a probability the compiler and the kit-variant machinery
- * both write, not yet a rule this schema has a place for (see the "Kit
- * variant schedule and fills as rules" item in TODO.md). Recording the grids
- * but not the odds of switching between them is exactly the kind of gap this
- * unit exists to surface, not to paper over.
+ * transition weights, the step grid, and `hand` when a person wrote it. The
+ * WEIGHTS were left out until the kit's tab rules shipped: they are what the
+ * variant rule's null chance ("the tabs' own weights decide") points at, so
+ * a recipe that names that rule must carry the odds it names — a kit's fill
+ * visit rate, a groove's alternate bar.
  */
 function liftSequencers(list) {
   if (!Array.isArray(list)) return undefined;
   return list.map((sequencer) => {
-    const lifted = { mode: sequencer.mode, steps: cloneValue(sequencer.steps) };
+    const lifted = { mode: sequencer.mode, weights: cloneValue(sequencer.weights), steps: cloneValue(sequencer.steps) };
     if (sequencer.hand === true) lifted.hand = true;
     return lifted;
   });
@@ -294,6 +298,34 @@ function parseGrooveRuleText(text) {
   return rule;
 }
 
+/**
+ * A kit tab rule as a sentence: "chance <n|weights> when <bar|section|piece>
+ * order <weight|turn> pool <tab:weight,...|empty>", tabs counted from 1 as
+ * the grid's tab strip numbers them. "chance weights" is the variant rule's
+ * null: the tabs' own Shuffle weights (or In order chain) decide each bar.
+ */
+function formatTabRule(rule) {
+  if (!rule) return 'none';
+  const chance = rule.chance === null ? 'weights' : String(rule.chance);
+  const pool = rule.pool && rule.pool.length
+    ? rule.pool.map((entry) => `${entry.tab + 1}:${entry.weight}`).join(',')
+    : 'empty';
+  return `chance ${chance} when ${rule.when} order ${rule.order} pool ${pool}`;
+}
+
+function parseTabRuleText(text) {
+  const trimmed = text.trim();
+  if (trimmed === 'none') return null;
+  const match = VOICE_RULE_TEXT.exec(trimmed);
+  if (!match) throw new Error(`recipeFromText: unreadable tab rule "${text}"`);
+  const [, chanceText, when, order, poolText] = match;
+  const pool = poolText === 'empty' ? [] : poolText.split(',').map((entry) => {
+    const at = entry.lastIndexOf(':');
+    return { tab: Number(entry.slice(0, at)) - 1, weight: Number(entry.slice(at + 1)) };
+  });
+  return { chance: chanceText === 'weights' ? null : Number(chanceText), when, pool, order };
+}
+
 function formatValue(row, value) {
   switch (row.kind) {
     case 'number': return formatNumber(row.path, value);
@@ -301,6 +333,7 @@ function formatValue(row, value) {
     case 'range': return formatRange(value);
     case 'voiceRule': return formatVoiceRule(value);
     case 'grooveRule': return formatGrooveRule(value);
+    case 'tabRule': return formatTabRule(value);
     // 'sequencers' and 'json': structured data too shapeless for prose — a
     // person reads it as a data line, the way they would in a JSON preset.
     default: return JSON.stringify(value);
@@ -314,6 +347,7 @@ function parseValue(row, text) {
     case 'range': return parseRangeText(text);
     case 'voiceRule': return parseVoiceRuleText(text);
     case 'grooveRule': return parseGrooveRuleText(text);
+    case 'tabRule': return parseTabRuleText(text);
     default: return JSON.parse(text);
   }
 }

@@ -1794,6 +1794,101 @@ try {
     }
   }
 
+  // The kit's tab rules (variant schedule and fills) under the percussion
+  // grid's tab strip, on the rule primitive. Hidden with one tab; with three,
+  // a Variant and a Fill rule; the pool editor ticks a tab into the fill pool,
+  // the typed Chance reaches the engine's fillRule, a held Variant hides the
+  // Shuffle weights it supersedes, and Back to Auto clears the key again.
+  {
+    const engine = window.__ambi4Engine;
+    const editor = await openEditor('percussion');
+    const kitTabs = () => engine.getParams().tracks.percussion.sequencers.length;
+    const host = editor && editor.querySelector('.seq-tab-rules');
+    if (!host) failures.push('the percussion grid has no kit tab rules under its tab strip');
+    else {
+      const addTab = editor.querySelector('.seq-add');
+      for (let i = 0; i < 3 && kitTabs() < 3 && addTab; i++) {
+        addTab.click();
+        await waitUntil(() => kitTabs() >= i + 2);
+      }
+      if (kitTabs() < 3) failures.push(`adding kit tabs left ${kitTabs()}`);
+      if (host.hidden) failures.push('with three tabs the kit tab rules are still hidden');
+      const variant = host.querySelector('.rule[data-rule="kit-variant"]');
+      const fill = host.querySelector('.rule[data-rule="kit-fill"]');
+      if (!variant || !fill) failures.push('the kit tab rules lack a Variant or a Fill rule');
+      if (variant && !/Tab \d/.test(variant.querySelector('.rule-now-value').textContent)) failures.push(`the Variant's Now names no tab: ${JSON.stringify(variant.querySelector('.rule-now-value').textContent)}`);
+      const poolEdit = doc.getElementById('kit-fill-pool');
+      if (!poolEdit) failures.push('the Fill rule has no pool Edit…');
+      else {
+        poolEdit.click();
+        const tick = doc.querySelector('#kit-fill-pool-editor .seq-tab-pool-row[data-tab="2"] input[type="checkbox"]');
+        if (!tick) failures.push('the fill pool editor lists no Tab 3');
+        else {
+          tick.checked = true;
+          tick.dispatchEvent(new window.Event('change', { bubbles: true }));
+          const pooled = await waitUntil(() => {
+            const rule = engine.getParams().tracks.percussion.fillRule;
+            return rule && rule.pool.length === 1 && rule.pool[0].tab === 2;
+          });
+          if (!pooled) failures.push(`ticking Tab 3 left the engine's fill rule at ${JSON.stringify(engine.getParams().tracks.percussion.fillRule)}`);
+        }
+        const readout = fill && fill.querySelector('.rule-chance-slot .knob-value');
+        if (!readout) failures.push('the Fill rule\'s Chance layer holds no dial readout');
+        else {
+          readout.click();
+          const edit = fill.querySelector('.rule-chance-slot .knob-value-edit');
+          if (!edit) failures.push('clicking the Fill chance readout did not open its typed editor');
+          else {
+            edit.value = '25';
+            edit.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            const landed = await waitUntil(() => {
+              const rule = engine.getParams().tracks.percussion.fillRule;
+              return rule && Math.abs(rule.chance - 0.25) < 1e-9;
+            });
+            if (!landed) failures.push(`typing 25 into the Fill chance left ${JSON.stringify(engine.getParams().tracks.percussion.fillRule)}`);
+          }
+        }
+      }
+      const variantWhen = doc.getElementById('kit-variant-when');
+      if (!variantWhen) failures.push('the Variant rule lost its When select id');
+      else {
+        variantWhen.value = 'section';
+        variantWhen.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const ruled = await waitUntil(() => {
+          const rule = engine.getParams().tracks.percussion.variantRule;
+          return rule && rule.when === 'section' && rule.chance === null;
+        });
+        if (!ruled) failures.push(`the Variant's When left ${JSON.stringify(engine.getParams().tracks.percussion.variantRule)} (want when section, chance still Auto)`);
+        const weightBox = editor.querySelector('.seq-weight');
+        if (weightBox && weightBox.hidden) failures.push('an Auto variant rule hid the Shuffle weights it follows');
+        const vReadout = variant.querySelector('.rule-chance-slot .knob-value');
+        if (!vReadout) failures.push('the Variant rule\'s Chance layer holds no dial readout');
+        else {
+          vReadout.click();
+          const edit = variant.querySelector('.rule-chance-slot .knob-value-edit');
+          if (!edit) failures.push('clicking the Variant chance readout did not open its typed editor');
+          else {
+            edit.value = '0';
+            edit.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            const held = await waitUntil(() => engine.getParams().tracks.percussion.variantRule?.chance === 0);
+            if (!held) failures.push(`typing 0 into the Variant chance left ${JSON.stringify(engine.getParams().tracks.percussion.variantRule)}`);
+            else if (weightBox && !weightBox.hidden) failures.push('a held Variant left the Shuffle weight box on screen, a control the engine now ignores');
+          }
+        }
+        doc.getElementById('kit-variant-pool')?.click();
+        const back = [...doc.querySelectorAll('#kit-variant-pool-editor button')].find((b) => /Back to Auto/.test(b.textContent));
+        if (!back) failures.push('the Variant pool editor has no Back to Auto');
+        else {
+          back.click();
+          const cleared = await waitUntil(() => !('variantRule' in engine.getParams().tracks.percussion));
+          if (!cleared) failures.push('Back to Auto did not clear the engine\'s variant rule');
+        }
+      }
+      // Leave the kit as the rest of the suite found it: one tab, no rules.
+      engine.setParams({ tracks: { percussion: { fillRule: null, variantRule: null } } });
+    }
+  }
+
   // v0.0.188 — the slider fallback editor, booted on purpose. With the seam
     // set, every stock voice renders through the path the page takes when
     // knob.js is missing: every control names its field (pinned, with its

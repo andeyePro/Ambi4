@@ -422,7 +422,9 @@ const keepHit = (k, r) => k === 0 || Math.floor((k + 1) * r) > Math.floor(k * r)
  * its last beat cleared for a crescendo run on the mid lane. The weights say
  * how often it is visited — rising with the dial — and the fill always hands
  * straight back. Honest by construction: it is a TAB in the grid the user
- * can open, edit or silence, not an improvisation over their data.
+ * can open, edit or silence, not an improvisation over their data — and its
+ * odds read back as a Fill rule (kitBankRules below: 20 % each bar at 0.75),
+ * which the grid's tab strip shows and lets a person take over.
  */
 function kitFillVariant(main, kitComplexity, slots) {
   const c = numberOr(kitComplexity, undefined);
@@ -494,6 +496,62 @@ function compileKit(grooves, timeSignature, kitComplexity) {
     compiled.push(fill);
   }
   return compiled;
+}
+
+/** The kit's tab rules (ambient-engine.js sanitiseTabRule), carried per track. */
+const KIT_RULE_KEYS = Object.freeze(['variantRule', 'fillRule']);
+
+/**
+ * The kit's tab BANK — a list of sequencers whose weights are the rows of a
+ * Markov chain — read back as the two rules the engine now also takes: a
+ * variant rule (which tab plays) and a fill rule (the one-bar visit that
+ * always hands back). This is how a page offers "the rule this kit already
+ * follows" the first time someone opens it, the way deriveVoiceRule reads a
+ * voice blend: what compileKit and kitFillVariant write as weights becomes
+ * Chance / Pool.
+ *
+ * A FILL is a tab after the first that never repeats itself (its own weight
+ * in its own row is 0) and that some other tab hands over to. Its chance is
+ * the visit probability the compiler solved its weight for — the mean, over
+ * the main tabs' rows, of the fill's share of the row — so a compiled kit at
+ * 0.75 reads "fill 20% each bar", the number kitFillVariant's comment
+ * documents. The VARIANT rule draws every bar from the main tabs, each
+ * weighted by the mean weight the main rows give it; In order (`chain`)
+ * becomes order 'turn'. For the compiler's own kits, whose main rows are all
+ * alike, the derived pair visits the tabs at exactly the rates the weights
+ * did — the stream of draws is new, the odds are not.
+ *
+ * Pure: returns `{ variantRule, fillRule }`, each null where the bank has no
+ * such thing (one tab: nothing to switch; no fill-shaped tab: no fill).
+ */
+export function kitBankRules(sequencers, advance) {
+  const list = (Array.isArray(sequencers) ? sequencers : []).filter(isObject);
+  if (list.length < 2) return { variantRule: null, fillRule: null };
+  const weightOf = (row, i) => {
+    const w = Array.isArray(list[row].weights) ? Number(list[row].weights[i]) : 1;
+    return Number.isFinite(w) && w > 0 ? w : 0;
+  };
+  const chained = advance === 'chain';
+  const fills = chained ? [] : list.map((unused, f) => f).filter((f) => f > 0
+    && weightOf(f, f) === 0
+    && list.some((unused, i) => i !== f && weightOf(i, f) > 0));
+  const mains = list.map((unused, i) => i).filter((i) => !fills.includes(i));
+  const rowTotal = (row) => list.reduce((sum, unused, i) => sum + weightOf(row, i), 0);
+  const visit = (f) => {
+    const shares = mains.map((row) => (rowTotal(row) > 0 ? weightOf(row, f) / rowTotal(row) : 0));
+    return shares.reduce((sum, share) => sum + share, 0) / (shares.length || 1);
+  };
+  const rates = fills.map((f) => visit(f));
+  const fillChance = round3(clamp(rates.reduce((sum, rate) => sum + rate, 0), 0, 1));
+  const fillRule = fills.length && fillChance > 0
+    ? { chance: fillChance, when: 'bar', order: 'weight', pool: fills.map((tab, k) => ({ tab, weight: round3(Math.max(0.01, rates[k])) })) }
+    : null;
+  const mainWeight = (i) => mains.reduce((sum, row) => sum + weightOf(row, i), 0) / mains.length;
+  const pool = mains
+    .map((tab) => ({ tab, weight: chained ? 1 : round3(mainWeight(tab)) }))
+    .filter((entry) => entry.weight > 0);
+  const variantRule = { chance: 1, when: 'bar', order: chained ? 'turn' : 'weight', pool };
+  return { variantRule, fillRule };
 }
 
 /** The articulations that live BELOW buildBassGroove's density band boundary. */
@@ -783,6 +841,11 @@ export function applyGenreOverrides(genreJson, overrides = {}) {
       // number 0..1 rather than an object.
       const autoThreshold = numberOr(spec.autoThreshold, undefined);
       if (autoThreshold !== undefined) clean.autoThreshold = clamp(autoThreshold, 0, 1);
+      // The kit's tab rules ride through like the voice rule; the engine's
+      // sanitiser holds their pools to the tabs the compiled kit has.
+      for (const key of KIT_RULE_KEYS) {
+        if (spec[key] === null || isObject(spec[key])) clean[key] = spec[key];
+      }
       per[name] = clean;
     }
     essence.instrumentation.perTrack = per;
@@ -872,6 +935,9 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
       if (spec.voiceRule !== undefined) track.voiceRule = spec.voiceRule;
       if (name === 'bass' && spec.grooveRule !== undefined) track.grooveRule = spec.grooveRule;
       if (spec.autoThreshold !== undefined) track.autoThreshold = spec.autoThreshold;
+      if (name === 'percussion') {
+        for (const key of KIT_RULE_KEYS) if (spec[key] !== undefined) track[key] = spec[key];
+      }
     }
     if (dissonance !== undefined && TUNED_TRACKS.includes(name)) track.dissonance = dissonance;
     if (DENSITY_TRACKS.includes(name)) {

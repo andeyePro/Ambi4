@@ -2997,6 +2997,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         engineCaps.chainMode =
           chainProbe && isPlainObject(chainProbe.melody) && chainProbe.melody.sequencerAdvance === 'chain';
 
+        // The kit's tab rules (variant schedule and fills): the engine keeps a
+        // fill rule's pool to the kit's tabs, which only an engine that knows
+        // the rule does.
+        const kitRuleProbe = probeTracks({ percussion: { fillRule: { chance: 0.5, pool: [0, 7] } } });
+        engineCaps.kitRules = Boolean(kitRuleProbe && isPlainObject(kitRuleProbe.percussion)
+          && isPlainObject(kitRuleProbe.percussion.fillRule)
+          && kitRuleProbe.percussion.fillRule.chance === 0.5
+          && kitRuleProbe.percussion.fillRule.pool.length === 1);
+
         // Per-track swing/density. Both carry an Auto detent that writes null,
         // so a build that takes the number but not the null would give the
         // detent nothing to mean — hence both halves are probed, and the
@@ -7923,6 +7932,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         + 'three steps in the time of two at whatever note value you are on, and \u00d72 / '
         + '\u00f72 then walk the triplet note values; press it again for straight time.';
 
+      const SEQ_LEGEND_KIT_RULES =
+        ' Tabs: with two or more, the kit shows two rules under the tab strip. ' +
+        'Variant says which tab plays: its Chance is how likely a redraw is at each ' +
+        'bar, each new section or once (0 holds the tab playing; Auto lets the ' +
+        'tabs\u2019 own Shuffle weights or In order decide), and its Pool is the tabs a ' +
+        'redraw may land on. Fill is a one-bar visit that always hands back: its ' +
+        'Chance is how often, its When any bar, the last bar of each section or once, ' +
+        'and a tab in its Pool plays only as a fill.';
+
       const SEQ_LEGEND_LANES =
         ' Lanes: “Add lane” copies the pattern of the lane it lands beside, its ' +
         'name is click-to-type, and Low/Mid/High says which of the kit’s sounds ' +
@@ -7966,7 +7984,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           SEQ_LEGEND_BASE + (gateAxis ? SEQ_LEGEND_GATE : '')
           + (pitchAxis ? SEQ_LEGEND_PITCH : '')
           + (engineCaps.stepResolution && track !== 'arp' ? SEQ_LEGEND_RESOLUTION : '')
-          + (laneAxis ? SEQ_LEGEND_LANES : '');
+          + (laneAxis ? SEQ_LEGEND_LANES : '')
+          + (track === 'percussion' && engineCaps.kitRules ? SEQ_LEGEND_KIT_RULES : '');
         let active = 0;
         const current = () => list()[Math.min(active, list().length - 1)];
         const laneSteps = (lane) => (lane.key ? current().steps[lane.key] : current().steps);
@@ -8099,6 +8118,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           'How likely the other sequencers are to hand over to this one when a loop ends.'
         );
         describe(addButton, 'Add a sequencer — a copy of the one showing now.');
+
+        // The kit's tab rules: which tab plays when, and the fills.
+        const kitRules = track === 'percussion' && engineCaps.kitRules && ruleApi ? buildKitRules() : null;
 
         // -- v21 kit lane management ---------------------------------------
         const laneBar = document.createElement('div');
@@ -8282,7 +8304,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         pitchLegend.className = 'seq-pitch-legend';
         pitchLegend.hidden = true;
 
-        root.append(head, tabsRow, laneBar, massBar, resBar, scroll, pitchLegend, blocksHost);
+        root.append(head, tabsRow, ...(kitRules ? [kitRules.host] : []), laneBar, massBar, resBar, scroll, pitchLegend, blocksHost);
 
         let cellRefs = []; // [lane][step] -> { cell, band, bandTop, probFill, dot }
         let focusPos = { lane: 0, step: 0 };
@@ -9292,6 +9314,325 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return headRow;
         }
 
+        /**
+         * The kit's variant schedule and fills as rules (engine:
+         * sanitiseTabRule), on the rule primitive. VARIANT: Now is the tab
+         * playing, Chance is how likely a redraw is at its When (Auto follows
+         * the tabs' own Shuffle weights / In order; 0 holds), Pool is the
+         * tabs a redraw may land on. FILL: Now is the fill tab, Chance how
+         * likely a one-bar fill is at its When (bar, the last bar of each
+         * section, or once), Pool the tabs a fill is drawn from — and a fill
+         * tab only ever plays as a fill. Until a person moves one, each shows
+         * the rule the tabs' weights already follow (kitBankRules: a compiled
+         * Energy fill reads "20 %"), unmarked.
+         */
+        function buildKitRules() {
+          const host = document.createElement('div');
+          host.className = 'seq-tab-rules';
+          const keys = ['variantRule', 'fillRule'];
+          const handles = {};
+          const knobs = {};
+          const panels = {};
+          const tabName = (tab) => `Tab ${Number(tab) + 1}`;
+          const own = (key) => (isPlainObject(settings.tracks.percussion[key]) ? settings.tracks.percussion[key] : null);
+          function derive(key) {
+            const read = genreCompiler && typeof genreCompiler.kitBankRules === 'function'
+              ? genreCompiler.kitBankRules(list(), settings.tracks.percussion.sequencerAdvance)
+              : null;
+            const fallback = key === 'variantRule'
+              ? { chance: 1, when: 'bar', order: 'weight', pool: list().map((unused, tab) => ({ tab, weight: 1 })) }
+              : { chance: 0, when: 'bar', order: 'weight', pool: [] };
+            return read && read[key] ? structuredClone(read[key]) : fallback;
+          }
+          /** The rule as shown: the person's, else what the tabs already do. */
+          function shown(key) {
+            const rule = own(key);
+            if (rule) return rule;
+            const derived = derive(key);
+            // Unruled, which tab plays IS the tabs' own law: Auto.
+            if (key === 'variantRule') derived.chance = null;
+            return derived;
+          }
+          function ensure(key) {
+            if (!own(key)) {
+              const rule = derive(key);
+              if (key === 'variantRule') rule.chance = null;
+              settings.tracks.percussion[key] = rule;
+            }
+            return settings.tracks.percussion[key];
+          }
+          function commit(key) {
+            const rule = own(key);
+            engine.setParams({ tracks: { percussion: { [key]: rule ? structuredClone(rule) : null } } });
+            persistSettings();
+            // The dial that made this edit already shows it: redrawing it
+            // mid-gesture would fight the hand.
+            committing = true;
+            try { renderTabs(); } finally { committing = false; }
+          }
+          let committing = false;
+          const nowText = (key) => {
+            if (key === 'fillRule') {
+              const rule = shown('fillRule');
+              return rule.pool.length && rule.chance > 0 ? rule.pool.map((entry) => tabName(entry.tab)).join(', ') : 'No fill';
+            }
+            let playing = 0;
+            let filling = false;
+            try {
+              const kit = engine.getResolved().tracks.percussion;
+              if (Number.isFinite(kit.sequencer)) playing = kit.sequencer;
+              filling = kit.fill === true;
+            } catch {}
+            return `${tabName(playing)}${filling ? ' · fill' : ''} playing`;
+          };
+          const openTab = (tab) => {
+            if (!Number.isFinite(tab) || tab < 0 || tab >= list().length) return;
+            active = tab;
+            render();
+          };
+          const HINTS = {
+            variantRule: {
+              now: 'The tab playing now. Press to open it in the grid below.',
+              chance: 'Chance: how likely the kit is to move to another tab from its pool, at each bar, each new section, or once when it comes in (the When beside it). 0 reads Hold and keeps the tab playing for good; at the left detent, Auto, the tabs\u2019 own Shuffle weights or In order decide, as they always have.',
+              when: 'When the tab may be redrawn: at every bar, at the first bar of every new section, or once, when the kit comes in.',
+              pool: 'The tabs a redraw may land on, in order and weighted: by weight draws among them (the playing tab included), in turn steps to the next. Empty holds. A tab the fill rule owns is stepped over.',
+            },
+            fillRule: {
+              now: 'The tab a fill plays. Press to open it in the grid below.',
+              chance: 'Chance: how likely a fill is \u2014 one bar of a fill tab, then straight back to the tab it interrupted. Off means no fills. A tab in the fill pool plays only as a fill.',
+              when: 'When a fill may come: at any bar, on the last bar of every section (a fill into the next), or once, into the second section.',
+              pool: 'The tabs a fill is drawn from, by weight or in turn. Empty means no fills.',
+            },
+          };
+          for (const key of keys) {
+            const fill = key === 'fillRule';
+            const rule = shown(key);
+            const row = document.createElement('div');
+            row.className = 'vary-row rule-row seq-tab-rule';
+            const handle = ruleApi.createRule(row, {
+              id: fill ? 'kit-fill' : 'kit-variant',
+              name: fill ? 'Fill' : 'Variant',
+              level: ruleLevel(),
+              describe,
+              now: {
+                text: nowText(key),
+                hint: HINTS[key].now,
+                onOpen: () => {
+                  if (fill) {
+                    const pool = shown('fillRule').pool;
+                    if (pool.length) openTab(pool[0].tab);
+                    return;
+                  }
+                  try { openTab(engine.getResolved().tracks.percussion.sequencer ?? 0); } catch {}
+                },
+              },
+              chance: {
+                when: rule.when,
+                whenIds: { select: `kit-${fill ? 'fill' : 'variant'}-when` },
+                onWhen: (value) => {
+                  ensure(key).when = value;
+                  commit(key);
+                },
+              },
+              pool: {
+                rows: [],
+                order: rule.order,
+                labelOf: tabName,
+                empty: fill ? 'empty \u2014 no fills' : 'empty \u2014 the tab playing, and only that',
+                hint: HINTS[key].pool,
+                ids: { edit: `kit-${fill ? 'fill' : 'variant'}-pool` },
+                onEdit: () => {
+                  panels[key].hidden = !panels[key].hidden;
+                  drawPool(key);
+                },
+              },
+            });
+            describe(handle.when, HINTS[key].when, { replace: true });
+            host.append(row);
+            mountedRules.add(handle);
+            handles[key] = handle;
+            // Chance: raw 0 is Auto (variant only), 1 is Hold / Off, 2..21 are 5..100 %.
+            const rawOf = (chance) => (chance === null || chance === undefined ? 0 : 1 + Math.round(clamp(chance, 0, 1) * 20));
+            const fromRaw = (raw) => (Math.round(raw) <= 0 && !fill ? null : varyPct(Math.max(1, Math.round(raw))));
+            const label = (raw) => (Math.round(raw) <= 0 ? 'Auto' : Math.round(raw) === 1 ? (fill ? 'Off' : 'Hold') : pctFormat(varyPct(raw)));
+            const onChance = (raw) => {
+              const r = ensure(key);
+              r.chance = fromRaw(raw);
+              // A fill with nothing to play: the bank's own fill tab, else the last tab.
+              if (fill && r.chance > 0 && !r.pool.length) {
+                const read = derive('fillRule');
+                r.pool = read.pool.length ? read.pool : [{ tab: list().length - 1, weight: 1 }];
+              }
+              commit(key);
+            };
+            const cell = document.createElement('div');
+            cell.className = 'vary-knob';
+            handle.chanceSlot.append(cell);
+            let built = false;
+            if (knobApi) {
+              try {
+                knobs[key] = knobApi.createKnob(cell, {
+                  label: 'Chance',
+                  min: fill ? 1 : 0,
+                  max: 21,
+                  step: 1,
+                  value: rawOf(rule.chance),
+                  marks: fill ? [1] : [0],
+                  format: label,
+                  // Typed entry reads a percentage, the number the readout shows.
+                  parse: (pct) => 1 + Math.round(clamp(pct, 0, 100) / 5),
+                  allowRange: false,
+                  defaultValue: fill ? 1 : 0,
+                  onInput: onChance,
+                });
+                describe(knobs[key].el, HINTS[key].chance);
+                built = true;
+              } catch {
+                cell.innerHTML = '';
+              }
+            }
+            if (!built) {
+              const input = document.createElement('input');
+              input.type = 'range';
+              input.id = `kit-${fill ? 'fill' : 'variant'}-chance`;
+              input.min = fill ? '1' : '0';
+              input.max = '21';
+              input.step = '1';
+              input.value = String(rawOf(rule.chance));
+              input.setAttribute('aria-label', `${fill ? 'Fill' : 'Variant'} chance`);
+              input.addEventListener('input', () => onChance(Number(input.value)));
+              describe(input, HINTS[key].chance);
+              cell.append(input);
+              knobs[key] = { set: (v) => { input.value = String(v); } };
+            }
+            knobs[key].rawOf = rawOf;
+            const panel = document.createElement('div');
+            panel.className = 'seq-tab-pool';
+            panel.id = `kit-${fill ? 'fill' : 'variant'}-pool-editor`;
+            panel.hidden = true;
+            host.append(panel);
+            panels[key] = panel;
+          }
+
+          /** The pool editor: every tab, in pool order first; tick, weigh, reorder; by weight or in turn. */
+          function drawPool(key) {
+            const panel = panels[key];
+            if (panel.hidden) return;
+            panel.innerHTML = '';
+            const rule = shown(key);
+            const n = list().length;
+            const fillTabs = new Set(key === 'variantRule' ? shown('fillRule').pool.map((entry) => entry.tab) : []);
+            const inPool = rule.pool.map((entry) => entry.tab);
+            const order = [...inPool, ...[...Array(n).keys()].filter((tab) => !inPool.includes(tab))];
+            const edit = (fn) => {
+              const r = ensure(key);
+              fn(r);
+              commit(key);
+              drawPool(key);
+            };
+            for (const tab of order) {
+              const at = inPool.indexOf(tab);
+              const entry = at >= 0 ? rule.pool[at] : null;
+              const row = document.createElement('div');
+              row.className = 'blend-row seq-tab-pool-row';
+              row.dataset.tab = String(tab);
+              const lab = document.createElement('label');
+              const tick = document.createElement('input');
+              tick.type = 'checkbox';
+              tick.checked = Boolean(entry);
+              tick.addEventListener('change', () => edit((r) => {
+                if (tick.checked) r.pool.push({ tab, weight: 1 });
+                else r.pool = r.pool.filter((e) => e.tab !== tab);
+              }));
+              lab.append(tick, ` ${tabName(tab)}${fillTabs.has(tab) ? ' (a fill)' : ''}`);
+              const weight = document.createElement('input');
+              weight.type = 'number';
+              weight.min = '0.01';
+              weight.max = '100';
+              weight.step = '0.5';
+              weight.value = String(entry ? entry.weight : 1);
+              weight.disabled = !entry || rule.order === 'turn';
+              weight.setAttribute('aria-label', `${tabName(tab)} weight`);
+              weight.addEventListener('change', () => {
+                const w = parseFloat(weight.value);
+                if (!Number.isFinite(w) || w <= 0) return;
+                edit((r) => { const e = r.pool.find((x) => x.tab === tab); if (e) e.weight = clamp(w, 0.01, 100); });
+              });
+              const move = (dir, text) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'secondary-button';
+                b.textContent = text;
+                b.disabled = !entry || at + dir < 0 || at + dir >= inPool.length;
+                b.setAttribute('aria-label', `Move ${tabName(tab)} ${dir < 0 ? 'up' : 'down'}`);
+                b.addEventListener('click', () => edit((r) => {
+                  const i = r.pool.findIndex((x) => x.tab === tab);
+                  const j = i + dir;
+                  if (i < 0 || j < 0 || j >= r.pool.length) return;
+                  [r.pool[i], r.pool[j]] = [r.pool[j], r.pool[i]];
+                }));
+                return b;
+              };
+              row.append(lab, weight, move(-1, '\u25b2'), move(1, '\u25bc'));
+              panel.append(row);
+            }
+            const orderSelect = document.createElement('select');
+            orderSelect.className = 'genre-select';
+            orderSelect.setAttribute('aria-label', `${key === 'fillRule' ? 'Fill' : 'Variant'} pool order`);
+            for (const [value, text] of [['weight', 'By weight'], ['turn', 'In turn']]) {
+              const option = document.createElement('option');
+              option.value = value;
+              option.textContent = text;
+              orderSelect.append(option);
+            }
+            orderSelect.value = rule.order;
+            orderSelect.addEventListener('change', () => edit((r) => { r.order = orderSelect.value; }));
+            const actions = document.createElement('div');
+            actions.className = 'blend-actions';
+            const reset = document.createElement('button');
+            reset.type = 'button';
+            reset.className = 'secondary-button';
+            reset.textContent = key === 'fillRule' ? 'Back to the tabs\u2019 weights' : 'Back to Auto';
+            reset.disabled = !own(key);
+            reset.addEventListener('click', () => {
+              delete settings.tracks.percussion[key];
+              commit(key);
+              drawPool(key);
+            });
+            describe(reset, 'Drop this rule: the tabs\u2019 own Shuffle weights or In order decide again, exactly as before it was set.');
+            actions.append(orderSelect, reset);
+            panel.append(actions);
+          }
+
+          function refresh() {
+            host.hidden = list().length < 2;
+            for (const key of keys) {
+              const rule = shown(key);
+              const handle = handles[key];
+              handle.setNow(nowText(key));
+              handle.setWhen(rule.when);
+              handle.setPool(rule.pool.map((entry) => ({ id: String(entry.tab), weight: entry.weight })), rule.order);
+              handle.setMark(Boolean(own(key)));
+              if (!committing && knobs[key] && typeof knobs[key].set === 'function') knobs[key].set(knobs[key].rawOf(rule.chance));
+              drawPool(key);
+            }
+          }
+          // The Now of the variant follows the kit live: the bar event fires
+          // before the bar's tab is chosen, so it reads a tick later.
+          const off = engine.on('bar', () => setTimeout(() => {
+            if (!host.isConnected) { off(); return; }
+            handles.variantRule.setNow(nowText('variantRule'));
+          }, 0));
+          return {
+            host,
+            refresh,
+            supersedes: () => {
+              const rule = own('variantRule');
+              return Boolean(rule && rule.chance !== null);
+            },
+          };
+        }
+
         function renderTabs() {
           const seqs = list();
           tabs.innerHTML = '';
@@ -9325,6 +9666,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // A chained list ignores its weights: hiding the box is the honest
           // rendering of that, not a convenience.
           weightWrap.hidden = chained || seqs.length < 2;
+          // A variant rule with a Chance of its own decides which tab plays;
+          // Shuffle / In order and the weights then do nothing, so they go.
+          if (kitRules) {
+            kitRules.refresh();
+            if (kitRules.supersedes()) {
+              orderWrap.hidden = true;
+              weightWrap.hidden = true;
+            }
+          }
           weightInput.value = String(seqs[0].weights[active] ?? 1);
           weightInput.setAttribute('aria-label', `Sequencer ${active + 1} weight`);
         }
@@ -14617,6 +14967,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (isPlainObject(myGroove) && myGroove.chance === 0 && isPlainObject(next.tracks?.bass)) {
           next.tracks.bass.grooveRule = structuredClone(myGroove);
         }
+        // The kit's tab rules follow the same ruling: a held variant (Chance
+        // 0, the first tab for good) and a fill set to Off are yours, and a
+        // fresh kit keeps them. A rule that draws belongs to the old kit's
+        // tabs and goes with them.
+        const kitMine = settings.tracks?.percussion;
+        if (isPlainObject(kitMine) && isPlainObject(next.tracks?.percussion)) {
+          // A fill set to Off must still own the NEW kit's fill tab, or the
+          // tabs' weights would visit it as a variant: read it off the bank.
+          const read = genreCompiler && typeof genreCompiler.kitBankRules === 'function'
+            ? genreCompiler.kitBankRules(next.tracks.percussion.sequencers, next.tracks.percussion.sequencerAdvance)
+            : null;
+          for (const key of ['variantRule', 'fillRule']) {
+            if (isPlainObject(kitMine[key]) && kitMine[key].chance === 0) {
+              const pool = key === 'fillRule' && read && read.fillRule ? read.fillRule.pool : [];
+              next.tracks.percussion[key] = { ...structuredClone(kitMine[key]), pool: structuredClone(pool) };
+            }
+          }
+        }
         // The SEED is the half of the provenance that was being thrown away.
         // `settings.genre` said which genre; nothing said which compile, and
         // one genre has as many bases as there are seeds.
@@ -15760,6 +16128,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           mine.essence.instrumentation = isPlainObject(mine.essence.instrumentation) ? mine.essence.instrumentation : {};
           const per = isPlainObject(mine.essence.instrumentation.perTrack) ? mine.essence.instrumentation.perTrack : {};
           per.bass = { ...(isPlainObject(per.bass) ? per.bass : {}), grooveRule: structuredClone(grooveRule) };
+          mine.essence.instrumentation.perTrack = per;
+        }
+        // The kit's tab rules are the genre's now too (the compiler passes
+        // them through; the engine holds their pools to the kit's tabs).
+        for (const key of ['variantRule', 'fillRule']) {
+          const rule = settings.tracks?.percussion?.[key];
+          if (!isPlainObject(rule)) continue;
+          mine.essence.instrumentation = isPlainObject(mine.essence.instrumentation) ? mine.essence.instrumentation : {};
+          const per = isPlainObject(mine.essence.instrumentation.perTrack) ? mine.essence.instrumentation.perTrack : {};
+          per.percussion = { ...(isPlainObject(per.percussion) ? per.percussion : {}), [key]: structuredClone(rule) };
           mine.essence.instrumentation.perTrack = per;
         }
         // The sound: the patches set on this device are the genre's now.
@@ -18545,6 +18923,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // v0.0.203: the bass's groove rule likewise — Chance 0, Pool empty:
           // a generated line on a blank bass keeps the groove it first states.
           if (track === 'bass') t.grooveRule = { chance: 0, when: 'section', pool: [], order: 'weight' };
+          // The kit's tab rules zeroed the same way: the first tab held, no fills.
+          if (track === 'percussion') {
+            t.variantRule = { chance: 0, when: 'bar', pool: [], order: 'weight' };
+            t.fillRule = { chance: 0, when: 'bar', pool: [], order: 'weight' };
+          }
           if (typeof t.voice === 'string') {
             // The kit keeps its authored sound and loses only its sends; every
             // tuned track opens on the init patch above.
@@ -21402,6 +21785,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
     .groove-pool-row span { flex: 1 1 16ch; min-width: 0; overflow-wrap: anywhere; }
     .groove-pool-row input[type='number'] { width: 5ch; }
+    /* The kit's tab rules (variant schedule and fills), under the tab strip. */
+    .seq-tab-rules {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 4px 0 8px;
+    }
+    .seq-tab-rules[hidden],
+    .seq-tab-pool[hidden] { display: none; }
+    .seq-tab-pool {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 420px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
 
     .voice-rule-controls {
       display: flex;

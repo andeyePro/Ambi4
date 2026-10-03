@@ -2452,3 +2452,46 @@ carries it). Gated by `tests/groove-rule-smoke.mjs` (12 checks, 11 red on the
 old engine — the twelfth, a held rule never consulting its pool, is a guard)
 and page-boot's groove block (red on the old page); the secret-layers row
 `bassGroove` is named.
+
+## The kit's variant schedule and fills as rules
+
+Which kit tab plays each bar was a Markov walk over the tabs' weights, and the
+Energy fill (`kitFillVariant`) one more tab with a solved weight — odds nobody
+could read as a rule. Now a percussive track may carry two sparse rules over
+its step grid's tabs, each `{ chance, when, pool: [{ tab, weight }], order }`
+(the voice rule's shape; `tab` is a 0-based index into `sequencers`):
+
+- `variantRule` — which tab plays. Chance 0 holds the tab playing; `null`
+  follows the tabs' own Shuffle weights / In order chain (the old law, to the
+  byte); a number redraws from the pool at each When — `bar`, `section` (the
+  first bar of each section) or `piece` (once, the first bar the kit sounds) —
+  by weight (the whole pool, the playing tab included) or in turn. An empty
+  pool holds.
+- `fillRule` — a one-bar visit that always hands back to the tab it
+  interrupted. Chance is never null (0 is no fills); When is `bar`, `section`
+  (the LAST bar of each section) or `piece` (once, into the second section);
+  the pool is the tabs a fill is drawn from, and a tab in it plays only as a
+  fill — every variant draw, ruled or weighted, steps over it. Never on the bar
+  a fill has just handed back.
+
+Module ownership: **the engine** (`sanitiseTabRule`: sparse, field-by-field
+merge, null clears, pools pruned to the tabs that exist, sanitised after the
+list; `advanceByTabRules` in `advanceSequencers`, reached only when a fill rule
+is set or the variant rule has a chance of its own, so an unset or null-chance
+rule keeps every stored piece and the frozen reference byte-identical;
+`getResolved().tracks.percussion.fill` while a fill plays; `getRecipe` names
+an unset variant rule as `chance null`), **the compiler** (`kitBankRules`
+reads a bank back as the two rules — a compiled Energy fill reads 20 % at 0.75
+and 50 % at full, the rate `kitFillVariant` solves its weight for; perTrack
+pass-through so Save as my genre carries them; the compiled kit itself is
+unchanged), **the recipe** (`tracks.percussion.variantRule` / `fillRule`,
+text `chance <n|weights> when … order … pool <tab:weight,…|empty>` with tabs
+counted from 1, and the sequencers' weights now lifted with each tab so
+"chance weights" names its odds) and **the page** (two rules on
+`rule-control.js` under the percussion grid's tab strip, shown once there are
+two tabs: Now is the tab playing / the fill tab, Chance a dial, When the
+primitive's, Pool an inline editor — tick, weigh, ▲▼, by weight or in turn,
+Back to Auto; a Variant with its own chance hides the Shuffle / In order and
+weight controls it supersedes; Blank slate holds the first tab with no fills;
+Next keeps a held Variant and a fill set to Off). Gated by
+`tests/kit-rule-smoke.mjs` and page-boot.

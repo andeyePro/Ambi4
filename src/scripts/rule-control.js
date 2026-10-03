@@ -37,10 +37,13 @@ export function layerShown(level, layer) {
   return (li < 0 ? 0 : li) >= la;
 }
 
-/** A pool as one readable line: "Keys › Tines › Bell · by weight", or "empty". */
-export function poolSummary(pool, order, labelOf = (id) => id) {
+/**
+ * A pool as one readable line: "Keys › Tines › Bell · by weight", or what an
+ * empty pool means for this rule (`emptyText`; the voice rule's by default).
+ */
+export function poolSummary(pool, order, labelOf = (id) => id, emptyText = 'empty — the voice you picked, and only that') {
   const rows = Array.isArray(pool) ? pool.filter((entry) => entry && typeof entry.id === 'string') : [];
-  if (!rows.length) return 'empty — the voice you picked, and only that';
+  if (!rows.length) return emptyText;
   const names = rows.map((entry) => {
     const w = Number(entry.weight);
     return Number.isFinite(w) && w !== 1 && order !== 'turn' ? `${labelOf(entry.id)} ×${Math.round(w)}` : labelOf(entry.id);
@@ -65,7 +68,7 @@ export function chanceSummary(chance) {
  *   describe(el, text),             // the page's tooltip + description helper (optional)
  *   now:    { text, hint, onOpen }, // the value playing; onOpen focuses its control
  *   chance: { hint, when, onWhen, whenIds: { select } },  // the dial is mounted into handle.chanceSlot by the page
- *   pool:   { rows, order, labelOf, hint, onEdit, ids: { edit } },
+ *   pool:   { rows, order, labelOf, empty, hint, onEdit, ids: { edit } },  // empty: the empty pool's words
  * }
  */
 export function createRule(host, spec) {
@@ -172,7 +175,7 @@ export function createRule(host, spec) {
   }
 
   function setPool(rows, order) {
-    poolText.textContent = poolSummary(rows, order, spec.pool && spec.pool.labelOf);
+    poolText.textContent = poolSummary(rows, order, spec.pool && spec.pool.labelOf, spec.pool && spec.pool.empty);
   }
   function setMark(on) { mark.hidden = !on; }
   function setNow(text) { nowValue.textContent = text; }
