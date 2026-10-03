@@ -204,7 +204,7 @@ Worst-first within each section: if a step fails, note it and keep going.
 - [ ] Open the pad voice editor. Drag ADSR attack long — new pad notes swell in obviously slowly. Drag short — percussive onset.
 - [ ] Sweep filter cutoff down then up — obvious darkening/brightening of new notes.
 - [ ] Reverb send 0 → 1 — dry vs washed. Delay send similarly.
-- [ ] "↺ Back to factory" restores the original sound.
+- [ ] The reset in the editor's head, beside the engine chip, restores the original sound.
 - [ ] Edits apply to NEW notes only (no retro-change of ringing notes) — expected, not a bug.
 
 ## 5. Arpeggiator + structure (Advanced, playing)
@@ -299,7 +299,7 @@ Tracks (Advanced)
 - [ ] Each row has its track's colour as a left accent bar and in its lamp.
 - [ ] Clicking the lamp cycles off → auto → on and NEVER opens the editor. Turning a track off never expands or keeps open its editor.
 - [ ] Close an editor with Edit, then Tab through that row: it must NOT spring open again. Pressing Edit again re-arms that behaviour.
-- [ ] Off/Auto/On pills now live in the Edit panel header, next to a small dice button (re-roll that track).
+- [ ] The Edit panel header has a small dice button (re-roll that track). (The Off/Auto/On pills that sat beside it went in the 2026-10-03 UI review — the row's lamp is the one state control.)
 - [ ] While playing, each row shows a live "level … · random …" readout and a thin cost bar in the track's colour.
 
 Sequencer 2.0 (Edit panel of melody / bass / arp / percussion)
@@ -387,7 +387,7 @@ Kit editor (Percussion → Edit)
 - [ ] Move a dial on High: it takes the track accent ring and a "follow" button
       appears. Mid and Low are untouched — check by switching tabs.
 - [ ] Press "follow" on that dial: the override goes and the dial returns to the
-      common value. The button at the foot reads "Clear High overrides" on an
+      common value. The reset in the editor's head reads "Clear High overrides" on an
       instrument tab (it clears only that instrument) and "↺ Back to factory" on
       Common.
 - [ ] Overrides persist across reload and travel in presets and share links.
@@ -469,8 +469,8 @@ Block editor (sequencer panels)
 ## v12 delta — UI round (2026-07-25)
 - [ ] Double-click ANY knob resets it to its declared default — a voice-editor knob resets to that VOICE's own factory value (not just whatever value it happened to load with, e.g. from a saved preset); a track's Level/Randomness knob resets to 80%/50%.
 - [ ] Voice editor Detune stays 0-50 cents (unipolar, no negative) and Octave stays -1/0/+1 — both intentionally NOT widened this round (the engine only accepts those ranges; a wider dial would silently clamp).
-- [ ] Track rows: the track name is now a lamp button — click it (or Tab to it + Enter/Space) to cycle Off -> Auto -> On; the dot goes dark/grey/lit to match. The existing Off/Auto/On pill control still works and stays in sync both ways.
-- [ ] Pick ABAB (or Journey) in Structure: its blocks show bar by bar under it; drag one block's intensity and Structure flips to Custom with the same blocks and the music carries on from the same bar. Waves / Drone / Build say they are curves, not blocks.
+- [ ] Track rows: the track name is now a lamp button — click it (or Tab to it + Enter/Space) to cycle Off -> Auto -> On; the dot goes dark/grey/lit to match. (The Off/Auto/On pills in the editor head were removed in the 2026-10-03 UI review; the lamp is the one state control.)
+- [ ] Pick ABAB (or Journey) in Structure: its blocks show bar by bar under it; turn one block's intensity dial and Structure flips to Custom with the same blocks and the music carries on from the same bar. Waves / Drone / Build say they are curves, not blocks.
 - [ ] Structure block labels in the custom builder now read "Section A", "Section B" etc, not a bare letter.
 - [ ] Voice editor Shape 1 / Shape 2 dials show sine/triangle/saw/square waveform icons at the four marks, and the readout shows the icon(s) too (one icon on a canonical shape, two either side of "~" mid-morph).
 - [ ] Simple tab is now five dials: Speed, Complexity, Repetition, Randomness, Master volume. Randomness is new — turning it sets ALL SIX tracks' randomness at once; if tracks disagree (e.g. you'd tweaked one individually) the dial shows their average and clicking it can switch to a drifting min-max range (per-track randomness supports that; Complexity/Repetition don't, so clicking them does nothing — expected, the engine only takes a single number for those two). Interlinks still work: dragging Speed moves the Advanced-tab BPM field and vice versa; dragging Complexity snaps structure/arp/track-states back to Auto.
@@ -943,9 +943,9 @@ A genre of your own (v0.0.180–181)
       as my genre keeps it there.
 
 A voice of your own (v0.0.182–183)
-- [ ] Edit a track, move a dial, type a name in the save row under the words
-      line and Save as my voice: it appears in that track's picker under "My
-      voices", selected, and in every track's picker that plays the same voice
+- [ ] Edit a track, move a dial, press "more" under the dials, type a name in
+      the save row under the words line and Save voice: it appears in that track's picker under
+      "User", selected, and in every track's picker that plays the same voice
       set. Pick a stock voice, pick it back: the dials return exactly.
 - [ ] Move a dial while it plays: the picker reads "<name> · edited". Forget
       this voice removes it; what is playing keeps playing.
@@ -962,7 +962,7 @@ The engine lessons (v0.0.184)
       Coloured noise (Noise). Every highlighted dial is a dial that editor has.
 
 A sound in mind (v0.0.185)
-- [ ] Under any tuned track's dials, "A sound in mind?": press "bright" and
+- [ ] Under any tuned track's dials, behind "more", "A sound in mind?": press "bright" and
       "glassy" on the melody — the answer reads "Try Bell (FM): …" with two
       moves and why. Set it up: Bell is on the track and the named dials have
       moved a third of the way; ⌘Z takes it back. Press "dark": "bright" is
@@ -1092,3 +1092,33 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       open, Melody shows exactly its row, Strip → Notes at the ENGINE).
       Layout unmeasured until `.vibe/measure.sh local overlaps` runs on it,
       at desktop and 390×844.
+
+## UI review fixes 8–12 — the voice editor's layers (2026-10-03)
+
+- [ ] Rules show at "+ chance" (the default). Open any voice editor: the head
+      reads track name, engine chip, then the reset button (↺ Back to factory), then the dice and Randomness. There are NO Off/Auto/On
+      pills in the head; the row's lamp just above still cycles the state.
+- [ ] Under the patch dials there is one underlined "more". Words, the save
+      row and "A sound in mind?" are hidden until you press it; it then reads
+      "less" and folds them away again. Press the finder's Set it up with it
+      open: the editor rebuilds and "more" stays open.
+- [ ] Set Rules show to "+ pool": an open editor's "more" opens at once, and
+      every editor opened after that starts open. Back to "+ chance": they
+      fold.
+- [ ] Arp editor: Octaves and Gate are dials beside each other under Pattern
+      and Rate (Gate reads as a percentage). In Auto the Octaves dial is dimmed
+      and its label reads "Octaves · auto"; turn it and the arp drops to
+      Manual, seeded from what Auto just played. Tap the centre: Octaves 2,
+      Gate 60 %.
+- [ ] Structure → Custom (or a preset's blocks): each block's intensity is a
+      dial; turning it on a preset's block takes the structure over as Custom.
+- [ ] LAYOUT UNMEASURED in the worktree that built this: run
+      `.vibe/measure.sh local overlaps` and the 390×844 pass — the editor head
+      now carries the reset button and may wrap on a phone; the arp and block
+      dials are taller than the ranges they replace.
+- [ ] Automated: page-boot's "editor layers" block — first-open controls fall
+      from 80 to 64 on the melody (Pluck) and from 75 to 59 on the arp (Soft
+      pluck), the reset is in the head beside the chip, "more" reveals Save as
+      my voice (open by default only at expert, and a level change reaches an
+      open editor), and the arp's Octaves and Gate dials reach the ENGINE.
+      Red on v0.0.206 (eleven failures).

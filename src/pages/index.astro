@@ -4267,55 +4267,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // v14: the Off/Auto/On segmented control moved OUT of the row (which is
       // now a single line: lamp+name, voice, Level, Randomness, Edit) and
-      // into the Edit panel header, so it exists only while that editor is
-      // open. Instances register here; the row lamp is the always-present
-      // state control.
-      const stateControls = new Map(); // track -> { set(state) }
+      // into the Edit panel header. UI review fix 12 (2026-10-03) removed it
+      // from there too: the row lamp is the one state control.
 
       function syncTrackStateUI() {
         for (const id of TRACK_IDS) {
-          stateControls.get(id)?.set(settings.tracks[id].state);
           syncTrackOffIndicator(id);
         }
         updateComplexityDisplay();
       }
 
-      function buildStateControl(container, track) {
-        const group = document.createElement('div');
-        group.className = 'segmented track-state';
-        group.setAttribute('role', 'radiogroup');
-        group.setAttribute('aria-label', `${TRACK_LABELS[track]} state`);
-        const radios = [];
-        for (const state of TRACK_STATE_CYCLE) {
-          const input = document.createElement('input');
-          input.type = 'radio';
-          input.name = `track-state-${track}`;
-          input.id = `track-${track}-${state}`;
-          input.value = state;
-          input.checked = settings.tracks[track].state === state;
-          const label = document.createElement('label');
-          label.htmlFor = input.id;
-          label.textContent = TRACK_STATE_TEXT[state];
-          input.addEventListener('change', () => {
-            if (!input.checked) return;
-            setTrackState(track, state);
-          });
-          group.append(input, label);
-          radios.push(input);
-        }
-        container.append(group);
-        const handle = {
-          set: (state) => {
-            for (const input of radios) input.checked = input.value === state;
-          },
-        };
-        stateControls.set(track, handle);
-        return handle;
-      }
-
-      // v12: single commit path for a track's state — the segmented radios
-      // AND the track-row lamp button both funnel through this, so they can
-      // never desync from one another.
+      // v12: single commit path for a track's state. UI review fix 12
+      // (2026-10-03): the track-row lamp is the ONE control that sets it — the
+      // editor head's Off/Auto/On radios showed the same state a second way,
+      // a second widget for one job. Everything that changes a state still
+      // funnels through here, so the lamp cannot drift from the engine.
       const TRACK_STATE_CYCLE = ['off', 'auto', 'on'];
 
       function setTrackState(id, state) {
@@ -4323,7 +4289,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         engine.setParams({ tracks: { [id]: { state } } });
         updateComplexityDisplay();
         syncTrackOffIndicator(id);
-        stateControls.get(id)?.set(state);
         // Off/on both move whether THIS track's own open editor may show the
         // live trace (updateScopeMode) — with no explicit chip selection the
         // scope also traces "everything that isn't off", so a state change
@@ -6559,6 +6524,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // v0.0.196: every mounted rule, so a level change reaches them all.
       const mountedRules = new Set();
+      // UI review fix 9: a voice editor's "more" (words, save, finder), per
+      // track, once the person has pressed it. A level change clears it, so
+      // the new level decides every editor's fold again.
+      const veMoreOpen = new Map();
       function ruleLevel() {
         const level = settings.ui && typeof settings.ui.level === 'string' ? settings.ui.level : 'advanced';
         return ruleApi && ruleApi.RULE_LEVELS.includes(level) ? level : 'advanced';
@@ -6566,6 +6535,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function setRuleLevel(level) {
         if (!ruleApi || !ruleApi.RULE_LEVELS.includes(level)) return;
         settings.ui.level = level;
+        veMoreOpen.clear();
+        for (const ed of openEditors.values()) ed.applyMore?.(level === 'expert');
         for (const handle of mountedRules) {
           if (!handle.el.isConnected) { mountedRules.delete(handle); continue; }
           handle.setLevel(level);
@@ -7948,7 +7919,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (switchedOn) {
           // The state went in the payload above; this is the UI's half of
           // setTrackState, without sending it twice.
-          stateControls.get(track)?.set('on');
           syncTrackOffIndicator(track);
           updateComplexityDisplay();
           updateScopeMode(track);
@@ -10382,10 +10352,56 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return { select, readout };
         }
 
-        function arpRange(labelText, { min, max, step, value, onChange }) {
+        // UI review fix 10 (2026-10-03): Octaves and Gate are dials, like
+        // every other number in the editor — knob.js first, exactly as
+        // buildFeelControl does, with the native range kept as the fallback
+        // for a page whose knob.js is missing or throws. Both shapes answer
+        // to the same small handle: show(value, auto) draws a value without
+        // committing it, and `el` carries the dimmed auto-resolved class.
+        const arpKnobs = document.createElement('div');
+        arpKnobs.className = 'arp-knobs';
+        function arpRange(labelText, { min, max, step, value, defaultValue, format, parse, hint, onChange }) {
+          const id = `arp-${labelText.toLowerCase()}`;
+          const show = format || ((v) => String(v));
+          if (knobApi) {
+            const cell = document.createElement('div');
+            cell.className = `knob-cell arp-knob ${id}-knob`;
+            cell.id = id;
+            if (!arpKnobs.isConnected) manual.append(arpKnobs);
+            arpKnobs.append(cell);
+            try {
+              const handle = knobApi.createKnob(cell, {
+                label: labelText,
+                min,
+                max,
+                step,
+                value,
+                // A single value: the engine takes one octave count and one
+                // gate, so a span would be a gesture that does nothing.
+                allowRange: false,
+                format: show,
+                parse,
+                defaultValue,
+                onInput: (v) => onChange(String(v)),
+              });
+              if (hint) describe(handle.el, hint);
+              const labelEl = handle.el.querySelector('.knob-label');
+              return {
+                el: cell,
+                knob: handle,
+                show: (v, auto = false) => {
+                  handle.set(Number(v));
+                  // The " · auto" tag rides on the dial's own label, so the
+                  // cell does not grow a line while auto is choosing.
+                  if (labelEl) labelEl.textContent = auto ? `${labelText} · auto` : labelText;
+                },
+              };
+            } catch {
+              cell.remove();
+            }
+          }
           const wrap = document.createElement('div');
           wrap.className = 'control';
-          const id = `arp-${labelText.toLowerCase()}`;
           const row = document.createElement('div');
           row.className = 'control-label-row';
           const lab = document.createElement('label');
@@ -10393,7 +10409,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           lab.textContent = labelText;
           const readout = document.createElement('span');
           readout.className = 'value-readout';
-          readout.textContent = String(value);
+          readout.textContent = show(value);
           row.append(lab, readout);
           const input = document.createElement('input');
           input.type = 'range';
@@ -10403,12 +10419,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           input.value = String(value);
           input.id = id;
           input.addEventListener('input', () => {
-            readout.textContent = input.value;
+            readout.textContent = show(Number(input.value));
             onChange(input.value);
           });
+          if (hint) describe(input, hint);
           wrap.append(row, input);
           manual.append(wrap);
-          return { input, readout };
+          return {
+            el: input,
+            show: (v, auto = false) => {
+              input.value = String(v);
+              readout.textContent = auto ? `${show(Number(v))} · auto` : show(Number(v));
+            },
+          };
         }
 
         const patternField = arpSelect('Pattern', ARP_PATTERNS, settings.arp.pattern, (v) => {
@@ -10430,6 +10453,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           max: 3,
           step: 1,
           value: settings.arp.octaves,
+          defaultValue: DEFAULTS.arp.octaves,
+          hint: 'How many octaves the broken chord climbs through before it turns. Touching it takes over from Auto, starting from what Auto just played.',
           onChange: (v) => {
             touchArpManual({ octaves: parseInt(v, 10) });
           },
@@ -10439,6 +10464,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           max: 1,
           step: 0.01,
           value: settings.arp.gate,
+          defaultValue: DEFAULTS.arp.gate,
+          format: (v) => pctFormat(v),
+          parse: (n) => n / 100, // typed "60" is 60 %, not 60
+          hint: 'How long each note of the arpeggio holds before the next: low is clipped and staccato, high runs the notes into each other.',
           onChange: (v) => {
             settings.arp.gate = parseFloat(v);
             engine.setParams({ arp: { gate: settings.arp.gate } });
@@ -10454,10 +10483,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           patternOut: patternField.readout,
           rate,
           rateOut: rateField.readout,
-          octaves: octaves.input,
-          octavesOut: octaves.readout,
-          gate: gate.input,
-          gateOut: gate.readout,
+          octaves,
+          gate,
         };
         syncArpUI();
       }
@@ -10470,7 +10497,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const ed = openEditors.get(track);
         if (!ed) return;
         unregisterExtras(track, ed.extras);
-        stateControls.delete(track);
         if (track === 'arp') arpUI = null;
         if (ed.scope) {
           if (ed.scope.debounce !== null) clearTimeout(ed.scope.debounce);
@@ -12243,9 +12269,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           storePatch();
         }
 
-        // v14 header: track name + "sounding" note, the Off/Auto/On state
-        // control (moved out of the single-line row), the dice re-roll and
-        // the Randomness mirror.
+        // v14 header: track name + "sounding" note, the dice re-roll and the
+        // Randomness mirror. UI review fix 12 (2026-10-03): no Off/Auto/On
+        // radios here any more — the row's lamp, right above, is the one
+        // control for a track's state.
         container.classList.add(trackColourClass(track));
         const header = document.createElement('div');
         header.className = 've-header';
@@ -12285,7 +12312,42 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         } else {
           engineChip.hidden = true;
         }
-        header.append(headerTitle, engineChip, sounding, extrasBox);
+        // UI review fix 8 (2026-10-03): the button that rescues a ruined
+        // sound sits in the head beside the engine chip, where it is seen
+        // before any dial is touched — it used to be the last thing in the
+        // panel, below everything it would undo.
+        function resetLabel() {
+          if (!kitKind) return '↺ Back to factory';
+          const found = kitTabList().find(([k]) => k === kitKind);
+          return `Clear ${found ? found[1] : kitKind} overrides`;
+        }
+
+        const resetButton = document.createElement('button');
+        resetButton.type = 'button';
+        resetButton.className = 'secondary-button ve-reset';
+        resetButton.addEventListener('click', () => {
+          if (kitKind) {
+            // On an instrument tab, reset means "drop THIS instrument's
+            // overrides" — the common patch the whole kit shares is not the
+            // thing the user is looking at.
+            const per = isPlainObject(patch.perKind) ? patch.perKind : null;
+            if (per) {
+              delete per[kitKind];
+              if (!Object.keys(per).length) delete patch.perKind;
+            }
+            storePatch();
+            buildPatchControls();
+            scheduleScopeRender(track, true);
+            return;
+          }
+          // v0.0.206: back to FACTORY — the genre's own patch where it ships
+          // one (Synthwave's Poly saw), the saved one for a User voice — and
+          // past two changes it asks first, listing them.
+          confirmBackToFactory(`${TRACK_LABELS[track] || track}: ${voiceLabel(track, voiceId)}`,
+            patchChanges(track, voiceId).map(describeChange),
+            () => resetVoiceToFactory(track, voiceId));
+        });
+        header.append(headerTitle, engineChip, resetButton, sounding, extrasBox);
         container.append(header);
         if (engineWords && engineWords.words) {
           const words = document.createElement('p');
@@ -12293,7 +12355,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           words.textContent = engineWords.words;
           container.append(words);
         }
-        buildStateControl(extrasBox, track);
         ed.extras = buildTrackExtras(extrasBox, track, { knobs: ed.knobs, withDice: true });
         ed.sounding = sounding;
         ed.voiceId = voiceId;
@@ -12423,10 +12484,39 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // is rewritten on every store (a dial moved, a kit tab's override,
         // follow), and speaks of the Common patch on a kit whatever tab is
         // open, because the sound a listener hears is the whole kit's.
+        // UI review fix 9 (2026-10-03): the words, the save row and the
+        // finder sit behind ONE "more" under the dials, in the rule
+        // primitive's own "more" style — the dials are the editor's basic
+        // layer; these are the next one down. Open by default only at the
+        // Rules show "+ pool" (expert) level; whatever the person last chose
+        // for this track survives a re-render (the finder's Set it up
+        // rebuilds the editor, and must not fold its own answer away).
+        const moreToggle = document.createElement('button');
+        moreToggle.type = 'button';
+        moreToggle.className = 'rule-more ve-more';
+        moreToggle.id = `ve-more-${track}`;
+        const moreBox = document.createElement('div');
+        moreBox.className = 've-more-box';
+        moreBox.id = `ve-more-box-${track}`;
+        moreToggle.setAttribute('aria-controls', moreBox.id);
+        const applyMore = (open) => {
+          moreBox.hidden = !open;
+          moreToggle.textContent = open ? 'less' : 'more';
+          moreToggle.setAttribute('aria-expanded', String(open));
+          moreToggle.setAttribute('aria-label', `${TRACK_LABELS[track] || track}: ${open ? 'fold away' : 'show'} the sound in words, Save voice and the sound finder`);
+        };
+        applyMore(veMoreOpen.has(track) ? veMoreOpen.get(track) : ruleLevel() === 'expert');
+        moreToggle.addEventListener('click', () => {
+          const open = moreBox.hidden;
+          veMoreOpen.set(track, open);
+          applyMore(open);
+        });
+        ed.applyMore = applyMore;
+        container.append(moreToggle, moreBox);
         const wordsLine = document.createElement('p');
         wordsLine.className = 'hint ve-words';
         wordsLine.hidden = !wordsApi;
-        container.append(wordsLine);
+        moreBox.append(wordsLine);
         // v0.0.182 (unit 8): keep this sound as a voice of your own. A name
         // box and Save under the words line; Forget when the track is playing
         // one of the person's own voices on this base.
@@ -12471,7 +12561,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           forgetVoice.hidden = true;
         });
         saveRow.append(voiceName, saveVoice, forgetVoice);
-        container.append(saveRow);
+        moreBox.append(saveRow);
 
         // v0.0.185 (unit 16): "What sound do you have in mind?" — pick words,
         // read what the table says for THIS track, set it up in one press.
@@ -12574,7 +12664,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             sayUnderDials(`${voiceLabel(track, found.voice)}, moved towards ${found.words.join(' and ')}. ⌘Z takes it back.`);
           });
           finder.append(finderLabel, chips, answer, setUp);
-          container.append(finder);
+          moreBox.append(finder);
           refreshAnswer();
         }
 
@@ -12676,40 +12766,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (resetButton) resetButton.textContent = resetLabel();
         }
 
-        function resetLabel() {
-          if (!kitKind) return '↺ Back to factory';
-          const found = kitTabList().find(([k]) => k === kitKind);
-          return `Clear ${found ? found[1] : kitKind} overrides`;
-        }
-
-        const resetButton = document.createElement('button');
-        resetButton.type = 'button';
-        resetButton.className = 'secondary-button';
-        resetButton.addEventListener('click', () => {
-          if (kitKind) {
-            // On an instrument tab, reset means "drop THIS instrument's
-            // overrides" — the common patch the whole kit shares is not the
-            // thing the user is looking at.
-            const per = isPlainObject(patch.perKind) ? patch.perKind : null;
-            if (per) {
-              delete per[kitKind];
-              if (!Object.keys(per).length) delete patch.perKind;
-            }
-            storePatch();
-            buildPatchControls();
-            scheduleScopeRender(track, true);
-            return;
-          }
-          // v0.0.206: back to FACTORY — the genre's own patch where it ships
-          // one (Synthwave's Poly saw), the saved one for a User voice — and
-          // past two changes it asks first, listing them.
-          confirmBackToFactory(`${TRACK_LABELS[track] || track}: ${voiceLabel(track, voiceId)}`,
-            patchChanges(track, voiceId).map(describeChange),
-            () => resetVoiceToFactory(track, voiceId));
-        });
 
         buildPatchControls(); // also sets the reset button's label
-        container.append(resetButton);
       }
 
       // ---- v8: single-open voice-editor accordion ------------------------
@@ -14877,31 +14935,66 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             commitCustomStructure();
           });
 
-          const intensityWrap = document.createElement('label');
-          intensityWrap.className = 'block-field block-field-wide';
-          const intensityName = document.createElement('span');
-          intensityName.className = 'block-field-name';
-          intensityName.textContent = 'intensity';
-          const intensityOut = document.createElement('span');
-          intensityOut.className = 'block-field-value';
-
-          const intensityInput = document.createElement('input');
-          intensityInput.type = 'range';
-          intensityInput.min = '0';
-          intensityInput.max = '1';
-          intensityInput.step = '0.01';
-          intensityInput.value = String(block.intensity);
-          intensityInput.setAttribute('aria-label', `Block ${index + 1} intensity`);
-          const showIntensity = () => {
-            intensityOut.textContent = pctFormat(parseFloat(intensityInput.value));
-          };
-          showIntensity();
-          intensityInput.addEventListener('input', () => {
+          // UI review fix 11 (2026-10-03): a block's intensity is a dial, as
+          // every other amount is — knob.js first (the buildFeelControl
+          // pattern), the labelled native range as the fallback.
+          const commitIntensity = (v) => {
             takeOverStructure();
-            blocksNow()[index].intensity = parseFloat(intensityInput.value);
-            showIntensity();
+            blocksNow()[index].intensity = v;
             commitCustomStructure();
-          });
+          };
+          let intensityWrap = null;
+          if (knobApi) {
+            const cell = document.createElement('div');
+            cell.className = 'knob-cell block-intensity-knob';
+            try {
+              const handle = knobApi.createKnob(cell, {
+                label: 'intensity',
+                min: 0,
+                max: 1,
+                step: 0.01,
+                value: block.intensity,
+                // One number per block: the engine reads a block's intensity
+                // as a single level, so a span would be a gesture that does
+                // nothing.
+                allowRange: false,
+                format: pctFormat,
+                parse: (n) => n / 100, // typed "70" is 70 %
+                defaultValue: 0.5,
+                onInput: (v) => commitIntensity(Number(v)),
+              });
+              handle.el.setAttribute('aria-label', `Block ${index + 1} intensity`);
+              describe(handle.el, 'How full this block plays: low leaves parts out, high brings more in. Tap the centre for the middle.');
+              intensityWrap = cell;
+            } catch {
+              intensityWrap = null;
+            }
+          }
+          if (!intensityWrap) {
+            intensityWrap = document.createElement('label');
+            intensityWrap.className = 'block-field block-field-wide';
+            const intensityName = document.createElement('span');
+            intensityName.className = 'block-field-name';
+            intensityName.textContent = 'intensity';
+            const intensityOut = document.createElement('span');
+            intensityOut.className = 'block-field-value';
+            const intensityInput = document.createElement('input');
+            intensityInput.type = 'range';
+            intensityInput.min = '0';
+            intensityInput.max = '1';
+            intensityInput.step = '0.01';
+            intensityInput.value = String(block.intensity);
+            intensityInput.setAttribute('aria-label', `Block ${index + 1} intensity`);
+            const showIntensity = () => {
+              intensityOut.textContent = pctFormat(parseFloat(intensityInput.value));
+            };
+            showIntensity();
+            intensityInput.addEventListener('input', () => {
+              showIntensity();
+              commitIntensity(parseFloat(intensityInput.value));
+            });
+            intensityWrap.append(intensityName, intensityInput, intensityOut);
+          }
 
           const upButton = document.createElement('button');
           upButton.type = 'button';
@@ -14995,7 +15088,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
 
           barsWrap.append(barsName, barsInput);
-          intensityWrap.append(intensityName, intensityInput, intensityOut);
           row.append(labelSelect, titleInput, barsWrap, intensityWrap, sectionTracks, upButton, downButton, removeButton);
           structureBlocks.append(row);
         });
@@ -15058,19 +15150,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const auto = settings.arp.mode === 'auto' && isPlainObject(arp);
         arpUI.pattern.classList.toggle('arp-auto-resolved', auto);
         arpUI.rate.classList.toggle('arp-auto-resolved', auto);
-        arpUI.octaves.classList.toggle('arp-auto-resolved', auto);
+        arpUI.octaves.el.classList.toggle('arp-auto-resolved', auto);
         arpUI.patternOut.hidden = !auto;
         arpUI.rateOut.hidden = !auto;
         if (!auto) {
-          arpUI.octavesOut.textContent = String(settings.arp.octaves);
+          arpUI.octaves.show(settings.arp.octaves);
           return;
         }
         arpUI.pattern.value = arp.pattern;
         arpUI.rate.value = arp.rate;
-        arpUI.octaves.value = String(arp.octaves);
+        arpUI.octaves.show(arp.octaves, true);
         arpUI.patternOut.textContent = `${arpPatternLabel(arp.pattern)} · auto`;
         arpUI.rateOut.textContent = `${arp.rate} · auto`;
-        arpUI.octavesOut.textContent = `${arp.octaves} · auto`;
       }
 
       /**
@@ -15116,10 +15207,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         arpUI.pattern.value = settings.arp.pattern;
         arpUI.rate.value = settings.arp.rate;
-        arpUI.octaves.value = String(settings.arp.octaves);
-        arpUI.octavesOut.textContent = String(settings.arp.octaves);
-        arpUI.gate.value = String(settings.arp.gate);
-        arpUI.gateOut.textContent = String(settings.arp.gate);
+        arpUI.octaves.show(settings.arp.octaves);
+        arpUI.gate.show(settings.arp.gate);
         // Auto's Now, read straight from the engine rather than waiting on
         // the 4 Hz poll (which only runs while the transport is live) — the
         // editor must show the live reading the instant it opens.
@@ -20081,12 +20170,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '.track-rows',
-          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in the track\'s editor: 0 holds your pick, Pool… chooses what it may move to; the bass\'s Groove rule works the same way. Edited sounds are listed under Edited, with ↺ Factory to go back; Save voice keeps one under User.',
+          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in its editor: 0 holds your pick, Pool… chooses what it may move to; the bass\'s Groove rule works alike. Edited sounds are listed under Edited, with ↺ Factory to go back; Save voice (more, under the dials) keeps one under User.',
         },
         {
           tab: 'advanced',
           target: '#voice-edit-toggle-percussion',
-          text: 'Edit opens a track\'s panel: its step sequencer at the top, then the dials that build its sound. \u00d72 / \u00f72 under the grid set what one cell is worth, and Triplets puts three in the time of two. Drag sideways across cells to tie them into one long note. An outlined cell is a step the app chose, not one you typed; on a tuned track a line inside it shows how high the note is, so a bass line\'s shape reads off the grid. Hover a cell for note names.',
+          text: 'Edit opens a track\'s panel: the button in its head takes the sound back to factory, the step sequencer sits at the top, then the dials that build the sound. \u00d72 / \u00f72 set what one cell is worth; Triplets puts three in the time of two. Drag across cells to tie them into one note. An outlined cell is a step the app chose, not one you typed; on a tuned track a line inside it shows how high the note is. Hover a cell for note names.',
         },
         {
           tab: 'advanced',
@@ -23148,6 +23237,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       margin: -6px 0 12px;
     }
 
+    /* UI review fix 8: the reset in the head, sized to sit beside the chip. */
+    .ve-header .ve-reset {
+      min-height: 30px;
+      padding: 2px 10px;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+
+    /* UI review fix 9: the "more" under the dials (the rule primitive's own
+       button style) and what it opens. */
+    .ve-more {
+      display: block;
+      margin: 4px 0 10px;
+    }
+
     /* -- v6: per-track randomisation-target mini knobs -- */
 
     .vary-row {
@@ -23200,8 +23304,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     select.arp-auto-resolved,
-    input.arp-auto-resolved {
+    input.arp-auto-resolved,
+    .knob-cell.arp-auto-resolved .knob svg {
       opacity: 0.6;
+    }
+
+    /* UI review fix 10: Octaves and Gate as dials, side by side under the
+       Pattern and Rate selects. */
+    .arp-knobs {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 10px 8px;
+      margin-top: 4px;
     }
 
     /* -- v6: shared step sequencer (melody/bass/arp single-lane,
@@ -24053,6 +24168,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .block-field-wide input[type='range'] {
       flex: 1 1 auto;
       min-width: 80px;
+    }
+
+    /* UI review fix 11: the block's intensity dial, sized like a vary knob so
+       a block row wraps as a unit rather than growing a column. */
+    .block-intensity-knob {
+      display: flex;
+      justify-content: center;
+      width: 84px;
     }
 
     /* v0.0.72: the spread-shape picker, sized to sit in the feel row beside

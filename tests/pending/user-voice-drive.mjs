@@ -37,6 +37,8 @@ export default async function drive(page) {
   }
   const moved = await page.evaluate(() => window.__ambi4Engine.getParams().patches?.pad?.warm?.adsr?.release);
   check('a drag moved Release at the engine', moved, (v) => Number.isFinite(v) && Math.abs(v - 4.25) > 0.05);
+  // UI review fix 9 (2026-10-03): the save row sits behind the editor's "more".
+  if ((await page.getAttribute('#ve-more-pad', 'aria-expanded')) !== 'true') await page.click('#ve-more-pad');
   await page.fill('#voice-editor-pad .ve-voice-name', 'Long pad');
   await page.click('#voice-editor-pad .ve-save-voice');
   await page.waitForFunction(() => !!document.querySelector('#track-voice-pad optgroup.my-voices option'));

@@ -714,6 +714,18 @@ try {
     }
     return check();
   }
+  /** Type `text` into a knob cell's readout and press Enter — the same
+   *  click-to-type path a person uses. False if the knob has no readout. */
+  function typeIntoKnob(cell, text) {
+    const readout = cell && cell.querySelector('.knob-value');
+    if (!readout) return false;
+    readout.click();
+    const edit = cell.querySelector('.knob-value-edit');
+    if (!edit) return false;
+    edit.value = String(text);
+    edit.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    return true;
+  }
   const NON_TRIVIAL_TRACE_POINTS = 50;
   function traceColorCount(ctx) {
     return Object.values(ctx.pointsByColor || {}).filter(
@@ -1117,12 +1129,15 @@ try {
       const manualRadio = doc.getElementById('arp-mode-manual');
       const patternSelect = doc.getElementById('arp-pattern');
       const rateSelect = doc.getElementById('arp-rate');
-      const octavesInput = doc.getElementById('arp-octaves');
+      // UI review fix 10: Octaves is a dial now — its value is the knob's
+      // readout and its " · auto" tag rides on the knob's label.
+      const octavesCell = doc.getElementById('arp-octaves');
       const patternOut = patternSelect && patternSelect.closest('.control').querySelector('.value-readout');
       const rateOut = rateSelect && rateSelect.closest('.control').querySelector('.value-readout');
-      const octavesOut = octavesInput && octavesInput.closest('.control').querySelector('.value-readout');
-      if (!autoRadio || !manualRadio || !patternSelect || !rateSelect || !octavesInput
-        || !patternOut || !rateOut || !octavesOut) {
+      const octavesValue = octavesCell && octavesCell.querySelector('.knob-value');
+      const octavesOut = octavesCell && octavesCell.querySelector('.knob-label');
+      if (!autoRadio || !manualRadio || !patternSelect || !rateSelect || !octavesCell
+        || !patternOut || !rateOut || !octavesValue || !octavesOut) {
         failures.push('the arp editor is missing a mode radio, a Pattern/Rate/Octaves control, or its readout');
       } else {
         if (!autoRadio.checked) failures.push('the arp editor did not reopen in auto mode');
@@ -1136,8 +1151,8 @@ try {
         if (rateSelect.value !== resolved.rate) {
           failures.push(`the Rate control shows ${JSON.stringify(rateSelect.value)} while the engine resolves ${JSON.stringify(resolved.rate)}`);
         }
-        if (octavesInput.value !== String(resolved.octaves)) {
-          failures.push(`the Octaves control shows ${octavesInput.value} while the engine resolves ${resolved.octaves}`);
+        if (octavesValue.textContent.trim() !== String(resolved.octaves)) {
+          failures.push(`the Octaves dial shows ${octavesValue.textContent} while the engine resolves ${resolved.octaves}`);
         }
         if (!/auto/i.test(patternOut.textContent)) {
           failures.push(`the Pattern readout does not mark itself auto-resolved: ${JSON.stringify(patternOut.textContent)}`);
@@ -1158,8 +1173,7 @@ try {
         const lastAutoRate = resolved.rate;
         const untouchedOctaves = resolved.octaves;
         const nextOctaves = untouchedOctaves === 1 ? 2 : 1;
-        octavesInput.value = String(nextOctaves);
-        octavesInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+        if (!typeIntoKnob(octavesCell, nextOctaves)) failures.push('the Octaves dial has no typed readout');
         const switched = await waitUntil(() => engine.getParams().arp.mode === 'manual');
         const afterParams = engine.getParams().arp;
         if (!switched || afterParams.mode !== 'manual') {
@@ -1466,6 +1480,9 @@ try {
       await waitUntil(() => editor.querySelectorAll('.patch-controls .knob-cell[data-field="adsr.release"]').length === 1);
       const cutoffCell = editor.querySelector('.patch-controls .knob-cell[data-field="adsr.release"]');
       const readout = cutoffCell && cutoffCell.querySelector('.knob-value');
+      // UI review fix 9: Save as my voice sits behind the editor's "more".
+      const moreToggle = editor.querySelector('.ve-more');
+      if (moreToggle && moreToggle.getAttribute('aria-expanded') !== 'true') moreToggle.click();
       const nameBox = editor.querySelector('.ve-voice-name');
       const saveButton = editor.querySelector('.ve-save-voice');
       if (!readout || !nameBox || !saveButton) {
@@ -1619,6 +1636,8 @@ try {
       select.dispatchEvent(new window.Event('change', { bubbles: true }));
       const editor = await openEditor('melody');
       await waitUntil(() => editor.querySelector('.ve-finder-word[data-word="bright"]'));
+      const finderMore = editor.querySelector('.ve-more');
+      if (finderMore && finderMore.getAttribute('aria-expanded') !== 'true') finderMore.click();
       const finder = editor.querySelector('.ve-finder');
       if (!finder) {
         failures.push('the melody editor has no finder row');
@@ -1653,6 +1672,115 @@ try {
       const kitAnswer = kit.querySelector('.ve-finder-answer').textContent;
       if (!/Nothing here is honestly bright on this track/.test(kitAnswer)) failures.push(`the kit's finder answered ${JSON.stringify(kitAnswer)} rather than refusing honestly`);
       if (!kit.querySelector('.ve-finder-go').hidden) failures.push('the kit offers Set it up with nothing to set up');
+    }
+
+    // UI review 2026-10-03, fixes 8, 9, 10 and 12 — the voice editor gets
+    // layers. First open shows fewer controls than it did (the words, save
+    // row and finder fold behind one "more"; the Off/Auto/On radios go, the
+    // row's lamp being the one state control); the reset sits in the head
+    // beside the engine chip; "more" reveals Save as my voice and is open by
+    // default only at the expert level; the arp's Octaves and Gate are dials
+    // whose change reaches the ENGINE. Measured on v0.0.206 with this same
+    // counter: melody (Pluck) 80 controls on first open, arp (Soft pluck) 75.
+    {
+      const engine = window.__ambi4Engine;
+      const levelSelect = doc.getElementById('rule-level');
+      const setLevel = (level) => {
+        levelSelect.value = level;
+        levelSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      };
+      const shown = (el, root) => {
+        for (let n = el; n && n !== root.parentNode; n = n.parentElement) if (n.hidden) return false;
+        return true;
+      };
+      // Every control a person could reach: a knob counts once (its readout
+      // button is part of it), every other button / input / select once.
+      const visibleControls = (root) => Array.from(
+        root.querySelectorAll('button, input, select, textarea, .knob'),
+      ).filter((el) => !el.matches('.knob-value') && shown(el, root)).length;
+      const freshOpen = async (track, voice) => {
+        const select = doc.getElementById(`track-voice-${track}`);
+        select.value = voice;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const editor = doc.getElementById(`voice-editor-${track}`);
+        if (!editor.hidden) doc.getElementById(`voice-edit-toggle-${track}`).click();
+        await waitUntil(() => editor.hidden);
+        doc.getElementById(`voice-edit-toggle-${track}`).click();
+        await waitUntil(() => !editor.hidden && editor.querySelectorAll('.patch-controls .knob-cell').length > 0);
+        await new Promise((r) => setTimeout(r, 50));
+        return editor;
+      };
+      const BEFORE = { melody: 80, arp: 75 };
+      if (!levelSelect || !engine) {
+        failures.push('editor layers: the Rules show select or the engine seam is missing');
+      } else {
+        const levelWas = levelSelect.value;
+        setLevel('advanced');
+        for (const [track, voice] of [['melody', 'pluck'], ['arp', 'softPluck']]) {
+          const editor = await freshOpen(track, voice);
+          const count = visibleControls(editor);
+          console.log(`editor layers: ${track} first open shows ${count} controls (v0.0.206: ${BEFORE[track]})`);
+          if (!(count < BEFORE[track])) failures.push(`editor layers: the ${track} editor opens on ${count} controls, not fewer than v0.0.206's ${BEFORE[track]}`);
+          // Fix 12: no state radios in the head — the lamp is the one control.
+          if (editor.querySelector('.track-state, input[name^="track-state-"]')) failures.push(`editor layers: the ${track} editor head still carries Off/Auto/On radios`);
+          // Fix 8: the reset is in the head, straight after the engine chip.
+          const reset = editor.querySelector('.ve-header .ve-reset');
+          const chip = editor.querySelector('.ve-header .ve-engine');
+          if (!reset) failures.push(`editor layers: the ${track} editor's reset is not in its head`);
+          else if (!chip || chip.nextElementSibling !== reset) failures.push(`editor layers: the ${track} editor's reset does not sit beside the engine chip`);
+          // Fix 9: Save as my voice is folded until more is pressed.
+          const more = editor.querySelector('.ve-more');
+          const save = editor.querySelector('.ve-save-voice');
+          if (!more || !save) {
+            failures.push(`editor layers: the ${track} editor has no "more" or no Save as my voice`);
+          } else {
+            if (shown(save, editor)) failures.push(`editor layers: Save as my voice shows on the ${track} editor's first open at the advanced level`);
+            if (more.getAttribute('aria-expanded') !== 'false' || more.textContent !== 'more') failures.push(`editor layers: the ${track} "more" does not read as closed`);
+            more.click();
+            if (!shown(save, editor)) failures.push(`editor layers: pressing "more" on the ${track} editor did not reveal Save as my voice`);
+            if (more.getAttribute('aria-expanded') !== 'true' || more.textContent !== 'less') failures.push(`editor layers: the ${track} "more" does not read as open after a press`);
+            more.click(); // fold it back, so the next open starts from the level
+          }
+        }
+        // At the expert level an editor opens with "more" already open, and a
+        // level change reaches an editor that is already open.
+        setLevel('expert');
+        // (The arp's editor is the one still open — one editor at a time.)
+        const arpOpen = doc.getElementById('voice-editor-arp');
+        const openedSave = arpOpen.querySelector('.ve-save-voice');
+        if (arpOpen.hidden || !openedSave || !shown(openedSave, arpOpen)) failures.push('editor layers: switching Rules show to expert did not open the already-open arp editor\'s "more"');
+        const expertEditor = await freshOpen('melody', 'pluck');
+        const expertSave = expertEditor.querySelector('.ve-save-voice');
+        if (!expertSave || !shown(expertSave, expertEditor)) failures.push('editor layers: at the expert level the melody editor opens with Save as my voice folded');
+        setLevel(levelWas);
+
+        // Fix 10: the arp's Octaves and Gate are dials, and a change on them
+        // reaches the ENGINE, not just the readout.
+        const arpEditor = await freshOpen('arp', 'softPluck');
+        const octaves = arpEditor.querySelector('#arp-octaves');
+        const gate = arpEditor.querySelector('#arp-gate');
+        if (!octaves || !octaves.matches('.knob-cell') || !octaves.querySelector('.knob')) {
+          failures.push('editor layers: the arp\'s Octaves is not a dial');
+        } else if (arpEditor.querySelector('input[type="range"]#arp-octaves, input[type="range"]#arp-gate')) {
+          failures.push('editor layers: the arp still carries a native Octaves/Gate slider');
+        } else {
+          const arpWas = { ...engine.getParams().arp };
+          const target = arpWas.octaves === 3 ? 1 : 3;
+          typeIntoKnob(octaves, target);
+          const landed = await waitUntil(() => engine.getParams().arp.octaves === target);
+          if (!landed) failures.push(`editor layers: typing ${target} into the Octaves dial left the engine at ${engine.getParams().arp.octaves}`);
+          if (engine.getParams().arp.mode !== 'manual') failures.push('editor layers: touching the Octaves dial did not take the arp over from Auto');
+          if (octaves.querySelector('.knob-value').textContent.trim() !== String(target)) failures.push(`editor layers: the Octaves dial reads ${octaves.querySelector('.knob-value').textContent} after the engine took ${target}`);
+          if (!gate || !gate.querySelector('.knob')) {
+            failures.push('editor layers: the arp\'s Gate is not a dial');
+          } else {
+            typeIntoKnob(gate, '35');
+            const gated = await waitUntil(() => Math.abs(engine.getParams().arp.gate - 0.35) < 1e-6);
+            if (!gated) failures.push(`editor layers: typing 35 % into the Gate dial left the engine at ${engine.getParams().arp.gate}`);
+          }
+          engine.setParams({ arp: { mode: arpWas.mode, octaves: arpWas.octaves, gate: arpWas.gate } });
+        }
+      }
     }
 
     // v0.0.187 — the dial LAYOUT of every stock voice, pinned. Phase 2c of
@@ -3023,12 +3151,14 @@ try {
       if (rows().length !== 2) failures.push(`preset blocks: ABAB should show its 2 blocks, shows ${rows().length}`);
       if (!/ABAB's blocks/.test(note.textContent)) failures.push(`preset blocks: the note does not say whose blocks these are: ${JSON.stringify(note.textContent)}`);
       if (engine.getParams().structure !== 'abab') failures.push('preset blocks: showing the blocks must not change the structure');
-      const intensity = rows()[1] && rows()[1].querySelector('input[type="range"]');
+      // UI review fix 11: the block's intensity is a dial (knob.js loads
+      // here), typed through its readout as a person would.
+      const intensity = rows()[1] && rows()[1].querySelector('.knob-cell.block-intensity-knob');
       if (!intensity) {
-        failures.push('preset blocks: block 2 has no intensity slider');
+        failures.push('preset blocks: block 2 has no intensity dial');
       } else {
-        intensity.value = '0.9';
-        intensity.dispatchEvent(new window.Event('input', { bubbles: true }));
+        if (rows()[1].querySelector('input[type="range"]')) failures.push('preset blocks: block 2 still carries a native intensity slider beside its dial');
+        if (!typeIntoKnob(intensity, '90')) failures.push('preset blocks: the intensity dial has no typed readout');
         const p = engine.getParams();
         if (p.structure !== 'custom') failures.push(`preset blocks: an edit should take the structure over as Custom, engine has ${p.structure}`);
         if (select.value !== 'custom') failures.push('preset blocks: the select did not follow the takeover');
@@ -3627,6 +3757,8 @@ try {
         if (melodyToggle && melodyEditor) {
           if (melodyEditor.hidden) melodyToggle.click();
           await waitUntil(() => !melodyEditor.hidden && melodyEditor.querySelector('.ve-save-voice'));
+          const more = melodyEditor.querySelector('.ve-more');
+          if (more && more.getAttribute('aria-expanded') !== 'true') more.click();
           const nameBox = melodyEditor.querySelector('.ve-voice-name');
           nameBox.value = 'Kept melody';
           melodyEditor.querySelector('.ve-save-voice').click();
