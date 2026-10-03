@@ -2478,7 +2478,7 @@ try {
             }
             nameInput.value = 'Night pads';
             saveButton.click();
-            const mineGroup = () => Array.from(doc.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'My genres');
+            const mineGroup = () => Array.from(doc.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'User');
             const saved = await waitUntil(() => !!mineGroup() && mineGroup().querySelectorAll('option').length === 1);
             if (!saved) {
               failures.push('Save as my genre did not add a My genres entry to the picker');
@@ -3127,6 +3127,13 @@ try {
         await typeInto(editor, 'sends.delay', 0.7);
         await new Promise((r) => setTimeout(r, 60));
         genreFactory.click();
+        // v0.0.207: Esc is Cancel — the dialog goes and nothing is undone.
+        if (await waitUntil(() => doc.getElementById('factory-confirm'))) {
+          doc.getElementById('factory-confirm').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          if (doc.getElementById('factory-confirm')) failures.push('factory: Esc did not cancel the confirmation');
+          if (!near(padWarm().adsr && padWarm().adsr.release, 2.5)) failures.push('factory: Esc on the confirmation undid the changes');
+          genreFactory.click();
+        }
         const dialog = await waitUntil(() => doc.getElementById('factory-confirm'));
         if (!dialog) {
           failures.push('factory: three changes went back without asking');
@@ -3478,7 +3485,7 @@ try {
         if (!params || params.genre !== 'u-carriedtest') failures.push(`a carried genre did not tag the setup (genre ${JSON.stringify(params && params.genre)})`);
         if (!params || params.bpm !== 200) failures.push(`a carried genre's ruled tempo did not rebuild the base (bpm ${params && params.bpm})`);
         if (!params || !params.tracks || !params.tracks.pad || params.tracks.pad.state !== 'off') failures.push('a carried genre\'s ruled pad Off did not rebuild the base');
-        const group = Array.from(carryDoc.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'My genres');
+        const group = Array.from(carryDoc.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'User');
         const entry = group && group.querySelector('option[value="g:u-carriedtest"]');
         if (!entry || entry.textContent !== 'Carried') failures.push('a carried genre is not listed under My genres for this visit');
       }

@@ -156,7 +156,8 @@ export default async function drive(page) {
   check('bpm survived the edit (same dice)', after.bpm, before.bpm);
   check('time signature survived the edit (same dice)', after.timeSignature, before.timeSignature);
   check('the button says the rules are edited', /edited/.test(state.toggleText || ''), (v) => v === true);
-  check('the picker says so too', /edited rules/.test(state.optionLabel || ''), (v) => v === true);
+  // v0.0.206: one "· edited" for rules or sound (it read "· edited rules").
+  check('the picker says so too', / · edited/.test(state.optionLabel || ''), (v) => v === true);
 
   // ZERO the substitutions (his Ambient dead-rule case: rules you can now
   // see, and delete). Apply, reopen, and the EMPTY list must round-trip —
@@ -239,13 +240,34 @@ export default async function drive(page) {
     select.value = other;
     select.dispatchEvent(new Event('change', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 400));
-    engine.setParams({ patches: { [track]: { [other]: { filter: { cutoff: 812 } } } } });
+    // v0.0.206: a dial is set the way a person sets it — typed into the
+    // editor's readout, so it lands in the PAGE's settings as well as the
+    // engine. (This used to poke the engine directly; every load now states
+    // the engine's patches outright, so an engine-only patch is gone on Apply,
+    // exactly as an edit the page never saw should be.)
+    const toggle = document.getElementById(`voice-edit-toggle-${track}`);
+    const editor = document.getElementById(`voice-editor-${track}`);
+    if (editor && editor.hidden) toggle.click();
+    for (let i = 0; i < 40 && !document.querySelector(`#voice-editor-${track} .patch-controls .knob-cell[data-field="adsr.release"] .knob-value`); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const cell = document.querySelector(`#voice-editor-${track} .patch-controls .knob-cell[data-field="adsr.release"]`);
+    cell?.querySelector('.knob-value')?.click();
+    const box = cell?.querySelector('.knob-value-edit');
+    if (box) {
+      box.value = '8.12';
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
     await new Promise((r) => setTimeout(r, 200));
+    const releaseOf = (p) => {
+      const v = p?.[track]?.[other]?.adsr?.release;
+      return v && typeof v === 'object' ? v.min : (v ?? null);
+    };
     const mine = {
       was: before2.tracks[track].voice,
       asked: other,
       voice: engine.getParams().tracks[track].voice,
-      cutoff: engine.getParams().patches?.[track]?.[other]?.filter?.cutoff ?? null,
+      release: releaseOf(engine.getParams().patches),
     };
     document.getElementById('genre-rules-apply')?.click();
     await new Promise((r) => setTimeout(r, 900));
@@ -253,7 +275,7 @@ export default async function drive(page) {
     return {
       mine,
       voiceAfter: after2.tracks[track].voice,
-      cutoffAfter: after2.patches?.[track]?.[other]?.filter?.cutoff ?? null,
+      releaseAfter: releaseOf(after2.patches),
       note: document.getElementById('dial-confirm')?.textContent || '',
     };
   });
@@ -263,7 +285,8 @@ export default async function drive(page) {
     check(`the voice really changed first (${kept.mine.was} → ${kept.mine.asked})`,
       kept.mine.voice, kept.mine.asked);
     check('Apply keeps the voice you chose', kept.voiceAfter, kept.mine.asked);
-    check('…and the dial you set on it', kept.cutoffAfter, 812);
+    check('the dial was set first', kept.mine.release, (v) => Math.abs(Number(v) - 8.12) < 0.05);
+    check('…and the dial you set on it', kept.releaseAfter, (v) => Math.abs(Number(v) - 8.12) < 0.05);
     check('…and says so, so the promise is on screen too',
       /instruments and their dials are untouched/.test(kept.note), (v) => v === true);
   }

@@ -21,7 +21,8 @@
  *
  *   drag up / down     the value
  *   drag left / right  the SPREAD — how far the value drifts either side
- *   tap the centre     back to the default
+ *   double-click       back to the default (Backspace/Delete on the keyboard)
+ *   tap the centre     to zero
  *   type in the readout  an exact value, or "a-b" for a span
  *
  * Axis lock ("Scheme A", chosen by the owner on 2026-07-27 after an A/B rig):
@@ -43,19 +44,22 @@
  * (v16 semantics), so a span can never be wedged.
  *
  * A press that never travels further than TAP_SLOP_PX is a TAP, not a drag.
- * A tap on the centre hub resets to the DECLARED DEFAULT. There is no timing
- * requirement and no double-click anywhere: the owner's ruling on 2026-07-27
- * was that people with motor-control difficulty cannot rely on a double-click
- * being read as one, and that a single and a double click doing different
- * things is a trap. A tap outside the hub does nothing at all — it used to
- * toggle range mode, which is now what a horizontal drag expresses.
+ * WHAT THE CODE DOES (corrected 2026-10-03 — this header used to describe the
+ * dial plan's D1/D2, not the shipped code): a tap on the centre hub sets the
+ * value to ZERO (`toZero`), and a double-click resets to the DECLARED DEFAULT
+ * — the owner's v0.0.59 review put double-click reset back after v0.0.56 took
+ * it out. The plan's D1/D2 (2026-07-27: no double-click anywhere, for people
+ * with motor-control difficulty; centre tap = default) is the open question in
+ * fromClaude 10; until he rules, this is the contract and the tour says the
+ * same. A tap outside the hub does nothing at all — it used to toggle range
+ * mode, which is now what a horizontal drag expresses.
  *
  * Wheel (non-passive, small steps) and the full keyboard are unchanged in
  * spirit: arrows ±step on the active end, PgUp/PgDn ±10 steps, Home/End to
  * the bounds — plus Shift+Left/Right to narrow and widen the spread (the
  * keyboard equivalent of the horizontal drag, without which a keyboard user
  * could not create a span at all) and Backspace/Delete to reset, which is the
- * keyboard's tap-the-centre. `step` is optional — without it the knob is
+ * keyboard's double-click. `step` is optional — without it the knob is
  * continuous and keys move by (max-min)/200. The value readout below the knob
  * is a second, independent focusable control — click or Enter/Space to type an
  * exact value (see "v14 click-to-type" below).

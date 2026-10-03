@@ -46,13 +46,20 @@ trusted.
 
 ## Setup (once, on the Mac, as the test user)
 
-1. Add `.vibe/id_ed25519_ambi4shot.pub` to that account's `~/.ssh/authorized_keys`.
+Since 2026-10-03 the test user is vibe's own `claude` account (the old
+`ambitick` account no longer exists on the Mac), reached with the project key
+`.vibe/id_ed25519_mac` (gitignored; generate with `ssh-keygen -t ed25519 -N ''
+-f .vibe/id_ed25519_mac` if missing). The scripts pass `-F /dev/null`, so the
+Mac's own `~/.ssh/config` needs no edit.
+
+1. Authorise the key, as an admin on the Mac — `-H` matters, without it `~` is
+   the admin's own home: `cd / && sudo -H -u claude sh -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys' < .vibe/id_ed25519_mac.pub`
 2. `mkdir -p ~/shot && cd ~/shot && npm init -y && npm i playwright && npx playwright install chromium`
 
 Local to the account, not `-g`: the global module directory belongs to the
 primary user, so a global install from the test account fails with EACCES.
 
-`AMBI4_SHOT_HOST` overrides the SSH target if the account is named differently.
+`AMBI4_SHOT_HOST` overrides the SSH target and `AMBI4_SHOT_KEY` the key file name in `.vibe/` (default `id_ed25519_mac`).
 
 ## For a vibe in another project
 

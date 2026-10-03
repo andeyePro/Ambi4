@@ -203,7 +203,7 @@ Worst-first within each section: if a step fails, note it and keep going.
 - [ ] Open the pad voice editor. Drag ADSR attack long — new pad notes swell in obviously slowly. Drag short — percussive onset.
 - [ ] Sweep filter cutoff down then up — obvious darkening/brightening of new notes.
 - [ ] Reverb send 0 → 1 — dry vs washed. Delay send similarly.
-- [ ] "Reset to default" restores the original sound.
+- [ ] "↺ Back to factory" restores the original sound.
 - [ ] Edits apply to NEW notes only (no retro-change of ringing notes) — expected, not a bug.
 
 ## 5. Arpeggiator + structure (Advanced, playing)
@@ -356,7 +356,7 @@ Front-page oscilloscope (Simple tab, under the piano roll)
 - [ ] If this build ships against an older scope.js, the whole panel is absent
       rather than dead — expected, not a bug.
 
-Share links (Advanced → Your presets)
+Share links (Advanced → Presets)
 - [ ] "Share" copies a link to the clipboard and confirms on the button. Paste it
       somewhere: it starts `https://ambi4.work/#p=` and is a few KB long.
 - [ ] v29 link name: the "Link name" line under the Share row fills with three
@@ -387,7 +387,7 @@ Kit editor (Percussion → Edit)
       appears. Mid and Low are untouched — check by switching tabs.
 - [ ] Press "follow" on that dial: the override goes and the dial returns to the
       common value. The button at the foot reads "Clear High overrides" on an
-      instrument tab (it clears only that instrument) and "Reset to default" on
+      instrument tab (it clears only that instrument) and "↺ Back to factory" on
       Common.
 - [ ] Overrides persist across reload and travel in presets and share links.
 - [ ] EXPECTED until the engine's own pass lands: per-instrument overrides may
@@ -415,7 +415,7 @@ Presets gallery (Simple tab)
 - [ ] The factory presets sit on SIMPLE now, directly BELOW the four dials —
       not on Advanced. Hovering (or Tab-focusing) a card shows a tooltip
       explaining WHY that preset is shaped the way it is.
-- [ ] Advanced, where the gallery used to be: a line above "Your presets"
+- [ ] Advanced, where the gallery used to be: a line above "Presets"
       reading "Factory presets moved to the Simple tab — show them". Click it:
       it switches to Simple and puts the focus on the first preset card.
 - [ ] Load a card — everything changes and stays fully editable, exactly as
@@ -539,7 +539,7 @@ Voice selector honesty (Advanced → track rows)
       chose, as before.
 - [ ] Open a voice editor and move any dial: the row's select now reads
       "<voice> · edited" (since v0.0.205; it read "Custom (…)" before) and
-      its tooltip names the synthesis class (Subtractive / FM / Noise / Physical / Hybrid). Press "Reset to default"
+      its tooltip names the synthesis class (Subtractive / FM / Noise / Physical / Hybrid). Press "↺ Back to factory"
       in the editor: it goes back to the voice name.
 - [ ] Choosing a voice from the list still works and is still what gets saved:
       reload after a Custom reading and your chosen voice is intact.

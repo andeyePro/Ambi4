@@ -581,10 +581,10 @@ const VOICES: Record<string, [string, string][]> = {
                them, as a genre of your own — one that draws new pieces. -->
           <div class="genre-fav-actions rules-save-row">
             <input type="text" id="genre-rules-name" class="rules-name" maxlength="40" placeholder="Name this genre" aria-label="A name for your genre" />
-            <button type="button" id="genre-rules-save" class="secondary-button">Save as my genre</button>
+            <button type="button" id="genre-rules-save" class="secondary-button">Save genre</button>
             <button type="button" id="genre-rules-forget" class="secondary-button" hidden>Forget this genre</button>
           </div>
-          <p class="hint">Save as my genre keeps every rule above, plus the voices and dials you have set, as a genre of your own: it appears in the picker under My genres, and Next draws fresh pieces from it. It stays on this device.</p>
+          <p class="hint">Save genre keeps every rule above, plus the voices and dials you have set, as a genre of your own: it appears in the picker under User, and Next draws fresh pieces from it. It stays on this device.</p>
           <p id="genre-rules-error" class="hint genre-rules-error" role="alert" hidden></p>
           <div class="genre-fav-actions">
             <button type="button" id="genre-rules-apply" class="secondary-button">Apply</button>
@@ -930,7 +930,7 @@ const VOICES: Record<string, [string, string][]> = {
       </p>
 
       <fieldset class="presets-group">
-        <legend>Your presets</legend>
+        <legend>Presets</legend>
         <div class="preset-row">
           <button type="button" id="blank-slate" class="secondary-button">Blank slate</button>
         </div>
@@ -4887,8 +4887,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           box.hidden = !open;
           btn.setAttribute('aria-expanded', String(open));
         });
-        box.addEventListener('keydown', (event) => {
-          if (event.key !== 'Escape') return;
+        // v0.0.207: Esc closes the box whether focus is in it or on its ⓘ.
+        wrap.addEventListener('keydown', (event) => {
+          if (event.key !== 'Escape' || box.hidden) return;
           box.hidden = true;
           btn.setAttribute('aria-expanded', 'false');
           btn.focus();
@@ -12399,7 +12400,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const saveVoice = document.createElement('button');
         saveVoice.type = 'button';
         saveVoice.className = 'secondary-button ve-save-voice';
-        saveVoice.textContent = 'Save as my voice';
+        saveVoice.textContent = 'Save voice';
         describe(saveVoice, 'Keeps this voice with every dial as it is now, in this track\'s picker under User. It stays on this device.');
         const forgetVoice = document.createElement('button');
         forgetVoice.type = 'button';
@@ -12635,7 +12636,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
 
         function resetLabel() {
-          if (!kitKind) return 'Reset to default';
+          if (!kitKind) return '↺ Back to factory';
           const found = kitTabList().find(([k]) => k === kitKind);
           return `Clear ${found ? found[1] : kitKind} overrides`;
         }
@@ -14207,11 +14208,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         cancel.textContent = 'Cancel';
         go.addEventListener('click', () => { panel.remove(); run(); });
         cancel.addEventListener('click', () => panel.remove());
+        // v0.0.207: Esc is Cancel, as in every other dialog here.
+        panel.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') { event.preventDefault(); panel.remove(); }
+        });
         actions.append(go, cancel);
         panel.append(title, lead, details, actions);
         document.body.append(panel);
         go.focus();
       }
+
+      /**
+       * v0.0.207: Esc closes an open voice editor, as Edit does — unless a
+       * field inside it is using Esc for itself (a typed readout cancels its
+       * edit, a select closes its list), which marks the event handled.
+       */
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        const target = event.target instanceof Element ? event.target : null;
+        if (!target || target.closest('input, textarea, select')) return;
+        const editor = target.closest('[id^="voice-editor-"]');
+        if (!editor || editor.hidden) return;
+        const track = editor.id.slice('voice-editor-'.length);
+        const toggle = document.getElementById(`voice-edit-toggle-${track}`);
+        if (!toggle) return;
+        toggle.click();
+        toggle.focus();
+      });
 
       /** The voice back to its baseline, at the page AND the engine (the engine merges patches, so it is cleared first). */
       function resetVoiceToFactory(track, voiceId, { quiet = false } = {}) {
@@ -14540,7 +14563,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               ? `${voiceLabel(track, sounding)} · wandering`
               : voiceLabel(track, sounding);
         live.title = edited && !(mineTag && sounding === chosen)
-          ? `${voiceLabel(track, sounding)}${engineType ? ` (${engineType})` : ''}, with its dials moved from the stock sound. Reset to default in its editor brings the stock sound back.`
+          ? `${voiceLabel(track, sounding)}${engineType ? ` (${engineType})` : ''}, with its dials moved from the stock sound. ↺ Factory on its row brings the stock sound back.`
           : ruled
           ? 'This track draws its voice by its rule — Voice chance and its pool, in the Randomise row of its editor. Chance 0 holds it; picking a voice holds it too.'
           : blended
@@ -16478,7 +16501,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         say(null);
         rulesModelDirty = false;
         syncGenreUI();
-        sayUnderDials(`Saved: "${name}" is in the picker under My genres, and Next draws fresh pieces from it.`);
+        sayUnderDials(`Saved: "${name}" is in the picker under User, and Next draws fresh pieces from it.`);
       }
 
       /** v0.0.180: drop a genre of the person's own; the setup keeps playing, tagged with what it was made from. */
@@ -16571,9 +16594,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         genreSelect.append(genreOption('', 'No genre'));
 
         const genres = document.createElement('optgroup');
-        genres.label = 'Genres';
+        genres.label = 'Stock';
         const mine = document.createElement('optgroup');
-        mine.label = 'My genres';
+        mine.label = 'User';
         for (const genre of listedGenres()) {
           (isUserGenreSlug(genre.slug) ? mine : genres).append(genreOption(`g:${genre.slug}`, genre.name));
         }
@@ -19752,7 +19775,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#factory-presets',
-          text: 'Factory presets sit under the Simple dials: starting points, not presets in the locked sense — load one and change anything. Hover one to read why it is built the way it is. Each has its own web address, so you can link straight to it. Save your own under Your presets on Advanced.',
+          text: 'Factory presets sit under the Simple dials: starting points, not presets in the locked sense — load one and change anything. Hover one to read why it is built the way it is. Each has its own web address, so you can link straight to it. Save your own under Presets on Advanced.',
         },
         {
           tab: 'simple',
@@ -19775,7 +19798,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '.track-rows',
-          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in the track\'s editor: 0 holds your pick, Pool… chooses what it may move to; the bass\'s Groove rule works the same way. Edited sounds are listed under Edited, with ↺ Factory to go back; Save as my voice keeps one under User.',
+          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in the track\'s editor: 0 holds your pick, Pool… chooses what it may move to; the bass\'s Groove rule works the same way. Edited sounds are listed under Edited, with ↺ Factory to go back; Save voice keeps one under User.',
         },
         {
           tab: 'advanced',
@@ -19795,7 +19818,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#preset-share',
-          text: 'Share copies a link that carries the style it grew from plus your own changes — nothing is uploaded, and no code travels with it, so a link stays short enough to paste anywhere. Each link works out its own three-word name, shown on the line below, so you can say which link you mean out loud. Save keeps a setup on this device under Your presets.',
+          text: 'Share copies a link that carries the style it grew from plus your own changes — nothing is uploaded, and no code travels with it, so a link stays short enough to paste anywhere. Each link works out its own three-word name, shown on the line below, so you can say which link you mean out loud. Save keeps a setup on this device under Presets.',
         },
         {
           target: null,

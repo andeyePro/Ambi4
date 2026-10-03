@@ -276,7 +276,7 @@ Patch = {
   applies `sends` by giving each track its OWN reverb-send and delay-send gains (replacing
   any global fixed sends). Patch changes apply to newly scheduled notes (no retro-edit).
 - UI: voice editor panel per track voice — collapsible under each track row or a modal;
-  controls per Patch schema; "Reset to default" per voice; persisted inside the same
+  controls per Patch schema; "↺ Back to factory" per voice (was "Reset to default" before v0.0.207); persisted inside the same
   localStorage settings object under `patches`.
 
 ## Sleep / schedule (UI-owned, engine-agnostic)

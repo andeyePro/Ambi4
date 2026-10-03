@@ -32,7 +32,7 @@ export default async function drive(page) {
   await page.waitForFunction(() => window.__ambi4Engine?.getParams().tracks?.pad?.state === 'off');
   await page.fill('#genre-rules-name', 'Night pads');
   await page.click('#genre-rules-save');
-  await page.waitForFunction(() => Array.from(document.querySelectorAll('#genre-select optgroup')).some((g) => g.label === 'My genres'));
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('#genre-select optgroup')).some((g) => g.label === 'User'));
   const slug = await page.evaluate(() => window.__ambi4Engine.getParams().genre);
   check('the saved genre is the current genre', slug, (v) => typeof v === 'string' && v.startsWith('u-'));
 
@@ -42,7 +42,7 @@ export default async function drive(page) {
   await page.waitForSelector('#generator-app:not([hidden])');
   await page.waitForTimeout(500);
   const listed = await page.evaluate(() => {
-    const group = Array.from(document.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'My genres');
+    const group = Array.from(document.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'User');
     return group ? Array.from(group.querySelectorAll('option')).map((o) => [o.value, o.textContent]) : null;
   });
   check('the genre survives the reload, in the picker', listed, (v) => Array.isArray(v) && v.length === 1 && v[0][0] === `g:${slug}` && v[0][1] === 'Night pads');
@@ -53,12 +53,12 @@ export default async function drive(page) {
   await page.click('#genre-rules-toggle');
   await page.waitForSelector('#genre-rules:not([hidden])');
   await page.click('#genre-rules-forget');
-  await page.waitForFunction(() => !Array.from(document.querySelectorAll('#genre-select optgroup')).some((g) => g.label === 'My genres'));
+  await page.waitForFunction(() => !Array.from(document.querySelectorAll('#genre-select optgroup')).some((g) => g.label === 'User'));
   await page.goto('about:blank');
   await page.goto(origin);
   await page.waitForSelector('#generator-app:not([hidden])');
   await page.waitForTimeout(500);
-  check('a forgotten genre stays forgotten after a reload', await page.evaluate(() => Array.from(document.querySelectorAll('#genre-select optgroup')).some((g) => g.label === 'My genres')), false);
+  check('a forgotten genre stays forgotten after a reload', await page.evaluate(() => Array.from(document.querySelectorAll('#genre-select optgroup')).some((g) => g.label === 'User')), false);
 
   const failed = results.filter((r) => !r.ok);
   if (failed.length) throw new Error('user-genre: ' + failed.map((r) => `${r.name}: got ${JSON.stringify(r.got)}`).join('\n  '));

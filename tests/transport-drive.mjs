@@ -83,6 +83,13 @@ export default async function drive(page) {
     backDisabled: document.getElementById('rewind')?.disabled ?? null,
     tempo: [...document.querySelectorAll('.knob')]
       .find((k) => k.getAttribute('aria-label') === 'Tempo')?.getAttribute('aria-valuetext') ?? null,
+    // 2026-10-03: Next may draw the SAME genre (two are offered) and a
+    // genre's tempo is a range, so tempo + genre alone could not see a fresh
+    // draw. The chord loop and key are what a new compile actually changes.
+    draw: (() => {
+      const p = window.__ambi4Engine?.getParams();
+      return p ? JSON.stringify([p.root, p.mode, p.harmony?.seed ?? null, p.bpm]) : null;
+    })(),
   }));
 
   const start = await setup();
@@ -91,13 +98,13 @@ export default async function drive(page) {
   await page.click('#fast-forward');
   await page.waitForTimeout(600);
   const nexted = await setup();
-  check('Next actually replaced the setup', nexted.tempo !== start.tempo || nexted.genre !== start.genre, true);
+  check('Next actually replaced the setup', nexted.draw !== start.draw || nexted.genre !== start.genre, true);
   check('and Back became available', nexted.backDisabled, false);
 
   await page.click('#rewind');
   await page.waitForTimeout(700);
   const back = await setup();
-  check('Back restored the setup Next replaced', [back.tempo, back.genre], [start.tempo, start.genre]);
+  check('Back restored the setup Next replaced', [back.draw, back.genre], [start.draw, start.genre]);
   check('and disabled itself again at the end of the history', back.backDisabled, true);
 
   const failed = results.filter((r) => !r.ok);
