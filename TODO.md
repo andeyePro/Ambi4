@@ -36,7 +36,7 @@ His concern, in-chat: "far too easy to break Ambi4 - turn some dials and it's ru
 
 **The rule:** a factory preset is never changed by editing. An edit is a new thing, visible and undoable in one step, at every level — dial, voice, track, genre, whole setup.
 
-**Three states, styled the same everywhere (his styling, 2026-10-03):** factory in regular text; **your own saved items in bold** (no "Mine" label — he would find it annoying on every voice); *edited* (unsaved changes on a factory or own item) in italic with "· edited" — saving under a new name clears it. Native select options cannot be styled reliably (Safari, iOS ignore option fonts), so this needs a custom list control — which the New… tree needs anyway.
+**Three states, shown as headings (his question, 2026-10-03):** the native picker cannot be relied on for bold, italic or colour (Safari and iOS ignore option styling), but `<optgroup>` headings work in every browser, iOS included. So each picker lists **Edited** (the unsaved current pick, "· edited"), **Yours** (saved items), **Stock** (factory presets), then a last entry "Hidden (4)…" that opens the hide/unhide/delete view. Limits: optgroups do not nest, so Stock cannot also be split into keys / wind / brass inside the native picker — that tree, and bold/italic as an extra cue, come with the custom list control step 3 builds for New….
 
 **Hide, not replace (his ruling — no "use instead of factory":** a voice saved 1 semitone high and swapped in for a factory voice would silently change every genre that names that voice). Any preset or own item can be hidden; the list ends with "Hidden: 3 presets, 1 of yours — view"; the view lets you select and unhide, or delete when only your own items are selected.
 
