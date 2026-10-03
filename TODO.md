@@ -30,6 +30,11 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Owner reports, 2026-10-03 (evening)
+
+- [ ] **The Create popover is "indecipherably complex"** (his words) — twenty-odd controls in eight rows above Musical typing: Blank slate, five Zero buttons, Help me start, Tap a rhythm, Re-fit, Seed voices from…, Type the chords, Import a MIDI file, Type a melody, Type the words, Type a beat, Fit chords to the tune. Rebuild it on the progressive rule (CLAUDE.md): the surface shows only the doors — **Start** (Blank slate · Help me start · a genre's voices) and **Write** (one choice of Melody · Chords · Beat · Words · Rhythm · MIDI file, which opens that one input row) — with the five Zero buttons folded behind one "Strip a layer" and Re-fit / Fit chords to the tune appearing only once there is a take or a tune to act on. Same component shape as the rule primitive and the editors, so it is learnt once. Needs the layout sweep, so it waits on the bridge (fromClaude 13) or ships with an explicit "layout unmeasured" note.
+- [ ] **[decide] Synthwave in Dorian** — he hears mcdev's Synthwave as "much less harmonious" than www and suspects Dorian. Measured: Synthwave's genre file draws Aeolian 75 % / Dorian 25 % on BOTH sites (400 seeds each, identical counts, unchanged since July), so a Dorian draw is luck of the seed, not a regression. One-line fix if he wants it: Synthwave Aeolian-only (moves only the Dorian-seeded audio-reference configs, if any).
+
 ## Factory, edited and your own — owner brief 2026-10-03 (TOP of the queue, his placement)
 
 His concern, in-chat: "far too easy to break Ambi4 - turn some dials and it's ruined forever." Goals, his: (A) anyone, beginners included, makes good-sounding music; (B) anyone can edit anything; (C) anyone can use their own versions and hide presets; (D) you always know when you are not on a preset; (E) a good-sounding preset is always one step away.

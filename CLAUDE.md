@@ -126,6 +126,13 @@ was not meant to move it and does, that is a regression.
   event, a level set rather than reached. Both clicks he reported were this, and
   `tests/onset-render.mjs` now holds the line for every voice. See
   `docs/engine-v2-contract.md`.
+- **One interaction model, nested progressive complexity (his standing rule,
+  2026-10-03).** The UI is as uniform, simple and progressive as possible:
+  learn one way to interact and you know how everything works. Staying basic,
+  everything looks simple and sounds good; drilling down reaches every nuance.
+  Pro speed comes from keybindings, pins, favourites and saved layouts — not
+  from putting every control on the surface. A panel that shows every option
+  at once (the Create popover he called "indecipherably complex") breaks it.
 - **Measure, don't listen and don't eyeball.** A click is a step in a sample
   stream and a step has a size; a filter sweep is a spectral centroid moving and
   it can be counted in octaves. Nobody in this container can hear anything.
