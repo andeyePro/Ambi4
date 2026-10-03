@@ -35,6 +35,19 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] *(SHIPPED v0.0.209)* **The Create popover is "indecipherably complex"** — rebuilt as two doors, Start and Write…; six controls at first open; layout measured with the popover open at desktop and phone.
 - [ ] **[decide] Synthwave in Dorian** — he hears mcdev's Synthwave as "much less harmonious" than www and suspects Dorian. Measured: Synthwave's genre file draws Aeolian 75 % / Dorian 25 % on BOTH sites (400 seeds each, identical counts, unchanged since July), so a Dorian draw is luck of the seed, not a regression. One-line fix if he wants it: Synthwave Aeolian-only (moves only the Dorian-seeded audio-reference configs, if any).
 
+## UI review 2026-10-03 — the rest of the fix list (docs/ui-review-2026-10-03.md §5)
+
+Shipped from it: fixes 1 (v0.0.208), 2–4 and 14 (v0.0.207), 6–7 (v0.0.209), 8–12 (v0.0.210), 13 (v0.0.208). Still open, in the review's order:
+
+- [ ] **[decide — fromClaude 23] One name for the randomness macro** (Change / Variation / Randomness), then rename everywhere; meanwhile the sequencer tabs' "Shuffle / In order" becomes "By weight / In turn" like the Pool (fix 5).
+- [ ] **Scope legend solo without double-click** — Alt/⌥-click or long-press, double-click kept as an alias (fix 16).
+- [ ] **Pro layer: keybindings** — 1–9 favourite genres / factory presets, [ ] previous/next preset, S/A tabs, ? for a shortcut sheet; off while musical typing is on (fix 19). Then pins and saved layouts, his "rapid pro work" half of the rule.
+- [ ] **Help in one form** — the Presets and Rules paragraphs into ⓘs; genre-rules titles to describe() (fix 15).
+- [ ] **"Rules show" where it acts** — mirrored in each voice editor head (fix 17).
+- [ ] **Advanced collapses to its Now** — Sound / Music / Presets sections, each a heading with "more" (fix 18). The biggest; every drive that scrolls to a control must open its section first.
+- [ ] **Genre rules on the rule primitive** — each of the 11 sections collapsed to its summary line with "more" (fix 20). Waits on fromClaude 24 (live versus Apply).
+- [ ] **Phone: the voice editor head is 297 px tall** (v0.0.210 measurement; 149 on desktop) — tidy, no overlap, but tall; look again once the head's remaining contents settle.
+
 ## Factory, edited and your own — owner brief 2026-10-03 (TOP of the queue, his placement)
 
 His concern, in-chat: "far too easy to break Ambi4 - turn some dials and it's ruined forever." Goals, his: (A) anyone, beginners included, makes good-sounding music; (B) anyone can edit anything; (C) anyone can use their own versions and hide presets; (D) you always know when you are not on a preset; (E) a good-sounding preset is always one step away.
