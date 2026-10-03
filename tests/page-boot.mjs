@@ -2079,8 +2079,14 @@ try {
       if (!values().includes('surprise')) {
         failures.push('the genre list has no "Surprise me" entry');
       }
-      if (!values().includes('favourites')) {
-        failures.push('the genre list has no favourites entry');
+      // ui-review 2026-10-03 fix 13: favourites is the ☆ beside the picker,
+      // not an action hiding among the genres.
+      if (values().includes('favourites')) {
+        failures.push('the genre list still carries a favourites entry — it is the ☆ button now');
+      }
+      const star = doc.getElementById('genre-favourites-toggle');
+      if (!star || star.closest('.genre-row') !== select.closest('.genre-row')) {
+        failures.push('there is no ☆ favourites button (#genre-favourites-toggle) beside the genre picker');
       }
 
       // Placement: the picker sits UNDER the Play/Finish key, which is where
@@ -2205,15 +2211,19 @@ try {
       // Favourites: the entry opens a checkbox editor over the whole set, and
       // ticking one adds its MOOD group to the list; the hide toggle prunes
       // the main list to favourites.
-      select.value = 'favourites';
-      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const starButton = doc.getElementById('genre-favourites-toggle');
+      const genreBefore = select.value;
+      starButton?.click();
       const editor = doc.getElementById('genre-favourites');
       const boxes = editor
         ? Array.from(editor.querySelectorAll('.genre-fav-item input[type="checkbox"]'))
         : [];
       const hideOthers = doc.getElementById('genre-hide-others');
       if (!editor || editor.hidden) {
-        failures.push('the favourites entry did not open the favourites editor');
+        failures.push('the ☆ button did not open the favourites editor');
+      }
+      if (select.value !== genreBefore) {
+        failures.push(`opening favourites changed the genre pick ("${genreBefore}" → "${select.value}")`);
       }
       // The editor offers the PUBLIC set, not every file: a tick-box for a
       // genre the picker will not list is a control that cannot do anything.
@@ -2240,8 +2250,11 @@ try {
             `hide-non-favourites left all ${listed.length} genres in the list — the toggle prunes nothing`
           );
         }
-        if (!values().includes('surprise') || !values().includes('favourites')) {
-          failures.push('hide-non-favourites also pruned the Surprise me / favourites entries');
+        if (!values().includes('surprise')) {
+          failures.push('hide-non-favourites also pruned the Surprise me entry');
+        }
+        if (starButton && starButton.textContent !== '★') {
+          failures.push(`the favourites button does not fill once a genre is a favourite (reads "${starButton.textContent}")`);
         }
       }
       doc.getElementById('genre-favourites-done')?.click();
@@ -3147,6 +3160,106 @@ try {
           if (near(warm.adsr && warm.adsr.release, 2.5) || near(warm.sends && warm.sends.delay, 0.7)) failures.push(`factory: Back to factory left edits at the engine (${JSON.stringify(warm)})`);
           if (!genreFactory.hidden) failures.push('factory: Back to factory still shows after the setup went back');
           if (engine.getParams().genre !== 'synthwave') failures.push('factory: Back to factory left Synthwave');
+        }
+      }
+    }
+  }
+
+  // ---- ui-review 2026-10-03 fix 13: a voice picker lists voices only -------
+  // The pool has one door, the voice rule's Pool… (voice-rule-page drives it).
+  for (const select of doc.querySelectorAll('select[id^="track-voice-"]')) {
+    const action = [...select.options].find((o) => o.value === '__blend' || /Pool of voices/.test(o.textContent));
+    if (action) failures.push(`${select.id} still offers "${action.textContent}" among its voices — the voice rule's Pool… is the one door`);
+  }
+
+  // ---- factory PRESETS: factory, edited and back (ui-review 2026-10-03 fix 1)
+  // The genre got "· edited" and Back to factory in v0.0.206; the twelve
+  // presets a beginner actually sees did not — loading one cleared the genre
+  // and the mark keyed on the genre. A loaded preset is now remembered
+  // (settings.origin), its own patches are its factory voices, an edit reads
+  // "· edited" with the same Back to factory beside the picker, and more than
+  // two changes ask first, listing them. Engine values, never the readouts.
+  {
+    const engine = window.__ambi4Engine;
+    const genrePick = doc.getElementById('genre-select');
+    const genreFactory = doc.getElementById('genre-factory');
+    const presetsJson = JSON.parse(readFileSync(join(repoRoot, 'src/data/factory-presets.json'), 'utf8'));
+    const first = presetsJson[0];
+    const card = [...doc.querySelectorAll('#factory-preset-row .factory-preset')]
+      .find((c) => c.querySelector('.factory-preset-name')?.textContent.startsWith(first.name));
+    const lvl = (t) => engine.getParams().tracks[t].level;
+    const want = (t) => first.params.tracks[t].level;
+    const near = (a, b) => typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 0.005;
+    const typeLevel = async (track, pct) => {
+      const host = doc.getElementById(`track-level-${track}`);
+      const readout = host && host.querySelector('.knob-value');
+      if (!readout) return false;
+      readout.click();
+      const box = host.querySelector('.knob-value-edit');
+      if (!box) return false;
+      box.value = String(pct);
+      box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      return waitUntil(() => near(lvl(track), pct / 100));
+    };
+    const pickedText = () => (genrePick.selectedOptions[0] ? genrePick.selectedOptions[0].textContent : '');
+    if (!engine || !genrePick || !genreFactory || !card) {
+      failures.push(`preset factory: the engine seam, the genre picker, Back to factory or the ${first.name} card is missing`);
+    } else {
+      card.click();
+      await waitUntil(() => near(lvl('pad'), want('pad')) && near(lvl('bass'), want('bass')));
+      await new Promise((r) => setTimeout(r, 120));
+      if (!near(lvl('pad'), want('pad'))) failures.push(`preset factory: loading ${first.name} did not put its pad level at the engine`);
+      if (/ · edited$/.test(pickedText())) failures.push(`preset factory: a freshly loaded ${first.name} reads as edited ("${pickedText()}")`);
+      if (!pickedText().includes(first.name)) failures.push(`preset factory: the picker does not name the loaded preset (reads "${pickedText()}")`);
+      if (!genreFactory.hidden) failures.push(`preset factory: Back to factory shows beside a freshly loaded ${first.name}`);
+      for (const id of Object.keys(first.params.patches || {})) {
+        const button = doc.getElementById(`track-factory-${id}`);
+        if (button && !button.hidden) failures.push(`preset factory: ${id} offers ↺ Factory on a freshly loaded ${first.name} — its own patch is its factory`);
+      }
+
+      // One change: "· edited", and the way back beside it.
+      if (!(await typeLevel('pad', 40))) {
+        failures.push('preset factory: typing 40 into the pad level did not reach the engine');
+      } else {
+        await waitUntil(() => !genreFactory.hidden);
+        if (!/ · edited$/.test(pickedText())) failures.push(`preset factory: an edited ${first.name} does not say so in the picker ("${pickedText()}")`);
+        if (genreFactory.hidden) failures.push(`preset factory: no Back to factory while ${first.name} is edited`);
+        if (!/ · edited/.test(card.textContent)) failures.push(`preset factory: the ${first.name} card does not say it is edited`);
+
+        // Three changes: the confirmation counts and lists them by name.
+        await typeLevel('bass', 25);
+        await typeLevel('percussion', 90);
+        await new Promise((r) => setTimeout(r, 120));
+        genreFactory.click();
+        const dialog = await waitUntil(() => doc.getElementById('factory-confirm'));
+        if (!dialog) {
+          failures.push('preset factory: three changes went back without asking');
+        } else {
+          const items = [...doc.querySelectorAll('#factory-confirm .factory-confirm-list li')].map((li) => li.textContent);
+          const count = doc.querySelector('#factory-confirm .factory-confirm-count');
+          if (items.length !== 3 || !count || !/3 changes/.test(count.textContent)) {
+            failures.push(`preset factory: the confirmation should count and list exactly 3 changes (${items.length} listed: ${JSON.stringify(items)}, "${count && count.textContent}")`);
+          }
+          for (const name of ['Pad', 'Bass', 'Percussion']) {
+            if (!items.some((line) => line.startsWith(name) && /Level/.test(line))) failures.push(`preset factory: the list does not name the ${name} level change (${JSON.stringify(items)})`);
+          }
+          doc.querySelector('#factory-confirm .factory-confirm-go').click();
+          await waitUntil(() => near(lvl('pad'), want('pad')) && near(lvl('bass'), want('bass')) && near(lvl('percussion'), want('percussion')));
+          await new Promise((r) => setTimeout(r, 120));
+          for (const t of ['pad', 'bass', 'percussion']) {
+            if (!near(lvl(t), want(t))) failures.push(`preset factory: Back to factory left ${t} level at ${JSON.stringify(lvl(t))} (the preset ships ${want(t)})`);
+          }
+          if (!genreFactory.hidden) failures.push('preset factory: Back to factory still shows after the preset went back');
+          if (/ · edited/.test(pickedText()) || / · edited/.test(card.textContent)) failures.push('preset factory: "· edited" still shows after going back');
+        }
+      }
+
+      // Every preset arrives at factory: a load must never read as an edit.
+      for (const other of doc.querySelectorAll('#factory-preset-row .factory-preset')) {
+        other.click();
+        await new Promise((r) => setTimeout(r, 80));
+        if (!genreFactory.hidden || / · edited/.test(pickedText())) {
+          failures.push(`preset factory: a freshly loaded ${other.querySelector('.factory-preset-name')?.textContent} reads as edited ("${pickedText()}")`);
         }
       }
     }

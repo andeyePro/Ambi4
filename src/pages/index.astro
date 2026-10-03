@@ -487,6 +487,17 @@ const VOICES: Record<string, [string, string][]> = {
       <div class="genre-row popover-anchor">
         <label class="visually-hidden" for="genre-select">Genre</label>
         <select id="genre-select" class="genre-select"></select>
+        <!-- ui-review 2026-10-03 fix 13: favourites open from a button, not
+             from an entry inside the list (an action among the choices). -->
+        <button
+          type="button"
+          id="genre-favourites-toggle"
+          class="secondary-button genre-favourites-toggle"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+          aria-controls="genre-favourites"
+          aria-label="Favourite genres"
+        >☆</button>
         <!-- v0.0.206: shown while anything is edited away from the genre. -->
         <button
           type="button"
@@ -3120,8 +3131,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       /**
        * Favourites, their hide-the-rest toggle, and whether the listener has
-       * been through the picker once (which is what turns "Choose favourites…"
-       * into "Edit favourites…"). Persisted through prefs like the presets
+       * opened them once (`picked` — it named the old list entry "Edit
+       * favourites…"; the ☆ button needs no such label since ui-review fix 13,
+       * and the field stays for stored prefs). Persisted through prefs like the presets
        * list, so it survives a reload only where consent was granted.
        */
       // v0.0.180: the person's own genres load first, so a favourite naming one survives.
@@ -3353,7 +3365,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         sharedParams = takeSharedParams();
         if (!sharedParams) {
           routePreset = takeRoutePreset();
-          if (routePreset) sharedParams = routePreset.params;
+          // ui-review fix 1: stamped like a gallery load, so "· edited" works here too.
+          if (routePreset) sharedParams = { ...routePreset.params, origin: { kind: 'preset', id: routePreset.slug } };
         }
         if (sharedParams) {
           const ui = settings.ui;
@@ -4307,7 +4320,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // would be a temporal-dead-zone crash, the shipped blank-page bug.
       const soundingVoice = new Map();
       const VOICE_LIVE_VALUE = '__live';
-      const VOICE_BLEND_VALUE = '__blend';
       const VOICE_DRAFT_VALUE_PREFIX = 'draft:';
 
       /**
@@ -4352,26 +4364,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // preset carrying a user track this build never rendered a row for used
         // to throw here — inside init(), which is a blank page.
         if (!voiceSelect) return;
-        // v0.0.163 (his 128 a, the editor half): a track with more than one
-        // voice offers a blend — several voices with weights, drawn per
-        // section by the engine. Only where the engine holds the weights.
-        if (engineCaps.voiceBlend && voiceSelect.options.length > 1) {
-          const blend = document.createElement('option');
-          blend.value = VOICE_BLEND_VALUE;
-          blend.textContent = 'Pool of voices…';
-          voiceSelect.append(blend);
-        }
+        // ui-review 2026-10-03 fix 13: the picker no longer carries a "Pool of
+        // voices…" ACTION among its voices (v0.0.163-v0.0.206). The pool has one
+        // door, the voice rule's Pool… button in the track's editor, which
+        // opens the same editor — one way to do one job, and a list of voices
+        // that is only voices.
         syncMyVoicesGroup(id);
         voiceSelect.addEventListener('change', () => {
           // The dynamic "what you're hearing" option is display-only and
           // disabled, so it can never be the user's pick — but a stray
           // programmatic change event must not store it as a voice id.
           if (voiceSelect.value === VOICE_LIVE_VALUE) return;
-          if (voiceSelect.value === VOICE_BLEND_VALUE) {
-            openBlendEditor(id);
-            refreshVoiceSelect(id);
-            return;
-          }
           // v0.0.182: a voice of the person's own — its base voice and its patch.
           if (voiceSelect.value.startsWith(USER_VOICE_VALUE_PREFIX)) {
             applyUserVoice(id, voiceSelect.value.slice(USER_VOICE_VALUE_PREFIX.length));
@@ -4462,7 +4465,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           stock.className = 'stock-voices';
           stock.label = 'Stock';
           const loose = [...select.children].filter((el) => el.tagName === 'OPTION'
-            && el.value !== VOICE_LIVE_VALUE && el.value !== VOICE_BLEND_VALUE
+            && el.value !== VOICE_LIVE_VALUE
             && !el.value.startsWith(USER_VOICE_VALUE_PREFIX) && !el.value.startsWith(VOICE_DRAFT_VALUE_PREFIX));
           const first = loose[0];
           if (first) select.insertBefore(stock, first);
@@ -14114,7 +14117,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        */
       function genrePatchFor(track, voiceId) {
         const own = currentGenre()?.essence?.instrumentation?.patches?.[track]?.[voiceId];
-        return isPlainObject(own) ? own : null;
+        if (isPlainObject(own)) return own;
+        // ui-review 2026-10-03 fix 1: a factory PRESET's own patch is that
+        // voice's factory too — Deep Focus's strings are factory Deep Focus,
+        // where before every voice it shipped read as edited on arrival.
+        const preset = currentFactoryPreset()?.params?.patches?.[track]?.[voiceId];
+        return isPlainObject(preset) ? preset : null;
       }
       function voiceBasePatch(track, voiceId) {
         const entry = voicesTable?.[voiceSetOf(track)]?.[voiceId];
@@ -14154,15 +14162,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function patchIsEdited(track, voiceId) {
         return patchChanges(track, voiceId).length > 0;
       }
+      /** A value as a change line shows it: a number rounded, a range as low–high. */
+      function showChangeValue(v) {
+        return v === undefined || v === null ? 'off'
+          : typeof v === 'number' ? String(Math.round(v * 1000) / 1000)
+            : isPlainObject(v) && 'min' in v ? `${showChangeValue(v.min)}–${showChangeValue(v.max)}`
+              : typeof v === 'object' ? 'set' : String(v);
+      }
       /** One change as a line a person can read: "Release: 1.2 → 2.5". */
       function describeChange(change) {
         const row = engineModule?.PARAM_REGISTRY?.[`patch.${change.field}`];
         const name = (row && row.label) || change.field;
-        const show = (v) => (v === undefined || v === null ? 'off'
-          : typeof v === 'number' ? String(Math.round(v * 1000) / 1000)
-            : isPlainObject(v) && 'min' in v ? `${show(v.min)}–${show(v.max)}`
-              : typeof v === 'object' ? 'set' : String(v));
-        return `${name}: ${show(change.from)} → ${show(change.to)}`;
+        return `${name}: ${showChangeValue(change.from)} → ${showChangeValue(change.to)}`;
       }
 
       /**
@@ -14264,12 +14275,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           () => resetVoiceToFactory(track, voiceId));
       }
 
-      /** Is anything in the setup edited away from the genre it came from? */
-      function setupChanges() {
+      /** Every sounding voice's dial changes from its factory, one line each. */
+      function voiceChangeLines() {
         const out = [];
-        if (genreRulesEdited()) {
-          for (const key of Object.keys(settings.genreRules)) out.push(`Rules: ${key}`);
-        }
         for (const id of TRACK_IDS) {
           const voiceId = settings.tracks[id]?.voice;
           if (!voiceId) continue;
@@ -14280,20 +14288,129 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return out;
       }
 
-      /** The genre picker's "· edited" and the Back to factory beside it. */
+      /** Is anything in the setup edited away from the genre it came from? */
+      function setupChanges() {
+        const out = [];
+        if (genreRulesEdited()) {
+          for (const key of Object.keys(settings.genreRules)) out.push(`Rules: ${key}`);
+        }
+        out.push(...voiceChangeLines());
+        return out;
+      }
+
+      /**
+       * ui-review 2026-10-03 fix 1: the factory PRESET this setup was loaded
+       * from, or null. `settings.origin` records it ({ kind: 'preset', id }),
+       * the same provenance a genre writes, so it survives a reload, a saved
+       * preset and a share link. A genre in play outranks it.
+       */
+      function currentFactoryPreset() {
+        if (!settings || typeof settings.genre === 'string') return null;
+        const o = isPlainObject(settings.origin) ? settings.origin : null;
+        return o && o.kind === 'preset' && typeof o.id === 'string' ? factoryPresetBySlug(o.id) : null;
+      }
+
+      // The names a change line uses: the words on screen, not the wire keys.
+      const SETUP_FIELD_LABELS = {
+        bpm: 'Tempo', root: 'Key', mode: 'Scale', timeSignature: 'Time signature',
+        swing: 'Swing', complexity: 'Complexity', repetition: 'Recall', randomness: 'Variation',
+        volume: 'Volume', reverbTail: 'Reverb tail', structure: 'Structure',
+        customStructure: 'Structure blocks', arp: 'Arp', harmony: 'Chords', userTracks: 'Your tracks',
+      };
+      const TRACK_FIELD_LABELS = {
+        state: 'Off / Auto / On', voice: 'Voice', level: 'Level', randomness: 'Randomness',
+        dissonance: 'Dissonance', vary: 'Randomise', sequencer: 'Steps', sequencers: 'Steps',
+        voiceRule: 'Voice rule', voiceWeights: 'Voice pool', grooveRule: 'Groove rule',
+        variantRule: 'Kit tabs', fillRule: 'Fills', userVoice: 'Your voice',
+      };
+      function setupFieldLabel(path) {
+        const words = (head, table, rest) => [table[head] || head, ...rest].join(' ');
+        if (path[0] === 'tracks' && path.length > 2) {
+          return `${TRACK_LABELS[path[1]] || path[1]} · ${words(path[2], TRACK_FIELD_LABELS, path.slice(3))}`;
+        }
+        return words(path[0], SETUP_FIELD_LABELS, path.slice(1));
+      }
+
+      /**
+       * Every change from the loaded factory preset, one readable line each:
+       * "Pad · Level: 0.72 → 0.4". The preset's settings tree is rebuilt the
+       * way a load builds it (baseFromOrigin, the share base) and diffed with
+       * the live one; dials inside voices are listed by patchChanges, as the
+       * genre's are. Session bookkeeping a load keeps (parked edits) is not a
+       * change.
+       */
+      function presetChanges() {
+        const preset = currentFactoryPreset();
+        const base = preset ? baseFromOrigin({ kind: 'preset', id: preset.slug }) : null;
+        if (!base) return [];
+        const now = paramsSnapshot();
+        for (const tree of [base, now]) {
+          for (const key of ['origin', 'voiceDrafts', 'genre', 'genreRules', 'patches']) delete tree[key];
+          // Opening the pad's editor writes the engine's shipped Breath into
+          // settings (buildPadBreathControl) — the same sound, not an edit.
+          const pad = tree.tracks?.pad;
+          if (isPlainObject(pad) && pad.padBreath === undefined && engineCaps.padBreath) {
+            pad.padBreath = typeof enginePadBreath === 'number' ? enginePadBreath : 0.5;
+          }
+        }
+        const isRange = (v) => isPlainObject(v) && 'min' in v && 'max' in v;
+        const out = [];
+        const walk = (diff, from, to, path) => {
+          for (const key of Object.keys(diff)) {
+            const a = from?.[key];
+            const b = to?.[key];
+            const at = [...path, key];
+            if (isPlainObject(diff[key]) && isPlainObject(a) && isPlainObject(b) && !isRange(a) && !isRange(b)) {
+              walk(diff[key], a, b, at);
+              continue;
+            }
+            const shape = (v) => v !== null && typeof v === 'object' && !isRange(v);
+            out.push(shape(a) || shape(b)
+              ? `${setupFieldLabel(at)}: changed`
+              : `${setupFieldLabel(at)}: ${showChangeValue(a)} → ${showChangeValue(b)}`);
+          }
+        };
+        const diff = diffTree(base, now);
+        if (isPlainObject(diff)) walk(diff, base, now, []);
+        out.push(...voiceChangeLines());
+        return out;
+      }
+
+      /**
+       * The picker's "· edited" and the Back to factory beside it — for the
+       * genre (v0.0.206) and, with no genre, for the factory preset loaded
+       * (ui-review fix 1): one mark, one button, the same confirmation.
+       */
       function syncSetupEditedMark() {
         const button = document.getElementById('genre-factory');
         const genre = currentGenre();
-        const edited = Boolean(genre) && setupChanges().length > 0;
-        if (button) button.hidden = !edited;
+        const preset = genre ? null : currentFactoryPreset();
+        const edited = genre ? setupChanges().length > 0
+          : preset ? presetChanges().length > 0
+            : false;
+        if (button) {
+          button.hidden = !edited;
+          button.title = preset
+            ? `Put the whole setup back to the ${preset.name} preset exactly as it ships: every dial, track and voice.`
+            : "Put the whole setup back to this genre's factory sound: its rules, and every voice.";
+        }
         const picker = document.getElementById('genre-select');
-        const current = picker && genre
-          ? [...picker.options].find((o) => o.value === `g:${genre.slug}`)
-          : null;
+        const current = !picker ? null
+          : genre ? [...picker.options].find((o) => o.value === `g:${genre.slug}`)
+            : [...picker.options].find((o) => o.value === '');
         if (current) {
-          const plain = current.textContent.replace(/ · edited.*$/, '');
+          // With no genre the empty entry names the preset playing, if any.
+          const plain = genre ? current.textContent.replace(/ · edited.*$/, '')
+            : preset ? `${preset.name} (preset)` : 'No genre';
           const text = edited ? `${plain} · edited` : plain;
           if (current.textContent !== text) current.textContent = text;
+        }
+        for (const card of document.querySelectorAll('#factory-preset-row .factory-preset')) {
+          const loaded = Boolean(preset) && card.dataset.preset === preset.slug;
+          card.classList.toggle('is-loaded', loaded);
+          const mark = card.querySelector('.factory-preset-mark');
+          const text = loaded && edited ? ' · edited' : '';
+          if (mark && mark.textContent !== text) mark.textContent = text;
         }
       }
 
@@ -14309,7 +14426,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const select = document.getElementById(`track-voice-${track}`);
         if (!select || !settings.tracks[track]) return;
         const voices = [...select.options]
-          .filter((o) => o.value && o.value !== VOICE_LIVE_VALUE && o.value !== VOICE_BLEND_VALUE && !o.value.startsWith(USER_VOICE_VALUE_PREFIX))
+          .filter((o) => o.value && o.value !== VOICE_LIVE_VALUE && !o.value.startsWith(USER_VOICE_VALUE_PREFIX))
           .map((o) => ({ id: o.value, label: o.textContent }));
         if (voices.length < 2) return;
         const labelOf = (id) => voices.find((v) => v.id === id)?.label || id;
@@ -14567,7 +14684,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           : ruled
           ? 'This track draws its voice by its rule — Voice chance and its pool, in the Randomise row of its editor. Chance 0 holds it; picking a voice holds it too.'
           : blended
-            ? 'Several voices share this track by weight; each new section draws one. Pool of voices… changes the weights; picking a voice ends the blend.'
+            ? 'Several voices share this track by weight; each new section draws one. Pool…, in the voice rule of its editor, changes the weights; picking a voice ends the blend.'
             : wandering
               ? 'The generator wandered onto this voice for variety (Voice chance in its editor follows Randomness) — your own choice is unchanged, and picking any voice holds it at once.'
               : '';
@@ -16617,10 +16734,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const extras = document.createElement('optgroup');
         extras.label = 'More';
         extras.append(genreOption('surprise', 'Surprise me'));
-        extras.append(
-          genreOption('favourites', genrePrefs.picked ? 'Edit favourites…' : 'Favourites…')
-        );
         genreSelect.append(extras);
+        // ui-review fix 13: the ☆ beside the picker fills once any genre is a favourite.
+        const star = document.getElementById('genre-favourites-toggle');
+        if (star) {
+          const glyph = genrePrefs.favourites.length ? '★' : '☆';
+          if (star.textContent !== glyph) star.textContent = glyph;
+        }
 
         // The tag stays honest: a genre playing under edited rules says so
         // right in the picker, where the claim is made.
@@ -16642,6 +16762,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // same genre at the same seed, its rules and every voice as shipped.
       document.getElementById('genre-factory')?.addEventListener('click', () => {
         const genre = currentGenre();
+        // ui-review fix 1: with no genre, the factory preset the setup came from.
+        const preset = genre ? null : currentFactoryPreset();
+        if (preset) {
+          confirmBackToFactory(preset.name, presetChanges(), () => loadFactoryPreset(preset, { factory: true }));
+          return;
+        }
         if (!genre) return;
         confirmBackToFactory(genre.name, setupChanges(), () => {
           settings.genreRules = {};
@@ -16652,14 +16778,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       genreSelect.addEventListener('change', () => {
         const value = genreSelect.value;
-        if (value === 'favourites') {
-          syncGenreUI(); // the entry is an action, not a selection
-          openFavourites();
-          return;
-        }
         // Everything past this point replaces the whole setup, so the one
-        // being left is remembered for Back. The `favourites` entry above is
-        // the sole exception — it opens a panel and changes nothing.
+        // being left is remembered for Back. (Favourites, which changes
+        // nothing, is the ☆ beside the picker since ui-review fix 13.)
         rememberSetup();
         if (value === 'surprise') {
           const genre = drawGenre(listedGenres());
@@ -16690,9 +16811,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // ---- favourites editor ----------------------------------------------
 
-      const favouritesPopover = setupPopover(null, 'genre-favourites', {
-        focusReturn: genreSelect,
+      // ui-review fix 13: the ☆ opens it. Registered BEFORE setupPopover's own
+      // toggle listener, so the list is built while the panel is still hidden
+      // and the popover's open() then focuses its first tick-box.
+      document.getElementById('genre-favourites-toggle')?.addEventListener('click', () => {
+        if (!document.getElementById('genre-favourites')?.hidden) return;
+        genrePrefs.picked = true;
+        persistGenrePrefs();
+        renderFavourites();
       });
+      const favouritesPopover = setupPopover('genre-favourites-toggle', 'genre-favourites');
+      describe(
+        document.getElementById('genre-favourites-toggle'),
+        'Favourite genres: tick the ones you come back to, and hide the rest from the list if you like.'
+      );
 
       setupPopover('genre-rules-toggle', 'genre-rules');
       // Opening the panel always shows the CURRENT truth: rebuild the model
@@ -16776,16 +16908,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       document.getElementById('genre-favourites-done').addEventListener('click', () => {
         favouritesPopover.close();
       });
-
-      function openFavourites() {
-        // First use is what "picked" records: from here on the entry reads
-        // "Edit favourites…" rather than offering the choice again.
-        genrePrefs.picked = true;
-        persistGenrePrefs();
-        renderFavourites();
-        favouritesPopover.open();
-        syncGenreUI();
-      }
 
       // ---- Back: undo a setup replacement ----------------------------------
       /**
@@ -16938,10 +17060,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return true;
       }
 
+      // ui-review fix 1: a preset's "· edited" follows every edit (a level, a
+      // key, a step), not only the voice dials — coalesced, because a drag
+      // commits on every move and the mark is a diff of two trees.
+      let presetMarkTimer = null;
       onSettingsCommitted = () => {
         noteUndoPoint();
         // Cheap: a diff of two trees, at most once per settled edit.
         if (typeof syncProvenance === 'function') syncProvenance();
+        if (presetMarkTimer === null && currentFactoryPreset()) {
+          presetMarkTimer = setTimeout(() => {
+            presetMarkTimer = null;
+            syncSetupEditedMark();
+          }, 40);
+        }
       };
 
       window.addEventListener('keydown', (event) => {
@@ -19335,15 +19467,39 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // A loaded factory preset is ordinary settings from that moment on:
       // every dial, track and editor behaves exactly as if the user had
       // dialled it in by hand.
+      //
+      // ui-review 2026-10-03 fix 1: ordinary, but REMEMBERED — the load
+      // stamps settings.origin = { kind: 'preset', id }, so the picker can say
+      // "· edited" once anything moves and Back to factory beside it reloads
+      // the preset as shipped (his goal E: a good-sounding preset is always one
+      // step away). A load parks edited voices under Edited, as a genre's does;
+      // going back to factory does not (it is the undo of those edits).
+      function factoryPresetParams(preset) {
+        const params = structuredClone(preset.params);
+        params.origin = { kind: 'preset', id: preset.slug };
+        return params;
+      }
+      function loadFactoryPreset(preset, { factory = false } = {}) {
+        if (!factory) parkEditedVoices();
+        loadParamsSnapshot(factoryPresetParams(preset));
+        presetName.value = preset.name;
+        syncGenreUI();
+      }
       const factoryRow = document.getElementById('factory-preset-row');
       if (factoryRow) {
         for (const preset of FACTORY_PRESETS) {
           const card = document.createElement('button');
           card.type = 'button';
           card.className = 'secondary-button factory-preset';
+          card.dataset.preset = preset.slug;
           const name = document.createElement('span');
           name.className = 'factory-preset-name';
           name.textContent = preset.name;
+          // ui-review fix 1: "· edited" when this is the preset playing and it
+          // has moved — the same mark the picker carries.
+          const mark = document.createElement('span');
+          mark.className = 'factory-preset-mark';
+          name.append(mark);
           const blurb = document.createElement('span');
           blurb.className = 'factory-preset-blurb';
           blurb.textContent = preset.oneLiner ?? '';
@@ -19358,12 +19514,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             .filter(Boolean)
             .join(' ');
           describe(card, rationale);
-          card.addEventListener('click', () => {
-            loadParamsSnapshot(preset.params);
-            presetName.value = preset.name;
-          });
+          card.addEventListener('click', () => loadFactoryPreset(preset));
           factoryRow.append(card);
         }
+        syncSetupEditedMark();
       }
 
       // Advanced keeps its way in: the gallery itself lives on Simple now
@@ -19477,6 +19631,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           delete base.ui;
           return base;
         }
+        // ui-review fix 1: a factory preset is a fixed snapshot shipped with
+        // the build, so its slug reproduces it exactly — through the same
+        // migrate → merge → normalise a load takes. Before, a preset carried
+        // the DEFAULTS' blank origin, and provenance called Deep Focus "built
+        // from a blank slate, every setting yours".
+        if (o.kind === 'preset' && typeof o.id === 'string') {
+          const preset = factoryPresetBySlug(o.id);
+          if (!preset) return null;
+          const clone = structuredClone(preset.params);
+          migrateLegacyArpSteps(clone);
+          const base = deepMerge(DEFAULTS, clone);
+          normaliseV6Tracks(base);
+          base.origin = { kind: 'preset', id: o.id };
+          delete base.ui;
+          return base;
+        }
         if (o.kind === 'blank' || o.kind === 'unknown') {
           const base = deepMerge(DEFAULTS, {});
           normaliseV6Tracks(base);
@@ -19580,6 +19750,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (o.kind === 'genre' && typeof o.id === 'string') {
           const genre = GENRE_BY_SLUG.get(o.id);
           from = genre ? genre.name || o.id : o.id;
+        } else if (o.kind === 'preset' && typeof o.id === 'string') {
+          from = factoryPresetBySlug(o.id)?.name || o.id;
         } else if (o.kind === 'blank') {
           from = 'a blank slate';
         } else {
@@ -19598,6 +19770,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return p.changed === 0
             ? 'Built from a blank slate, with nothing changed yet — everything you hear is silence.'
             : `Built from a blank slate: every one of the ${p.changed} setting${p.changed === 1 ? '' : 's'} in this piece is yours.`;
+        }
+        if (p.kind === 'preset' && p.from) {
+          return p.changed === 0
+            ? `This is our ${p.from} preset exactly as it ships — nothing of yours in it yet.`
+            : `Built on our ${p.from} preset, with ${p.changed} setting${p.changed === 1 ? '' : 's'} changed by you. A submission sends that preset's name and your changes, not a copy of it.`;
         }
         if (p.kind === 'genre' && p.from) {
           return p.changed === 0
@@ -19765,7 +19942,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#genre-select',
-          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices together, a different piece each time you pick it. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chord rules, every one changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, at the foot of the list, chooses for you. Favourites keeps the ones you come back to.',
+          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices together, a different piece each time you pick it. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chord rules, every one changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, at the foot of the list, chooses for you. The ☆ beside it keeps your favourites.',
         },
         {
           tab: 'simple',
@@ -19775,7 +19952,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#factory-presets',
-          text: 'Factory presets sit under the Simple dials: starting points, not presets in the locked sense — load one and change anything. Hover one to read why it is built the way it is. Each has its own web address, so you can link straight to it. Save your own under Presets on Advanced.',
+          text: 'Factory presets sit under the Simple dials: starting points, not presets in the locked sense — load one and change anything. Hover one to read why it is built the way it is. Each has its own web address, so you can link straight to it. Change anything and the genre picker says · edited, with ↺ Back to factory beside it. Save your own under Presets on Advanced.',
         },
         {
           tab: 'simple',
@@ -20561,10 +20738,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       margin: 0 0 12px;
     }
 
-    /* The favourites editor hangs off the row itself, not off a button of its
-       own — the genre list is where it is opened from. */
-    .genre-rules-toggle {
+    /* ui-review fix 13: the favourites editor opens from the ☆ beside the
+       picker (it used to be an entry inside the genre list). */
+    .genre-rules-toggle,
+    .genre-favourites-toggle {
       flex: 0 0 auto;
+    }
+    .genre-favourites-toggle {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0 10px;
+      font-size: 1.1rem;
+      line-height: 1;
     }
 
     .genre-rules {
@@ -23620,6 +23805,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .factory-preset-name {
       font-weight: 700;
+    }
+
+    /* ui-review fix 1: the preset playing (a border, so nothing moves); its
+       name carries "· edited" once anything changes. */
+    .factory-preset.is-loaded {
+      border-color: var(--link);
+    }
+    .factory-preset-mark {
+      font-weight: 400;
+      color: var(--secondary);
     }
 
     .factory-preset-blurb {

@@ -63,11 +63,12 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   a fallback that has drifted from the registry would otherwise sit there
   silently waiting to boot the wrong six tracks.
 - v26 genre transport — the genre picker under the Play key holds every file in
-  `src/data/genres/` plus "Surprise me" and the favourites entry; a fresh boot
+  `src/data/genres/` plus "Surprise me" (favourites are the ☆ beside it, not an
+  entry); a fresh boot
   (which is exactly what this harness is) opens ON a genre, with params inside
   that genre's declared ranges rather than at the engine defaults; picking a
   genre compiles it into the live params; loading a factory preset clears the
-  tag; the favourites editor covers the whole set, a favourite adds its mood
+  tag; the ☆ opens the favourites editor, which covers the whole set, a favourite adds its mood
   group to the list and the hide toggle prunes it; and the Pause button's
   explanation is matched against whether the engine build really ships
   `pause()` — the same probe-gated discipline as the v21 bullet above.
@@ -534,6 +535,14 @@ Factory, edited and user (v0.0.206)
 - [ ] Pick another genre, or pick the same voice under Stock: it plays the factory sound, and your edit waits under Edited — pick it to hear it again.
 - [ ] ↺ Back to factory beside the genre: the same genre, same seed, every voice and rule as shipped.
 
+Factory presets: edited and back (ui-review 2026-10-03 fix 1)
+- [ ] Load any factory preset card on Simple: the genre picker reads "<preset> (preset)", the card has a border, and nothing says "· edited" — no ↺ Factory on any row either (a preset's own voices are its factory).
+- [ ] Turn one track's Level: the picker reads "<preset> (preset) · edited", the card's name says "· edited", and ↺ Back to factory shows beside the picker.
+- [ ] Change two more things (another Level, the Tempo): ↺ Back to factory asks first, says "This undoes 3 changes", and "Show them" lists each by name ("Pad · Level: 0.72 → 0.4").
+- [ ] Confirm: every dial, track and voice is the preset as shipped, and the marks are gone. Two changes or fewer go back without asking.
+- [ ] Open the preset's own address (/deep-focus), change a Level: the same mark and button.
+- [ ] Advanced → Presets → the provenance line names the preset ("Built on our Deep Focus preset, with N settings changed by you"), not a blank slate.
+
 Voice selector honesty (Advanced → track rows)
 - [ ] With everything at defaults, each row's voice select reads the voice you
       chose, as before.
@@ -795,9 +804,9 @@ Fresh load opens on a genre (private window, or clear this site's data first)
       stored, no share link and no preset route.
 
 The genre picker (directly under Play/Finish)
-- [ ] Twelve genres, then "Surprise me", then the favourites entry. Keyboard
-      only: tab to it, open with the keyboard, arrow through it, choose with
-      Enter.
+- [ ] Twelve genres, then "Surprise me" — and nothing else: no action
+      entries in the list. Keyboard only: tab to it, open with the keyboard,
+      arrow through it, choose with Enter.
 - [ ] Choosing a genre while STOPPED loads its setup — tempo, scale, metre,
       structure, which tracks play, the kit. Press Play: it sounds like that
       genre.
@@ -816,18 +825,17 @@ The genre picker (directly under Play/Finish)
 - [ ] Reload: the genre you chose is still named in the picker.
 
 Favourites
-- [ ] The first time you choose the favourites entry it reads "Favourites…"
-      and opens a checkbox list of all twelve, grouped by mood (Calm, Groove,
-      Drive). After that the entry reads "Edit favourites…".
+- [ ] The ☆ beside the genre picker opens a checkbox list of all twelve,
+      grouped by mood (Calm, Groove, Drive), without changing the genre
+      playing. Once any genre is a favourite the button reads ★.
 - [ ] Tick two genres in different moods: both mood groups appear in the
       picker under "Favourite moods", each showing how many favourites it
       holds. Choosing one plays a random favourite from that mood.
 - [ ] "Hide the rest of the genres from the list" prunes the main list to your
       favourites (the genre currently playing stays listed either way, or the
-      picker could not show its own value). Surprise me and the favourites
-      entry never get pruned.
+      picker could not show its own value). Surprise me never gets pruned.
 - [ ] With the hide toggle on, a fresh load opens on one of your favourites.
-- [ ] Esc closes the editor and focus returns to the picker; clicking outside
+- [ ] Esc closes the editor and focus returns to the ☆; clicking outside
       closes it too. Favourites survive a reload (consent granted).
 
 Pause
@@ -853,7 +861,7 @@ Next (fast-forward)
 
 Automated: the page-boot gate additions
 - [ ] `npm run build && node tests/page-boot.mjs` asserts the picker holds
-      every genre FILE plus Surprise me and the favourites entry (a glob that
+      every genre FILE plus Surprise me, with the ☆ beside it (a glob that
       resolved to nothing, or a new genre file the page never picked up, fails
       here); that a fresh boot opened on a genre whose compiled params are
       inside that genre's own declared ranges and are not the engine defaults;
@@ -1022,6 +1030,8 @@ owed to the bridge key (fromClaude 13).
 - [ ] Pool…: remove Organ stab (×), reorder with ▲▼, add a voice from the
       list, choose In turn, Done. The melody now steps through your list in
       order; Organ stab never sounds. No pool sets Hold.
+- [ ] Pool… is the pool's only door (ui-review fix 13): no voice picker lists
+      a "Pool of voices…" entry among its voices any more.
 - [ ] Pick any voice in the picker while a rule is drawing: it holds (Chance
       reads Hold); the pool is kept for when you raise Chance again.
 - [ ] A piece saved before v0.0.195, or any stock genre at its defaults, sounds
