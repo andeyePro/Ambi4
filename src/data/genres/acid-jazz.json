@@ -10,25 +10,20 @@
       { "value": "4/4", "weight": 1 }
     ],
     "modes": [
-      { "value": "dorian", "weight": 0.5 },
-      { "value": "mixolydian", "weight": 0.3 },
-      { "value": "aeolian", "weight": 0.2 }
+      { "value": "dorian", "weight": 1 }
     ],
     "chordLanguage": {
       "progressionGrammar": [
         "i9 IV9",
-        "i7 IIImaj7 IV9 IV9",
-        "ii7 v9 i9 i9",
-        "i7 IV7 VII9 v7"
+        "i9 i9 IV9 IV9",
+        "i9 IV9 i9 v9",
+        "i7 IIImaj7 IV9 IV9"
       ],
       "substitutionRules": [
         { "from": "i7", "to": "i9", "prob": 0.6 },
-        { "from": "IV7", "to": "IV9", "prob": 0.5 },
-        { "from": "IV9", "to": "IV13", "prob": 0.2 },
-        { "from": "v7", "to": "v9", "prob": 0.4 },
-        { "from": "VII7", "to": "VII9", "prob": 0.4 }
+        { "from": "IV9", "to": "IV13", "prob": 0.2 }
       ],
-      "extensionBias": 0.8,
+      "extensionBias": 0.6,
       "harmonicRhythm": [
         { "value": 1, "weight": 0.5 },
         { "value": 2, "weight": 0.4 },
@@ -56,7 +51,7 @@
         "arp": { "state": "auto", "voice": "muted", "level": 0.5, "randomness": { "min": 0.3, "max": 0.55 } },
         "melody": { "state": "auto", "voice": "tines", "level": 0.55, "randomness": { "min": 0.35, "max": 0.6 } },
         "bass": { "state": "on", "voice": "fingered", "level": 0.66, "randomness": { "min": 0.12, "max": 0.28 } },
-        "texture": { "state": "auto", "voice": "wash", "level": 0.3, "randomness": 0.3 },
+        "texture": { "state": "off", "voice": "wash", "level": 0.3, "randomness": 0.3 },
         "percussion": { "state": "on", "voice": "soft", "level": 0.6, "randomness": { "min": 0.3, "max": 0.55 } }
       },
       "reverbTail": 1.1
@@ -66,7 +61,7 @@
       { "value": "journey", "weight": 0.35 },
       { "value": "waves", "weight": 0.25 }
     ],
-    "dissonanceRange": [0.1, 0.4],
+    "dissonanceRange": [0.05, 0.2],
     "densityBias": 1.15
   },
   "fallbackLists": {

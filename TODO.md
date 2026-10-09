@@ -295,8 +295,8 @@ Each of the ten hidden genres keeps its data and its listening note. In his
 words: "Keep your data for the others though and add fixing them to the very
 bottom of the TODO."
 
-- [ ] Acid Jazz — dissonant throughout
-- [ ] Bossa — dissonant, plus the click on note onset
+- [x] Acid Jazz — dissonant throughout *(v0.0.221, measured: 4.10 → 0.79 clashes a bar; ear-test his, then unhide?)*
+- [x] Bossa — dissonant, plus the click on note onset *(dissonance v0.0.221, 2.09 → 1.21; click v0.0.140; ear-test his)*
 - [ ] Cinematic — does not sound like the genre it names
 - [ ] Deep House — bass fine, melody annoying
 - [ ] Lofi Beats — bad melody

@@ -10,17 +10,14 @@
       { "value": "4/4", "weight": 1 }
     ],
     "modes": [
-      { "value": "ionian", "weight": 0.4 },
-      { "value": "dorian", "weight": 0.25 },
-      { "value": "lydian", "weight": 0.2 },
-      { "value": "aeolian", "weight": 0.15 }
+      { "value": "ionian", "weight": 1 }
     ],
     "chordLanguage": {
       "progressionGrammar": [
         "Imaj9 vi7 ii9 V13",
-        "ii7 V13 Imaj9 vi7",
-        "i9 ii7 v7 i9",
-        "IVmaj7 iii7 ii7 V13"
+        "ii9 V13 Imaj9 Imaj9",
+        "Imaj9 ii7 V7 Imaj9",
+        "IVmaj7 V13 Imaj9 vi7"
       ],
       "substitutionRules": [
         { "from": "V7", "to": "V13", "prob": 0.3 },
@@ -28,7 +25,7 @@
         { "from": "Imaj7", "to": "Imaj9", "prob": 0.6 },
         { "from": "ii7", "to": "ii9", "prob": 0.4 }
       ],
-      "extensionBias": 0.9,
+      "extensionBias": 0.6,
       "harmonicRhythm": [
         { "value": 2, "weight": 0.6 },
         { "value": 1, "weight": 0.25 },
@@ -65,7 +62,7 @@
       { "value": "abab", "weight": 0.3 },
       { "value": "drone", "weight": 0.25 }
     ],
-    "dissonanceRange": [0.1, 0.35],
+    "dissonanceRange": [0.05, 0.2],
     "densityBias": 0.9
   },
   "fallbackLists": {
