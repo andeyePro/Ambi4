@@ -1026,6 +1026,9 @@ const VOICES: Record<string, [string, string][]> = {
       <button type="button" id="tutorial-close" class="round-button" aria-label="Close the guided tour">&times;</button>
     </div>
     <p id="tutorial-step-text" class="tutorial-step-text"></p>
+    <div class="tutorial-chapters">
+      <button type="button" id="tutorial-chapter-hold" class="secondary-button">Chapter: hold the melody's voice</button>
+    </div>
     <div class="tutorial-nav">
       <button type="button" id="tutorial-prev" class="secondary-button">Back</button>
       <span id="tutorial-progress" class="value-readout"></span>
@@ -13153,6 +13156,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         buildVaryRow(container, track, ed.knobs);
         // The melody's motif as a rule, on the same primitive as its voice.
         if (track === 'melody') ed.motifRule = buildMotifRule(container, ed.knobs);
+        refreshRuleChapterHighlight();
         // v26: ONE aligned row for this track's feel dials — Dissonance,
         // Drift rate, Swing, Density, Breath — however few of them this
         // track and this engine build actually have.
@@ -21184,6 +21188,51 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
       ];
 
+      // v0.0.203: chapters about the RULES rather than an engine's dials. A
+      // lesson chapter lives inside one editor and rings dials by field; a rule
+      // chapter walks the whole page, sets its own scene (a genre, an open
+      // editor), and each step may reveal a layer of the rule or open the Pool
+      // editor first. Targets are full selectors and each must resolve to ONE
+      // element once its step has run; tests/page-boot.mjs walks them.
+      // The order below is Pool first, then Chance: the Pool editor's Done
+      // lifts a Chance of Hold back up when it leaves two or more voices, so
+      // Hold is the last thing set. (The owner's order was Chance first.)
+      const RULE_CHAPTERS = [
+        {
+          id: 'hold-voice',
+          button: 'tutorial-chapter-hold',
+          label: 'Hold the melody\'s voice',
+          genre: 'g:synthwave',
+          track: 'melody',
+          steps: [
+            {
+              target: '#voice-editor-melody .rule[data-rule="voice"] .rule-now-value',
+              text: 'Synthwave is playing and its Melody editor is open. This is the melody\'s Voice rule, and Now is the voice you hear. Listen for a while: the melody sometimes slips from Keys to Organ stab with nothing in the way. That is a rule, and the next moves are where you take hold of it.',
+            },
+            {
+              target: '#voice-rule-pool-melody',
+              reveal: 'pool',
+              text: 'Pool is the list of voices a redraw may move the melody to. Press Edit… to open it. If a layer is folded away, the rule\'s more button, or the Rules show choice at the top of the Advanced tab, brings it back.',
+            },
+            {
+              target: '#voice-blend-editor .blend-row[data-voice="stab"] .blend-remove',
+              open: 'pool',
+              text: 'Press the cross on Organ stab to take it out of the Pool. The other voices stay, so the melody may still move, but never to this one. Removing it changes your copy of the rule until you press Done.',
+            },
+            {
+              target: '#voice-blend-editor .blend-actions .secondary-button:last-child',
+              open: 'pool',
+              text: 'Press Done. The Pool is now kept without Organ stab. Done also lifts a Chance of Hold back up when two or more voices are left, which is why Hold comes last: the next move sets it.',
+            },
+            {
+              target: '#voice-editor-melody .rule[data-rule="voice"] .rule-chance-slot',
+              reveal: 'chance',
+              text: 'Chance is how often a redraw happens, and the dial reads Hold at the bottom. Drag Voice chance all the way down to Hold and the melody keeps the voice it has for good. Choose Next afterwards and the rule is still yours: Next keeps held rules and redraws the rest.',
+            },
+          ],
+        },
+      ];
+
       /** The chapter an editor's chip opens, by the engine and the sections the voice publishes. */
       function lessonFor(engineId, voiceEntry) {
         const defaults = voiceEntry && isPlainObject(voiceEntry.defaults) ? voiceEntry.defaults : {};
@@ -21201,6 +21250,36 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const tutorialText = document.getElementById('tutorial-step-text');
       const tutorialProgress = document.getElementById('tutorial-progress');
       let tutorialHighlighted = null;
+      const ruleChapterButtons = RULE_CHAPTERS
+        .map((chapter) => document.getElementById(chapter.button))
+        .filter(Boolean);
+
+      /**
+       * An editor builds asynchronously (it awaits the voices module), so a
+       * rule chapter's first highlight can land before its target exists, and a
+       * rebuild replaces the element the highlight sat on. The editor calls this
+       * once its rules are in, so the ring follows the control.
+       */
+      function refreshRuleChapterHighlight() {
+        let active = null;
+        try { active = lesson; } catch { return; } // before the tour is wired, `lesson` is not yet declared
+        if (!active || !active.chapter.id) return;
+        const step = lesson.chapter.steps[clamp(lesson.step | 0, 0, lesson.chapter.steps.length - 1)];
+        if (step.reveal) revealRuleLayer(lesson.chapter.track, step.reveal);
+        highlightTutorialTarget(step.target);
+      }
+
+      /** Fold a layer of a track's voice rule open, whatever the global level says. */
+      function revealRuleLayer(track, layer) {
+        const rule = document.querySelector(`#voice-editor-${track} .rule[data-rule="voice"]`);
+        if (!rule) return;
+        for (let i = 0; i < 3; i += 1) {
+          const el = rule.querySelector(`.rule-${layer}`);
+          const more = rule.querySelector('.rule-more');
+          if (!el || !el.hidden || !more || more.hidden) break;
+          more.click();
+        }
+      }
 
       function highlightTutorialTarget(selector) {
         if (tutorialHighlighted) tutorialHighlighted.classList.remove('tutorial-highlight');
@@ -21210,6 +21289,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       function renderTutorial() {
         const title = document.getElementById('tutorial-title');
+        for (const b of ruleChapterButtons) b.hidden = Boolean(lesson);
+        if (lesson && lesson.chapter.id) {
+          // v0.0.203: a rule chapter — page-wide targets, steps that prepare their scene.
+          const steps = lesson.chapter.steps;
+          lesson.step = clamp(lesson.step | 0, 0, steps.length - 1);
+          const step = steps[lesson.step];
+          if (title) title.textContent = lesson.chapter.label;
+          tutorialText.textContent = step.text;
+          tutorialProgress.textContent = `${lesson.step + 1} / ${steps.length}`;
+          document.getElementById('tutorial-prev').disabled = lesson.step === 0;
+          document.getElementById('tutorial-next').disabled = lesson.step === steps.length - 1;
+          activateTab('advanced');
+          if (step.open === 'pool' && !document.getElementById('voice-blend-editor')) openBlendEditor(lesson.chapter.track);
+          if (step.reveal) revealRuleLayer(lesson.chapter.track, step.reveal);
+          highlightTutorialTarget(step.target);
+          return;
+        }
         // v0.0.184: a lesson borrows the panel — its own steps, its own
         // progress, its targets inside the editor it was opened from.
         if (lesson) {
@@ -21259,6 +21355,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         renderTutorial();
         persistSettings();
         return true;
+      }
+
+      /**
+       * v0.0.203: open a rule chapter. It sets its own scene: the genre, the
+       * Advanced tab, the track's editor open, any stale Pool editor closed.
+       */
+      function openRuleChapter(chapter) {
+        if (!chapter) return false;
+        const genre = document.getElementById('genre-select');
+        if (genre && chapter.genre && genre.value !== chapter.genre
+          && [...genre.options].some((o) => o.value === chapter.genre)) {
+          genre.value = chapter.genre;
+          genre.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        document.getElementById('voice-blend-editor')?.remove();
+        activateTab('advanced');
+        openTrackEditor(chapter.track);
+        lesson = { track: chapter.track, chapter, step: 0 };
+        settings.ui.tutorialOpen = true;
+        tutorialPanel.hidden = false;
+        tutorialToggle.setAttribute('aria-expanded', 'true');
+        renderTutorial();
+        persistSettings();
+        return true;
+      }
+      for (const chapter of RULE_CHAPTERS) {
+        document.getElementById(chapter.button)?.addEventListener('click', () => openRuleChapter(chapter));
       }
 
       function setTutorialOpen(open) {
@@ -25028,6 +25151,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       margin: 0 0 12px;
       font-size: 14px;
       line-height: 1.5;
+    }
+
+    .tutorial-chapters {
+      margin: 0 0 12px;
     }
 
     .tutorial-nav {

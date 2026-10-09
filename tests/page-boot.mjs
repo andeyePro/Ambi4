@@ -24,7 +24,7 @@ import { readFileSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
-import { readTutorialSteps, resolveTutorialTargets, readLessonChapters } from './tutorial-smoke.mjs';
+import { readTutorialSteps, resolveTutorialTargets, readLessonChapters, readRuleChapters } from './tutorial-smoke.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = join(repoRoot, 'dist');
@@ -1623,6 +1623,58 @@ try {
       doc.getElementById('tutorial-toggle').click();
       if (doc.getElementById('tutorial-title').textContent !== 'Guided tour') failures.push('after a lesson the tour opens under the wrong title');
       doc.getElementById('tutorial-close').click();
+    }
+
+    // v0.0.203: the rule chapter "Hold the melody's voice". The button sets the
+    // scene (Synthwave, the melody editor open), every step's target resolves to
+    // exactly ONE element once the step has run, Next walks the chapter, and
+    // doing what it says (removing Organ stab, then Done) lands at the ENGINE.
+    {
+      const chapters = readRuleChapters();
+      const chapter = chapters.find((c) => c.id === 'hold-voice');
+      const engine = window.__ambi4Engine;
+      if (!chapter) failures.push('RULE_CHAPTERS has no hold-voice chapter');
+      else {
+        doc.getElementById('tutorial-toggle').click();
+        const button = doc.getElementById(chapter.button);
+        if (!button || button.hidden) failures.push('the tour panel does not offer the "Hold the melody\'s voice" chapter');
+        else {
+          button.click();
+          const panel = doc.getElementById('tutorial-panel');
+          const title = doc.getElementById('tutorial-title');
+          const ok = await waitUntil(() => title.textContent === chapter.label && engine.getParams().genre === 'synthwave');
+          if (!ok) failures.push(`the chapter button did not open "${chapter.label}" on Synthwave (title ${JSON.stringify(title.textContent)}, genre ${engine.getParams().genre})`);
+          const melody = doc.getElementById('voice-editor-melody');
+          if (!melody || melody.hidden) failures.push('the chapter did not open the melody editor');
+          if (!button.hidden) failures.push('the chapter button stays visible inside a chapter');
+          for (const [i, step] of chapter.steps.entries()) {
+            const found = doc.querySelectorAll(step.target).length;
+            if (found !== 1) failures.push(`rule chapter step ${i + 1}: ${step.target} matches ${found} elements once its step has run`);
+            else if (!doc.querySelector(step.target).classList.contains('tutorial-highlight')) failures.push(`rule chapter step ${i + 1}: its target is not highlighted (highlighted: ${[...doc.querySelectorAll('.tutorial-highlight')].map((e) => e.className + '/' + e.id).join(',')})`);
+            if (doc.getElementById('tutorial-progress').textContent !== `${i + 1} / ${chapter.steps.length}`) failures.push(`rule chapter step ${i + 1}: progress reads ${doc.getElementById('tutorial-progress').textContent}`);
+            if (i === 2) {
+              // Do what the step says: take Organ stab out of the Pool, then Done.
+              doc.querySelector(step.target).click();
+            }
+            if (i === 3) {
+              doc.querySelector(step.target).click();
+              await waitUntil(() => !doc.getElementById('voice-blend-editor'));
+              const rule = engine.getParams().tracks.melody.voiceRule;
+              if (!rule || !Array.isArray(rule.pool) || rule.pool.length < 2) failures.push('the chapter\'s Done left no pool at the engine');
+              else if (rule.pool.some((entry) => entry.id === 'stab')) failures.push('removing Organ stab and pressing Done left it in the engine\'s pool');
+            }
+            if (i < chapter.steps.length - 1) doc.getElementById('tutorial-next').click();
+          }
+          if (!doc.getElementById('tutorial-next').disabled) failures.push('the chapter\'s last step leaves Next enabled');
+          doc.getElementById('tutorial-close').click();
+          if (!panel.hidden) failures.push('closing the chapter left the panel open');
+          if (doc.querySelector('.tutorial-highlight')) failures.push('closing the chapter left a control highlighted');
+          doc.getElementById('tutorial-toggle').click();
+          if (title.textContent !== 'Guided tour') failures.push('after a rule chapter the tour opens under the wrong title');
+          if (doc.getElementById(chapter.button).hidden) failures.push('the chapter button is hidden again on the tour');
+          doc.getElementById('tutorial-close').click();
+        }
+      }
     }
 
     // v0.0.185 — unit 16: the finder. On the melody, press "bright" and

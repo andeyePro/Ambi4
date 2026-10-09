@@ -264,6 +264,50 @@ export async function validateLessons(chapters) {
   return failures;
 }
 
+/**
+ * v0.0.203: the rule chapters (RULE_CHAPTERS), read and held like the lessons.
+ * Their targets are built at run time (an editor, the Pool dialog), so the
+ * static gate holds shape and copy; page-boot walks every step on a booted page.
+ */
+export function readRuleChapters(source = readFileSync(pageSourcePath, 'utf8')) {
+  const match = /const RULE_CHAPTERS = (\[[\s\S]*?\n {6}\]);/.exec(source);
+  assert.ok(match, 'src/pages/index.astro has no RULE_CHAPTERS array literal');
+  const chapters = new Function(`return ${match[1]};`)();
+  assert.ok(Array.isArray(chapters) && chapters.length, 'RULE_CHAPTERS did not evaluate to a list');
+  return chapters;
+}
+
+export function validateRuleChapters(chapters, pageHtml) {
+  const failures = [];
+  const ids = new Set();
+  for (const [ci, chapter] of chapters.entries()) {
+    const c = `rule chapter ${ci + 1}`;
+    if (!chapter || typeof chapter !== 'object') { failures.push(`${c}: not an object`); continue; }
+    if (!chapter.id || ids.has(chapter.id)) failures.push(`${c}: id missing or repeated`);
+    ids.add(chapter.id);
+    if (typeof chapter.label !== 'string' || !chapter.label.trim()) failures.push(`${c}: no label`);
+    if (!pageHtml.includes(`id="${chapter.button}"`)) failures.push(`${c}: its button #${chapter.button} is not in the page`);
+    if (!Array.isArray(chapter.steps) || chapter.steps.length < 3 || chapter.steps.length > 8) failures.push(`${c}: ${chapter.steps && chapter.steps.length} steps, expected three to eight`);
+    const seen = new Set();
+    for (const [si, step] of (chapter.steps || []).entries()) {
+      const n = `${c} step ${si + 1}`;
+      if (!step || typeof step.target !== 'string' || !step.target.trim()) { failures.push(`${n}: target is not a selector`); continue; }
+      if (seen.has(step.target)) failures.push(`${n}: ${step.target} is an earlier step's target`);
+      seen.add(step.target);
+      if (step.reveal !== undefined && !['chance', 'pool'].includes(step.reveal)) failures.push(`${n}: reveal must be chance or pool`);
+      if (step.open !== undefined && step.open !== 'pool') failures.push(`${n}: open must be pool`);
+      const text = step.text;
+      if (typeof text !== 'string' || !text.trim()) { failures.push(`${n}: no copy`); continue; }
+      if (text.trim().length < MIN_TEXT_CHARS) failures.push(`${n}: copy is ${text.trim().length} chars — too short to say anything`);
+      if (text.length > MAX_TEXT_CHARS) failures.push(`${n}: copy is ${text.length} chars — longer than a tour step should be`);
+      if (/[<>]/.test(text)) failures.push(`${n}: copy carries markup`);
+      for (const brand of BRAND_NAMES) if (new RegExp(`\\b${brand}\\b`).test(text)) failures.push(`${n}: names ${brand}`);
+      for (const us of US_SPELLINGS) if (new RegExp(`\\b${us}\\b`, 'i').test(text)) failures.push(`${n}: "${us}" is a US spelling`);
+    }
+  }
+  return failures;
+}
+
 async function main() {
   if (!existsSync(indexHtml)) {
     console.error('tutorial-smoke: dist/index.html is missing — run `npm run build` first.');
@@ -464,6 +508,27 @@ async function main() {
     const wrongFailures = await validateLessons(wrong);
     assert.ok(wrongFailures.some((f) => /not fm/.test(f)), 'a chapter on the wrong voice slipped through');
     mutations += 1;
+  }
+  // v0.0.203: the rule chapters.
+  {
+    const chapters = readRuleChapters();
+    const html = readFileSync(indexHtml, 'utf8');
+    assert.deepEqual(validateRuleChapters(chapters, html), []);
+    assert.ok(chapters.some((c) => c.id === 'hold-voice'), 'the "Hold the melody\'s voice" chapter is missing');
+    checks += 1;
+    const mutate = (label, fn, expected) => {
+      const broken = structuredClone(chapters);
+      fn(broken);
+      const found = validateRuleChapters(broken, html);
+      assert.ok(found.some((line) => line.includes(expected)), `rule-chapter mutation "${label}" was not caught: ${found.join(' | ') || '(nothing)'}`);
+      mutations += 1;
+      console.log(`  bit — ${label}`);
+    };
+    mutate('a chapter step over the character cap', (b) => { b[0].steps[0].text += ' x'.repeat(250); }, 'longer than a tour step');
+    mutate('a chapter whose button is not in the page', (b) => { b[0].button = 'no-such-button-9d3f'; }, 'is not in the page');
+    mutate('a chapter step with no copy', (b) => { b[0].steps[1].text = ''; }, 'no copy');
+    mutate('a chapter step ringing an earlier target', (b) => { b[0].steps[1].target = b[0].steps[0].target; }, "earlier step's target");
+    mutate('a chapter step with a US spelling', (b) => { b[0].steps[0].text += ' Pick a color.'; }, 'US spelling');
   }
   console.log(
     `\ntutorial-smoke ok — ${checks} checks, ${mutations}/${mutations} mutation checks bit, ${steps.length} steps`

@@ -1,6 +1,6 @@
 /**
  * rule-control.js — the ONE shape every rule the engine obeys is shown in
- * (owner ruling 2026-09-25; docs/dial-control-plane-plan.md § 5).
+ * (owner ruling 2026-09-25; docs/dial-control-plane-plan.md § 1).
  *
  *   NOW     the value playing, editable — a picker or a dial the page mounts.
  *   CHANCE  how likely a redraw is, 0 holds Now for good, with a WHEN of bar,

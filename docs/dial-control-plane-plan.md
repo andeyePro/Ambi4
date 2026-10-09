@@ -1,100 +1,142 @@
 # Dial + modulation control plane — plan
 
-Status: **owner-decided 2026-07-27; the DIAL half shipped, the modulation graph
-has not** (corrected 2026-07-31 — the audit found this file still claiming
-nothing was built, while its decisions had been live for dozens of versions).
-Shipped: spreads on every rangeable dial (v0.0.56/74), the hub/annulus gesture
-model with vertical primary and angular assist on a fine pointer only
-(v0.0.65/66), grip-look rules, zero-on-hub-tap and double-click-to-default,
-click-to-type, spread SHAPES (Drift/Rise/Fall/Swell, v0.0.72), and the
-refusal-with-a-reason for the one dial ruled to stay single (v0.0.102). NOT
-built: sources (envelopes, LFOs, macros) driving arbitrary destinations, one
-slot per destination, patch sockets on the dials — the "rest of the patching
-system" TODO item, which also owns Energy's filter-openness axis. The UX brief
-this serves is in brain2, `Ambi4-UX-philosophy`.
+Status: **reorganised 2026-10-03 around the owner's three-layer logic (his
+ruling of 2026-09-25): every rule the engine obeys is ONE control with three
+layers, Now / Chance (with a When) / Pool, revealed by a global level (Simple,
+Advanced, Expert) and in place by "more".** That logic is shipped as
+`src/scripts/rule-control.js` and the voice rule (v0.0.195 / v0.0.196), and the
+guided tour has a chapter that walks it ("Hold the melody's voice"). Every
+earlier decision below is kept, with its D-number, and is now filed under the
+layer it belongs to; each carries a status line saying what shipped.
+
+Earlier status, kept for the record (owner-decided 2026-07-27; corrected
+2026-07-31 — the audit found this file still claiming nothing was built, while
+its decisions had been live for dozens of versions). The DIAL half shipped, the
+modulation graph has not. Shipped: spreads on every rangeable dial
+(v0.0.56/74), the hub/annulus gesture model with vertical primary and angular
+assist on a fine pointer only (v0.0.65/66), grip-look rules, zero-on-hub-tap
+and double-click-to-default, click-to-type, spread SHAPES (Drift/Rise/Fall/
+Swell, v0.0.72), and the refusal-with-a-reason for the one dial ruled to stay
+single (v0.0.102). NOT built: sources (envelopes, LFOs, macros) driving
+arbitrary destinations, one slot per destination, patch sockets on the dials —
+the "rest of the patching system" TODO item, which also owns Energy's
+filter-openness axis. The UX brief this serves is in brain2,
+`Ambi4-UX-philosophy`.
 
 Goal, in the owner's words: simple and unintimidating to start, every last
 nuance reachable later, and *all dials working exactly the same way*.
 
-This document (a) corrects the factual picture the design was first built on,
-(b) records the decided design, (c) sequences the build, (d) names the risks.
+How to read it. Section 1 is the model. Sections 2 to 4 are the three layers,
+one each: what the control IS (Now), how often it is redrawn (Chance and When),
+what a redraw may pick from (Pool). Section 5 is routing, which feeds the
+layers and is not built. Section 6 is disclosure. Sections 7 to 9 are the build
+sequence, the risks and the open decisions, as before. Decision numbers D1 to
+D11 never change: the code, the tests and TODO.md cite them.
 
 ---
 
-## 1. How variation actually works today
+## 1. The model — Now / Chance / Pool
 
-The proposal assumed the value inside a min-max span is chosen by the Randomise
-dials, which follow the track's Randomness macro. **That is not what happens.**
-There are two separate systems, and neither of them is the other.
+Every decision the engine makes for the person is ONE control with three
+layers, always in this order and always with these names:
 
-### 1a. The min-max span is resolved by a per-parameter random walk
+- **Now** — the value playing, editable. For a number, the dial; for a
+  choice, the picker.
+- **Chance** — a dial from 0 to 1: 0 holds Now for good, up lets it redraw,
+  with a *When* of bar, section or piece. For a number, Chance is the walk
+  inside its spread; for a choice it is a probability per When.
+- **Pool** — an ordered, weighted list of what a redraw may pick from, *by
+  weight* or *in turn*. For a number the pool is the min–max spread; for a
+  choice it is a weighted row list.
 
-`resolveRange` (`ambient-engine.js:3952`):
+Disclosure is a global level plus in-place expand: Simple shows Now,
+Advanced adds Chance, Expert adds Pool, and any control opens a layer in
+place the way a spread opens on a dial. Chance 0 means yours: Next keeps a
+held rule and redraws the rest. Blank slate is every rule at Now zeroed,
+Chance 0, Pool empty (his item 96).
 
-```js
-rangeValue.min + (rangeValue.max - rangeValue.min) * walk(track, param)
-```
+**Shipped first (v0.0.195): the voice rule.** `tracks[t].voiceRule` — the
+picker is Now, the Randomise row's Voice knob is Chance (with When and Pool…
+beside it), the Pool editor is the pool. It retires the hidden wander law
+(p = 0.25 × Randomness per bar over every other voice) and the Blend voices
+editor of his 128 a into the same three layers, with an exact migration so
+no stored piece moves. **Shipped second (v0.0.196): the primitive.** `src/scripts/rule-control.js`
+is the one component every rule mounts on — the three layers, the global
+level (`#rule-level`: what plays / + chance / + pool, a preference) and the
+in-place "more" — and the voice rule now sits on it. The logic holds by
+construction: a later rule that does not mount on the module is a review
+finding.
 
-- `walk` keeps **one bounded random walk per `track:param` key**
-  (`ambient-engine.js:3907`). Every ranged parameter therefore already varies
-  *independently* of every other one.
-- The walk steps **once per bar**, by ±0.15 scaled by the track's `driftRate`
-  (`WALK_STEP`, `walkStep`), reflecting at 0 and 1 so probability doesn't pile
-  up against the clamp.
-- `driftRate` is exposed as the per-track **"Drift rate"** dial, 0.02×–1×
-  (`index.astro:4132`). That is the *only* user control over how a range is
-  traversed.
-- A held or frozen track stops its walks entirely (`advanceWalks`).
+### 1.1 The three layers, as shipped
 
-### 1b. The Randomise row is a different axis
+| Layer | What it is | A number | A choice (the voice rule) | In code |
+|---|---|---|---|---|
+| **Now** | The value playing, editable | The dial | The voice picker | the page mounts it; `rule-control.js` shows it as a button that goes to the control |
+| **Chance** (+ **When**) | 0 holds Now for good; up lets a redraw happen; the When says how often it may | The walk inside the spread, sampled per bar, chord or section (D4) | A probability per When: bar, section or piece | the page mounts the dial into the rule's `chanceSlot`; the When select is the module's |
+| **Pool** | The ordered, weighted list a redraw may pick from, by weight or in turn | The min-max spread (section 4) | A weighted voice list with ▲▼ reorder and By weight / In turn | summarised by the module (`poolSummary`), edited through the page's own editor |
 
-`VARY_KEYS` = Voice, Volume, Pitch, Timing, Pan (`index.astro:999`). Each dial
-has an Auto detent at raw 0 meaning "follow this track's Randomness macro";
-raw 1–21 map to an explicit 0–100% override (`varyAmount`,
-`ambient-engine.js:3966`).
+The voice rule is stored at the engine as
+`tracks[t].voiceRule = { chance, when, pool, order }`, sparse, so a stored piece
+that never set one is byte-identical to before. `chance: null` means Auto: it
+follows the track's Randomness at the old wander law. `chance: 0` is Hold.
 
-These control **how much generative variation each aspect receives** — whether
-the groove re-rolls, how far the motif develops, velocity jitter, timing
-scatter. They do not select a position inside a min-max span. (Confusingly,
-the vary dials are *themselves* rangeable, so they too get walked.)
+### 1.2 Disclosure: the global level, and "more"
 
-### 1c. Consequences for the owner's three limitations
+`#rule-level` ("Rules show") is a preference, not part of a piece, and takes
+three values: **Simple** (what plays: Now), **Advanced** (+ Chance), **Expert**
+(+ Pool). Every mounted rule follows it. Each rule also has its own **more**
+button, which opens the next hidden layer in place whatever the level, and
+folds back to the level with "less". A small mark beside Now says that a Chance
+or a Pool is set beneath, so a folded rule never hides that it is not at its
+defaults. `layerShown(level, layer)` is the one function that decides what a
+level shows; the tests pin it.
 
-| Owner's limitation | Verdict |
-|---|---|
-| No way to add LFO / envelope / follow to a dial | **Correct.** `lfo()` exists (`engine-voices.js:694`) but is hard-wired inside individual voice recipes — e.g. detune wobble on a saw. Nothing is user-addressable, and there is no modulation graph at all. |
-| No way to have different elements of a voice vary differently | **Partly wrong, and the real gap is sharper.** They already vary independently — each has its own walk. What is missing is control over *how* each varies: shape is always a random walk, rate is one dial for the whole track, and the step is always one bar. |
-| 5 Randomise dials untouched by many, too coarse for others | **Correct**, and worse than stated: they are a *second* modulation system with different semantics from the walk, which is precisely the inconsistency the owner's principle forbids. |
+### 1.3 What the three layers promise
 
-The owner's proposed tiny dial — inherit / note / bar / chord / section — is
-therefore not a new feature bolted on. **It is the missing control over a
-mechanism that already exists and is currently hard-coded to "bar".** That is
-a strong validation of the design.
+- **Chance 0 means yours.** Next keeps every held rule and redraws the rest. A
+  held rule is also what Blank slate gives every rule (item 96): Now zeroed,
+  Chance 0, Pool empty.
+- **An explicit pick holds.** Choosing a voice in the picker holds it; the
+  picker marks a voice a redraw has moved to with "· drawn".
+- **The recipe names every layer.** `getRecipe()` / `applyRecipe()`
+  (`src/scripts/recipe.js`) round-trip the layers a rule has, and the
+  secret-layers table (`tests/fixtures/recipe-secret-layers.json`) is the
+  ratchet that a layer, once named, stays named. Since v0.0.216 all nine are:
+  the voice rule, the bass groove (v0.0.203), the kit's variants and fills
+  (v0.0.204), the chord loop's voicing (v0.0.212) and the melody motif
+  (v0.0.213) all mount on the primitive; the arp under Auto, the auto ladder,
+  the preset blocks and the walks (v0.0.216, engine only so far) are named
+  in the recipe.
+- **A later rule that does not mount on the module is a review finding.** The
+  logic holds by construction or not at all.
 
-### 1d. Two smaller corrections
+### 1.4 The tour chapter that teaches it
 
-- **Double-click.** It is the reverse of the proposal's description. A *single*
-  click on the face toggles min ↔ max mode (`knob.js:927`, gated on
-  `allowRange`); a *double* click restores the initial value **and** mode
-  (`knob.js:995`). So the collision is real but it is single-vs-double, not
-  double-doing-two-things.
-- **Ghost.** `ghostValue` today is the kit editor's *"what Common says"*
-  reference pointer — a muted second pointer shown when editing a per-drum
-  override, with a text fallback when the module lacks `setGhost()`. It is not
-  a live value readout. But it is exactly the right substrate: an arbitrary
-  second pointer, already drawn, already themed, already tested.
-- **Click-to-type is already shipped.** The value readout is its own focusable
-  `<button>`; click, Enter or Space swaps it for a number field in the dial's
-  own units (`knob.js` v14). No work needed.
+The guided tour has a chapter, **Hold the melody's voice**, opened by the
+button in the tour panel. It sets its own scene (Synthwave, the melody editor
+open) and walks the three layers on the one rule the person has already heard
+move: Now (the melody sometimes slips to Organ stab), Pool (Edit…, take Organ
+stab out, Done), Chance (drag Voice chance to Hold). Pool comes before Chance
+because the Pool editor's Done lifts a Chance of Hold back up when two or more
+voices remain, so Hold must be the last thing set. The chapter lives in
+`RULE_CHAPTERS` in `src/pages/index.astro`; `tests/tutorial-smoke.mjs` holds
+its copy, and `tests/page-boot.mjs` walks it on a booted page and does what it
+says. A second chapter (Rebuild Synthwave from the Recipe sheet in a Blank
+slate) waits on the Recipe sheet.
 
 ---
 
-## 2. The decided design
+## 2. Now — the value, and how a dial is held
 
-Owner decisions of 2026-07-27, after review of the draft recommendations. The
-UX brief this implements is in brain2, `Ambi4-UX-philosophy`.
+The Now layer of a number is a dial, and the dial's gesture model is decided
+here. (D1, D2 and D9 below are the owner's decisions of 2026-07-27, unchanged.)
 
 ### D1 — No click gestures. Vertical drag = value, horizontal drag = spread
+
+*Status: decided 2026-07-27. Shipped as the hub/annulus model with vertical
+primary and angular assist on a fine pointer only (v0.0.65/66). The full
+removal of click and double-click paths below is the phase-3 gesture rebuild,
+which has not been done; the live dial still resets on double-click.*
 
 Double-click is banned: it excludes people who cannot double-click quickly, and
 it misfires for anyone toggling something on and straight back off. But a
@@ -121,6 +163,9 @@ are unaffected.
 
 ### D2 — Tap the centre circle to default; zeroed state is shown, not gestured
 
+*Status: decided 2026-07-27. Zero-on-hub-tap and the muted default state are
+shipped; the larger mobile dial is part of the phase-3 rebuild.*
+
 Reset moves from double-click to a **tap on the centre circle** — press and
 release without moving, no timing requirement of any kind.
 
@@ -136,21 +181,109 @@ release without moving, no timing requirement of any kind.
 Users arriving from other synths will still double-click to reset; the muted
 grey default state is what teaches them they no longer need to.
 
-### D3 — Modulation depth does not exist. Spread is depth
+### D9 — Range possible almost everywhere
 
-The draft proposed a depth control in the spare bay. **Dropped — the owner is
-right.** Modulation spans exactly the min-max range, so a narrow span *is*
-shallow modulation and a wide span *is* deep. A separate depth control would be
-a second way to say the same thing.
+*Status: decided. `rangeable` is a column of the parameter registry
+(v0.0.165), asserted against the sanitiser by `tests/registry-contract.mjs`;
+the dial still takes `allowRange` as a literal.*
 
-Two consequences follow directly:
+Rangeable is a declared property of the parameter, defaulting to **true**. Only
+enumerations (mode, time signature, voice choice) and identity fields are
+genuinely non-rangeable; even tempo can drift, which is a rubato feel rather
+than a fault. Non-rangeable dials draw the indicator line full-diameter from
+the centre, and dragging right still splits them before they visibly snap back
+within a fraction of a second — teaching the rule rather than merely enforcing
+it.
 
-- A single-value dial has nothing for a patch to modulate, so **sockets and the
-  tiny dial do not exist on a single-value dial**. They appear when spread goes
-  above zero and their settings are remembered when it returns to zero.
-- The bottom-right bay stays **reserved with no assigned function**.
+### 2.1 Where the dial stands today (was 1d)
+
+- **Double-click.** It is the reverse of the proposal's description. A *single*
+  click on the face toggles min ↔ max mode (`knob.js:927`, gated on
+  `allowRange`); a *double* click restores the initial value **and** mode
+  (`knob.js:995`). So the collision is real but it is single-vs-double, not
+  double-doing-two-things.
+- **Ghost.** `ghostValue` today is the kit editor's *"what Common says"*
+  reference pointer — a muted second pointer shown when editing a per-drum
+  override, with a text fallback when the module lacks `setGhost()`. It is not
+  a live value readout. But it is exactly the right substrate: an arbitrary
+  second pointer, already drawn, already themed, already tested.
+- **Click-to-type is already shipped.** The value readout is its own focusable
+  `<button>`; click, Enter or Space swaps it for a number field in the dial's
+  own units (`knob.js` v14). No work needed.
+
+### 2.2 Walks show their live Now
+
+A dial fed its resolved value prints "now X" beneath it (`knob.js`, v0.0.198),
+and `aria-valuetext` reads it. A spread dial therefore shows both its layers at
+once: the span (Pool) and where the walk has taken the value (Now).
+
+---
+
+## 3. Chance and When — how a value is redrawn
+
+A number's Chance is the walk inside its spread; a choice's Chance is a
+probability per When. This section is what the code does today (the factual
+picture the design was first built on), then the decisions that turn it into a
+Chance dial with a When (D4) and dissolve the old Randomise row into Chance
+dials (D8).
+
+### 3a. How variation actually works today (was section 1)
+
+The proposal assumed the value inside a min-max span is chosen by the Randomise
+dials, which follow the track's Randomness macro. **That is not what happens.**
+There are two separate systems, and neither of them is the other.
+
+#### 3a.1 The min-max span is resolved by a per-parameter random walk
+
+`resolveRange` (`ambient-engine.js:3952`):
+
+```js
+rangeValue.min + (rangeValue.max - rangeValue.min) * walk(track, param)
+```
+
+- `walk` keeps **one bounded random walk per `track:param` key**
+  (`ambient-engine.js:3907`). Every ranged parameter therefore already varies
+  *independently* of every other one.
+- The walk steps **once per bar**, by ±0.15 scaled by the track's `driftRate`
+  (`WALK_STEP`, `walkStep`), reflecting at 0 and 1 so probability doesn't pile
+  up against the clamp.
+- `driftRate` is exposed as the per-track **"Drift rate"** dial, 0.02×–1×
+  (`index.astro:4132`). That is the *only* user control over how a range is
+  traversed.
+- A held or frozen track stops its walks entirely (`advanceWalks`).
+
+#### 3a.2 The Randomise row is a different axis
+
+`VARY_KEYS` = Voice, Volume, Pitch, Timing, Pan (`index.astro:999`). Each dial
+has an Auto detent at raw 0 meaning "follow this track's Randomness macro";
+raw 1–21 map to an explicit 0–100% override (`varyAmount`,
+`ambient-engine.js:3966`).
+
+These control **how much generative variation each aspect receives** — whether
+the groove re-rolls, how far the motif develops, velocity jitter, timing
+scatter. They do not select a position inside a min-max span. (Confusingly,
+the vary dials are *themselves* rangeable, so they too get walked.)
+
+#### 3a.3 Consequences for the owner's three limitations
+
+| Owner's limitation | Verdict |
+|---|---|
+| No way to add LFO / envelope / follow to a dial | **Correct.** `lfo()` exists (`engine-voices.js:694`) but is hard-wired inside individual voice recipes — e.g. detune wobble on a saw. Nothing is user-addressable, and there is no modulation graph at all. |
+| No way to have different elements of a voice vary differently | **Partly wrong, and the real gap is sharper.** They already vary independently — each has its own walk. What is missing is control over *how* each varies: shape is always a random walk, rate is one dial for the whole track, and the step is always one bar. |
+| 5 Randomise dials untouched by many, too coarse for others | **Correct**, and worse than stated: they are a *second* modulation system with different semantics from the walk, which is precisely the inconsistency the owner's principle forbids. |
+
+The owner's proposed tiny dial — inherit / note / bar / chord / section — is
+therefore not a new feature bolted on. **It is the missing control over a
+mechanism that already exists and is currently hard-coded to "bar".** That is
+a strong validation of the design.
 
 ### D4 — One modulation slot per dial; tiny dial and patch are mutually exclusive
+
+*Status: the sampling half (the When of a number: bar, chord, section) is
+shipped at the engine (v0.0.167, `params.sampling`); `note` is refused until
+per-note resolution exists; the tiny-dial UI and the patch half are not built.
+For a choice, the When is the rule primitive's own select (bar, section,
+piece), shipped v0.0.196.*
 
 There is exactly **one modulation slot per dial**. Its default occupant is the
 internal randomiser, whose rate the tiny dial sets; patching a source in
@@ -167,7 +300,86 @@ Tiny dial specifics:
 A user who genuinely needs two sources patches a MACRO, or an LFO whose own
 rate is patched.
 
+### D8 — The Randomise row dissolves into ordinary dials
+
+*Status: the Voice row is shipped as the voice rule (v0.0.195): its Chance
+is the Voice chance dial (0 = Hold, Auto follows Randomness), its When and Pool
+sit beside it, and the Randomise row's Voice knob is that Chance. The other
+four rows (Volume, Timing, Pan, Pitch) are not yet dissolved. In the new
+vocabulary, "becomes a Voice change probability dial" below reads "is the
+voice rule's Chance".*
+
+The five Voice/Volume/Pitch/Timing/Pan dials are a *second* randomness system
+with different semantics from the min-max walk. They are not hidden — they are
+**dissolved**, each becoming an ordinary dial next to the thing it affects,
+with the track's Randomness becoming a MACRO patched to them.
+
+| Vary aspect | What it actually does | Becomes |
+|---|---|---|
+| Volume | ±6 dB swing around Level via a walk (`trackGain`) | The spread on the **Level** dial |
+| Timing | `±TIMING_SPREAD × amount` per note | The spread on a **Timing** dial |
+| Pan | `±PAN_SPREAD × amount` per note | The spread on the **Pan** dial |
+| Pitch | Two things: passing-note likelihood, and an 18%-at-full per-note octave jump | Two dials: **Passing notes** and **Octave wander** |
+| Voice | `VOICE_WANDER_CHANCE × amount` chance of swapping voice | A **Voice change** probability dial, its tiny dial setting how often the swap is considered |
+
+The Auto detent (`null` = follow the track's Randomness macro) disappears with
+the row: macro patching does that job, in the same vocabulary as everything
+else. Stored presets migrate — a `vary.*` of `null` becomes a MACRO patch, an
+explicit number becomes a spread.
+
+---
+
+## 4. Pool — what a redraw may pick from
+
+A number's Pool is the min-max spread: every value the walk may visit. A
+choice's Pool is a weighted, ordered list. Both are the same idea at two
+scales, which is why they sit in one layer.
+
+### D3 — Modulation depth does not exist. Spread is depth
+
+*Status: decided 2026-07-27. Spreads are shipped on every rangeable dial
+(v0.0.56/74); sockets and the tiny dial on a spread dial are not.*
+
+The draft proposed a depth control in the spare bay. **Dropped — the owner is
+right.** Modulation spans exactly the min-max range, so a narrow span *is*
+shallow modulation and a wide span *is* deep. A separate depth control would be
+a second way to say the same thing.
+
+Two consequences follow directly:
+
+- A single-value dial has nothing for a patch to modulate, so **sockets and the
+  tiny dial do not exist on a single-value dial**. They appear when spread goes
+  above zero and their settings are remembered when it returns to zero.
+- The bottom-right bay stays **reserved with no assigned function**.
+
+### 4.1 The voice Pool, as shipped
+
+`tracks[t].voiceRule.pool` is an ordered list of `{ id, weight }`, edited in the
+Pool editor opened by Edit… on the rule (remove, ▲▼ reorder, add a voice, By
+weight or In turn; Done keeps it, Cancel leaves settings and the engine exactly
+as they were). It replaces the Blend voices editor of the owner's 128 a: a
+legacy blend arrives as a pool of its weights with an exact migration, so no
+stored piece moves. An empty pool means "the voice you picked, and only that".
+Blank slate holds with an empty pool. Raising Chance on a track whose pool is
+empty fills the pool with the voice bank in bank order, so "let it move" is
+never a no-op. Done on a pool of two or more voices lifts a Chance of Hold to 1
+(When bar becomes section) unless Chance was set on purpose afterwards.
+
+Not yet in it: drag-to-reorder (the buttons are the reorder), and the Pool
+layer editing inline in the rule (it summarises and opens the editor).
+
+---
+
+## 5. Routing — sources feeding the layers (not built)
+
+Modulation sources (envelopes, LFOs, macros, any parameter patched out) feed a
+destination's Chance and Pool. None of D5 to D7 or D10 is built beyond the
+engine slice noted in the build sequence (phase 5). They are kept whole,
+because the token table in D7 is already reserved and permanent.
+
 ### D5 — Always show routing in use; no visibility switch
+
+*Status: decided 2026-07-27. Not built (no sockets).*
 
 The draft's panel-level "Show routing" switch is **dropped** as cognitive
 overhead. Instead:
@@ -180,6 +392,10 @@ overhead. Instead:
   intensity.
 
 ### D6 — Envelopes per voice; LFOs and macros global
+
+*Status: decided 2026-07-27. Engine slice only: `lfo.1` and `macro.1` as
+routing sources (v0.0.168); envelopes as sources, the panels and the sockets
+are not built.*
 
 **Settled.** ENV 1 always exists and controls amplitude; users add more through
 the same mechanism. The universal-then-localised model (ENV 1 becoming ENV L1
@@ -194,6 +410,10 @@ tracks, and the view scrolls to a macro the first time it is selected. LFO
 panels appear below the track list.
 
 ### D7 — Inheritance is dial → voice → instrument → track → bus → master
+
+*Status: decided and RESERVED 2026-08-12 (the token table below is code in
+`src/scripts/param-registry.js` as RESERVED_TOKENS). Every registry row's scope
+is `voice` today.*
 
 The draft collapsed voice into track. **Wrong, and corrected twice.** A drum
 track has at least one instrument, and each instrument cycles voices differing
@@ -229,37 +449,9 @@ Two spellings ruled out on sight, so nobody books them by accident: `inst`
 (ambiguous against a future `instance`) and `random` (says less than
 `absolute` about what the draw is relative to — the span).
 
-### D8 — The Randomise row dissolves into ordinary dials
-
-The five Voice/Volume/Pitch/Timing/Pan dials are a *second* randomness system
-with different semantics from the min-max walk. They are not hidden — they are
-**dissolved**, each becoming an ordinary dial next to the thing it affects,
-with the track's Randomness becoming a MACRO patched to them.
-
-| Vary aspect | What it actually does | Becomes |
-|---|---|---|
-| Volume | ±6 dB swing around Level via a walk (`trackGain`) | The spread on the **Level** dial |
-| Timing | `±TIMING_SPREAD × amount` per note | The spread on a **Timing** dial |
-| Pan | `±PAN_SPREAD × amount` per note | The spread on the **Pan** dial |
-| Pitch | Two things: passing-note likelihood, and an 18%-at-full per-note octave jump | Two dials: **Passing notes** and **Octave wander** |
-| Voice | `VOICE_WANDER_CHANCE × amount` chance of swapping voice | A **Voice change** probability dial, its tiny dial setting how often the swap is considered |
-
-The Auto detent (`null` = follow the track's Randomness macro) disappears with
-the row: macro patching does that job, in the same vocabulary as everything
-else. Stored presets migrate — a `vary.*` of `null` becomes a MACRO patch, an
-explicit number becomes a spread.
-
-### D9 — Range possible almost everywhere
-
-Rangeable is a declared property of the parameter, defaulting to **true**. Only
-enumerations (mode, time signature, voice choice) and identity fields are
-genuinely non-rangeable; even tempo can drift, which is a rubato feel rather
-than a fault. Non-rangeable dials draw the indicator line full-diameter from
-the centre, and dragging right still splits them before they visibly snap back
-within a fraction of a second — teaching the rule rather than merely enforcing
-it.
-
 ### D10 — Warn on measured degradation
+
+*Status: decided 2026-07-27. Not built (no connections to account for).*
 
 The draft's "warn from LFO 3" becomes a warning on **active modulation
 connections**, wired into the existing power governor (`power.js`), which
@@ -270,7 +462,22 @@ costs roughly one node per connection, so ten dials on one LFO cost more than
 three idle LFOs. Copy keeps the owner's framing: everything is processed in the
 browser, so fewer connections give the best experience for everyone.
 
+---
+
+## 6. Disclosure — what shows when
+
+The global level and the in-place "more" of section 1.2 are the disclosure
+model for every rule on the primitive. D11, below, is the earlier decision for
+the routing layer, which follows the same principle: nothing appears until the
+person opens it.
+
 ### D11 — The routing layer is off by default
+
+*Status: decided 2026-07-27, amended 2026-08-13. The Simple / Advanced /
+Expert level for rules is shipped (v0.0.196); the routing corner affordances
+are not built. The "Simple tab keeps four dials" sentence is the Now layer of
+the Simple level: more of them is the person opening a layer, not the tab
+growing.*
 
 Nothing above appears on the Simple tab. Corner affordances appear only when
 **Advanced** is open. The Simple tab keeps its **four** dials.
@@ -284,7 +491,7 @@ Premium, and no paid feature is visible before its tier can be bought.
 
 ---
 
-## 3. Build sequence
+## 7. Build sequence
 
 Six phases. Phases 1-2 are the foundation and ship no visible change.
 
@@ -382,7 +589,7 @@ The Studio-tier "build your own instrument and assign dials to anything" work
 extends the same registry with user-authored bindings — it is the phase after
 this programme, not a parallel one.
 
-## 4. Risks
+## 8. Risks
 
 - **Serialisation was already permanent and unversioned until v0.0.35.**
   Share links shipped in v0.0.33 carrying the raw settings tree, base64url'd,
@@ -427,46 +634,9 @@ this programme, not a parallel one.
   that feels wrong on a trackpad will feel wrong differently on a touchscreen;
   budget a tuning pass rather than a single guess.
 
-## 5. The one logic every rule follows — Now / Chance / Pool (owner ruling 2026-09-25)
-
-Every decision the engine makes for the person is ONE control with three
-layers, always in this order and always with these names:
-
-- **Now** — the value playing, editable. For a number, the dial; for a
-  choice, the picker.
-- **Chance** — a dial from 0 to 1: 0 holds Now for good, up lets it redraw,
-  with a *When* of bar, section or piece. For a number, Chance is the walk
-  inside its spread; for a choice it is a probability per When.
-- **Pool** — an ordered, weighted list of what a redraw may pick from, *by
-  weight* or *in turn*. For a number the pool is the min–max spread; for a
-  choice it is a weighted row list.
-
-Disclosure is a global level plus in-place expand: Simple shows Now,
-Advanced adds Chance, Expert adds Pool, and any control opens a layer in
-place the way a spread opens on a dial. Chance 0 means yours: Next keeps a
-held rule and redraws the rest. Blank slate is every rule at Now zeroed,
-Chance 0, Pool empty (his item 96).
-
-**Shipped first (v0.0.195): the voice rule.** `tracks[t].voiceRule` — the
-picker is Now, the Randomise row's Voice knob is Chance (with When and Pool…
-beside it), the Pool editor is the pool. It retires the hidden wander law
-(p = 0.25 × Randomness per bar over every other voice) and the Blend voices
-editor of his 128 a into the same three layers, with an exact migration so
-no stored piece moves. **Shipped second (v0.0.196): the primitive.** `src/scripts/rule-control.js`
-is the one component every rule mounts on — the three layers, the global
-level (`#rule-level`: what plays / + chance / + pool, a preference) and the
-in-place "more" — and the voice rule now sits on it. The logic holds by
-construction: a later rule that does not mount on the module is a review
-finding.
-**Then (v0.0.203): the bass groove.** `tracks.bass.grooveRule` — Now is the
-four choices the line is built from (feel, lengths, anchor, offbeat figure),
-four pickers that follow what plays; Chance runs Auto (the old redraw at every
-section and energy move) → Hold → 100 %; the Pool is a list of whole grooves.
-A pick holds, exactly as a voice pick does.
-
-## 6. Open decisions
+## 9. Open decisions
 
 None outstanding. Envelope ownership is settled (D6, per voice). The remaining
 judgement call is the registry's path naming and the graph's serialisation
-format, which are permanent once shared links exist — see section 4 and the
+format, which are permanent once shared links exist — see section 8 and the
 review recommendation.
