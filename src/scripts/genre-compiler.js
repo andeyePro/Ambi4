@@ -837,6 +837,11 @@ export function applyGenreOverrides(genreJson, overrides = {}) {
       // v0.0.203: the bass groove rule, the same pass-through (the engine
       // sanitises it and keeps it on the bass only).
       if (name === 'bass' && (spec.grooveRule === null || isObject(spec.grooveRule))) clean.grooveRule = spec.grooveRule;
+      // The melody's motif rule and cell: the same sparse pass-through.
+      if (name === 'melody') {
+        if (spec.motifRule === null || isObject(spec.motifRule)) clean.motifRule = spec.motifRule;
+        if (spec.motif === null || isObject(spec.motif)) clean.motif = spec.motif;
+      }
       // v0.0.198: the auto ladder — the same sparse pass-through, a plain
       // number 0..1 rather than an object.
       const autoThreshold = numberOr(spec.autoThreshold, undefined);
@@ -934,6 +939,8 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
       if (spec.randomness !== undefined) track.randomness = spec.randomness;
       if (spec.voiceRule !== undefined) track.voiceRule = spec.voiceRule;
       if (name === 'bass' && spec.grooveRule !== undefined) track.grooveRule = spec.grooveRule;
+      if (name === 'melody' && spec.motifRule !== undefined) track.motifRule = spec.motifRule;
+      if (name === 'melody' && spec.motif !== undefined) track.motif = spec.motif;
       if (spec.autoThreshold !== undefined) track.autoThreshold = spec.autoThreshold;
       if (name === 'percussion') {
         for (const key of KIT_RULE_KEYS) if (spec[key] !== undefined) track[key] = spec[key];

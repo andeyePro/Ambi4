@@ -1122,3 +1122,25 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       my voice (open by default only at expert, and a level change reaches an
       open editor), and the arp's Octaves and Gate dials reach the ENGINE.
       Red on v0.0.206 (eleven failures).
+
+## Motif rule delta — the melody's cell as Now / Chance / Pool
+
+- [ ] Advanced, open the Melody editor: under Randomise there is a second rule
+      block, Motif. Now names the cell playing ("rising · 0 1 2 4" — its shape,
+      then its steps from the chord's root) and follows it while it plays.
+      Press it: it reads "yours · …", Chance drops to Hold, and the melody keeps
+      that idea for the rest of the piece — through every section change.
+- [ ] Chance at the left detent reads Auto: the old law (a new section brings
+      a new or remembered cell). Raise it with When "each phrase": the idea
+      changes at phrase ends, as often as the dial says.
+- [ ] Pool Edit… opens in place: five developments (Repeat, Transpose,
+      Displace, Invert, Backwards) with weights; 0 leaves one out, ▲▼ order
+      them, By weight / In turn, "Engine's own mix" hands it back. Set every
+      weight but Repeat to 0: each bar states the cell plain.
+- [ ] Press Next with the motif held: the new piece keeps your cell.
+      Blank slate: Motif Chance reads Hold and its pool is empty.
+- [ ] A piece without a motif rule, and every stock genre, sounds exactly as
+      before (audio-reference holds the streams).
+- [ ] Automated: motif-rule-smoke (the engine: 12 checks, 11 red on the old
+      engine — the twelfth pins that an Auto / Auto rule is the old law to the
+      byte), recipe-roundtrip (the secret-layers table names `motif`), page-boot.

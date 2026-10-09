@@ -3019,6 +3019,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             : null;
         engineCaps.stepPitch = isPlainObject(probedPitch) && probedPitch.midi === 72;
 
+        // The melody's motif as a rule (Reconstructible Ambi4): rendered only
+        // where the sanitiser keeps both the cell and its rule.
+        {
+          const probed = probeTracks({ melody: {
+            motif: { steps: [0, 2], beats: [0, 1], lengths: [1, 1] },
+            motifRule: { chance: 0, when: 'phrase', pool: [{ id: 'invert', weight: 2 }] },
+          } });
+          const m = probed && isPlainObject(probed.melody) ? probed.melody : null;
+          engineCaps.motifRule = !!m && isPlainObject(m.motif) && isPlainObject(m.motifRule)
+            && m.motifRule.when === 'phrase' && Array.isArray(m.motifRule.pool) && m.motifRule.pool[0]?.id === 'invert';
+        }
+
         // v0.0.131: the per-track editing resolution (his ×2/÷2 ladder). The
         // control ships only where the sanitiser really keeps the value AND
         // sizes the lane to it — a resolution the engine drops would be a
@@ -3826,6 +3838,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           for (const t of Object.values(p.tracks)) {
             if (!t || typeof t !== 'object') continue;
             t.sequencerAdvance = t.sequencerAdvance === 'chain' ? 'chain' : null;
+          }
+          // The motif rule is sparse in the engine, which KEEPS a stored one
+          // when the key is missing - so a load of a piece without one (a
+          // preset, a link, a genre) says so out loud, like the genre tag.
+          const melody = p.tracks.melody;
+          if (melody && typeof melody === 'object') {
+            if (!isPlainObject(melody.motif)) melody.motif = null;
+            if (!isPlainObject(melody.motifRule)) melody.motifRule = null;
           }
         }
         // The stored tail is the USER's ask; the engine only ever sees it
@@ -7360,6 +7380,253 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         mountedRules.add(handle);
         grooveUi = { handle, selects, chanceKnob, renderPool };
         refreshGrooveUi();
+        return handle;
+      }
+
+      // ---- the melody's motif as a rule (Reconstructible Ambi4) ----------
+      // Now is the cell (shape, steps, rhythm) - pressing it keeps the cell
+      // playing as yours and holds it; Chance (with When: phrase, section or
+      // piece) is how likely a new cell is drawn; Pool is the developments a
+      // bar may make of it, edited in place.
+      const MOTIF_OP_LABELS = Object.freeze({
+        repeat: 'Repeat', transpose: 'Transpose', displace: 'Displace', invert: 'Invert', retrograde: 'Backwards',
+      });
+      const MOTIF_OP_IDS = Object.freeze(Object.keys(MOTIF_OP_LABELS));
+      const MOTIF_RULE_WHEN = Object.freeze([['phrase', 'each phrase'], ['section', 'each section'], ['piece', 'each piece']]);
+      const MOTIF_SHAPE_WORDS = Object.freeze({ rise: 'rising', fall: 'falling', arch: 'arched', dip: 'dipping', own: 'your own' });
+      let liveMotif = null;
+
+      function motifSummary(cell) {
+        if (!isPlainObject(cell) || !Array.isArray(cell.steps) || !cell.steps.length) return null;
+        return `${MOTIF_SHAPE_WORDS[cell.shape] || cell.shape} · ${cell.steps.join(' ')}`;
+      }
+      /** What the Now layer says: yours when held, else the cell playing, else what it waits for. */
+      function motifNowText() {
+        const t = settings.tracks.melody;
+        const held = isPlainObject(t.motif) && isPlainObject(t.motifRule) && t.motifRule.chance === 0;
+        if (held) return `yours · ${motifSummary(t.motif)}`;
+        return motifSummary(liveMotif) || motifSummary(t.motif) || 'drawn as it plays';
+      }
+      function ensureMotifRule() {
+        const t = settings.tracks.melody;
+        if (!isPlainObject(t.motifRule)) t.motifRule = { chance: null, when: 'section', pool: null, order: 'weight' };
+        return t.motifRule;
+      }
+      function commitMotifRule(extra = {}) {
+        const t = settings.tracks.melody;
+        engine.setParams({ tracks: { melody: {
+          motifRule: isPlainObject(t.motifRule) ? structuredClone(t.motifRule) : null, ...extra,
+        } } });
+        persistSettings();
+      }
+      /** The engine's own mix at today's Repetition and Complexity, as a starting Pool. */
+      function defaultMotifPool() {
+        const num = (v, d) => (typeof v === 'number' ? v : isPlainObject(v) ? rangeMid(v) : d);
+        const fn = engineModule && engineModule.defaultMotifOpWeights;
+        const rows = typeof fn === 'function'
+          ? fn(num(settings.repetition, 0.5), num(settings.complexity, 0.5))
+          : MOTIF_OP_IDS.map((id) => [id, 1]);
+        return rows.map(([id, w]) => ({ id, weight: Math.max(0.1, Math.round(w * 10) / 10) }));
+      }
+
+      /** Pool, edited in place under the rule: weight 0 leaves an op out, the arrows order them. */
+      function toggleMotifPoolEditor(row, handle) {
+        const open = row.querySelector('.motif-pool-editor');
+        if (open) { open.remove(); return; }
+        const rule = ensureMotifRule();
+        const start = Array.isArray(rule.pool) ? rule.pool : defaultMotifPool();
+        const rows = start.map((entry) => ({ id: entry.id, weight: entry.weight }));
+        for (const id of MOTIF_OP_IDS) if (!rows.some((r) => r.id === id)) rows.push({ id, weight: 0 });
+        const box = document.createElement('div');
+        box.className = 'motif-pool-editor';
+        box.id = 'motif-pool-editor';
+        const list = document.createElement('div');
+        list.className = 'motif-pool-rows';
+        const order = document.createElement('select');
+        order.className = 'genre-select motif-pool-order';
+        order.setAttribute('aria-label', 'Motif pool: how a bar picks');
+        for (const [value, text] of [['weight', 'By weight'], ['turn', 'In turn']]) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = text;
+          order.append(option);
+        }
+        order.value = rule.order === 'turn' ? 'turn' : 'weight';
+        describe(order, 'By weight: each bar draws a development, the heavier the likelier. In turn: the bars of a phrase take them in this order, one each.');
+        const commit = () => {
+          const r = ensureMotifRule();
+          r.pool = rows.filter((x) => x.weight > 0).map((x) => ({ id: x.id, weight: x.weight }));
+          r.order = order.value;
+          commitMotifRule();
+          handle.setPool(r.pool, r.order);
+          handle.setMark(true);
+        };
+        const draw = () => {
+          list.innerHTML = '';
+          rows.forEach((entry, i) => {
+            const line = document.createElement('div');
+            line.className = 'motif-pool-row';
+            line.dataset.op = entry.id;
+            const name = document.createElement('span');
+            name.textContent = MOTIF_OP_LABELS[entry.id] || entry.id;
+            const weight = document.createElement('input');
+            weight.type = 'number';
+            weight.min = '0';
+            weight.max = '10';
+            weight.step = '0.1';
+            weight.value = String(entry.weight);
+            weight.setAttribute('aria-label', `${MOTIF_OP_LABELS[entry.id]} weight (0 leaves it out)`);
+            weight.addEventListener('change', () => {
+              const w = Number(weight.value);
+              entry.weight = Number.isFinite(w) ? clamp(Math.round(w * 10) / 10, 0, 10) : 0;
+              commit();
+            });
+            const up = document.createElement('button');
+            up.type = 'button';
+            up.className = 'secondary-button';
+            up.textContent = '▲';
+            up.disabled = i === 0;
+            up.setAttribute('aria-label', `Move ${MOTIF_OP_LABELS[entry.id]} up`);
+            up.addEventListener('click', () => { [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; commit(); draw(); });
+            const down = document.createElement('button');
+            down.type = 'button';
+            down.className = 'secondary-button';
+            down.textContent = '▼';
+            down.disabled = i === rows.length - 1;
+            down.setAttribute('aria-label', `Move ${MOTIF_OP_LABELS[entry.id]} down`);
+            down.addEventListener('click', () => { [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; commit(); draw(); });
+            line.append(name, weight, up, down);
+            list.append(line);
+          });
+        };
+        order.addEventListener('change', commit);
+        const own = document.createElement('button');
+        own.type = 'button';
+        own.className = 'secondary-button motif-pool-auto';
+        own.textContent = "Engine's own mix";
+        describe(own, 'Hand the developments back to the engine: Repetition and Complexity decide the mix, as they did before you touched this.');
+        own.addEventListener('click', () => {
+          const r = ensureMotifRule();
+          r.pool = null;
+          commitMotifRule();
+          handle.setPool(null, r.order);
+          box.remove();
+        });
+        const done = document.createElement('button');
+        done.type = 'button';
+        done.className = 'secondary-button';
+        done.textContent = 'Done';
+        done.addEventListener('click', () => box.remove());
+        const foot = document.createElement('div');
+        foot.className = 'motif-pool-foot';
+        foot.append(order, own, done);
+        box.append(list, foot);
+        draw();
+        row.append(box);
+      }
+
+      function buildMotifRule(container, knobs) {
+        if (!ruleApi || !engineCaps.motifRule) return null;
+        const t = settings.tracks.melody;
+        const rule = isPlainObject(t.motifRule) ? t.motifRule : null;
+        const row = document.createElement('div');
+        row.className = 'vary-row rule-row motif-rule-row';
+        let handle = null;
+        let chanceKnob = null;
+        const keep = () => {
+          const mine = settings.tracks.melody;
+          const live = isPlainObject(liveMotif) ? liveMotif : isPlainObject(mine.motif) ? mine.motif : null;
+          if (!live) { handle.setNow('press Play first'); return; }
+          const cell = structuredClone(live);
+          mine.motif = cell;
+          ensureMotifRule().chance = 0;
+          commitMotifRule({ motif: structuredClone(cell) });
+          chanceKnob?.set?.(1);
+          handle.setMark(true);
+          handle.setNow(motifNowText());
+        };
+        handle = ruleApi.createRule(row, {
+          id: 'motif',
+          name: 'Motif',
+          level: ruleLevel(),
+          describe,
+          now: {
+            text: motifNowText(),
+            hint: "The melody's idea: the short cell every bar of a phrase develops - its shape, then its steps up or down the scale from the chord's root. Press to keep the cell playing now as yours: the piece opens on it and Chance goes to Hold.",
+            onOpen: keep,
+          },
+          chance: {
+            when: rule ? rule.when : 'section',
+            whenOptions: MOTIF_RULE_WHEN,
+            whenIds: { select: 'motif-rule-when' },
+            whenHint: 'When a new cell may be drawn: at the end of every phrase, at the first phrase of each new section, or once per piece (the piece may open on a fresh cell instead of yours).',
+            onWhen: (value) => {
+              ensureMotifRule().when = value;
+              commitMotifRule();
+              handle.setMark(true);
+            },
+          },
+          pool: {
+            rows: rule ? rule.pool : null,
+            order: rule ? rule.order : 'weight',
+            labelOf: (id) => MOTIF_OP_LABELS[id] || id,
+            words: {
+              empty: 'empty - the cell, stated plain every bar',
+              auto: "the engine's own mix - Repetition and Complexity decide",
+            },
+            hint: 'What each bar of a phrase may do with the cell: repeat it, move it onto another chord tone, push it later in the bar, turn it upside down, or run it backwards. The first bar of a phrase always states it plain.',
+            ids: { edit: 'motif-rule-pool' },
+            onEdit: () => toggleMotifPoolEditor(row, handle),
+          },
+        });
+        handle.setMark(Boolean(rule) || isPlainObject(t.motif));
+        const hint = "Chance: how likely the melody is to draw a NEW cell at each phrase, section or piece (the When beside it). 0 reads Hold and keeps the cell for good; at the left detent (Auto) the engine's own law decides - a new section brings a new or a remembered cell.";
+        const onChance = (raw) => {
+          const value = varyValueFromRaw(raw);
+          ensureMotifRule().chance = value === null ? null : clamp(Number(isPlainObject(value) ? rangeMid(value) : value) || 0, 0, 1);
+          commitMotifRule();
+          handle.setMark(true);
+          handle.setNow(motifNowText());
+        };
+        const raw = varyRawFromValue(rule ? rule.chance : null);
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = 'vary-knob';
+          handle.chanceSlot.append(cell);
+          try {
+            chanceKnob = knobApi.createKnob(cell, {
+              label: 'Motif chance',
+              min: 0,
+              max: 21,
+              step: 1,
+              value: raw,
+              marks: [0],
+              format: (v) => (Math.round(v) === 1 ? 'Hold' : varyFormat(v)),
+              defaultValue: 0,
+              onInput: onChance,
+            });
+            describe(chanceKnob.el, hint);
+            if (knobs) knobs.push(chanceKnob);
+          } catch {
+            cell.remove();
+            chanceKnob = null;
+          }
+        }
+        if (!chanceKnob) {
+          const input = document.createElement('input');
+          input.type = 'range';
+          input.min = '0';
+          input.max = '21';
+          input.step = '1';
+          input.value = String(raw);
+          input.setAttribute('aria-label', 'Motif chance');
+          input.addEventListener('input', () => onChance(Number(input.value)));
+          describe(input, hint);
+          handle.chanceSlot.append(input);
+          chanceKnob = { set: (v) => { input.value = String(v); } };
+        }
+        container.append(row);
+        mountedRules.add(handle);
         return handle;
       }
 
@@ -12837,6 +13104,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // melodic tracks: a kit has no pitch to slur between.
         if (TUNED_TRACKS.includes(track)) buildMonoGlide(extrasBox, track, ed.knobs);
         buildVaryRow(container, track, ed.knobs);
+        // The melody's motif as a rule, on the same primitive as its voice.
+        if (track === 'melody') ed.motifRule = buildMotifRule(container, ed.knobs);
         // v26: ONE aligned row for this track's feel dials — Dissonance,
         // Drift rate, Swing, Density, Breath — however few of them this
         // track and this engine build actually have.
@@ -14577,6 +14846,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         applyResolvedGlobals(resolved && resolved.globals);
         applyResolvedTracks(resolved && resolved.tracks);
         applyResolvedArp(resolved && resolved.arp);
+        // The motif rule's Now follows the cell actually playing.
+        {
+          const melody = resolved && resolved.tracks && resolved.tracks.melody;
+          if (melody && 'motif' in melody) {
+            liveMotif = isPlainObject(melody.motif) ? melody.motif : null;
+            const ed = openEditors.get('melody');
+            if (ed && ed.motifRule) {
+              const text = motifNowText();
+              if (ed.motifRule.el.querySelector('.rule-now-value')?.textContent !== text) ed.motifRule.setNow(text);
+            }
+          }
+        }
         const tracks = resolved && isPlainObject(resolved.tracks) ? resolved.tracks : null;
         for (const id of TRACK_IDS) {
           const readout = document.getElementById(`resolved-${id}`);
@@ -16045,6 +16326,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           next.harmony = { ...(isPlainObject(next.harmony) ? next.harmony : {}), hookRule: structuredClone(settings.harmony.hookRule) };
           if (Array.isArray(settings.harmony.voicing)) next.harmony.voicing = structuredClone(settings.harmony.voicing);
         }
+        // The motif rule likewise: a held cell (Chance 0) is yours, and Next
+        // keeps it and the cell under it.
+        {
+          const mine = settings.tracks?.melody;
+          if (isPlainObject(mine) && isPlainObject(mine.motifRule) && mine.motifRule.chance === 0
+            && isPlainObject(next.tracks?.melody)) {
+            next.tracks.melody.motifRule = structuredClone(mine.motifRule);
+            if (isPlainObject(mine.motif)) next.tracks.melody.motif = structuredClone(mine.motif);
+          }
+        }
         // The SEED is the half of the provenance that was being thrown away.
         // `settings.genre` said which genre; nothing said which compile, and
         // one genre has as many bases as there are seeds.
@@ -16219,6 +16510,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               randomness: spanOf(spec.randomness),
               // v0.0.195: a filed voice rule rides through the form untouched.
               voiceRule: isPlainObject(spec.voiceRule) ? structuredClone(spec.voiceRule) : null,
+              // The motif rule and cell (melody) ride through untouched too.
+              motifRule: isPlainObject(spec.motifRule) ? structuredClone(spec.motifRule) : null,
+              motif: isPlainObject(spec.motif) ? structuredClone(spec.motif) : null,
               // v0.0.198: the auto ladder. null means no override — the row
               // shows the registry's own floor value and edits FROM it.
               autoThreshold: Number.isFinite(spec.autoThreshold) ? spec.autoThreshold : null,
@@ -16804,6 +17098,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (spec.level) out.level = spanBack(spec.level);
             if (spec.randomness) out.randomness = spanBack(spec.randomness);
             if (isPlainObject(spec.voiceRule)) out.voiceRule = structuredClone(spec.voiceRule);
+            if (isPlainObject(spec.motifRule)) out.motifRule = structuredClone(spec.motifRule);
+            if (isPlainObject(spec.motif)) out.motif = structuredClone(spec.motif);
             if (Number.isFinite(spec.autoThreshold)) out.autoThreshold = spec.autoThreshold;
             return [id, out];
           })),
@@ -17199,6 +17495,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const per = isPlainObject(mine.essence.instrumentation.perTrack) ? mine.essence.instrumentation.perTrack : {};
           per.percussion = { ...(isPlainObject(per.percussion) ? per.percussion : {}), [key]: structuredClone(rule) };
           mine.essence.instrumentation.perTrack = per;
+        }
+        // The melody's motif rule and its cell are the genre's now too.
+        {
+          const m = settings.tracks?.melody;
+          if (isPlainObject(m) && (isPlainObject(m.motifRule) || isPlainObject(m.motif))) {
+            mine.essence.instrumentation = isPlainObject(mine.essence.instrumentation) ? mine.essence.instrumentation : {};
+            const per = isPlainObject(mine.essence.instrumentation.perTrack) ? mine.essence.instrumentation.perTrack : {};
+            const entry = { ...(isPlainObject(per.melody) ? per.melody : {}) };
+            if (isPlainObject(m.motifRule)) entry.motifRule = structuredClone(m.motifRule);
+            if (isPlainObject(m.motif)) entry.motif = structuredClone(m.motif);
+            per.melody = entry;
+            mine.essence.instrumentation.perTrack = per;
+          }
         }
         // The sound: the patches set on this device are the genre's now.
         if (isPlainObject(settings.patches) && Object.keys(settings.patches).length) {
@@ -20093,6 +20402,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (track === 'percussion') {
             t.variantRule = { chance: 0, when: 'bar', pool: [], order: 'weight' };
             t.fillRule = { chance: 0, when: 'bar', pool: [], order: 'weight' };
+          }
+          // The motif rule zeroed the same way: Chance 0 holds the first cell,
+          // an empty pool states it plain - nothing develops you did not ask for.
+          if (track === 'melody') {
+            delete t.motif;
+            t.motifRule = { chance: 0, when: 'section', pool: [], order: 'weight' };
           }
           if (typeof t.voice === 'string') {
             // The kit keeps its authored sound and loses only its sends; every
@@ -23064,6 +23379,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       text-decoration: underline;
     }
     .rule-more[hidden] { display: none; }
+    /* The motif rule's Pool, edited in place under the rule. */
+    .motif-pool-editor {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      font-size: 0.85rem;
+    }
+    .motif-pool-row {
+      display: grid;
+      grid-template-columns: 11ch 7ch auto auto;
+      align-items: center;
+      gap: 6px;
+    }
+    .motif-pool-row input { min-height: 28px; padding: 0 4px; max-width: 7ch; }
+    .motif-pool-row button { min-height: 28px; padding: 0 8px; }
+    .motif-pool-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .motif-pool-foot select { min-height: 30px; padding: 2px 6px; max-width: 14ch; }
 
     /* v0.0.205: the voice rule's Now lands the eye on the track's picker. */
     @keyframes voice-picker-flash {

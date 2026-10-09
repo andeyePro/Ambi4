@@ -38,12 +38,16 @@ export function layerShown(level, layer) {
 }
 
 /**
- * A pool as one readable line: "Keys › Tines › Bell · by weight", or what an
- * empty pool means for this rule (`emptyText`; the voice rule's by default).
+ * A pool as one readable line: "Keys › Tines › Bell · by weight", or "empty".
+ * `words` lets a rule say what ITS empty pool means (`empty`) and what a pool
+ * of null means (`auto` — the engine's own mix, for a rule that has one); a
+ * plain string is the empty pool's words alone.
  */
-export function poolSummary(pool, order, labelOf = (id) => id, emptyText = 'empty — the voice you picked, and only that') {
+export function poolSummary(pool, order, labelOf = (id) => id, words = {}) {
+  if (typeof words === 'string') words = { empty: words };
+  if (pool === null && words && words.auto) return words.auto;
   const rows = Array.isArray(pool) ? pool.filter((entry) => entry && typeof entry.id === 'string') : [];
-  if (!rows.length) return emptyText;
+  if (!rows.length) return words && words.empty ? words.empty : 'empty — the voice you picked, and only that';
   const names = rows.map((entry) => {
     const w = Number(entry.weight);
     return Number.isFinite(w) && w !== 1 && order !== 'turn' ? `${labelOf(entry.id)} ×${Math.round(w)}` : labelOf(entry.id);
@@ -67,8 +71,12 @@ export function chanceSummary(chance) {
  *   level,                          // the global level at mount
  *   describe(el, text),             // the page's tooltip + description helper (optional)
  *   now:    { text, hint, onOpen }, // the value playing; onOpen focuses its control
- *   chance: { hint, when, onWhen, whenIds: { select } },  // the dial is mounted into handle.chanceSlot by the page
- *   pool:   { rows, order, labelOf, empty, hint, onEdit, ids: { edit } },  // empty: the empty pool's words
+ *   chance: { hint, when, onWhen, whenIds: { select },  // the dial is mounted into handle.chanceSlot by the page
+ *             whenOptions, whenHint },               // optional: a rule whose moments are not bar/section/piece
+ *   pool:   { rows, order, labelOf, hint, onEdit, ids: { edit },
+ *             empty,                                 // optional: the empty pool's words (shorthand for words.empty)
+ *             words: { empty, auto },                // optional: what this rule's empty / null pool means
+ *             summarise },                           // optional: (rows, order) => the whole line, for a pool poolSummary cannot word
  * }
  *
  * A rule whose finest grain is not a bar (the chord loop moves only between
@@ -187,7 +195,7 @@ export function createRule(host, spec) {
   function setPool(rows, order) {
     poolText.textContent = spec.pool && typeof spec.pool.summarise === 'function'
       ? spec.pool.summarise(rows, order)
-      : poolSummary(rows, order, spec.pool && spec.pool.labelOf, spec.pool && spec.pool.empty);
+      : poolSummary(rows, order, spec.pool && spec.pool.labelOf, spec.pool && (spec.pool.words || spec.pool.empty));
   }
   function setMark(on) { mark.hidden = !on; }
   function setNow(text) { nowValue.textContent = text; }

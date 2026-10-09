@@ -2555,3 +2555,41 @@ page-boot (three layers, its own When, each edit asserted at the engine) and
 the secret-layers row `hookVoicing`, now named. Not in it: degree
 substitution as Now (the chords themselves are the seed's, edited by the
 cards), pool entries that carry degrees, and a drag-to-reorder pool.
+
+## The melody's motif as a rule
+
+Module ownership: **the engine** (`sanitiseMotif` / `sanitiseMotifRule`,
+melody only, both sparse — present only when set, so every stored piece reads
+back byte-equal. NOW is `tracks.melody.motif = { steps, beats, lengths, shape
+}`: the cell the piece OPENS on — scale steps from the chord root (its contour
+and its leap), onsets and lengths in beats (its rhythm), shape one of rise /
+fall / arch / dip / own; at most 16 notes, sorted by onset. CHANCE is
+`motifRule.chance` with `when` phrase | section | piece — the probability a
+NEW cell is drawn at that moment; null is the old law (a new section draws a
+new or recalled cell, a hook recall brings its paired cell back), 0 holds the
+cell for good and a reset (metre change, re-roll) comes back to Now. There is
+no `bar`: a cell changes only at a phrase boundary. POOL is `motifRule.pool`,
+an ordered `{ id, weight }` list over developMotif's ops (repeat, transpose,
+displace, invert, retrograde) that bars 1–3 of every phrase draw from by
+weight or take in turn (bar 0 is always the plain statement); null is the
+engine's own mix (`defaultMotifOpWeights(repetition, complexity)`, exported),
+an empty list states the cell plain. `establishMotif` always makes
+buildMotif's draw, named cell or not, so naming the cell the seed would have
+drawn replays the piece to the byte; `getResolved().tracks.melody.motif` is
+the cell playing now; `getRecipe()` names the cell the piece opened on when
+none was set), **the compiler** (perTrack pass-through, like voiceRule),
+**rule-control.js** (`whenOptions` / `whenHint` for a rule whose moments are
+not bar/section/piece; `pool.words` for what an empty or null pool means),
+**the page** (the Motif rule in the melody editor under Randomise: Now
+follows the playing cell and a press keeps it as yours at Chance Hold; Chance
+is a knob with an Auto detent; Pool edits in place; Next keeps a held rule;
+Blank slate writes Chance 0 and an empty pool; Save as my genre and the Rules
+form carry it; every push states motif / motifRule as null when unset, since
+the engine keeps a stored one otherwise) and **the recipe**
+(`Melody motif: <shape> steps … beats … lengths …`, `Melody motif rule:
+chance <n|auto> when … order … pool <op:w,…|empty|auto>`). The typed melody
+is the special case of the same fields: a hand-written cell at Chance 0 with
+an empty pool is that line, stated verbatim over the chord for the whole
+piece — the typed tool itself still writes a pinned sequencer. Gated by
+`tests/motif-rule-smoke.mjs` (12 checks, 11 red on the old engine) and
+recipe-roundtrip's secret-layers table (`motif` named).

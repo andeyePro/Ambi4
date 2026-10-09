@@ -2080,6 +2080,60 @@ try {
     }
   }
 
+  // The melody's motif as a rule: a second .rule on the primitive in the
+  // melody editor. Now names the cell, Chance holds a dial, When offers the
+  // motif's own moments (phrase / section / piece — a cell has no bar), and
+  // the Pool editor opens in place and writes what it shows into the ENGINE.
+  {
+    const engine = window.__ambi4Engine;
+    const editor = await openEditor('melody');
+    const rule = editor && editor.querySelector('.rule[data-rule="motif"]');
+    if (!rule) failures.push('the melody editor has no motif rule on the primitive');
+    else {
+      const layer = (name) => rule.querySelector(`.rule-layer[data-layer="${name}"]`);
+      for (const name of ['now', 'chance', 'pool']) if (!layer(name)) failures.push(`the motif rule has no ${name} layer`);
+      if (!rule.querySelector('.rule-chance-slot .knob, .rule-chance-slot input[type="range"]')) failures.push('the motif Chance layer holds no dial');
+      const nowText = rule.querySelector('.rule-now-value') ? rule.querySelector('.rule-now-value').textContent : '';
+      if (!nowText) failures.push('the motif Now layer says nothing');
+      const when = rule.querySelector('#motif-rule-when');
+      const whenValues = when ? [...when.options].map((o) => o.value).join(',') : '';
+      if (whenValues !== 'phrase,section,piece') failures.push(`the motif When offers "${whenValues}", not phrase,section,piece`);
+      if (when) {
+        when.value = 'phrase';
+        when.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const stored = engine.getParams().tracks.melody.motifRule;
+        if (!stored || stored.when !== 'phrase') failures.push(`When "each phrase" left the engine's motif rule at ${JSON.stringify(stored)}`);
+      }
+      const edit = rule.querySelector('#motif-rule-pool');
+      if (!edit) failures.push('the motif pool Edit… has no id');
+      else {
+        edit.click();
+        const box = editor.querySelector('#motif-pool-editor');
+        if (!box) failures.push('the motif Pool Edit… did not open its editor in place');
+        else {
+          const rows = [...box.querySelectorAll('.motif-pool-row')];
+          if (rows.length !== 5) failures.push(`the motif pool editor shows ${rows.length} developments, not 5`);
+          for (const row of rows) {
+            if (row.dataset.op === 'repeat') continue;
+            const input = row.querySelector('input');
+            input.value = '0';
+            input.dispatchEvent(new window.Event('change', { bubbles: true }));
+          }
+          const pool = engine.getParams().tracks.melody.motifRule && engine.getParams().tracks.melody.motifRule.pool;
+          if (!Array.isArray(pool) || pool.length !== 1 || pool[0].id !== 'repeat') {
+            failures.push(`zeroing every development but Repeat left the engine's pool at ${JSON.stringify(pool)}`);
+          }
+          const summary = rule.querySelector('.rule-pool-summary') ? rule.querySelector('.rule-pool-summary').textContent : '';
+          if (!/^Repeat/.test(summary)) failures.push(`the motif pool summary reads "${summary}" after the edit`);
+          const own = box.querySelector('.motif-pool-auto');
+          if (own) own.click();
+          const after = engine.getParams().tracks.melody.motifRule;
+          if (!after || after.pool !== null) failures.push(`"Engine's own mix" left the pool at ${JSON.stringify(after && after.pool)}, not null`);
+        }
+      }
+    }
+  }
+
   // v0.0.188 — the slider fallback editor, booted on purpose. With the seam
     // set, every stock voice renders through the path the page takes when
     // knob.js is missing: every control names its field (pinned, with its
@@ -3577,6 +3631,11 @@ try {
       if (!allOff) {
         const on = doc.querySelectorAll('.track-row:not([data-track-state="off"])').length;
         failures.push(`after Blank slate, ${on} track(s) are still not off`);
+      }
+      // The motif rule zeroed with every other rule: Chance 0, Pool empty.
+      const motifRule = window.__ambi4Engine.getParams().tracks.melody.motifRule;
+      if (!motifRule || motifRule.chance !== 0 || !Array.isArray(motifRule.pool) || motifRule.pool.length !== 0) {
+        failures.push(`after Blank slate the melody's motif rule is ${JSON.stringify(motifRule)}, not Chance 0 with an empty pool`);
       }
     }
   }

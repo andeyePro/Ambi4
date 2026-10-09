@@ -72,6 +72,14 @@ function trackFields(track) {
     rows.push({ path: `tracks.${track}.variantRule`, label: `${label} variant rule`, kind: 'tabRule' });
     rows.push({ path: `tracks.${track}.fillRule`, label: `${label} fill rule`, kind: 'tabRule' });
   }
+  // The melody's motif as a rule: Now is the cell the piece opens on (its
+  // shape, steps, rhythm and leap), the rule its Chance / When / Pool of
+  // developments. engine.getRecipe() names the opening cell even when the
+  // piece never set one — that cell is a decision the piece made.
+  if (track === 'melody') {
+    rows.push({ path: 'tracks.melody.motif', label: 'Melody motif', kind: 'motif' });
+    rows.push({ path: 'tracks.melody.motifRule', label: 'Melody motif rule', kind: 'motifRule' });
+  }
   return rows;
 }
 
@@ -386,6 +394,54 @@ function parseHookRuleText(text) {
   return { chance: chanceText === 'auto' ? null : Number(chanceText), when, order, pool };
 }
 
+/**
+ * A motif as a line a person can write with a pen: "<shape> steps 0,1,2,4
+ * beats 0,1,2,3 lengths 1,1,1,1" — steps are scale steps from the chord root,
+ * beats the onsets in the bar, lengths in beats. "none" is no cell.
+ */
+function formatMotif(cell) {
+  if (!cell) return 'none';
+  const list = (values) => values.map(String).join(',');
+  return `${cell.shape} steps ${list(cell.steps)} beats ${list(cell.beats)} lengths ${list(cell.lengths)}`;
+}
+
+const MOTIF_TEXT = /^(\S+) steps (\S+) beats (\S+) lengths (\S+)$/;
+
+function parseMotifText(text) {
+  const trimmed = text.trim();
+  if (trimmed === 'none') return null;
+  const match = MOTIF_TEXT.exec(trimmed);
+  if (!match) throw new Error(`recipeFromText: unreadable motif "${text}"`);
+  const numbers = (list) => list.split(',').map(Number);
+  return { steps: numbers(match[2]), beats: numbers(match[3]), lengths: numbers(match[4]), shape: match[1] };
+}
+
+/**
+ * The motif rule as a sentence: "chance <n|auto> when <phrase|section|piece>
+ * order <weight|turn> pool <op:weight,...|empty|auto>". Chance auto is the old
+ * law; pool auto is the engine's own mix of developments.
+ */
+function formatMotifRule(rule) {
+  if (!rule) return 'none';
+  const chance = rule.chance === null ? 'auto' : String(rule.chance);
+  const pool = rule.pool === null ? 'auto'
+    : rule.pool.length ? rule.pool.map((entry) => `${entry.id}:${entry.weight}`).join(',') : 'empty';
+  return `chance ${chance} when ${rule.when} order ${rule.order} pool ${pool}`;
+}
+
+function parseMotifRuleText(text) {
+  const trimmed = text.trim();
+  if (trimmed === 'none') return null;
+  const match = VOICE_RULE_TEXT.exec(trimmed);
+  if (!match) throw new Error(`recipeFromText: unreadable motif rule "${text}"`);
+  const [, chanceText, when, order, poolText] = match;
+  const pool = poolText === 'auto' ? null : poolText === 'empty' ? [] : poolText.split(',').map((entry) => {
+    const at = entry.lastIndexOf(':');
+    return { id: entry.slice(0, at), weight: Number(entry.slice(at + 1)) };
+  });
+  return { chance: chanceText === 'auto' ? null : Number(chanceText), when, pool, order };
+}
+
 function formatValue(row, value) {
   switch (row.kind) {
     case 'number': return formatNumber(row.path, value);
@@ -396,6 +452,8 @@ function formatValue(row, value) {
     case 'tabRule': return formatTabRule(value);
     case 'voicing': return formatVoicing(value);
     case 'hookRule': return formatHookRule(value);
+    case 'motif': return formatMotif(value);
+    case 'motifRule': return formatMotifRule(value);
     // 'sequencers' and 'json': structured data too shapeless for prose — a
     // person reads it as a data line, the way they would in a JSON preset.
     default: return JSON.stringify(value);
@@ -412,6 +470,8 @@ function parseValue(row, text) {
     case 'tabRule': return parseTabRuleText(text);
     case 'voicing': return parseVoicingText(text);
     case 'hookRule': return parseHookRuleText(text);
+    case 'motif': return parseMotifText(text);
+    case 'motifRule': return parseMotifRuleText(text);
     default: return JSON.parse(text);
   }
 }

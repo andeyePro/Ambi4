@@ -2196,6 +2196,117 @@ function sanitiseTabRule(value, base, tabs, nullableChance) {
   return { chance, when, pool, order };
 }
 
+/**
+ * The melody's motif as a rule (Reconstructible Ambi4, "Melody motif and
+ * development as rules") — the same one logic as the voice rule:
+ *
+ *   NOW     `tracks.melody.motif = { steps, beats, lengths, shape }` — the cell
+ *           the piece OPENS on: scale steps relative to the chord root (its
+ *           shape and its leap), onsets in beats and note lengths (its
+ *           rhythm). Sparse: unset, the opening cell is buildMotif's draw,
+ *           exactly as before. A Chance-0 rule holds it for the whole piece.
+ *   CHANCE  `tracks.melody.motifRule.chance` — how likely a NEW cell is drawn
+ *           at each `when` (phrase, section or piece). null follows the old
+ *           law (a new section draws a new or recalled cell, and a hook recall
+ *           brings its paired cell back); 0 holds the cell for good.
+ *   POOL    `motifRule.pool` — the developments a bar of the phrase may make
+ *           of the cell (developMotif's ops), ordered and weighted, drawn
+ *           `by weight` or `in turn`. null is the engine's own mix (Repetition
+ *           and Complexity decide); an empty pool states the cell plain.
+ *
+ * A cell's `when` has no `bar`: a motif changes only at a phrase boundary —
+ * mid-phrase it would break the idea it is in the middle of stating.
+ *
+ * The typed melody is the special case of the same fields: a cell written by
+ * hand (Now) at Chance 0 with an empty pool is that line, stated verbatim over
+ * whatever chord is under it, for the whole piece.
+ */
+export const MOTIF_SHAPES = Object.freeze(['rise', 'fall', 'arch', 'dip', 'own']);
+export const MOTIF_RULE_WHEN = Object.freeze(['phrase', 'section', 'piece']);
+const MOTIF_RULE_ORDER = Object.freeze(['weight', 'turn']);
+const MOTIF_RULE_OPS = Object.freeze(['repeat', 'transpose', 'displace', 'invert', 'retrograde']);
+const MOTIF_NOTE_CAP = 16;
+const MOTIF_STEP_RANGE = Object.freeze([-14, 21]);
+const MOTIF_BEAT_LIMIT = 16;
+const MOTIF_LENGTH_RANGE = Object.freeze([0.125, 8]);
+
+/**
+ * One cell, sanitised: notes paired by index (steps[i] at beats[i] for
+ * lengths[i]), sorted by onset, duplicates dropped, at most MOTIF_NOTE_CAP.
+ * A missing length is the gap to the next onset (1 beat for the last). Null
+ * when nothing playable survives. The KEY decides like voiceRule: present
+ * (even null) replaces, absent inherits `base`.
+ */
+function sanitiseMotif(value, base) {
+  const raw = value === undefined ? base : value;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const steps = Array.isArray(raw.steps) ? raw.steps : [];
+  const beats = Array.isArray(raw.beats) ? raw.beats : [];
+  const lengths = Array.isArray(raw.lengths) ? raw.lengths : [];
+  const notes = [];
+  for (let i = 0; i < Math.min(steps.length, beats.length); i++) {
+    const step = Number(steps[i]);
+    const beat = Number(beats[i]);
+    if (!Number.isFinite(step) || !Number.isFinite(beat) || beat < 0 || beat >= MOTIF_BEAT_LIMIT) continue;
+    const length = Number(lengths[i]);
+    notes.push({
+      step: Math.round(clamp(step, MOTIF_STEP_RANGE[0], MOTIF_STEP_RANGE[1])),
+      beat,
+      length: Number.isFinite(length) && length > 0 ? clamp(length, MOTIF_LENGTH_RANGE[0], MOTIF_LENGTH_RANGE[1]) : null,
+    });
+  }
+  notes.sort((a, b) => a.beat - b.beat);
+  const kept = [];
+  for (const note of notes) {
+    if (kept.length && Math.abs(kept[kept.length - 1].beat - note.beat) < 1e-9) continue;
+    kept.push(note);
+    if (kept.length >= MOTIF_NOTE_CAP) break;
+  }
+  if (!kept.length) return null;
+  return {
+    steps: kept.map((note) => note.step),
+    beats: kept.map((note) => note.beat),
+    lengths: kept.map((note, i) => note.length ?? clamp(
+      i + 1 < kept.length ? kept[i + 1].beat - note.beat : 1, MOTIF_LENGTH_RANGE[0], MOTIF_LENGTH_RANGE[1],
+    )),
+    shape: oneOf(raw.shape, MOTIF_SHAPES, 'own'),
+  };
+}
+
+/**
+ * The motif rule, sanitised: a partial merges field by field over `base`,
+ * exactly as the voice rule does. `pool` is null (the engine's own mix) or an
+ * ordered list of `{ id, weight }` over developMotif's ops, each op at most
+ * once.
+ */
+function sanitiseMotifRule(value, base) {
+  if (value === null) return null;
+  const from = base && typeof base === 'object' && !Array.isArray(base) ? base : null;
+  const v = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  if (!v && !from) return null;
+  const at = (key) => (v && key in v ? v[key] : from ? from[key] : undefined);
+  const chanceRaw = at('chance');
+  const chance = chanceRaw === null || chanceRaw === undefined
+    ? null
+    : Number.isFinite(Number(chanceRaw)) ? clamp(Number(chanceRaw), 0, 1) : null;
+  const when = oneOf(at('when'), MOTIF_RULE_WHEN, 'section');
+  const order = oneOf(at('order'), MOTIF_RULE_ORDER, 'weight');
+  const poolRaw = at('pool');
+  let pool = null;
+  if (Array.isArray(poolRaw)) {
+    pool = [];
+    const seen = new Set();
+    for (const entry of poolRaw) {
+      const id = entry && typeof entry === 'object' ? entry.id : entry;
+      if (!MOTIF_RULE_OPS.includes(id) || seen.has(id)) continue;
+      const w = entry && typeof entry === 'object' ? Number(entry.weight) : 1;
+      pool.push({ id, weight: Number.isFinite(w) && w > 0 ? clamp(w, 0.01, 100) : 1 });
+      seen.add(id);
+    }
+  }
+  return { chance, when, pool, order };
+}
+
 function sanitiseVoiceWeights(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const out = {};
@@ -2284,6 +2395,17 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
     // inherits the stored value) decides what that number is.
     const autoThreshold = nullableNumber(partial, baseTrack, 'autoThreshold', [0, 1]);
     if (autoThreshold !== null) track.autoThreshold = autoThreshold;
+    // The motif rule (melody only): sparse like the voice rule — the key
+    // (even null) replaces, its absence inherits, so a piece that never set
+    // either reads back byte-identical.
+    if (name === 'melody') {
+      const motif = sanitiseMotif(partial && 'motif' in partial ? partial.motif : undefined, baseTrack.motif);
+      if (motif) track.motif = motif;
+      const motifRule = sanitiseMotifRule(
+        partial && 'motifRule' in partial ? partial.motifRule : undefined, baseTrack.motifRule
+      );
+      if (motifRule) track.motifRule = motifRule;
+    }
     if (shape.tuned) {
       track.dissonance = sanitiseRangeValue(partial && partial.dissonance, 0, 1)
         ?? sanitiseRangeValue(baseTrack.dissonance, 0, 1)
@@ -3060,6 +3182,14 @@ function copyTrack(track) {
     ),
   };
   if ('dissonance' in track) out.dissonance = copyRangeValue(track.dissonance);
+  // The motif and its rule are objects inside the track: copied, never lent.
+  if (track.motif) out.motif = cloneMotif(track.motif);
+  if (track.motifRule) {
+    out.motifRule = {
+      ...track.motifRule,
+      pool: track.motifRule.pool ? track.motifRule.pool.map((entry) => ({ ...entry })) : null,
+    };
+  }
   if (track.lanes) out.lanes = track.lanes.map((lane) => ({ ...lane }));
   if (track.grooveRule) out.grooveRule = copyGrooveRule(track.grooveRule);
   if (track.sequencers) {
@@ -3608,6 +3738,24 @@ export function nearestChordTone(degree, scaleLength = 5) {
  * - invert      the contour mirrored about its first note
  * - retrograde  the pitches run backwards over the same rhythm
  */
+/**
+ * The mix of developments a mid-phrase bar draws from when no motif rule
+ * names a pool: repetition favours the plain statement, and the less
+ * repetition and the more complexity, the more the cell is turned over.
+ * Exported so a page seeding a Pool from "what the engine does now" shows
+ * exactly these weights.
+ */
+export function defaultMotifOpWeights(repetition = 0.5, complexity = 0.5) {
+  const wander = 1 - repetition;
+  return [
+    ['repeat', 0.5 + repetition * 0.9],
+    ['transpose', 1.1],
+    ['displace', 0.3 + wander * 0.5],
+    ['invert', (0.12 + wander * 0.5) * (0.4 + complexity)],
+    ['retrograde', (0.1 + wander * 0.45) * (0.4 + complexity)],
+  ];
+}
+
 export function developMotif(motif, op, {
   beatsPerBar: barBeats = 4, scaleLength = 5, rng = Math.random,
 } = {}) {
@@ -5002,6 +5150,7 @@ export function createEngine(initialParams, options = {}) {
   let motifSalience = 0;         // phrases it has survived without being replaced
   let motifSectionPending = false; // a section changed: re-pick a cell at the next phrase
   let motifPending = null;       // a cell the hook's recall asked the melody to bring back
+  let openingMotif = null;       // the cell this performance opened on — what the recipe names
   let phraseBar = 0;             // bar within the current phrase
   const motifBank = createVariantBank({ size: MOTIF_BANK_SIZE, clone: cloneMotif });
 
@@ -7660,14 +7809,59 @@ export function createEngine(initialParams, options = {}) {
 
   // -- the melody's motif ----------------------------------------------------
 
-  /** Write a fresh cell for the section that is starting. */
+  /** The melody's motif rule, or null (the pre-rule law, to the byte). */
+  function motifRuleFor() {
+    const config = params.tracks.melody;
+    return config && config.motifRule ? config.motifRule : null;
+  }
+
+  /**
+   * A named cell fitted to the bar it is about to play in: notes whose onset
+   * would fall in the next bar are left out (the same edge buildMotif keeps),
+   * and a cell with nothing left is no cell. Lengths are untouched.
+   */
+  function fitMotif(cell, barBeats) {
+    const keep = cell.beats.map((beat, i) => (beat <= barBeats - 0.25 + 1e-9 ? i : -1)).filter((i) => i >= 0);
+    if (!keep.length) return null;
+    return {
+      steps: keep.map((i) => cell.steps[i]),
+      beats: keep.map((i) => cell.beats[i]),
+      lengths: keep.map((i) => cell.lengths[i]),
+      shape: cell.shape,
+    };
+  }
+
+  /**
+   * Write a cell for the section that is starting. The draw is ALWAYS made,
+   * named cell or not, so naming the motif costs no draw of its own: a named
+   * cell equal to the one the seed would have drawn replays the piece to the
+   * byte (which is what lets a recipe rebuild be exact), and a different one
+   * moves the rest of the piece only as far as its own note count does.
+   * The named cell (Now) is what plays when this is the piece's opening, or
+   * whenever the rule holds (Chance 0) — a reset (a metre change, a re-roll)
+   * comes back to it rather than to a stranger.
+   */
   function establishMotif() {
-    motif = buildMotif({
-      beatsPerBar: beatsPerBar(metreAt(params.timeSignature, currentBarNumber)),
+    const barBeats = beatsPerBar(metreAt(params.timeSignature, currentBarNumber));
+    const built = buildMotif({
+      beatsPerBar: barBeats,
       complexity: params.complexity,
       scaleLength: scale().length,
       rng,
     });
+    let cell = built;
+    const named = params.tracks.melody.motif;
+    if (named) {
+      const rule = motifRuleFor();
+      const opening = !openingMotif;
+      const holds = Boolean(rule) && rule.chance === 0;
+      // When 'piece': the one moment a piece may open on a fresh cell instead.
+      const pieceRedraw = opening && rule && rule.when === 'piece' && rule.chance > 0
+        && (rule.chance >= 1 || rng() < rule.chance);
+      if ((opening || holds) && !pieceRedraw) cell = fitMotif(named, barBeats) || built;
+    }
+    if (!openingMotif) openingMotif = cloneMotif(cell);
+    motif = cell;
     motifSalience = 0;
   }
 
@@ -7710,6 +7904,23 @@ export function createEngine(initialParams, options = {}) {
   function completeMelodyPhrase(intensity) {
     motifPhrase += 1;
     bankMotif(intensity);
+    // A rule with an explicit Chance is the whole cell policy: a hook recall's
+    // paired cell does not jump the queue, and a new cell is drawn only at the
+    // rule's own moment — every phrase, or the first phrase of a new section
+    // — with its own probability. Chance null keeps the old law below.
+    const rule = motifRuleFor();
+    if (rule && rule.chance !== null) {
+      motifPending = null;
+      const sectionTurn = motifSectionPending;
+      motifSectionPending = false;
+      const moment = rule.when === 'phrase' || (rule.when === 'section' && sectionTurn);
+      if (moment && rule.chance > 0 && (rule.chance >= 1 || rng() < rule.chance)) {
+        if (!(rng() < params.repetition && recallMotif(intensity))) establishMotif();
+        return;
+      }
+      motifSalience += 1;
+      return;
+    }
     if (motifPending) {
       adoptMotif(motifPending);
       motifPending = null;
@@ -8400,15 +8611,24 @@ export function createEngine(initialParams, options = {}) {
    */
   function phraseOp() {
     if (phraseBar === 0) return 'repeat';
-    const wander = 1 - params.repetition;
+    // The motif rule's Pool, when it names one, is the whole development
+    // policy for bars 1.. of the phrase (bar 0 stays the statement): by
+    // weight, or the next op in turn; an empty pool states the cell plain.
+    const rule = motifRuleFor();
+    if (rule && rule.pool) {
+      const pool = rule.pool;
+      if (!pool.length) return 'repeat';
+      if (rule.order === 'turn') return pool[(phraseBar - 1) % pool.length].id;
+      const sum = pool.reduce((acc, entry) => acc + entry.weight, 0);
+      let left = rng() * sum;
+      for (const entry of pool) {
+        left -= entry.weight;
+        if (left <= 1e-12) return entry.id;
+      }
+      return pool[pool.length - 1].id;
+    }
     if (phraseBar === PHRASE_BARS - 1) return rng() < 0.55 + params.repetition * 0.3 ? 'repeat' : 'transpose';
-    const weights = [
-      ['repeat', 0.5 + params.repetition * 0.9],
-      ['transpose', 1.1],
-      ['displace', 0.3 + wander * 0.5],
-      ['invert', (0.12 + wander * 0.5) * (0.4 + params.complexity)],
-      ['retrograde', (0.1 + wander * 0.45) * (0.4 + params.complexity)],
-    ];
+    const weights = defaultMotifOpWeights(params.repetition, params.complexity);
     const total = weights.reduce((sum, [, weight]) => sum + weight, 0);
     let r = rng() * total;
     for (const [op, weight] of weights) {
@@ -9909,6 +10129,7 @@ export function createEngine(initialParams, options = {}) {
       texturePlan = [];
       motif = null;
       motifPending = null;
+      openingMotif = null;
       motifPhrase = 0;
       motifSalience = 0;
       motifSectionPending = false;
@@ -10172,6 +10393,11 @@ export function createEngine(initialParams, options = {}) {
         recipe.harmony.voicing = base;
       }
     }
+    // The motif rule: an unnamed cell is still a decision the piece made —
+    // the cell it opened on is what a rebuild (at any seed) needs to open on.
+    if (recipe.tracks && recipe.tracks.melody && recipe.tracks.melody.motif === undefined && openingMotif) {
+      recipe.tracks.melody.motif = cloneMotif(openingMotif);
+    }
     return recipe;
   }
 
@@ -10238,6 +10464,9 @@ export function createEngine(initialParams, options = {}) {
         // The kit's fill rule: true for the one bar a fill is playing.
         if (config.fillRule) resolved.fill = fillReturn.has(name);
       }
+      // The motif rule's live Now: the cell the melody is developing right
+      // now (null before its first phrase, or while it is off).
+      if (name === 'melody') resolved.motif = motif ? cloneMotif(motif) : null;
       tracks[name] = resolved;
     }
     const patches = {};
