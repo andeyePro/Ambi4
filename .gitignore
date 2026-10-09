@@ -49,3 +49,4 @@ docs-private/
 # Screenshot bridge: the private key and the images it pulls back
 .vibe/id_ed25519_ambi4shot
 .vibe/shots/
+node_modules

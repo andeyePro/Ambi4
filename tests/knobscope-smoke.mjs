@@ -2180,6 +2180,70 @@ test('multiScope: DOM legend dblclick solos a track; a second dblclick on it res
   });
 });
 
+test('multiScope: Alt/Option-click on a legend key solos it at once, with no toggle and no double-click', () => {
+  withMockTimers(({ pendingCount }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const legendContainer = mockElement('div');
+    const engine = makeMockEngine({ analysers: {} });
+    const changes = [];
+    const live = scope.attachMultiScope(canvas, engine, {
+      legendContainer,
+      tracks: ['pad', 'bass', 'melody'],
+      onSelectionChange: (ids) => changes.push(ids),
+    });
+    const btnFor = (id) => legendContainer.children.find((b) => b.children[1].textContent === id);
+
+    btnFor('bass').dispatch('click', { altKey: true });
+    assert.deepEqual(pressedIds(legendContainer), ['bass'], 'Alt-click must solo immediately');
+    assert.deepEqual(changes, [['bass']], 'one selection change, from the solo');
+    assert.equal(pendingCount(), 0, 'no toggle timer left behind');
+
+    btnFor('bass').dispatch('click', { altKey: true }); // second Alt-click on the soloed key restores
+    assert.deepEqual(pressedIds(legendContainer).sort(), ['bass', 'melody', 'pad']);
+
+    live.destroy();
+  });
+});
+
+test('multiScope: pressing and holding a legend key solos it, and the release click does not toggle it back', () => {
+  withMockTimers(({ advance, pendingCount }) => {
+    const calls = {};
+    const canvas = makeCanvas(calls);
+    const legendContainer = mockElement('div');
+    const engine = makeMockEngine({ analysers: {} });
+    const changes = [];
+    const live = scope.attachMultiScope(canvas, engine, {
+      legendContainer,
+      tracks: ['pad', 'bass', 'melody'],
+      onSelectionChange: (ids) => changes.push(ids),
+    });
+    const btnFor = (id) => legendContainer.children.find((b) => b.children[1].textContent === id);
+    const melody = btnFor('melody');
+
+    melody.dispatch('pointerdown', { button: 0 });
+    assert.equal(pendingCount(), 1, 'the hold is a timer');
+    advance(); // the hold elapses
+    assert.deepEqual(pressedIds(legendContainer), ['melody'], 'a hold solos');
+    melody.dispatch('pointerup', { button: 0 });
+    melody.dispatch('click'); // the click that ends the hold
+    advance();
+    assert.deepEqual(pressedIds(legendContainer), ['melody'], 'the release click must not toggle the soloed key off');
+    assert.equal(changes.length, 1, 'exactly one change: the solo');
+
+    // Released early, it is just a click again: a toggle after the window.
+    const bass = btnFor('bass');
+    bass.dispatch('pointerdown', { button: 0 });
+    bass.dispatch('pointerup', { button: 0 });
+    assert.equal(pendingCount(), 0, 'releasing before the hold elapses cancels it');
+    bass.dispatch('click');
+    advance();
+    assert.deepEqual(pressedIds(legendContainer).sort(), ['bass', 'melody'], 'a short tap still toggles');
+
+    live.destroy();
+  });
+});
+
 test('multiScope: a plain click after a solo does not later trigger a stale restore', () => {
   withMockTimers(({ advance }) => {
     const calls = {};

@@ -527,8 +527,10 @@ Oscilloscope
       beside it. Reload — it is still collapsed. Click again to reopen.
 - [ ] The legend is right-aligned under the trace, one key per track in that
       track's colour. Single-click a key: that trace toggles off/on.
-      Double-click a key: it solos (every other trace off). Double-click the
-      soloed key again: the previous selection comes back.
+      Alt-click (Option-click) a key, or press and hold it half a second (touch
+      too): it solos (every other trace off); the click that ends a hold does
+      not also toggle it. Double-click still solos. Solo the soloed key again:
+      the previous selection comes back. Hover a key: the tip says all of this.
 - [ ] Your legend selection survives a reload.
 - [ ] The old chip row above the legend is gone.
 
@@ -636,7 +638,7 @@ Kit ghost pointers (Advanced → Percussion → Edit → High)
 
 Guided tour
 - [ ] Open the "?" tour: it now has steps for the sculpting voices, for the
-      oscilloscope legend (click to toggle a trace, double-click to solo), for
+      oscilloscope legend (click to toggle a trace, Alt-click or press-and-hold to solo), for
       the preset gallery under the Simple dials, and a last step explaining that
       nothing here is AI or a recording — every note is worked out in the tab.
 
@@ -1161,3 +1163,24 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       at the next bar, readout "off". Pick Synthwave: Phase reads off.
 - [ ] Automated: `node tests/arp-phase-smoke.mjs` (8 checks; the downbeat
       gap and notes-behind columns it prints are the process, measured).
+
+## v0.0.219 delta — one form of help, Rules show where it acts, solo without double-click
+
+- [ ] Scope legend: Alt/Option-click a key solos it at once (no 250 ms wait);
+      press and hold a key about half a second (touch or mouse) solos it and
+      letting go does not toggle it; a quick tap still toggles; a double-click
+      still solos. Total: Alt-click or hold shows the mix alone.
+- [ ] Advanced, Presets: no explanatory paragraphs under the buttons. The
+      Share link name, Submit preset and Genre rules (the Rules popover's top
+      and the line beside Save genre) each have an i button instead, and it
+      opens and closes (Esc too).
+- [ ] Genre rules chips, buttons and step cells still tell you what they do on
+      hover and focus (the same tooltip as everywhere else), and still carry
+      their aria-label.
+- [ ] Open any voice editor: its head has "Rules show" with the same three
+      choices as the Advanced tab. Change it there: the Advanced select, and
+      any other open editor's, change with it; the rules re-open at the new
+      level; reload keeps it.
+- [ ] Automated: page-boot (Presets i buttons, no leftover paragraphs, the
+      two Rules show copies stay one setting) and knobscope-smoke (Alt-click
+      and long-press solo, a hold's release click swallowed).

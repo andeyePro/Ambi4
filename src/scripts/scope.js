@@ -61,7 +61,7 @@
  *   labelled with the registry's own label when available (else the id) +
  *   a colour-swatch dot, aria-pressed reflecting whether that track is
  *   currently drawn. Interaction: a single click toggles that track's trace
- *   on/off; a double-click SOLOS it (every other track off); a second
+ *   on/off; Alt/Option-click, a 500 ms press-and-hold, or a double-click SOLOS it (every other track off); a second
  *   double-click on the already-soloed track restores the selection that
  *   was active just before it was soloed (soloing a different track while
  *   one is already soloed does not overwrite that remembered selection —
@@ -216,6 +216,9 @@ const MULTISCOPE_LEGEND_GAP = 12;
 // DOM legend (opts.legendContainer) click/dblclick disambiguation window —
 // see the attachMultiScope doc comment above for the full rationale.
 const MULTISCOPE_LEGEND_CLICK_DELAY_MS = 250;
+// v0.0.219: a legend entry also solos on Alt/Option-click and on a press held
+// this long (touch has no double-click worth the name). Double-click stays.
+const MULTISCOPE_LEGEND_LONGPRESS_MS = 500;
 
 // -- v26: multi-scope spread mode + total trace --------------------------
 // Spread mode's per-band amplitude scale is smaller than overlay mode's
@@ -1510,6 +1513,18 @@ export function attachMultiScope(canvas, engine, opts) {
   const legendButtons = new Map(); // track id -> { btn, dot, onClick, onDblClick }
   let pendingClickId = null;
   let pendingClickTimer = null;
+  let longPressTimer = null;
+  let suppressClickUntil = 0; // a long-press's own release click is swallowed until this time
+  function clearLongPress() {
+    if (longPressTimer !== null) {
+      try {
+        clearTimeout(longPressTimer);
+      } catch {
+        // ignore
+      }
+    }
+    longPressTimer = null;
+  }
   let preSoloSelection = null; // selection to restore on the soloed track's second dblclick
 
   function syncLegend() {
@@ -1575,7 +1590,19 @@ export function attachMultiScope(canvas, engine, opts) {
   // MULTISCOPE_LEGEND_CLICK_DELAY_MS behind a timer; a second click on the
   // SAME button within that window cancels the pending toggle (so no
   // toggle-then-correct flicker) and lets the native dblclick event solo.
-  function onLegendClick(id) {
+  function onLegendClick(id, evt) {
+    // The click that ends a long-press already soloed on the hold; swallow it.
+    if (suppressClickUntil && Date.now() < suppressClickUntil) {
+      suppressClickUntil = 0;
+      return;
+    }
+    suppressClickUntil = 0;
+    // Alt/Option-click solos at once: no double-click window to wait out.
+    if (evt && evt.altKey) {
+      clearPendingClick();
+      soloTrack(id);
+      return;
+    }
     if (pendingClickTimer !== null && pendingClickId === id) {
       clearPendingClick();
       return;
@@ -1587,6 +1614,18 @@ export function attachMultiScope(canvas, engine, opts) {
       pendingClickId = null;
       toggleTrack(id);
     }, MULTISCOPE_LEGEND_CLICK_DELAY_MS);
+  }
+
+  function onLegendPointerDown(id, evt) {
+    if (evt && evt.button !== undefined && evt.button !== 0) return;
+    clearLongPress();
+    suppressClickUntil = 0;
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      suppressClickUntil = Date.now() + 1500;
+      clearPendingClick();
+      soloTrack(id);
+    }, MULTISCOPE_LEGEND_LONGPRESS_MS);
   }
 
   function onLegendDblClick(id) {
@@ -1612,12 +1651,17 @@ export function attachMultiScope(canvas, engine, opts) {
         label.textContent = TRACK_LABELS[id] || id;
         btn.appendChild(dot);
         btn.appendChild(label);
-        const onClick = () => onLegendClick(id);
+        const onClick = (evt) => onLegendClick(id, evt);
         const onDblClick = () => onLegendDblClick(id);
+        const onDown = (evt) => onLegendPointerDown(id, evt);
         btn.addEventListener('click', onClick);
         btn.addEventListener('dblclick', onDblClick);
+        btn.addEventListener('pointerdown', onDown);
+        btn.addEventListener('pointerup', clearLongPress);
+        btn.addEventListener('pointerleave', clearLongPress);
+        btn.addEventListener('pointercancel', clearLongPress);
         legendContainer.appendChild(btn);
-        legendButtons.set(id, { btn, dot, onClick, onDblClick });
+        legendButtons.set(id, { btn, dot, onClick, onDblClick, onDown });
       }
     } catch {
       // a legend build failure must never break the trace loop
@@ -1626,11 +1670,16 @@ export function attachMultiScope(canvas, engine, opts) {
 
   function destroyLegend() {
     clearPendingClick();
+    clearLongPress();
     if (!legendContainer) return;
     try {
-      for (const { btn, onClick, onDblClick } of legendButtons.values()) {
+      for (const { btn, onClick, onDblClick, onDown } of legendButtons.values()) {
         btn.removeEventListener('click', onClick);
         btn.removeEventListener('dblclick', onDblClick);
+        btn.removeEventListener('pointerdown', onDown);
+        btn.removeEventListener('pointerup', clearLongPress);
+        btn.removeEventListener('pointerleave', clearLongPress);
+        btn.removeEventListener('pointercancel', clearLongPress);
       }
       legendContainer.textContent = '';
     } catch {

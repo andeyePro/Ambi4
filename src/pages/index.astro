@@ -586,12 +586,7 @@ const VOICES: Record<string, [string, string][]> = {
                based" + "the user should be able to edit create and zero all
                rules from within the app". The sections are rendered by
                renderRulesUI() from a working model; Apply commits it. -->
-          <p class="hint">
-            The rules this genre draws every bar from. Change them and Apply:
-            the piece is re-drawn from YOUR rules with the same dice, so only
-            what you change, changes. + adds a rule, × removes one — remove a
-            section's every rule and it stops ruling.
-          </p>
+          <span id="genre-rules-info"></span>
           <!-- v0.0.178 (unit 10 of docs/synthesis-programme.md): the genre's
                ESSENCE is on screen too — tempo and swing as spread dials
                (the draw lands inside the span), and the metres, modes and
@@ -630,7 +625,7 @@ const VOICES: Record<string, [string, string][]> = {
             <button type="button" id="genre-rules-save" class="secondary-button">Save genre</button>
             <button type="button" id="genre-rules-forget" class="secondary-button" hidden>Forget this genre</button>
           </div>
-          <p class="hint">Save genre keeps every rule above, plus the voices and dials you have set, as a genre of your own: it appears in the picker under User, and Next draws fresh pieces from it. It stays on this device.</p>
+          <span id="genre-rules-save-info"></span>
           <p id="genre-rules-error" class="hint genre-rules-error" role="alert" hidden></p>
           <div class="genre-fav-actions">
             <button type="button" id="genre-rules-apply" class="secondary-button">Apply</button>
@@ -996,14 +991,13 @@ const VOICES: Record<string, [string, string][]> = {
           <button type="button" id="preset-share" class="secondary-button">Share</button>
           <button type="button" id="preset-submit" class="secondary-button">Submit preset</button>
           <button type="button" id="preset-copy" class="secondary-button">Copy JSON</button>
+          <span id="preset-submit-info"></span>
         </div>
         <p class="preset-row share-name-row">
           <span class="panel-label share-name-label">Link name</span>
           <span id="share-name-value" class="share-name-value" aria-live="polite">&mdash;</span>
           <span id="share-name-info"></span>
         </p>
-        <p class="hint">Every share link has its own three words, so you can say which link you mean out loud. It&rsquo;s a nickname the link works out for itself &mdash; not a web address, and not reserved to you.</p>
-        <p class="hint">Submitting opens our contact form prefilled with the preset; if that doesn&rsquo;t load, copy the JSON and send it however suits.</p>
         <p class="preset-row submit-anon-row">
           <label class="checkbox-row">
             <input type="checkbox" id="preset-anonymous" />
@@ -4770,6 +4764,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const m = await import('../scripts/rule-control.js');
         if (m && typeof m.createRule === 'function') ruleApi = m;
       } catch {}
+      const RULE_LEVEL_WORDS = 'How much of every rule opens by default: what plays only; plus its Chance (0 holds it, and when it may redraw); plus its Pool (what a redraw may pick from). "more" on any rule opens the next layer whatever this says. One setting: the Advanced tab and every voice editor show the same one.';
       // The level select is wired HERE, after the import — the tab wiring
       // above runs before `ruleApi` exists (the same temporal-dead-zone trap
       // this file has hit before).
@@ -4779,7 +4774,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (select) {
           select.value = ruleLevel();
           select.addEventListener('change', () => setRuleLevel(select.value));
-          describe(select, 'How much of every rule opens by default: what plays only; plus its Chance (0 holds it, and when it may redraw); plus its Pool (what a redraw may pick from). "more" on any rule opens the next layer whatever this says.');
+          describe(select, RULE_LEVEL_WORDS);
           if (!ruleApi) select.closest('.rule-level-row')?.setAttribute('hidden', '');
         }
       }
@@ -4997,6 +4992,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       ].join('\n');
 
       const SHARE_NAME_INFO = [
+        'Every share link has its own three words, so you can say which link you mean out loud. It is a nickname the link works out for itself \u2014 not a web address, and not reserved to you.',
+        '',
         'A preset can be called anything you like. The three words are separate: they are worked out from the settings themselves, so anyone who types them gets exactly this piece with no account and nothing stored on a server.',
         '',
         'That means two things worth knowing. Renaming a preset does not change the words. Changing any setting does — even slightly — so the words you say out loud are the words for the piece as it was when you read them.',
@@ -7039,8 +7036,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (!handle.el.isConnected) { mountedRules.delete(handle); continue; }
           handle.setLevel(level);
         }
-        const select = document.getElementById('rule-level');
-        if (select && select.value !== level) select.value = level;
+        for (const select of document.querySelectorAll('#rule-level, .ve-rule-level')) {
+          if (select.value !== level) select.value = level;
+        }
         persistSettings();
       }
       // "Chord loop as voiced": mounted here rather than beside the chords'
@@ -13137,7 +13135,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             patchChanges(track, voiceId).map(describeChange),
             () => resetVoiceToFactory(track, voiceId));
         });
-        header.append(headerTitle, engineChip, resetButton, sounding, extrasBox);
+        // UI review fix 17: "Rules show" where it acts. Same setting as the
+        // Advanced tab's select (setRuleLevel keeps every copy in step).
+        const levelWrap = document.createElement('label');
+        levelWrap.className = 've-rule-level-row';
+        levelWrap.append(document.createTextNode('Rules show '));
+        const levelSelect = document.createElement('select');
+        levelSelect.className = 've-rule-level';
+        levelSelect.id = `ve-rule-level-${track}`;
+        for (const [value, label] of [['simple', 'what plays'], ['advanced', '+ chance'], ['expert', '+ pool']]) {
+          const opt = document.createElement('option');
+          opt.value = value;
+          opt.textContent = label;
+          levelSelect.append(opt);
+        }
+        levelSelect.value = ruleLevel();
+        levelSelect.addEventListener('change', () => setRuleLevel(levelSelect.value));
+        describe(levelSelect, RULE_LEVEL_WORDS);
+        levelWrap.append(levelSelect);
+        if (!ruleApi) levelWrap.hidden = true;
+        header.append(headerTitle, engineChip, resetButton, levelWrap, sounding, extrasBox);
         container.append(header);
         if (engineWords && engineWords.words) {
           const words = document.createElement('p');
@@ -14241,6 +14258,42 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             scopeOverlay.style.top = top ? `${Math.round(top)}px` : '';
           };
 
+          const LEGEND_LONGPRESS_MS = 500;
+          // v0.0.219: Alt/Option-click and a 500 ms press-and-hold solo as well
+          // as the double-click. Returns a click filter: true = the click was a
+          // solo (or the tail of a long-press) and must not toggle.
+          const addLegendSoloGestures = (button, solo) => {
+            let holdTimer = null;
+            let suppressUntil = 0;
+            const clearHold = () => {
+              if (holdTimer !== null) clearTimeout(holdTimer);
+              holdTimer = null;
+            };
+            button.addEventListener('pointerdown', (evt) => {
+              if (evt.button !== undefined && evt.button !== 0) return;
+              clearHold();
+              suppressUntil = 0;
+              holdTimer = setTimeout(() => {
+                holdTimer = null;
+                suppressUntil = Date.now() + 1500;
+                solo();
+              }, LEGEND_LONGPRESS_MS);
+            });
+            for (const type of ['pointerup', 'pointerleave', 'pointercancel']) button.addEventListener(type, clearHold);
+            return (evt) => {
+              if (suppressUntil && Date.now() < suppressUntil) {
+                suppressUntil = 0;
+                return true;
+              }
+              suppressUntil = 0;
+              if (evt && evt.altKey) {
+                solo();
+                return true;
+              }
+              return false;
+            };
+          };
+
           if (scopeSpreadButton) {
             scopeSpreadButton.addEventListener('click', () => {
               settings.ui.scopeSpread = !spreadOn();
@@ -14267,7 +14320,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // Same click/dblclick discipline as the track legend entries: the
             // toggle waits out the double-click window so a solo never
             // flickers through a toggled state first.
-            scopeTotalButton.addEventListener('click', () => {
+            const totalAlone = () => {
+              clearPendingClick();
+              if (!totalOn()) {
+                settings.ui.scopeTotal = true;
+                persistSettings();
+              }
+              applySelection([]);
+              applyScopeOptions();
+              syncScopeOptions();
+            };
+            const totalSoloClick = addLegendSoloGestures(scopeTotalButton, totalAlone);
+            scopeTotalButton.addEventListener('click', (evt) => {
+              if (totalSoloClick(evt)) {
+                clearPendingClick();
+                return;
+              }
               if (pendingClickTimer !== null && pendingClickId === 'total') {
                 clearPendingClick();
                 return;
@@ -14292,7 +14360,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               applyScopeOptions();
               syncScopeOptions();
             });
-            describe(scopeTotalButton, 'Add a white trace of the finished mix, effects and all. Double-click to show only the mix.');
+            describe(scopeTotalButton, 'Add a white trace of the finished mix, effects and all. Alt-click (Option-click), or press and hold, to show only the mix; double-click does the same.');
           }
           // Set while a legend gesture is being applied, so the persist +
           // re-render it triggers can never be mistaken for a fresh gesture.
@@ -14361,7 +14429,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               // A single click toggles, a double click solos: the toggle waits
               // out the double-click window so a solo never flickers through
               // an off state first.
-              button.addEventListener('click', () => {
+              const soloClick = addLegendSoloGestures(button, () => {
+                clearPendingClick();
+                applySelection([id]);
+              });
+              button.addEventListener('click', (evt) => {
+                if (soloClick(evt)) {
+                  clearPendingClick();
+                  return;
+                }
                 if (pendingClickTimer !== null && pendingClickId === id) {
                   clearPendingClick();
                   return;
@@ -14378,7 +14454,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 clearPendingClick();
                 applySelection([id]);
               });
-              describe(button, `Show ${TRACK_LABELS[id]} on the oscilloscope. Double-click to solo it.`);
+              describe(button, `Show ${TRACK_LABELS[id]} on the oscilloscope. Alt-click (Option-click), or press and hold, to solo it; double-click does the same.`);
               legendButtons.set(id, button);
               scopeLegend.append(button);
             }
@@ -14409,6 +14485,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (scopeLegend.querySelector('.scope-legend-track:not([data-page-legend])')) {
               // scope.js's own legend is in place and syncs itself.
               legendButtons.clear();
+              for (const button of scopeLegend.querySelectorAll('.scope-legend-track:not([data-page-legend])')) {
+                if (button.dataset.described === '1' || button === scopeTotalButton) continue;
+                const name = button.querySelector('.scope-legend-label')?.textContent || 'this track';
+                describe(button, `Show or hide ${name} on the oscilloscope. Alt-click (Option-click), or press and hold, to solo it; double-click does the same.`);
+              }
               return;
             }
             if (!legendButtons.size || !scopeLegend.firstElementChild) {
@@ -15604,6 +15685,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       {
         const slot = document.getElementById('share-name-info');
         if (slot) infoButton(slot, 'the link name', SHARE_NAME_INFO);
+      }
+      {
+        const slot = document.getElementById('preset-submit-info');
+        if (slot) infoButton(slot, 'submitting a preset', 'Submitting opens our contact form prefilled with the preset; if that doesn\u2019t load, copy the JSON and send it however suits.');
+      }
+      {
+        const slot = document.getElementById('genre-rules-info');
+        if (slot) infoButton(slot, 'the genre rules', 'The rules this genre draws every bar from. Change them and Apply: the piece is re-drawn from YOUR rules with the same dice, so only what you change, changes. + adds a rule, \u00d7 removes one \u2014 remove a section\u2019s every rule and it stops ruling.');
+      }
+      {
+        const slot = document.getElementById('genre-rules-save-info');
+        if (slot) infoButton(slot, 'Save genre', 'Save genre keeps every rule above, plus the voices and dials you have set, as a genre of your own: it appears in the picker under User, and Next draws fresh pieces from it. It stays on this device.');
       }
       {
         const slot = document.getElementById('submit-terms-info');
@@ -16859,7 +16952,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         b.className = className;
         b.textContent = label;
         if (title) {
-          b.title = title;
+          describe(b, title);
           b.setAttribute('aria-label', title);
         }
         b.addEventListener('click', () => {
@@ -16877,7 +16970,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const select = document.createElement('select');
         select.className = 'rule-chip';
         if (title) {
-          select.title = title;
+          describe(select, title);
           select.setAttribute('aria-label', title);
         }
         if (removable) {
@@ -16917,8 +17010,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           cell.className = 'rule-step';
           if (i % 4 === 0) cell.classList.add('rule-step-beat');
           cell.setAttribute('aria-pressed', String(/[xX]/.test(ch)));
-          cell.title = `Step ${i + 1} — press to ${/[xX]/.test(ch) ? 'rest' : 'hit'}`;
-          cell.setAttribute('aria-label', cell.title);
+          const stepTitle = `Step ${i + 1} — press to ${/[xX]/.test(ch) ? 'rest' : 'hit'}`;
+          describe(cell, stepTitle);
+          cell.setAttribute('aria-label', stepTitle);
           cell.addEventListener('click', () => {
             rulesModelDirty = true;
             onToggle(i);
@@ -16932,7 +17026,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function lengthSelect(current, choices, title, onChange) {
         const select = document.createElement('select');
         select.className = 'rule-chip rule-length';
-        select.title = title;
+        describe(select, title);
         select.setAttribute('aria-label', title);
         for (const n of choices.includes(current) ? choices : [current, ...choices]) {
           const opt = document.createElement('option');
@@ -16999,8 +17093,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }, false));
             const prob = document.createElement('select');
             prob.className = 'rule-chip rule-length';
-            prob.title = `Rule ${ri + 1}: how often the swap happens`;
-            prob.setAttribute('aria-label', prob.title);
+            const probTitle = `Rule ${ri + 1}: how often the swap happens`;
+            describe(prob, probTitle);
+            prob.setAttribute('aria-label', probTitle);
             const stops = [];
             for (let pct = 5; pct <= 100; pct += 5) stops.push(pct);
             const currentPct = Math.round(rule.prob * 100);
@@ -21034,7 +21129,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#front-scope-module',
-          text: 'The oscilloscope and the piano roll sit above the tabs, so they stay put while you work. In the legend, a click hides one instrument\'s trace and a double-click solos it; Spread gives each track a line of its own and Total adds the finished mix. The button beside them fills the screen with either display, where a second control brings the other one in below it, and the twisty folds the whole thing away.',
+          text: 'The oscilloscope and the piano roll sit above the tabs, so they stay put while you work. In the legend, a click hides one instrument\'s trace and Alt-click or a press-and-hold solos it; Spread gives each track a line of its own and Total adds the finished mix. The button beside them fills the screen with either display, where a second control brings the other one in below it, and the twisty folds the whole thing away.',
         },
         {
           tab: 'advanced',
@@ -23517,6 +23612,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       margin: 0 0 8px;
       font-size: 0.85rem;
     }
+    .ve-rule-level-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .ve-rule-level-row select,
     .rule-level-row select {
       min-height: 30px;
       padding: 2px 6px;

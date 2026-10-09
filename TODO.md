@@ -40,10 +40,10 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 Shipped from it: fixes 1 (v0.0.208), 2–4 and 14 (v0.0.207), 6–7 (v0.0.209), 8–12 (v0.0.210), 13 (v0.0.208). Still open, in the review's order:
 
 - [ ] **[decide — fromClaude 23] One name for the randomness macro** (Change / Variation / Randomness), then rename everywhere; meanwhile the sequencer tabs' "Shuffle / In order" becomes "By weight / In turn" like the Pool (fix 5).
-- [ ] **Scope legend solo without double-click** — Alt/⌥-click or long-press, double-click kept as an alias (fix 16).
+- [x] *(SHIPPED v0.0.219)* **Scope legend solo without double-click** — Alt/⌥-click or long-press, double-click kept as an alias (fix 16).
 - [ ] **Pro layer: keybindings** — 1–9 favourite genres / factory presets, [ ] previous/next preset, S/A tabs, ? for a shortcut sheet; off while musical typing is on (fix 19). Then pins and saved layouts, his "rapid pro work" half of the rule.
-- [ ] **Help in one form** — the Presets and Rules paragraphs into ⓘs; genre-rules titles to describe() (fix 15).
-- [ ] **"Rules show" where it acts** — mirrored in each voice editor head (fix 17).
+- [x] *(SHIPPED v0.0.219)* **Help in one form** — the Presets and Rules paragraphs into ⓘs; genre-rules titles to describe() (fix 15).
+- [x] *(SHIPPED v0.0.219)* **"Rules show" where it acts** — mirrored in each voice editor head (fix 17).
 - [ ] **Advanced collapses to its Now** — Sound / Music / Presets sections, each a heading with "more" (fix 18). The biggest; every drive that scrolls to a control must open its section first.
 - [ ] **Genre rules on the rule primitive** — each of the 11 sections collapsed to its summary line with "more" (fix 20). Waits on fromClaude 24 (live versus Apply).
 - [ ] **Phone: the voice editor head is 297 px tall** (v0.0.210 measurement; 149 on desktop) — tidy, no overlap, but tall; look again once the head's remaining contents settle.

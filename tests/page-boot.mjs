@@ -1099,6 +1099,96 @@ try {
     }
   }
 
+  // v0.0.219 — UI review fixes 15, 16, 17.
+  // 16: the scope legend solos on Alt/Option-click and on a press-and-hold,
+  // not only a double-click. The legend is drawn from the page's
+  // settings.ui.scopeTracks (selectedTracks), so aria-pressed is that state.
+  {
+    const keys = [...doc.querySelectorAll('#front-scope-legend .scope-legend-track')]
+      .filter((b) => b.id !== 'front-scope-total');
+    const pressed = () => keys.filter((b) => b.getAttribute('aria-pressed') === 'true').length;
+    if (keys.length < 3) {
+      failures.push('legend solo: fewer than three legend keys to test with');
+    } else {
+      const target = keys[1];
+      const startPressed = pressed();
+      // Alt-click: immediate, no double-click window.
+      target.dispatchEvent(new window.MouseEvent('click', { bubbles: true, altKey: true }));
+      if (!(await waitUntil(() => pressed() === 1 && target.getAttribute('aria-pressed') === 'true', 400))) {
+        failures.push(`legend solo: Alt-click did not solo the key (pressed ${pressed()} of ${startPressed})`);
+      }
+      // Restore all keys, then a long-press on a different key.
+      for (const k of keys) {
+        if (k.getAttribute('aria-pressed') !== 'true') {
+          k.click();
+          await new Promise((r) => setTimeout(r, 330));
+        }
+      }
+      const held = keys[2];
+      held.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      await new Promise((r) => setTimeout(r, 650));
+      held.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true, button: 0 }));
+      held.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 400)); // outlast the toggle window
+      if (!(pressed() === 1 && held.getAttribute('aria-pressed') === 'true')) {
+        failures.push(`legend solo: a 650 ms hold did not solo cleanly, or its release click toggled it (pressed ${pressed()})`);
+      }
+      // Leave everything on for the checks below.
+      for (const k of keys) {
+        if (k.getAttribute('aria-pressed') !== 'true') {
+          k.click();
+          await new Promise((r) => setTimeout(r, 330));
+        }
+      }
+    }
+  }
+  // 15: Presets and Rules explanations are ⓘ buttons, not paragraphs.
+  {
+    for (const [slotId, why] of [['preset-submit-info', 'Submit preset'], ['genre-rules-info', 'Genre rules'], ['genre-rules-save-info', 'Save genre'], ['share-name-info', 'the link name']]) {
+      const slot = doc.getElementById(slotId);
+      const btn = slot && slot.querySelector('button.info-button');
+      if (!btn) { failures.push(`help in one form: ${why} has no ⓘ button (#${slotId})`); continue; }
+      const box = slot.querySelector('.info-box');
+      btn.click();
+      if (!box || box.hidden || btn.getAttribute('aria-expanded') !== 'true') failures.push(`help in one form: the ⓘ for ${why} does not open`);
+      btn.click();
+    }
+    const leftovers = [...doc.querySelectorAll('p.hint')].filter((p) =>
+      /^(Every share link has its own|Submitting opens our contact form|Save genre keeps|The rules this genre draws)/.test(p.textContent.trim()));
+    if (leftovers.length) failures.push(`help in one form: ${leftovers.length} explanatory paragraph(s) still on the page: "${leftovers[0].textContent.trim().slice(0, 40)}"`);
+  }
+  // 17: "Rules show" is mirrored in each voice editor head — one setting.
+  {
+    const padEd = await openEditor('pad');
+    const arpEd = await openEditor('arp');
+    const padSel = padEd && padEd.querySelector('.ve-header select.ve-rule-level');
+    const arpSel = arpEd && arpEd.querySelector('.ve-header select.ve-rule-level');
+    const global = doc.getElementById('rule-level');
+    if (!padSel || !arpSel || !global) {
+      failures.push('Rules show: the voice editor head has no Rules show select (or the Advanced one is gone)');
+    } else {
+      const was = global.value;
+      const next = was === 'expert' ? 'simple' : 'expert';
+      padSel.value = next;
+      padSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+      if (global.value !== next) failures.push(`Rules show: changing it in the pad editor left the Advanced select on "${global.value}", not "${next}"`);
+      if (arpSel.value !== next) failures.push(`Rules show: changing it in the pad editor left the arp editor's copy on "${arpSel.value}", not "${next}"`);
+      // The level is page state, not a look: it decides whether an editor's
+      // "more" opens (expert) — read that, in both editors.
+      const moreOf = (ed) => ed.querySelector('.ve-more');
+      const wantOpen = next === 'expert';
+      for (const [name, ed] of [['pad', padEd], ['arp', arpEd]]) {
+        const more = moreOf(ed);
+        if (more && !ed.hidden && (more.getAttribute('aria-expanded') === 'true') !== wantOpen) {
+          failures.push(`Rules show: set to "${next}" in the pad head, but the ${name} editor's "more" did not follow`);
+        }
+      }
+      global.value = was;
+      global.dispatchEvent(new window.Event('change', { bubbles: true }));
+      if (padSel.value !== was || arpSel.value !== was) failures.push('Rules show: changing the Advanced copy did not reach the editors');
+    }
+  }
+
   // v0.0.201 — owner ruling 2026-09-25, "auto writes its choice into Now":
   // the arp's Pattern/Rate/Octaves readouts must equal the ENGINE's own
   // getResolved().arp while auto is playing — never a page-side
