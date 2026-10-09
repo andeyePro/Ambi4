@@ -96,7 +96,7 @@
  *
  * THE GROOVE GRAMMAR, AND THE TWO PATHS.
  *
- *   Kit path (fallbackLists.grooves present, eight of the twelve genres):
+ *   Kit path (fallbackLists.grooves present, nine of the twelve genres):
  *   every groove becomes a MANUAL percussion sequencer — low/mid/high masks
  *   written onto the sixteenth grid, one sequencer per groove with even
  *   transition weights, so the kit shuffles between the genre's own patterns.
@@ -104,7 +104,7 @@
  *   line to percussion's low lane by itself, which is exactly what the
  *   anchorPatterns describe.
  *
- *   Grammar path (no fallback kit — ambient, new age, minimalism, cinematic):
+ *   Grammar path (no fallback kit — ambient, new age, minimalism):
  *   percussion stays on `auto` and the grammar is GUIDANCE. anchorPatterns set
  *   the auto kit's density relative to four-on-the-floor (bounded, so a
  *   sixteenth-grid anchor cannot compile to a machine-gun), and nothing fakes a

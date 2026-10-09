@@ -61,7 +61,7 @@ His concern, in-chat: "far too easy to break Ambi4 - turn some dials and it's ru
 Build order:
 
 - [x] *(SHIPPED v0.0.206)* **Step 1 — see it and undo it.** Edited / User / Stock headings on the voice pickers; ↺ Factory on an edited row; "· edited" and ↺ Back to factory on the genre; the count-and-list confirmation past two changes; a load or a Stock pick plays factory and parks the edit under Edited. Found and fixed on the way: a genre load left old edits sounding at the engine (patches merge), and factory Synthwave read as edited (baseline ignored the genre's own patches). Not in it: the dot on levels below the genre (the row button and the genre mark do the job for now); the genre picker's own headings (it already groups Genres / My genres — rename to Stock / User with step 3).
-- [ ] **Step 2 — the leave-guard.** Moving away from an edited voice (another voice, close the editor, Next, a genre) asks: Save changes · Save as… · Revert to last save (only when a save exists and differs from the default) · Reset to default (only for a factory voice); Revert and Reset take the step-1 confirmation. Needs a per-item "last saved" snapshot.
+- [ ] **Step 2 — the leave-guard.** *(BUILT, merged with New… and hide on branch `chair-merge` — see "Built on 2026-10-09, NOT YET MERGED")* Moving away from an edited voice (another voice, close the editor, Next, a genre) asks: Save changes · Save as… · Revert to last save (only when a save exists and differs from the default) · Reset to default (only for a factory voice); Revert and Reset take the step-1 confirmation. Needs a per-item "last saved" snapshot.
 - [ ] **Step 3 — hide, and New….** Hide/unhide/delete as above, for voices and genres. New… in the voice list just above Pool of voices: Instrument (a tree — keys, wind, brass, strings, plucked, mallets, synth…), Synth (every engine, each opening the simplest voice that still sounds good: a plain open sawtooth for Subtractive, not a sine), Sample (upload first; recording joins the v0.2.x audio-in track), Noise (colours — white, pink, brown — and weather presets: rain, waves, wind, fire). Needs a category on every voice in engine-voices.js and a starting patch per engine; Blank slate's init patch (his 117) is the precedent.
 - [ ] **[decide] The voice rule's Now button** — v0.0.205 opens the list and flashes the picker as an interim; the better shape is likely the picker inside the editor's Now, built with step 3's custom list.
 - [x] *(SHIPPED v0.0.205)* **An edited voice keeps its name** — picking an edited Pluck read "Custom (Subtractive)", as if the pick had failed. It reads "Pluck · edited" now, with the engine named in its tooltip. The edit itself is per track and per voice (`settings.patches[track][voice]`), so the pick DID work; the label hid it.
@@ -95,6 +95,12 @@ The 2026-09-25 session (4 h, 8 % of the week) took the two smallest slices with 
 - [ ] **The Recipe sheet** — a read-only view of the playing piece's full rules in canonical order at every level, each line a link to its control, Copy as text. No Create entry, no capture button (his 96). **[decide]** whether a read-only sheet with Copy as text sits inside item 96 — ask in fromClaude when it is next in line.
 - [ ] **Two tour chapters** — Hold the melody's voice (Synthwave, open the voice rule, Chance to 0, remove Organ stab from the Pool) and Rebuild Synthwave (Synthwave to the Recipe sheet to a Blank slate rebuild), with `docs/dial-control-plane-plan.md` rewritten to the three-layer logic.
 - [ ] **Browser drives for all of the above** — parked in `tests/pending/` until the bridge key is restored (fromClaude 13).
+
+### Built on 2026-10-09, NOT YET MERGED (the run stopped for the credit reset)
+
+- [ ] **Branch `chair-merge` (worktree `.claude/worktrees/chair-merge`, based on v0.0.222): three commits already conflict-resolved together** — b06be22 the leave-guard (agent 67e4cdd: Save changes / Save as… / Revert / Reset / Move on / Keep editing when leaving an edited voice; asks once for Next or a genre), f85cc17 New… (agent 3031ee1: voice categories, a starting patch per engine, the four-door chooser; Sample greyed honestly), dd0841f hide (agent 1ee56c9: hide/unhide/delete for voices and genres, "Hidden: …" entry). In staging: page-boot, new-voice-smoke, tutorial-smoke, voice-rule-page, genre-smoke green. To land: `git cherry-pick b06be22 f85cc17 dd0841f` onto dev, full gate, one version each (or one combined), CHANGELOG from the agents' drafts in the session file. Owner looks: the leave-guard adds a Move on button he did not list (never trap the user); opening another track's editor does not ask; preset cards don't ask yet; New… is an action in the voice list again (his own TODO placement); the pad's open-saw starting patch peaks ~3× factory Warm; the engine's voice wander can still land on a hidden stock voice.
+- [ ] **Three agents told to commit WIP at the stop** — Minimalism's additive process (Glass), UI fix 18 (Advanced collapses to its Now), pins and saved layouts. Find each with `git branch --list 'worktree-agent-*'` newest first (`git for-each-ref --sort=-committerdate refs/heads/worktree-agent-*`); none was reviewed or merged.
+- [ ] **Run the full gate on dev before pushing** — v0.0.224's full gate was interrupted by the stop.
 
 ### Built on 2026-10-03, NOT YET MERGED — each commit lives on its own branch; merge onto dev in this order (owner's "wind up without losing their contributions")
 
@@ -297,7 +303,7 @@ bottom of the TODO."
 
 - [x] Acid Jazz — dissonant throughout *(v0.0.221, measured: 4.10 → 0.79 clashes a bar; ear-test his, then unhide?)*
 - [x] Bossa — dissonant, plus the click on note onset *(dissonance v0.0.221, 2.09 → 1.21; click v0.0.140; ear-test his)*
-- [ ] Cinematic — does not sound like the genre it names
+- [x] Cinematic — does not sound like the genre it names *(v0.0.224, measured apart on 6 of 7; ear-test his, then unhide?)*
 - [x] Deep House — bass fine, melody annoying *(v0.0.222, measured; ear-test his)*
 - [x] Lofi Beats — bad melody *(v0.0.222, measured; ear-test his)*
 - [x] Downtempo — bass and drums clash once the drums enter *(v0.0.214, measured; ear-test his)*

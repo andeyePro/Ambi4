@@ -2,7 +2,7 @@
   "slug": "cinematic",
   "name": "Cinematic",
   "cluster": 3,
-  "oneLiner": "Slow strings and a far-off drum — a score for a scene that never quite arrives.",
+  "oneLiner": "A low pedal under high strings, one long-breathed line, chords that move by thirds — and drums that only arrive at the climax.",
   "essence": {
     "bpm": [58, 78],
     "swing": [0, 0.04],
@@ -13,27 +13,26 @@
     ],
     "modes": [
       { "value": "aeolian", "weight": 0.5 },
-      { "value": "lydian", "weight": 0.3 },
-      { "value": "dorian", "weight": 0.2 }
+      { "value": "lydian", "weight": 0.35 },
+      { "value": "dorian", "weight": 0.15 }
     ],
     "chordLanguage": {
       "progressionGrammar": [
+        "i VI i III",
+        "i VI iv VI",
+        "I iii I vi",
         "i VI III VII",
-        "i iv VI v",
-        "i VI iv VII",
-        "I II",
-        "I II vi II"
+        "I II vi I"
       ],
       "substitutionRules": [
-        { "from": "VI", "to": "iv", "prob": 0.25 },
         { "from": "VII", "to": "v", "prob": 0.2 },
         { "from": "II", "to": "vi", "prob": 0.15 }
       ],
-      "extensionBias": 0.5,
+      "extensionBias": 0.3,
       "harmonicRhythm": [
-        { "value": 4, "weight": 0.5 },
-        { "value": 2, "weight": 0.3 },
-        { "value": 8, "weight": 0.2 }
+        { "value": 8, "weight": 0.55 },
+        { "value": 4, "weight": 0.3 },
+        { "value": 16, "weight": 0.15 }
       ]
     },
     "grooveGrammar": {
@@ -54,15 +53,15 @@
         "melody": { "state": "auto", "voice": "flute", "level": 0.3, "randomness": { "min": 0.2, "max": 0.4 } },
         "bass": { "state": "on", "voice": "sub", "level": 0.55, "randomness": 0.1 },
         "texture": { "state": "on", "voice": "wash", "level": { "min": 0.2, "max": 0.38 }, "randomness": 0.3 },
-        "percussion": { "state": "auto", "voice": "hand", "level": 0.4, "randomness": 0.2 }
+        "percussion": { "state": "auto", "voice": "hand", "level": 0.5, "randomness": 0.15, "autoThreshold": 0.45 }
       },
       "reverbTail": 5,
       "patches": {
         "pad": {
           "strings": {
-            "source": { "detune": 6, "mix": 0.5 },
+            "source": { "detune": 6, "mix": 0.5, "octave": 1 },
             "filter": { "type": "lowpass", "cutoff": 2400, "q": 0.6 },
-            "adsr": { "attack": 2.5, "decay": 0.01, "sustain": 1, "release": 4.5 },
+            "adsr": { "attack": 3.5, "decay": 0.01, "sustain": 1, "release": 5 },
             "sends": { "reverb": 0.65, "delay": 0.1 }
           }
         },
@@ -75,6 +74,7 @@
         },
         "melody": {
           "flute": {
+            "source": { "octave": 1 },
             "filter": { "type": "lowpass", "cutoff": 3000, "q": 0.7 },
             "adsr": { "attack": 0.25, "decay": 0.2, "sustain": 0.8, "release": 1.2 },
             "sends": { "reverb": 0.6, "delay": 0.2 }
@@ -89,14 +89,14 @@
         },
         "percussion": {
           "hand": {
-            "source": { "pitch": -7, "noise": 0.5 },
-            "filter": { "type": "lowpass", "cutoff": 4000, "q": 0.7 },
-            "sends": { "reverb": 0.6, "delay": 0.1 },
+            "source": { "pitch": -12, "noise": 0.3 },
+            "filter": { "type": "lowpass", "cutoff": 1800, "q": 0.7 },
+            "sends": { "reverb": 0.75, "delay": 0.05 },
             "perKind": {
               "low": {
-                "source": { "pitch": -12 },
-                "adsr": { "decay": 0.6, "release": 0.5 },
-                "sends": { "reverb": 0.7 }
+                "source": { "pitch": -19 },
+                "adsr": { "decay": 1.1, "release": 0.8 },
+                "sends": { "reverb": 0.8 }
               }
             }
           }
@@ -104,14 +104,20 @@
       }
     },
     "energyArc": [
-      { "value": "journey", "weight": 0.5 },
-      { "value": "waves", "weight": 0.3 },
-      { "value": "build", "weight": 0.2 }
+      { "value": "build", "weight": 0.55 },
+      { "value": "journey", "weight": 0.35 },
+      { "value": "waves", "weight": 0.1 }
     ],
     "dissonanceRange": [0, 0.2],
     "densityBias": 0.75
   },
-  "fallbackLists": null,
+  "fallbackLists": {
+    "grooves": [
+      { "low": "x---------------" },
+      { "low": "x-------x-------" },
+      { "low": "x-----------x-x-" }
+    ]
+  },
   "defiance": [
     { "param": "reverbTail", "label": "Close room to cathedral", "range": [0.5, 6] },
     { "param": "tracks.percussion.level", "label": "Distant to war drums", "range": [0, 0.8] },

@@ -1702,13 +1702,14 @@ beat 4½ of a 7/8 bar).
   loop's shape (length, colour, harmonic rhythm, mode) survives.
   `expandProgression()` returns the degrees for a UI or a test; feeding them to
   the engine needs a hook-seed param that does not exist yet — open work.
-- Groove grammar, two paths. With `fallbackLists.grooves` (eight of twelve
+- Groove grammar, two paths. With `fallbackLists.grooves` (nine of twelve
   genres): every groove becomes a MANUAL percussion sequencer — low/mid/high
   masks on the sixteenth grid, one sequencer per groove, evenly weighted, so
   the kit shuffles between the genre's own patterns; the bass needs no anchor
   instruction because the engine already locks the line to percussion's low
   lane, which is what `anchorPatterns` describe. Without one (ambient, new age,
-  minimalism, cinematic): percussion stays `auto` and the grammar is GUIDANCE
+  minimalism; cinematic moved to the kit path in its voicing pass, below):
+  percussion stays `auto` and the grammar is GUIDANCE
   — `anchorPatterns` set the auto kit's density against four-on-the-floor
   (bounded 0.5–1.5, so a sixteenth-grid anchor cannot compile to a machine-gun),
   and no grid is faked from masks the director wrote for a kit.
@@ -2719,3 +2720,51 @@ over every Bossa V7.
 - Gated by `tests/arp-range-smoke.mjs`: every stock genre at Complexity 0.95,
   six seeds each — every arp note's pitch class inside its chord, none out of
   range, none struck twice. Red on v0.0.220 (870 foreign notes, all on 96).
+---
+
+# Cinematic voicing pass — genre data only
+
+The owner on Cinematic: "it frankly sounds much more like most of the other
+Ambi4 tracks than anything you would call Cinematic" — the v0.0.29
+blind-identification test failing for one genre. `tests/cinematic-identity-smoke.mjs`
+measures seven things film-score ambient is recognised by, over twelve seeds
+of all twelve genres, and showed it sitting inside the pack on most of them.
+The pass is DATA ONLY (`src/data/genres/cinematic.json`); no engine or
+compiler code moved, so every other genre compiles byte-identically.
+
+| measure | what it reads | v0.0.220 | after | other genres' edge |
+| --- | --- | --- | --- | --- |
+| span | p95−p5 sounding semitones of pad/bass/melody/arp, time-weighted | 27.9 | 40.7 | 30.4 |
+| outer | share of sounding time below C3 or from C5 up | 0.16 | 0.50 | 0.16 |
+| mediant | share of chord changes whose root moves a third | 0.28 | 0.74 | 0.30 |
+| swell | section-intensity range (max−min) | 0.52 | 0.56 | 0.51 |
+| lowPerc | share of percussion hits on the low lane | 0.50 | 1.00 | 0.50 |
+| melodyBeats | median melody note, beats | 1.06 | 1.36 | 1.23 |
+| barsPerChord | bars per chord change (reported, not held) | 4.4 | 9.0 | 23.4 (drones) |
+
+What changed, and which measure each answers:
+
+- **Register (span, outer).** The strings pad and the flute line each sound
+  an octave up (`source.octave: 1` in their patches) over the unmoved sub
+  bass: a low pedal under high strings and a high solo line, hollow in the
+  middle, instead of three tracks stacked in the octave around middle C.
+- **Harmony (mediant, barsPerChord).** Every seed is a third-relation loop
+  (`i VI i III`, `i VI iv VI`, `I iii I vi`, plus the epic `i VI III VII` and
+  the Lydian lift `I II vi I`); the `VI → iv` substitution that turned a third
+  into a fourth is gone. Harmonic rhythm is mostly 8 bars a chord (4 and 16
+  the rest); `extensionBias` 0.3 keeps the voicings triadic.
+- **Form (swell).** The energy arc leans on `build` (0.55): a 32-bar
+  crescendo from 0.2 to 0.85 intensity and its release.
+- **Drums (lowPerc).** Cinematic moved from the grammar path to the KIT path:
+  three low-lane-only grooves (one boom a bar, two, and a pickup into the
+  next bar) on the hand voice pitched down to a long, dark boom. The kit's
+  `autoThreshold` is 0.45, so at the genre's complexity it only switches on
+  in the top of a swell — the drums arrive with the climax. (At Energy 0.75
+  and up the compiler adds its usual fill tab, a mid-lane crescendo run on
+  the last beat; that is the one place a non-low hit can appear.)
+- **Line (melodyBeats).** The lower complexity (0.25 compiled) puts the
+  motif builder on its calm onset gaps, so the solo line breathes in
+  crotchets and longer.
+
+Cinematic stays in HIDDEN_GENRES (the test asserts it): this pass is to make
+it worth his listening again, not to publish it.
