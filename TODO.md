@@ -41,7 +41,7 @@ Shipped from it: fixes 1 (v0.0.208), 2–4 and 14 (v0.0.207), 6–7 (v0.0.209), 
 
 - [ ] **[decide — fromClaude 23] One name for the randomness macro** (Change / Variation / Randomness), then rename everywhere; meanwhile the sequencer tabs' "Shuffle / In order" becomes "By weight / In turn" like the Pool (fix 5).
 - [x] *(SHIPPED v0.0.219)* **Scope legend solo without double-click** — Alt/⌥-click or long-press, double-click kept as an alias (fix 16).
-- [ ] **Pro layer: keybindings** — 1–9 favourite genres / factory presets, [ ] previous/next preset, S/A tabs, ? for a shortcut sheet; off while musical typing is on (fix 19). Then pins and saved layouts, his "rapid pro work" half of the rule.
+- [ ] **Pro layer: keybindings** — *(keys SHIPPED v0.0.220; pins and saved layouts still open)* 1–9 favourite genres / factory presets, [ ] previous/next preset, S/A tabs, ? for a shortcut sheet; off while musical typing is on (fix 19). Then pins and saved layouts, his "rapid pro work" half of the rule.
 - [x] *(SHIPPED v0.0.219)* **Help in one form** — the Presets and Rules paragraphs into ⓘs; genre-rules titles to describe() (fix 15).
 - [x] *(SHIPPED v0.0.219)* **"Rules show" where it acts** — mirrored in each voice editor head (fix 17).
 - [ ] **Advanced collapses to its Now** — Sound / Music / Presets sections, each a heading with "more" (fix 18). The biggest; every drive that scrolls to a control must open its section first.

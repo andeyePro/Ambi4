@@ -1028,6 +1028,9 @@ const VOICES: Record<string, [string, string][]> = {
       <span id="tutorial-progress" class="value-readout"></span>
       <button type="button" id="tutorial-next" class="secondary-button">Next</button>
     </div>
+    <!-- ui-review 2026-10-03 fix 19: the shortcut sheet's visible door, in
+         the help the ? button already opens. The key itself is ?, too. -->
+    <button type="button" id="shortcuts-open" class="secondary-button tutorial-shortcuts">Keyboard shortcuts (?)</button>
   </aside>
 
   <!-- v26 fullscreen host. The oscilloscope and the piano roll are MOVED in
@@ -20684,6 +20687,166 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         syncSetupEditedMark();
       }
 
+      // ---- ui-review 2026-10-03 fix 19: the pro layer's keybindings -------
+      // His standing rule: "pro speed comes from keybindings, pins, favourites
+      // and saved layouts — not from putting every control on the surface".
+      // So nothing new on the surface but one way in to the sheet (in the
+      // tour panel) and the sheet itself; the keys:
+      //   1–9   the ☆ favourite genres, in the picker's order, then the
+      //         factory presets in gallery order to fill the nine slots
+      //   [ ]   previous / next — through the genre list while a genre is in
+      //         play, through the factory presets otherwise
+      //   S A   the Simple / Advanced tabs
+      //   ?     this sheet (Esc or ? again closes it)
+      // They stand down while musical typing is on (its keys are notes, and
+      // 2 3 5 6 7 9 0 are among them), in any text field, select or
+      // contenteditable (a dial's typed number is a text field), inside any
+      // other dialog, under Ctrl/Meta/Alt, and on a key some control has
+      // already handled (defaultPrevented — the step grid's cell keys).
+      /** The nine number-key slots: favourites first, then presets. */
+      function shortcutSlots() {
+        const slots = [];
+        const favourites = new Set(genrePrefs.favourites);
+        for (const genre of [...PUBLIC_GENRES, ...USER_GENRES]) {
+          if (slots.length >= 9) break;
+          if (favourites.has(genre.slug)) slots.push({ kind: 'genre', genre, name: genre.name });
+        }
+        for (const preset of FACTORY_PRESETS) {
+          if (slots.length >= 9) break;
+          slots.push({ kind: 'preset', preset, name: preset.name });
+        }
+        return slots;
+      }
+      function loadShortcutSlot(slot) {
+        if (!slot) return false;
+        // The genre picker's own rule: a load that replaces the whole setup
+        // remembers the one being left, so Back still reaches it.
+        rememberSetup();
+        if (slot.kind === 'genre') {
+          const ok = applyGenre(slot.genre);
+          syncGenreUI();
+          if (!ok) return false;
+        } else {
+          loadFactoryPreset(slot.preset);
+        }
+        sayUnderDials(slot.name, 1800);
+        return true;
+      }
+      /** ] and [: the next / previous genre in the list, or factory preset. */
+      function stepShortcut(dir) {
+        const genre = currentGenre();
+        if (genre) {
+          const list = listedGenres();
+          const at = list.findIndex((entry) => entry.slug === genre.slug);
+          const next = list[(at + dir + list.length) % list.length];
+          return next ? loadShortcutSlot({ kind: 'genre', genre: next, name: next.name }) : false;
+        }
+        if (!FACTORY_PRESETS.length) return false;
+        const current = currentFactoryPreset();
+        const at = current ? FACTORY_PRESETS.findIndex((p) => p.slug === current.slug) : -1;
+        const index = at < 0
+          ? (dir > 0 ? 0 : FACTORY_PRESETS.length - 1)
+          : (at + dir + FACTORY_PRESETS.length) % FACTORY_PRESETS.length;
+        const preset = FACTORY_PRESETS[index];
+        return loadShortcutSlot({ kind: 'preset', preset, name: preset.name });
+      }
+
+      let shortcutReturnFocus = null;
+      function closeShortcutSheet() {
+        const sheet = document.getElementById('shortcut-sheet');
+        if (!sheet) return;
+        sheet.remove();
+        const back = shortcutReturnFocus;
+        shortcutReturnFocus = null;
+        if (back && back.isConnected && typeof back.focus === 'function') back.focus();
+      }
+      /** The sheet: the factory-confirm dialog's shape, built on demand. */
+      function openShortcutSheet() {
+        if (document.getElementById('shortcut-sheet')) return;
+        shortcutReturnFocus = document.activeElement;
+        const panel = document.createElement('div');
+        panel.className = 'module-panel blend-editor shortcut-sheet';
+        panel.id = 'shortcut-sheet';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-labelledby', 'shortcut-sheet-title');
+        const title = document.createElement('span');
+        title.className = 'panel-label popover-title';
+        title.id = 'shortcut-sheet-title';
+        title.textContent = 'Keyboard shortcuts';
+        const list = document.createElement('dl');
+        list.className = 'shortcut-list';
+        const row = (keys, what) => {
+          const dt = document.createElement('dt');
+          dt.textContent = keys;
+          const dd = document.createElement('dd');
+          dd.textContent = what;
+          list.append(dt, dd);
+        };
+        shortcutSlots().forEach((slot, i) => {
+          row(String(i + 1), `${slot.name}${slot.kind === 'genre' ? ' ☆' : ''}`);
+        });
+        row('[  ]', 'Previous / next genre, or preset');
+        row('S  A', 'Simple / Advanced tab');
+        row('⌘Z  ⇧⌘Z', 'Undo / redo anything');
+        row('Backspace', 'A focused dial back to its default');
+        row('?', 'This sheet');
+        const note = document.createElement('p');
+        note.className = 'hint';
+        note.textContent = 'Star genres with the ☆ beside the genre picker and they take the first numbers. ' +
+          'The keys rest while Musical typing is on, because there they play notes.';
+        const actions = document.createElement('div');
+        actions.className = 'genre-fav-actions';
+        const done = document.createElement('button');
+        done.type = 'button';
+        done.className = 'secondary-button shortcut-sheet-close';
+        done.textContent = 'Close';
+        done.addEventListener('click', closeShortcutSheet);
+        actions.append(done);
+        panel.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' || event.key === '?') {
+            event.preventDefault();
+            closeShortcutSheet();
+          }
+        });
+        panel.append(title, list, note, actions);
+        document.body.append(panel);
+        done.focus();
+      }
+      document.getElementById('shortcuts-open')?.addEventListener('click', openShortcutSheet);
+
+      /** Whether a key belongs to something else and must not be a shortcut. */
+      function shortcutBlocked(event) {
+        if (event.defaultPrevented || event.repeat) return true;
+        if (event.ctrlKey || event.metaKey || event.altKey) return true;
+        if (playAlongOn) return true;
+        const el = event.target && event.target.nodeType === 1 ? event.target : null;
+        if (!el) return false;
+        if (el.isContentEditable) return true;
+        const tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'option') return true;
+        return !!(typeof el.closest === 'function' && el.closest('[role="dialog"], dialog, [contenteditable="true"]'));
+      }
+      document.addEventListener('keydown', (event) => {
+        if (shortcutBlocked(event)) return;
+        const key = event.key;
+        if (/^[1-9]$/.test(key)) {
+          const slot = shortcutSlots()[Number(key) - 1];
+          if (!slot) return;
+          loadShortcutSlot(slot);
+        } else if (key === ']' || key === '[') {
+          stepShortcut(key === ']' ? 1 : -1);
+        } else if (key === 's' || key === 'S') {
+          activateTab('simple');
+        } else if (key === 'a' || key === 'A') {
+          activateTab('advanced');
+        } else if (key === '?') {
+          openShortcutSheet();
+        } else {
+          return;
+        }
+        event.preventDefault();
+      });
+
       // Advanced keeps its way in: the gallery itself lives on Simple now
       // (v16), so this jumps tabs and puts the focus on the first card.
       document.getElementById('factory-presets-jump')?.addEventListener('click', () => {
@@ -21101,7 +21264,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#toggle-play',
-          text: 'Press Play — sound starts within a second, and the button becomes Finish (a musical ending) and then Stop. Pause holds the piece exactly where it is; Next jumps to a new setup drawn from the current genre\'s rules; Back returns to the one before. ⌘Z (Ctrl-Z) undoes anything at all — a dial, a chord, a Next — as far back as you like, and ⇧⌘Z redoes it.',
+          text: 'Press Play — sound starts within a second, and the button becomes Finish (a musical ending) and then Stop. Pause holds the piece exactly where it is; Next jumps to a new setup drawn from the current genre\'s rules; Back returns to the one before. ⌘Z (Ctrl-Z) undoes anything at all — a dial, a chord, a Next — as far back as you like, and ⇧⌘Z redoes it. Press ? for the other keys: 1–9 load a favourite or preset.',
         },
         {
           tab: 'simple',
@@ -23523,6 +23686,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       font-size: 0.85rem;
     }
 
+    /* ui-review fix 19: the shortcut sheet — key column, action column. */
+    .shortcut-list {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 4px 12px;
+      margin: 0;
+      font-size: 0.85rem;
+    }
+    .shortcut-list dt {
+      font-family: ui-monospace, Menlo, monospace;
+      white-space: pre;
+    }
+    .shortcut-list dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .tutorial-shortcuts {
+      margin-top: 8px;
+      min-height: 28px;
+      padding: 0 8px;
+      font-size: 0.8rem;
+    }
     .blend-editor {
       position: fixed;
       left: 50%;

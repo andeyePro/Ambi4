@@ -3673,6 +3673,156 @@ try {
     }
   }
 
+  // ---- ui-review 2026-10-03 fix 19: the pro layer's keybindings ----------
+  // 1–9 load the ☆ favourite genres, then the factory presets in order; [ and
+  // ] step through the genre list (genre in play) or the presets; S / A pick
+  // the tab; ? opens the sheet and Esc closes it. Every load is read back at
+  // the ENGINE (its bpm and pad level for a preset, its genre slug for a
+  // genre), never the picker's text. And the keys stand down where they
+  // would steal from something else: a text field, a Ctrl/Meta chord, and
+  // musical typing — whose number keys are notes.
+  {
+    const engine = window.__ambi4Engine;
+    const presetsJson = JSON.parse(readFileSync(join(repoRoot, 'src/data/factory-presets.json'), 'utf8'));
+    const press = (k, target = doc.body, extra = {}) => {
+      const event = new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...extra });
+      target.dispatchEvent(event);
+      return event;
+    };
+    const sig = () => {
+      const p = engine.getParams();
+      return `${p.bpm}|${p.tracks?.pad?.level}`;
+    };
+    const presetSig = (preset) => `${preset.params.bpm}|${preset.params.tracks.pad.level}`;
+    const isPreset = (i) => sig() === presetSig(presetsJson[i]);
+    const settle = () => new Promise((r) => setTimeout(r, 60));
+    const favEditor = doc.getElementById('genre-favourites');
+    const favBoxes = () => [...doc.querySelectorAll('#genre-favourites .genre-fav-item input[type="checkbox"]')];
+    const setFavourites = (slugs) => {
+      // Through the ☆ editor, as a person does it — the boxes write genrePrefs.
+      if (favEditor?.hidden) doc.getElementById('genre-favourites-toggle')?.click();
+      for (const box of favBoxes()) {
+        const want = slugs.includes(box.value);
+        if (box.checked !== want) {
+          box.checked = want;
+          box.dispatchEvent(new window.Event('change', { bubbles: true }));
+        }
+      }
+      const hide = doc.getElementById('genre-hide-others');
+      if (hide && hide.checked) {
+        hide.checked = false;
+        hide.dispatchEvent(new window.Event('change', { bubbles: true }));
+      }
+      doc.getElementById('genre-favourites-done')?.click();
+    };
+    const distinct = new Set(presetsJson.slice(0, 4).map(presetSig)).size === 4;
+    if (!engine || !favEditor || !distinct) {
+      failures.push(`keybindings: ${!engine ? 'no engine seam' : !favEditor ? 'no favourites editor' : 'the first four presets share a bpm and pad level, so the engine cannot tell them apart'}`);
+    } else {
+      setFavourites([]);
+      doc.body.focus?.();
+      // No favourites: the number keys are the factory presets in order.
+      press('2');
+      await waitUntil(() => isPreset(1));
+      await settle();
+      if (!isPreset(1)) failures.push(`keybindings: "2" with no favourites did not load ${presetsJson[1].name} at the engine (engine reads ${sig()}, want ${presetSig(presetsJson[1])})`);
+      if (engine.getParams().genre) failures.push(`keybindings: a preset loaded by "2" left the engine on genre ${engine.getParams().genre}`);
+      press(']');
+      await waitUntil(() => isPreset(2));
+      if (!isPreset(2)) failures.push(`keybindings: "]" after ${presetsJson[1].name} did not move on to ${presetsJson[2].name} (engine reads ${sig()})`);
+      press('[');
+      press('[');
+      await waitUntil(() => isPreset(0));
+      if (!isPreset(0)) failures.push(`keybindings: "[" twice from ${presetsJson[2].name} did not reach ${presetsJson[0].name} (engine reads ${sig()})`);
+
+      // The tabs.
+      const advanced = doc.getElementById('panel-advanced');
+      const simple = doc.getElementById('panel-simple');
+      press('a');
+      if (!advanced || advanced.hidden) failures.push('keybindings: "A" did not open the Advanced tab');
+      press('S');
+      if (!simple || simple.hidden || !advanced.hidden) failures.push('keybindings: "S" did not bring the Simple tab back');
+
+      // Never in a text field, never under a modifier.
+      const nameBox = doc.getElementById('preset-name');
+      if (nameBox) {
+        press('3', nameBox);
+        await settle();
+        if (!isPreset(0)) failures.push(`keybindings: typing "3" into the preset name loaded a preset (engine reads ${sig()})`);
+        press('a', nameBox);
+        if (simple.hidden) failures.push('keybindings: typing "a" into the preset name switched tabs');
+      }
+      const chord = press('2', doc.body, { ctrlKey: true });
+      press('2', doc.body, { metaKey: true });
+      await settle();
+      if (!isPreset(0)) failures.push(`keybindings: Ctrl/⌘-2 loaded a preset — a modifier chord belongs to the browser (engine reads ${sig()})`);
+      if (chord.defaultPrevented) failures.push('keybindings: Ctrl-2 was swallowed (preventDefault) — the browser\'s own tab shortcut must survive');
+
+      // Musical typing on: the number keys are notes, not presets.
+      const typing = doc.getElementById('play-along-toggle');
+      if (typing) {
+        if (typing.getAttribute('aria-pressed') !== 'true') typing.click();
+        press('1');
+        press('4');
+        await settle();
+        if (!isPreset(0)) failures.push(`keybindings: with musical typing on, "4" still loaded a preset (engine reads ${sig()})`);
+        press('a');
+        if (simple.hidden) failures.push('keybindings: with musical typing on, "a" still switched tabs');
+        if (typing.getAttribute('aria-pressed') === 'true') typing.click();
+        doc.body.dispatchEvent(new window.KeyboardEvent('keyup', { key: '1', bubbles: true }));
+        doc.body.dispatchEvent(new window.KeyboardEvent('keyup', { key: '4', bubbles: true }));
+      } else {
+        failures.push('keybindings: no musical typing toggle (#play-along-toggle) to test against');
+      }
+
+      // Favourites take the first numbers; with a genre in play ] walks the genre list.
+      const picked = favBoxes().slice(0, 2).map((box) => box.value);
+      if (picked.length === 2) {
+        setFavourites(picked);
+        // The slots follow the picker's order, which is not the editor's
+        // (the editor groups by mood).
+        const listed = [...doc.querySelectorAll('#genre-select option')].map((o) => o.value).filter((v) => v.startsWith('g:')).map((v) => v.slice(2));
+        const slugs = listed.filter((slug) => picked.includes(slug));
+        press('2');
+        await waitUntil(() => engine.getParams().genre === slugs[1]);
+        if (engine.getParams().genre !== slugs[1]) failures.push(`keybindings: with two favourites, "2" did not load the second (${slugs[1]}) at the engine (genre ${engine.getParams().genre})`);
+        press('3');
+        await waitUntil(() => isPreset(0));
+        if (!isPreset(0)) failures.push(`keybindings: with two favourites, "3" did not fall through to the first preset, ${presetsJson[0].name} (engine reads ${sig()})`);
+        press('1');
+        await waitUntil(() => engine.getParams().genre === slugs[0]);
+        const nextSlug = listed[(listed.indexOf(slugs[0]) + 1) % listed.length];
+        press(']');
+        await waitUntil(() => engine.getParams().genre === nextSlug);
+        if (engine.getParams().genre !== nextSlug) failures.push(`keybindings: "]" from genre ${slugs[0]} did not move on to ${nextSlug} (engine genre ${engine.getParams().genre})`);
+        setFavourites([]);
+      }
+
+      // ? opens the sheet (the visible door opens it too); Esc closes it.
+      press('?');
+      let sheet = doc.getElementById('shortcut-sheet');
+      if (!sheet) {
+        failures.push('keybindings: "?" did not open the shortcut sheet');
+      } else {
+        const rows = [...sheet.querySelectorAll('.shortcut-list dt')].map((dt) => dt.textContent);
+        if (!rows.includes('1') || !rows.includes('9') || !rows.some((r) => r.includes(']'))) failures.push(`keybindings: the sheet does not list 1–9 and [ ] (${JSON.stringify(rows)})`);
+        if (!sheet.contains(doc.activeElement)) failures.push('keybindings: the sheet opened without focus inside it');
+        press('Escape', doc.activeElement || sheet);
+        if (doc.getElementById('shortcut-sheet')) failures.push('keybindings: Esc did not close the shortcut sheet');
+      }
+      const door = doc.getElementById('shortcuts-open');
+      if (!door || !door.closest('#tutorial-panel')) {
+        failures.push('keybindings: no visible "Keyboard shortcuts" button (#shortcuts-open) in the tour panel');
+      } else {
+        door.click();
+        sheet = doc.getElementById('shortcut-sheet');
+        if (!sheet) failures.push('keybindings: the Keyboard shortcuts button did not open the sheet');
+        sheet?.querySelector('.shortcut-sheet-close')?.click();
+        if (doc.getElementById('shortcut-sheet')) failures.push('keybindings: Close did not close the shortcut sheet');
+      }
+    }
+  }
+
   // ---- The Create rebuild: two doors (his "indecipherably complex") ------
   // The progressive rule, counted: at first open the Create part of the panel
   // shows the Start row and the Write picker and NOTHING else; choosing Melody

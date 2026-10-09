@@ -72,6 +72,14 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   group to the list and the hide toggle prunes it; and the Pause button's
   explanation is matched against whether the engine build really ships
   `pause()` — the same probe-gated discipline as the v21 bullet above.
+- Keybindings (ui-review fix 19) — with no favourites, `2` loads the second
+  factory preset, `]` the next and `[` the one before, all read back at the
+  ENGINE (bpm and pad level); `A` / `S` switch tabs; with two ☆ favourites `1`
+  and `2` load them (the engine's genre slug), `3` falls through to the first
+  preset, and `]` walks the genre list; `?` opens the sheet, Esc and Close shut
+  it, and the tour panel's Keyboard shortcuts button opens it too. The guards
+  are checked the same way: a digit or letter typed into a text field, a
+  Ctrl/⌘ chord, and any key while musical typing is on change nothing.
 - Fresh install — this harness boots with empty storage and no consent, which is
   every first-time visitor: nothing is persisted before consent is granted, every
   track row builds a randomness control, and no dial read-out comes up NaN
@@ -1184,3 +1192,18 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 - [ ] Automated: page-boot (Presets i buttons, no leftover paragraphs, the
       two Rules show copies stay one setting) and knobscope-smoke (Alt-click
       and long-press solo, a hold's release click swallowed).
+## UI review fix 19 delta — keyboard shortcuts
+
+- [ ] With focus on the page (not a field), press `?`: the Keyboard shortcuts
+      sheet opens, listing 1–9 by name. Esc closes it, focus returns. The tour
+      (the header's ?) has a Keyboard shortcuts button that opens it too.
+- [ ] No favourites: `1`…`9` load the factory presets in gallery order; `]`
+      and `[` step through them. Star two genres with the ☆: `1` and `2` are
+      now those genres (picker order), `3` onward the presets; with a genre
+      playing, `]` moves to the next genre in the picker.
+- [ ] `A` opens Advanced, `S` Simple.
+- [ ] Type in the preset name box, a dial's typed number, the melody box: the
+      keys type, nothing loads. Ctrl/⌘-2 is the browser's, not ours.
+- [ ] Create → Musical typing on: `2`, `3`, `5` play notes and load nothing;
+      `A` does not switch tabs. Turn it off and the shortcuts are back.
+- [ ] Automated: `node tests/page-boot.mjs` (the keybindings block).
