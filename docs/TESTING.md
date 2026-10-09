@@ -160,7 +160,12 @@ a sweep that cries wolf is a sweep that stops being run.
 Offline render harnesses (browser, `OfflineAudioContext`, measured not
 listened to): `onset-render` (onset steps, slur chains, cancels, sums),
 `wash-sweep-render` (the wash holds its band), `call-breath-render` (the call
-is a rising whistle, alone).
+is a rising whistle, alone). `wash-saw-render` is the Node one — it renders the
+shipped wash and coloured-noise voices through its own small offline graph
+evaluator, so it runs under `tests/all.mjs` with no bridge — and holds the
+Ambient texture to no stroke (the noise never comes round again at a saw's
+0.3-3 s rate; it did, every 1.87-2.17 s, off a two-second loop), no sweep, and
+the whistle still standing above the noise.
 
 `tutorial-smoke` reads `TUTORIAL_STEPS` out of `src/pages/index.astro` and checks
 it against the BUILT page: every target resolves to exactly one element (an

@@ -142,17 +142,55 @@ function hit(param, t0, { attack = 0.004, decay, peak }) {
  * every patch that needs it. Keyed weakly so a discarded context is collectable.
  */
 const NOISE_CACHE = new WeakMap();
+const NOISE_SECONDS = 2;
 
-function noiseBuffer(ctx, colour) {
+/**
+ * v0.0.215 — the length of noise a sustained BED reads (`rig.noise(…, { bed:
+ * true })`): wash and coloured noise, the two texture voices whose whole note
+ * is noise held for seconds.
+ *
+ * A looped buffer is a periodic signal. Under a hat or a breath transient two
+ * seconds of noise never comes round, so the shared buffer is fine there; under
+ * a bed held for six seconds it comes round three times, the same figure with
+ * the same small swells and hollows each time — at a steady one-to-two-second
+ * stroke, which is the sound of someone sawing (the owner, on Ambient's
+ * texture: "a noise layer in it that always makes me think there's someone
+ * sawing"). Measured by `tests/wash-saw-render.mjs` as the noise's own
+ * autocorrelation: coloured noise 0.997 at exactly 2.00 s, the wash 0.49 at
+ * 1.87 s (its 1.07-rate layer; the 0.92 one came round at 2.17 s).
+ *
+ * Twelve seconds outlasts any texture note Ambient writes (3-6 s, plus the
+ * wash's 3.25 s or colour's 3.5 s release, read at up to 1.07×), so inside one
+ * note the figure never repeats at all; on a longer held note it comes round
+ * after twelve, which is no stroke anybody works a saw at. The cost is one
+ * buffer per colour per context, made the first time a bed plays — 4.6 MB of
+ * stereo float at 48 kHz.
+ */
+const BED_NOISE_SECONDS = 12;
+
+function noiseBuffer(ctx, colour, seconds = NOISE_SECONDS) {
   let cache = NOISE_CACHE.get(ctx);
   if (!cache) {
     cache = {};
     NOISE_CACHE.set(ctx, cache);
   }
-  if (cache[colour]) return cache[colour];
+  const key = seconds === NOISE_SECONDS ? colour : `${colour}:${seconds}`;
+  if (cache[key]) return cache[key];
 
-  const length = Math.max(Math.floor(ctx.sampleRate * 2), 1024);
+  const length = Math.max(Math.floor(ctx.sampleRate * seconds), 1024);
   const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+  // The long bed buffer draws from its own generator, not Math.random: twelve
+  // seconds of stereo is over a million draws, and taking them from the shared
+  // stream would move every random choice a voice makes after it (a gust's
+  // walk, a grain's time) — a seeded check would be measuring the buffer's
+  // length, not the dial. The short buffers keep their old source exactly.
+  let state = 0x9e3779b9;
+  const draw = seconds === NOISE_SECONDS ? Math.random : () => {
+    state ^= state << 13; state >>>= 0;
+    state ^= state >>> 17;
+    state ^= state << 5; state >>>= 0;
+    return state / 4294967296;
+  };
   for (let channel = 0; channel < 2; channel++) {
     const data = buffer.getChannelData(channel);
     if (colour === 'pink') {
@@ -162,17 +200,17 @@ function noiseBuffer(ctx, colour) {
       let b1 = 0;
       let b2 = 0;
       for (let i = 0; i < length; i++) {
-        const white = Math.random() * 2 - 1;
+        const white = draw() * 2 - 1;
         b0 = 0.99765 * b0 + white * 0.099046;
         b1 = 0.963 * b1 + white * 0.2965164;
         b2 = 0.57 * b2 + white * 1.0526913;
         data[i] = (b0 + b1 + b2 + white * 0.1848) * 0.22;
       }
     } else {
-      for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+      for (let i = 0; i < length; i++) data[i] = draw() * 2 - 1;
     }
   }
-  cache[colour] = buffer;
+  cache[key] = buffer;
   return buffer;
 }
 
@@ -505,13 +543,16 @@ function createRig(ctx, destination, note) {
       return node;
     },
 
-    noise(start, { colour = 'white', rate = 1 } = {}) {
+    noise(start, { colour = 'white', rate = 1, bed = false } = {}) {
       const node = ctx.createBufferSource();
-      node.buffer = noiseBuffer(ctx, colour);
+      // v0.0.215: a sustained bed reads the long buffer, so its figure does
+      // not come round inside the note — see BED_NOISE_SECONDS.
+      node.buffer = noiseBuffer(ctx, colour, bed ? BED_NOISE_SECONDS : NOISE_SECONDS);
       node.loop = true;
       node.playbackRate.value = rate;
-      // A random read offset stops repeated bursts sounding like the same clip.
-      node.start(start, Math.random() * 1.5);
+      // A random read offset stops repeated bursts sounding like the same clip
+      // (and, on the long buffer, spreads the beds over all of it).
+      node.start(start, Math.random() * (bed ? BED_NOISE_SECONDS : 1.5));
       sources.push({ node, start, stop: null, base: 0, pitched: false });
       return keep(node);
     },
@@ -3440,7 +3481,12 @@ function textureChimes(ctx, destination, note, patch) {
   return rig.finish(end + 0.05);
 }
 
-/** Wash: pink noise swelling through a bandpass that sweeps up and back down. */
+/**
+ * Wash: pink noise swelling through a held bandpass, with a faint sine — the
+ * whistle — at the note's own pitch. (The band used to sweep up and back down;
+ * v0.0.80 stopped it. The noise used to loop every two seconds; v0.0.215 gave
+ * it a buffer long enough not to.)
+ */
 function textureWash(ctx, destination, note, patch) {
   const rig = createRig(ctx, destination, note);
   const p = patchFor(DEFAULTS.texture.wash, patch);
@@ -3489,8 +3535,14 @@ function textureWash(ctx, destination, note, patch) {
   const makeup = (p ? p.filter.type : 'bandpass') === 'bandpass'
     ? noiseMakeup(centre, q, rig.sampleRate)
     : 1;
+  //
+  // v0.0.215: both layers read the LONG noise buffer. On the shared two-second
+  // loop each one came round every 2.17 s and 1.87 s for the whole note — the
+  // same figure again and again, which is the saw that outlived v0.0.80's
+  // sweep fix (noise autocorrelation 0.49 at 1.87 s, ~0.01 now). The whistle
+  // (the anchor sine below) is untouched.
   for (const rate of [0.92, 1.07]) {
-    const noise = rig.noise(t, { colour: 'pink', rate });
+    const noise = rig.noise(t, { colour: 'pink', rate, bed: true });
     const gain = rig.gain(0.5 * makeup);
     noise.connect(gain);
     gain.connect(band);
@@ -3542,7 +3594,9 @@ function textureColour(ctx, destination, note, patch) {
   const q = bandQ(s.bandWidth);
   const out = insertFilter(rig, p, rig.out);
 
-  const noise = rig.noise(t, { colour: 'pink', rate: 1 });
+  // v0.0.215: the long buffer — on the two-second loop at rate 1 this bed was
+  // one figure repeating exactly every 2.00 s (autocorrelation 0.997).
+  const noise = rig.noise(t, { colour: 'pink', rate: 1, bed: true });
   const tilt = tiltFilter(rig, s.tilt, shift);
   const band = rig.filter('bandpass', centre, q);
   const amp = rig.gain(SILENCE);

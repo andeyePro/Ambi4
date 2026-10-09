@@ -570,8 +570,9 @@ test('a long run leaves nothing connected and reuses the noise buffers', () => {
     }
   }
   assert.equal(live, 0, `${live} nodes survived their notes`);
-  // White and pink, generated once each for the lifetime of the context.
-  assert.ok(ctx.buffersCreated <= 2, `${ctx.buffersCreated} noise buffers built`);
+  // White and pink, generated once each for the lifetime of the context, and
+  // (v0.0.215) the long pink bed that wash and coloured noise read.
+  assert.ok(ctx.buffersCreated <= 3, `${ctx.buffersCreated} noise buffers built`);
 });
 
 // --------------------------------------------------------------------------
@@ -2173,20 +2174,29 @@ test('v19: the sweep moves the band, and its depth sets how far', () => {
 });
 
 test('v19: gust walks the bed and never adds gain to it', () => {
-  const run = (gust) => withSeed(54, () => playAndCheck(`texture.colour gust ${gust}`,
-    VOICES.texture.colour, bedNote(12), {
-      patch: sculpt('texture', 'colour', { gust, sweepDepth: 0, sweepRate: 0, swell: 0 }),
-    }));
-  const calm = run(0);
-  const gusty = run(1);
+  // The gust is a random walk of a few steps over a note, so whether ONE seed
+  // wanders past a given ratio is luck of the draw — and the draw moves with
+  // anything that takes from the same stream (v0.0.215's bed buffer stopped
+  // taking a million draws from it, and seed 54 alone then walked short).
+  // So: across eight seeds, calm never moves, gusts never lift the level, and
+  // gust 1 wanders past 1.2x on most of them.
   const band = (r) => biquads(r).find((n) => n.type === 'bandpass');
-  assert.ok(Math.abs(band(calm).frequency.max / band(calm).frequency.min - 1) < 1e-9,
-    'gust 0 still wandered the brightness');
-  assert.ok(band(gusty).frequency.max / band(gusty).frequency.min > 1.2,
-    'gust 1 did not wander the brightness');
-  // The level dial-safety rule: gusts duck the bed, they never lift it.
-  assert.ok(gusty.sum <= calm.sum + 1e-9,
-    `gust made the bed louder (${gusty.sum.toFixed(4)} vs ${calm.sum.toFixed(4)})`);
+  let wandered = 0;
+  for (let seed = 54; seed < 62; seed++) {
+    const run = (gust) => withSeed(seed, () => playAndCheck(`texture.colour gust ${gust} seed ${seed}`,
+      VOICES.texture.colour, bedNote(12), {
+        patch: sculpt('texture', 'colour', { gust, sweepDepth: 0, sweepRate: 0, swell: 0 }),
+      }));
+    const calm = run(0);
+    const gusty = run(1);
+    assert.ok(Math.abs(band(calm).frequency.max / band(calm).frequency.min - 1) < 1e-9,
+      `gust 0 still wandered the brightness (seed ${seed})`);
+    if (band(gusty).frequency.max / band(gusty).frequency.min > 1.2) wandered += 1;
+    // The level dial-safety rule: gusts duck the bed, they never lift it.
+    assert.ok(gusty.sum <= calm.sum + 1e-9,
+      `gust made the bed louder at seed ${seed} (${gusty.sum.toFixed(4)} vs ${calm.sum.toFixed(4)})`);
+  }
+  assert.ok(wandered >= 5, `gust 1 wandered the brightness past 1.2x on only ${wandered} of 8 seeds`);
 });
 
 test('v19: burst density scales the grains scheduled, and burstSharp tightens them', () => {
