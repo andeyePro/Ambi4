@@ -1618,6 +1618,71 @@ function sanitiseHookSeed(value, mode) {
   return slots;
 }
 
+/**
+ * Reconstructible Ambi4, "Chord loop as voiced": the hook's voicing as a rule,
+ * in the one shape every rule follows (owner ruling 2026-09-25).
+ *
+ *   NOW     `harmony.voicing` — per hook slot, `{ inversion: 0–2, extension:
+ *           -1/0/+1 }`. Applied when the loop is established and adopted at
+ *           the next pass boundary when it changes, never mid-loop. A slot
+ *           past the end of the list keeps the loop's own voicing; when set,
+ *           a slot's extension here wins over the seed's suffix.
+ *   CHANCE  `harmony.hookRule.chance` — how likely the loop is to move at each
+ *           `when` ('pass' = every time round the loop, 'section', 'piece').
+ *           0 holds the voicing for good (no mutation, no recall); null
+ *           follows Repetition (hookMutationChance, the pre-rule law).
+ *   POOL    `harmony.hookRule.pool` — ordered, weighted alternative voicings a
+ *           move picks from, `order` 'weight' or 'turn'. Empty means the
+ *           engine's own move: a recall from the bank when one is due, else
+ *           one mutateHook.
+ *
+ * Both are sparse: absent from a sanitised harmony unless set, and an
+ * explicit null clears. A piece that sets neither plays the pre-rule hook to
+ * the byte (tests/audio-reference.mjs).
+ */
+export const HOOK_RULE_WHEN = Object.freeze(['pass', 'section', 'piece']);
+const HOOK_RULE_ORDER = Object.freeze(['weight', 'turn']);
+const HOOK_RULE_POOL_CAP = 16;
+
+/** One voicing list, or undefined when it is not one (the caller keeps the stored). */
+function sanitiseHookVoicing(value) {
+  if (!Array.isArray(value) || !value.length || value.length > HOOK_MAX_CHORDS) return undefined;
+  const out = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
+    const inv = Number(entry.inversion ?? 0);
+    const ext = Number(entry.extension ?? 0);
+    if (!Number.isFinite(inv) || !Number.isFinite(ext)) return undefined;
+    out.push({ inversion: clamp(Math.round(inv), 0, 2), extension: clamp(Math.round(ext), -1, 1) });
+  }
+  return out;
+}
+
+function sanitiseHookRule(value, base) {
+  const from = base && typeof base === 'object' && !Array.isArray(base) ? base : null;
+  const v = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  if (!v && !from) return undefined;
+  const at = (key) => (v && key in v ? v[key] : from ? from[key] : undefined);
+  const chanceRaw = at('chance');
+  const chance = chanceRaw === null || chanceRaw === undefined
+    ? null
+    : Number.isFinite(Number(chanceRaw)) ? clamp(Number(chanceRaw), 0, 1) : null;
+  const when = oneOf(at('when'), HOOK_RULE_WHEN, 'pass');
+  const order = oneOf(at('order'), HOOK_RULE_ORDER, 'weight');
+  const pool = [];
+  const poolRaw = at('pool');
+  if (Array.isArray(poolRaw)) {
+    for (const entry of poolRaw) {
+      const voicing = sanitiseHookVoicing(entry && typeof entry === 'object' ? entry.voicing : undefined);
+      if (!voicing) continue;
+      const w = Number(entry.weight ?? 1);
+      pool.push({ voicing, weight: Number.isFinite(w) && w > 0 ? clamp(w, 0.01, 100) : 1 });
+      if (pool.length >= HOOK_RULE_POOL_CAP) break;
+    }
+  }
+  return { chance, when, pool, order };
+}
+
 function sanitiseHarmony(value, base, mode) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.harmony;
   const v = value && typeof value === 'object' ? value : null;
@@ -1628,7 +1693,17 @@ function sanitiseHarmony(value, base, mode) {
   const seed = v && 'seed' in v && v.seed === null ? null
     : (v && 'seed' in v ? sanitiseHookSeed(v.seed, mode) : undefined)
       ?? sanitiseHookSeed(from.seed, mode) ?? null;
-  return { rhythm: sent ?? harmonyRhythm(from.rhythm) ?? 'auto', seed };
+  const out = { rhythm: sent ?? harmonyRhythm(from.rhythm) ?? 'auto', seed };
+  // The voicing rule, sparse, by the same law: an explicit null clears, an
+  // unusable value keeps the stored one, absent keeps the stored one.
+  const voicing = v && 'voicing' in v && v.voicing === null ? undefined
+    : (v && 'voicing' in v ? sanitiseHookVoicing(v.voicing) : undefined)
+      ?? sanitiseHookVoicing(from.voicing);
+  if (voicing) out.voicing = voicing;
+  const hookRule = v && 'hookRule' in v && v.hookRule === null ? undefined
+    : sanitiseHookRule(v && 'hookRule' in v ? v.hookRule : undefined, from.hookRule);
+  if (hookRule) out.hookRule = hookRule;
+  return out;
 }
 
 /** 16 booleans; short arrays are padded with `true`, long ones truncated. */
@@ -2995,10 +3070,21 @@ function copyTrack(track) {
   return out;
 }
 
-const copyHarmony = (harmony) => ({
-  ...harmony,
-  seed: harmony.seed ? harmony.seed.map((slot) => ({ ...slot })) : null,
-});
+const copyVoicing = (voicing) => voicing.map((slot) => ({ ...slot }));
+const copyHarmony = (harmony) => {
+  const out = {
+    ...harmony,
+    seed: harmony.seed ? harmony.seed.map((slot) => ({ ...slot })) : null,
+  };
+  if (harmony.voicing) out.voicing = copyVoicing(harmony.voicing);
+  if (harmony.hookRule) {
+    out.hookRule = {
+      ...harmony.hookRule,
+      pool: harmony.hookRule.pool.map((entry) => ({ ...entry, voicing: copyVoicing(entry.voicing) })),
+    };
+  }
+  return out;
+};
 
 /** Deep copy of a sanitised params object — what getParams() hands out. */
 function copyParams(params, order = TRACK_ORDER) {
@@ -4887,6 +4973,12 @@ export function createEngine(initialParams, options = {}) {
   const hookBank = createVariantBank({ size: HOOK_BANK_SIZE, clone: cloneHook });
   let hookSectionPending = false; // a section changed: re-pick a variant at the next pass
   let hookSeedKey = '';        // the harmony.seed the sounding loop was established from
+  // "Chord loop as voiced": the harmony.voicing the sounding loop last adopted,
+  // the loop as established (before any move — what the recipe names as Now),
+  // and the In-turn cursor through the rule's pool.
+  let hookVoicingKey = '';
+  let hookBase = null;
+  let hookTurn = 0;
   let chordDegree = 0;
   let chordInversion = 0;
   let chordExtension = 0;
@@ -7297,6 +7389,25 @@ export function createEngine(initialParams, options = {}) {
     ? seed.map((slot) => `${slot.degree}.${slot.extension}`).join('|')
     : '');
 
+  /** A voicing's identity, so a changed Now can be spotted at a pass boundary. */
+  const voicingKey = (voicing) => (Array.isArray(voicing)
+    ? voicing.map((slot) => `${slot.inversion}.${slot.extension}`).join('|')
+    : '');
+
+  /** The rule's Now laid onto a variant's slots; slots past its end keep their own. */
+  function applyHookVoicing(variant, voicing) {
+    const next = cloneHook(variant);
+    const n = Math.min(next.degrees.length, voicing.length);
+    for (let i = 0; i < n; i++) {
+      next.inversions[i] = voicing[i].inversion;
+      next.extensions[i] = voicing[i].extension;
+    }
+    return next;
+  }
+
+  /** The hook rule, or null when none is set (the pre-rule law, to the byte). */
+  const hookRule = () => params.harmony.hookRule ?? null;
+
   /** Establish the loop and arm the first recall cycle. */
   function establishHook() {
     hook = buildHook({
@@ -7307,6 +7418,12 @@ export function createEngine(initialParams, options = {}) {
       rng,
     });
     hookSeedKey = seedKey(params.harmony.seed);
+    // The Now is part of establishment: no draw, so a piece that sets one
+    // consumes the same randomness as a piece that does not.
+    if (params.harmony.voicing) hook = applyHookVoicing(hook, params.harmony.voicing);
+    hookVoicingKey = voicingKey(params.harmony.voicing);
+    hookBase = cloneHook(hook);
+    hookTurn = 0;
     hookIndex = 0;
     hookFresh = true;
     hookPass = 0;
@@ -7314,6 +7431,54 @@ export function createEngine(initialParams, options = {}) {
     hookBank.clear();
     hookSectionPending = false;
     hookRecallAt = nextRecallPass();
+    // A rule that moves once per piece gets its one chance here, before the
+    // first chord has sounded.
+    const rule = hookRule();
+    if (rule && rule.when === 'piece' && rollHookChance(rule)) moveHook(0.5);
+  }
+
+  /** Whether a rule's Chance fires: 0 never draws (held), null follows Repetition. */
+  function rollHookChance(rule) {
+    const chance = rule.chance === null ? hookMutationChance() : rule.chance;
+    return chance > 0 && rng() < chance;
+  }
+
+  /**
+   * One move of the loop under a rule: a draw from the Pool when it has
+   * entries (by weight, or the next in turn), else the engine's own move — a
+   * recall from the bank when one is due, otherwise one mutation.
+   */
+  function moveHook(intensity) {
+    const rule = hookRule();
+    const pool = rule ? rule.pool : [];
+    if (pool.length) {
+      let entry;
+      if (rule.order === 'turn') {
+        entry = pool[hookTurn % pool.length];
+        hookTurn += 1;
+      } else {
+        const total = pool.reduce((sum, e) => sum + e.weight, 0);
+        let r = rng() * total;
+        entry = pool[pool.length - 1];
+        for (const e of pool) {
+          r -= e.weight;
+          if (r <= 0) { entry = e; break; }
+        }
+      }
+      hook = applyHookVoicing(hook, entry.voicing);
+      hookStable = 0;
+      return;
+    }
+    if (hookPass >= hookRecallAt && recallHook(intensity)) {
+      hookRecallAt = nextRecallPass();
+      return;
+    }
+    hook = mutateHook(hook, {
+      scaleLength: scale().length,
+      complexity: params.complexity,
+      rng,
+    });
+    hookStable = 0;
   }
 
   /**
@@ -7384,8 +7549,30 @@ export function createEngine(initialParams, options = {}) {
       hookFresh = false; // slot 0 of the new loop is being published right now
       return;
     }
+    // A changed Now is adopted here, at the boundary, and is this pass's one
+    // change. A Now cleared leaves the loop where it is, free to move again.
+    const nextVoicingKey = voicingKey(params.harmony.voicing);
+    if (nextVoicingKey !== hookVoicingKey) {
+      hookVoicingKey = nextVoicingKey;
+      if (params.harmony.voicing) {
+        hook = applyHookVoicing(hook, params.harmony.voicing);
+        hookStable = 0;
+        return;
+      }
+    }
     hookPass += 1;
     bankHook(intensity);
+    const rule = hookRule();
+    if (rule) {
+      const due = rule.when === 'pass' || (rule.when === 'section' && hookSectionPending);
+      hookSectionPending = false;
+      if (due && rollHookChance(rule)) {
+        moveHook(intensity);
+        return;
+      }
+      hookStable += 1;
+      return;
+    }
     if (hookSectionPending && recallHook(intensity)) {
       hookSectionPending = false;
       hookRecallAt = nextRecallPass();
@@ -9973,6 +10160,18 @@ export function createEngine(initialParams, options = {}) {
     if (kit && kit.variantRule === undefined) {
       kit.variantRule = { chance: null, when: 'bar', pool: [], order: 'weight' };
     }
+    // "Chord loop as voiced": an unset voicing is still a voicing — the loop
+    // as it was established (root position, the seed's own colour) — and the
+    // recipe names it, so a person copying it sees what each slot plays. It is
+    // the establishment, not the live mutation: the moves are the rule's
+    // Chance, and a rebuild applying this Now establishes the same loop.
+    if (!recipe.harmony || recipe.harmony.voicing === undefined) {
+      const base = establishedVoicing();
+      if (base) {
+        recipe.harmony = recipe.harmony || {};
+        recipe.harmony.voicing = base;
+      }
+    }
     return recipe;
   }
 
@@ -9984,6 +10183,18 @@ export function createEngine(initialParams, options = {}) {
    */
   function applyRecipe(recipe) {
     setParams(recipe);
+  }
+
+  /**
+   * The voicing the loop establishes with: the established hook's when the
+   * piece has started, the seed's own when it has not (root position, the
+   * suffix's colour), and null when an unstarted walk has not drawn one yet.
+   */
+  function establishedVoicing() {
+    const variant = hookBase
+      ?? (params.harmony.seed ? buildHook({ seed: params.harmony.seed, scaleLength: scale().length }) : null);
+    if (!variant) return null;
+    return variant.degrees.map((_, i) => ({ inversion: variant.inversions[i], extension: variant.extensions[i] }));
   }
 
   /**
@@ -10050,6 +10261,14 @@ export function createEngine(initialParams, options = {}) {
       tracks,
       patches,
       arp: resolvedArpSettings(),
+      // "Chord loop as voiced": the loop as it is sounding NOW — mutation,
+      // recall and pool draws included — so a page can show the live voicing
+      // beside the rule's Now and offer it to the Pool. Null before start.
+      hook: hook ? {
+        index: hookIndex,
+        degrees: [...hook.degrees],
+        voicing: hook.degrees.map((_, i) => ({ inversion: hook.inversions[i], extension: hook.extensions[i] })),
+      } : null,
     };
   }
 

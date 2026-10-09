@@ -94,6 +94,10 @@ export const RECIPE_FIELDS = Object.freeze([
   { path: 'repetition', label: 'Repetition', kind: 'number' },
   { path: 'reverbTail', label: 'Reverb tail', kind: 'number' },
   { path: 'harmony.seed', label: 'Chord loop', kind: 'json' },
+  // "Chord loop as voiced": per slot the inversion and colour (Now), then how
+  // and when the loop may move, and the voicings a move picks from.
+  { path: 'harmony.voicing', label: 'Chord voicing', kind: 'voicing' },
+  { path: 'harmony.hookRule', label: 'Chord loop rule', kind: 'hookRule' },
   { path: 'harmony.rhythm', label: 'Harmonic rhythm', kind: 'enum' },
   ...TRACK_ORDER.flatMap(trackFields),
   { path: 'arp.mode', label: 'Arp mode', kind: 'enum' },
@@ -326,6 +330,62 @@ function parseTabRuleText(text) {
   return { chance: chanceText === 'weights' ? null : Number(chanceText), when, pool, order };
 }
 
+/**
+ * A hook voicing as words a person can write with a pen: one token per slot,
+ * the inversion (root, 1st, 2nd) and a colour mark — "+" one step wider than
+ * the piece, "-" one narrower, nothing for as the piece plays it. So
+ * "root 1st+ 2nd- root".
+ */
+const INVERSION_WORDS = Object.freeze(['root', '1st', '2nd']);
+const VOICING_TOKEN = /^(root|1st|2nd)([+-]?)$/;
+
+function formatVoicing(voicing) {
+  return voicing.map((slot) => {
+    const mark = slot.extension > 0 ? '+' : slot.extension < 0 ? '-' : '';
+    return `${INVERSION_WORDS[slot.inversion] ?? 'root'}${mark}`;
+  }).join(' ');
+}
+
+function parseVoicingText(text) {
+  return text.trim().split(/\s+/).map((token) => {
+    const match = VOICING_TOKEN.exec(token);
+    if (!match) throw new Error(`recipeFromText: unreadable chord voicing "${text}"`);
+    return {
+      inversion: INVERSION_WORDS.indexOf(match[1]),
+      extension: match[2] === '+' ? 1 : match[2] === '-' ? -1 : 0,
+    };
+  });
+}
+
+/**
+ * The chord loop rule as a sentence: "chance <n|auto> when <pass|section|
+ * piece> order <weight|turn> pool <voicing xW; ...|empty>". auto is a null
+ * chance — the loop moves as Repetition says, the pre-rule law.
+ */
+function formatHookRule(rule) {
+  if (!rule) return 'none';
+  const chance = rule.chance === null ? 'auto' : String(rule.chance);
+  const pool = rule.pool && rule.pool.length
+    ? rule.pool.map((entry) => `${formatVoicing(entry.voicing)} x${entry.weight}`).join('; ')
+    : 'empty';
+  return `chance ${chance} when ${rule.when} order ${rule.order} pool ${pool}`;
+}
+
+const HOOK_RULE_TEXT = /^chance (\S+) when (\S+) order (\S+) pool (.+)$/;
+
+function parseHookRuleText(text) {
+  const trimmed = text.trim();
+  if (trimmed === 'none') return null;
+  const match = HOOK_RULE_TEXT.exec(trimmed);
+  if (!match) throw new Error(`recipeFromText: unreadable chord loop rule "${text}"`);
+  const [, chanceText, when, order, poolText] = match;
+  const pool = poolText === 'empty' ? [] : poolText.split('; ').map((entry) => {
+    const at = entry.lastIndexOf(' x');
+    return { voicing: parseVoicingText(entry.slice(0, at)), weight: Number(entry.slice(at + 2)) };
+  });
+  return { chance: chanceText === 'auto' ? null : Number(chanceText), when, order, pool };
+}
+
 function formatValue(row, value) {
   switch (row.kind) {
     case 'number': return formatNumber(row.path, value);
@@ -334,6 +394,8 @@ function formatValue(row, value) {
     case 'voiceRule': return formatVoiceRule(value);
     case 'grooveRule': return formatGrooveRule(value);
     case 'tabRule': return formatTabRule(value);
+    case 'voicing': return formatVoicing(value);
+    case 'hookRule': return formatHookRule(value);
     // 'sequencers' and 'json': structured data too shapeless for prose — a
     // person reads it as a data line, the way they would in a JSON preset.
     default: return JSON.stringify(value);
@@ -348,6 +410,8 @@ function parseValue(row, text) {
     case 'voiceRule': return parseVoiceRuleText(text);
     case 'grooveRule': return parseGrooveRuleText(text);
     case 'tabRule': return parseTabRuleText(text);
+    case 'voicing': return parseVoicingText(text);
+    case 'hookRule': return parseHookRuleText(text);
     default: return JSON.parse(text);
   }
 }

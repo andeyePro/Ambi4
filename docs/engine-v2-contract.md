@@ -2503,3 +2503,55 @@ Back to Auto; a Variant with its own chance hides the Shuffle / In order and
 weight controls it supersedes; Blank slate holds the first tab with no fills;
 Next keeps a held Variant and a fill set to Off). Gated by
 `tests/kit-rule-smoke.mjs` and page-boot.
+## The chord loop as voiced (Reconstructible Ambi4)
+
+Module ownership: **the engine** (`sanitiseHarmony` → `harmony.voicing` and
+`harmony.hookRule`, both sparse — absent unless set, an explicit null
+clears, an unusable value keeps the stored one — so every stored piece reads
+back byte-equal and `tests/audio-reference.mjs` does not move). NOW is
+`harmony.voicing`: per hook slot `{ inversion: 0–2, extension: -1/0/+1 }`,
+one to eight slots; it is laid onto the loop when the hook is established
+(no draw, so a piece that sets one consumes the same randomness as one that
+does not) and a changed one is adopted at the next pass boundary — that
+pass's one change, never mid-loop; a slot past its end keeps the loop's own,
+and when set its extension wins over the seed numeral's suffix. CHANCE is
+`harmony.hookRule = { chance, when, pool, order }`: `chance` 0..1, or null =
+`hookMutationChance()` (Repetition, the pre-rule law); `when` pass (every
+time round the loop — the hook's finest grain, so not `bar`) | section (only
+the first pass after a section change) | piece (one roll at establishment);
+0 holds the voicing for good — no mutateHook and no bank recall. POOL is
+`pool`, up to sixteen `{ voicing, weight }` drawn by weight or in turn; a
+move with an empty pool is the engine's own — a `bankHook` recall when the
+cycle says one is due, else one `mutateHook`. With a rule set, the pre-rule
+section recall and recall cycle are replaced by the rule; with none, they run
+to the byte. `getResolved().hook` reports the loop as it is SOUNDING —
+`{ index, degrees, voicing }`, mutation and draws included — and
+`getRecipe()` always names `harmony.voicing`: the set Now, else the loop as
+established (root position, the seed's colour), which a rebuild at the same
+seed replays exactly), **the recipe** (`Chord voicing: root 1st+ 2nd-` — one
+token per slot, the inversion and + wider / - narrower — and `Chord loop
+rule: chance <n|auto> when <pass|section|piece> order <weight|turn> pool
+<voicing xW; …|empty>`, both round-tripping through text) and **the page**
+(the Voicing rule on `rule-control.js` under the chord cards, with the
+primitive's new `whenOptions` / `whenHint` / `pool.summarise` hooks: Now
+opens a per-chord editor — inversion and colour per chord, Keep what is
+playing, The loop's own — and a colour edited there is written into the typed
+loop's numeral too, so the cards, the text field and the engine agree; a
+typed or widened chord rewrites a set voicing's colour; Chance is a knob, Auto
+at the left detent then Hold then 5 % steps; When is each time round /
+section / piece; Pool… opens an editor with Add what is playing, Add the
+Now, weights, ▲▼, Remove and by weight / in turn. A rule back at Auto, each
+time round, with an empty pool is dropped, so Auto is the pre-rule law
+exactly. Both fields are stated on every push, so a preset or link without
+them clears them; Next keeps a held loop rule (Chance 0) and its voicing;
+Blank slate writes Chance 0 and an empty pool). Gated by
+`tests/hook-voicing-smoke.mjs` (sanitiser; Chance 0 holds 24 bars where
+the no-rule control moves; a first-inversion Now changes every bar's bass
+note; a changed Now lands on a pass boundary; Pool in turn alternates
+exactly; When section never moves a drone; explicit nulls play the no-rule
+stream; the recipe names and rebuilds it — 8 of 11 red on the old engine,
+the three green being the control and the two byte-identity checks),
+page-boot (three layers, its own When, each edit asserted at the engine) and
+the secret-layers row `hookVoicing`, now named. Not in it: degree
+substitution as Now (the chords themselves are the seed's, edited by the
+cards), pool entries that carry degrees, and a drag-to-reorder pool.

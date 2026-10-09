@@ -2212,6 +2212,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       s.swing = clamp(typeof s.swing === 'number' && Number.isFinite(s.swing) ? s.swing : 0, 0, 1);
       s.harmony = isPlainObject(s.harmony) ? s.harmony : {};
       s.harmony.rhythm = CHORD_LENGTHS.includes(s.harmony.rhythm) ? s.harmony.rhythm : 'auto';
+      // "Chord loop as voiced": sparse — present only when set, the engine
+      // sanitises the contents.
+      if (!Array.isArray(s.harmony.voicing) || !s.harmony.voicing.length) delete s.harmony.voicing;
+      if (!isPlainObject(s.harmony.hookRule)) delete s.harmony.hookRule;
       // v23: identity before anything keyed by it, exactly as the engine's own
       // sanitiser orders it — the surviving user tracks define the id set the
       // per-track repair below then runs over, and each one is seeded with a
@@ -3117,6 +3121,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // never "the call did not throw", because the seed law keeps the stored
       // value for anything it cannot use, which is indistinguishable from
       // acceptance if you only check for an exception.
+      // "Chord loop as voiced": does this engine take the voicing rule? A
+      // candidate that comes back unchanged, as above.
+      engineCaps.hookRule = false;
+      try {
+        const probed = sanitiseParams({ harmony: { voicing: [{ inversion: 2, extension: 1 }], hookRule: { chance: 0, when: 'section' } } });
+        engineCaps.hookRule = probed?.harmony?.voicing?.[0]?.inversion === 2
+          && probed?.harmony?.hookRule?.chance === 0 && probed.harmony.hookRule.when === 'section';
+      } catch {}
+
       engineCaps.harmonySeed = false;
       try {
         const probed = sanitiseParams({ mode: 'aeolian', harmony: { seed: ['i', 'VI', 'III', 'VII'] } });
@@ -3819,6 +3832,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // through the governor's tier cap (same policy as the density scale
         // on track levels — never overwrite what the user chose).
         if (typeof p.reverbTail === 'number') p.reverbTail = cappedReverbTail();
+        // "Chord loop as voiced": the voicing and the loop rule are stated on
+        // EVERY push, as the genre tag is — the sanitiser keeps a stored one
+        // when the key is missing, so a preset or link without them would
+        // otherwise play under the last piece's rule.
+        if (p.harmony && typeof p.harmony === 'object') {
+          if (!Array.isArray(p.harmony.voicing)) p.harmony.voicing = null;
+          if (!isPlainObject(p.harmony.hookRule)) p.harmony.hookRule = null;
+        }
         return p;
       }
 
@@ -5853,6 +5874,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         'Small letters are minor, capitals are major: i is a minor home chord, I a major one. Add a 7 or a 9 for a wider, jazzier chord.',
         '',
         'So "i VI III VII" is a common minor loop, and "I IV V IV" is about as ordinary as music gets.',
+        '',
+        'Voicing, under the cards, is how the loop is played. Now is each chord\u2019s lowest note (root position or turned over once or twice) and how wide it is. Chance is how likely the loop is to change each time round, each section or once a piece: Hold keeps it exactly, Auto lets Repetition decide as it always has. Pool is the voicings a change may pick from; empty, the loop changes its own way.',
       ].join('\n');
 
       const PROGRESSION_MAX = 8;
@@ -5912,6 +5935,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (!scale || !voice || !toMidi || !pc) return [];
         const degrees = voice(slot.degree, clamp(rangeMid(settings.complexity), 0, 1), {
           extension: slot.extension,
+          inversion: slot.inversion || 0,
           scaleLength: scale.length,
         }).slice(0, 4);
         const rootPc = pc(settings.root) ?? 0;
@@ -6002,6 +6026,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       /** The stored loop as slots, or null when the app is choosing. */
       function progressionSlots() {
+        const slots = progressionSeedSlots();
+        if (!slots) return null;
+        // "Chord loop as voiced": a set voicing is what the chip sounds and
+        // previews — its inversion, and its colour, which the engine plays
+        // over the numeral's suffix.
+        const voicing = Array.isArray(settings.harmony?.voicing) ? settings.harmony.voicing : null;
+        if (!voicing) return slots;
+        return slots.map((slot, i) => (voicing[i]
+          ? { ...slot, inversion: voicing[i].inversion, extension: voicing[i].extension }
+          : slot));
+      }
+
+      /** The stored loop's degrees and colour alone, as the seed holds them. */
+      function progressionSeedSlots() {
         const seed = settings.harmony && settings.harmony.seed;
         if (!Array.isArray(seed) || !seed.length) return null;
         const scale = currentScale();
@@ -6060,6 +6098,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const live = engine.getParams()?.harmony?.seed;
           settings.harmony.seed = Array.isArray(live) && live.length ? live : null;
         } catch {}
+        // "Chord loop as voiced": a set voicing keeps its inversions and
+        // takes the colour the loop now names, so a widened chip is heard as
+        // widened rather than overruled by an older voicing.
+        if (Array.isArray(settings.harmony.voicing) && Array.isArray(settings.harmony.seed)) {
+          const own = progressionSeedSlots() || [];
+          const voicing = own.map((slot, i) => ({
+            inversion: settings.harmony.voicing[i] ? settings.harmony.voicing[i].inversion : 0,
+            extension: slot.extension,
+          }));
+          settings.harmony.voicing = voicing;
+          engine.setParams({ harmony: { voicing } });
+          persistSettings();
+        }
         renderProgression();
       }
 
@@ -6206,6 +6257,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       function renderProgression() {
         renderChordChips();
+        try { refreshHookRule(); } catch {}
         if (!progressionRow) return;
         progressionRow.innerHTML = '';
         const text = progressionText();
@@ -6240,6 +6292,422 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ? 'The loop being played. Edit it, or hand it back to the app. Written as scale numbers, so changing the scale re-colours it rather than moving it.'
             : 'The app is writing its own loop. Type something like i VI III VII to set one yourself.';
         }
+      }
+
+      // ---- "Chord loop as voiced" (Reconstructible Ambi4) ------------------
+      /**
+       * The chord loop's voicing as a rule on the primitive: NOW is each
+       * chord's inversion and colour (harmony.voicing), CHANCE is how likely
+       * the loop is to move, each time round, each section or once a piece
+       * (harmony.hookRule.chance — Hold keeps it for good, Auto follows
+       * Repetition as the loop always has), POOL the voicings a move picks
+       * from (empty: the loop's own moves — a shape it kept comes back, or one
+       * chord changes). Every edit is heard at the end of the loop, never in
+       * the middle of it.
+       */
+      const HOOK_WHEN = [['pass', 'each time round'], ['section', 'each section'], ['piece', 'each piece']];
+      const INVERSION_WORDS = ['root', '1st', '2nd'];
+      const INVERSION_LABELS = ['Root position', '1st inversion', '2nd inversion'];
+      const COLOUR_LABELS = [[-1, 'narrower'], [0, 'as the piece'], [1, 'wider']];
+      let hookRuleHandle = null;
+      let hookChanceKnob = null;
+      let hookVoicingEditor = null;
+      let hookPoolEditor = null;
+
+      /** A voicing as the words the recipe sheet uses: "root 1st+ 2nd-". */
+      function voicingWords(voicing) {
+        if (!Array.isArray(voicing) || !voicing.length) return '';
+        return voicing.map((slot) => `${INVERSION_WORDS[slot.inversion] || 'root'}${slot.extension > 0 ? '+' : slot.extension < 0 ? '-' : ''}`).join(' ');
+      }
+
+      /** The loop as it is sounding now, from the engine; null before Play. */
+      function liveHookVoicing() {
+        try {
+          const live = engine.getResolved && engine.getResolved().hook;
+          return live && Array.isArray(live.voicing) ? live.voicing.map((slot) => ({ ...slot })) : null;
+        } catch { return null; }
+      }
+
+      /** How many chords the loop has: the typed loop's, else the sounding one's. */
+      function hookSlotCount() {
+        const seed = settings.harmony && settings.harmony.seed;
+        if (Array.isArray(seed) && seed.length) return seed.length;
+        const live = liveHookVoicing();
+        if (live && live.length) return live.length;
+        const voicing = settings.harmony && settings.harmony.voicing;
+        return Array.isArray(voicing) && voicing.length ? voicing.length : 4;
+      }
+
+      /** The Now to edit from: the set voicing, else the loop's own, sized to the loop. */
+      function editableVoicing() {
+        const n = hookSlotCount();
+        const set = Array.isArray(settings.harmony.voicing) ? settings.harmony.voicing : null;
+        const own = progressionSeedSlots();
+        const live = liveHookVoicing();
+        const out = [];
+        for (let i = 0; i < n; i++) {
+          if (set && set[i]) out.push({ ...set[i] });
+          else if (own && own[i]) out.push({ inversion: 0, extension: own[i].extension });
+          else if (live && live[i]) out.push({ ...live[i] });
+          else out.push({ inversion: 0, extension: 0 });
+        }
+        return out;
+      }
+
+      function ensureHookRule() {
+        if (!isPlainObject(settings.harmony.hookRule)) {
+          settings.harmony.hookRule = { chance: null, when: 'pass', pool: [], order: 'weight' };
+        }
+        return settings.harmony.hookRule;
+      }
+
+      function commitHookRule() {
+        // A rule at Auto, each time round, with an empty pool says nothing the
+        // loop's own law does not — so it is dropped, and the loop is back on
+        // the pre-rule law to the byte (section recalls included).
+        const set = settings.harmony.hookRule;
+        if (isPlainObject(set) && set.chance === null && set.when === 'pass' && !(set.pool && set.pool.length)) {
+          delete settings.harmony.hookRule;
+        }
+        const rule = settings.harmony.hookRule;
+        engine.setParams({ harmony: { hookRule: isPlainObject(rule) ? structuredClone(rule) : null } });
+        persistSettings();
+        refreshHookRule();
+      }
+
+      function commitHookVoicing(voicing) {
+        if (Array.isArray(voicing) && voicing.length) settings.harmony.voicing = voicing;
+        else delete settings.harmony.voicing;
+        engine.setParams({ harmony: { voicing: Array.isArray(settings.harmony.voicing) ? structuredClone(settings.harmony.voicing) : null } });
+        persistSettings();
+        try { renderChordChips(); } catch {}
+        refreshHookRule();
+      }
+
+      const hookChanceFromRaw = (raw) => (Math.round(raw) <= 0 ? null : clamp((Math.round(raw) - 1) / 20, 0, 1));
+      const hookRawFromChance = (chance) => (chance === null || chance === undefined ? 0 : 1 + Math.round(clamp(Number(chance) || 0, 0, 1) * 20));
+      const hookChanceFormat = (raw) => (Math.round(raw) <= 0 ? 'Auto' : Math.round(raw) === 1 ? 'Hold' : `${Math.round((Math.round(raw) - 1) * 5)}%`);
+
+      function commitHookChance(raw) {
+        ensureHookRule().chance = hookChanceFromRaw(raw);
+        commitHookRule();
+      }
+
+      /** The Now editor: per chord an inversion and a colour, plus the two shortcuts. */
+      function renderHookVoicingEditor() {
+        if (!hookVoicingEditor) return;
+        hookVoicingEditor.replaceChildren();
+        const voicing = editableVoicing();
+        const numerals = progressionSeedSlots();
+        const list = document.createElement('div');
+        list.className = 'hook-voicing-slots';
+        voicing.forEach((slot, i) => {
+          const cell = document.createElement('div');
+          cell.className = 'hook-voicing-slot';
+          const name = document.createElement('span');
+          name.className = 'hook-voicing-name';
+          name.textContent = numerals && numerals[i] ? slotToNumeral(numerals[i]) : `Chord ${i + 1}`;
+          const inv = document.createElement('select');
+          inv.className = 'genre-select';
+          inv.id = `hook-voicing-inv-${i}`;
+          inv.setAttribute('aria-label', `${name.textContent}: inversion`);
+          INVERSION_LABELS.forEach((label, value) => {
+            const option = document.createElement('option');
+            option.value = String(value);
+            option.textContent = label;
+            inv.append(option);
+          });
+          inv.value = String(slot.inversion);
+          inv.addEventListener('change', () => {
+            const next = editableVoicing();
+            next[i].inversion = clamp(Number(inv.value) || 0, 0, 2);
+            commitHookVoicing(next);
+          });
+          describe(inv, 'Which note of this chord is lowest: root position, or the chord turned over once or twice. The notes are the same; the shape is not.');
+          const ext = document.createElement('select');
+          ext.className = 'genre-select';
+          ext.id = `hook-voicing-ext-${i}`;
+          ext.setAttribute('aria-label', `${name.textContent}: colour`);
+          for (const [value, label] of COLOUR_LABELS) {
+            const option = document.createElement('option');
+            option.value = String(value);
+            option.textContent = label;
+            ext.append(option);
+          }
+          ext.value = String(slot.extension);
+          ext.addEventListener('change', () => {
+            const next = editableVoicing();
+            next[i].extension = clamp(Number(ext.value) || 0, -1, 1);
+            settings.harmony.voicing = next;
+            // A typed loop names its colour in the numeral too: keep the two in
+            // step, so the chip and the text field say what is played.
+            const own = progressionSeedSlots();
+            if (own && own[i]) {
+              own[i] = { ...own[i], extension: next[i].extension };
+              commitSlots(own);
+              refreshHookRule();
+              return;
+            }
+            commitHookVoicing(next);
+          });
+          describe(ext, 'How wide this chord is next to the rest of the piece: one step narrower, as Complexity plays it, or one step wider (a 7th becomes a 9th).');
+          cell.append(name, inv, ext);
+          list.append(cell);
+        });
+        const tools = document.createElement('div');
+        tools.className = 'hook-voicing-tools';
+        const take = document.createElement('button');
+        take.type = 'button';
+        take.className = 'secondary-button';
+        take.id = 'hook-voicing-take';
+        take.textContent = 'Keep what is playing';
+        take.addEventListener('click', () => {
+          const live = liveHookVoicing();
+          if (live) commitHookVoicing(live);
+        });
+        describe(take, 'Write the voicing the loop is sounding right now into Now, so it stays. Press Play first: before then nothing is sounding.');
+        const own = document.createElement('button');
+        own.type = 'button';
+        own.className = 'secondary-button';
+        own.id = 'hook-voicing-clear';
+        own.textContent = 'The loop\u2019s own';
+        own.disabled = !Array.isArray(settings.harmony.voicing);
+        own.addEventListener('click', () => commitHookVoicing(null));
+        describe(own, 'Hand the voicing back: every chord in root position at the colour the loop names, as it was before you set one.');
+        tools.append(take, own);
+        hookVoicingEditor.append(list, tools);
+      }
+
+      /** The Pool editor: alternative voicings, weighted or in turn. */
+      function renderHookPoolEditor() {
+        if (!hookPoolEditor) return;
+        hookPoolEditor.replaceChildren();
+        const rule = isPlainObject(settings.harmony.hookRule) ? settings.harmony.hookRule : null;
+        const pool = rule && Array.isArray(rule.pool) ? rule.pool : [];
+        const order = rule && rule.order === 'turn' ? 'turn' : 'weight';
+        const list = document.createElement('ol');
+        list.className = 'hook-pool-list';
+        pool.forEach((entry, i) => {
+          const row = document.createElement('li');
+          row.className = 'hook-pool-row';
+          const words = document.createElement('span');
+          words.className = 'hook-pool-words';
+          words.textContent = voicingWords(entry.voicing);
+          row.append(words);
+          if (order === 'weight') {
+            const weight = document.createElement('input');
+            weight.type = 'number';
+            weight.min = '1';
+            weight.max = '100';
+            weight.step = '1';
+            weight.value = String(Math.round(entry.weight || 1));
+            weight.className = 'hook-pool-weight';
+            weight.setAttribute('aria-label', `Pool voicing ${i + 1}: weight`);
+            weight.addEventListener('change', () => {
+              ensureHookRule().pool[i].weight = clamp(Number(weight.value) || 1, 1, 100);
+              commitHookRule();
+            });
+            row.append(weight);
+          }
+          const move = (delta, text, label) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'secondary-button hook-pool-move';
+            button.textContent = text;
+            button.setAttribute('aria-label', label);
+            const to = i + delta;
+            button.disabled = to < 0 || to >= pool.length;
+            button.addEventListener('click', () => {
+              const list2 = ensureHookRule().pool;
+              [list2[i], list2[to]] = [list2[to], list2[i]];
+              commitHookRule();
+            });
+            row.append(button);
+          };
+          move(-1, '\u25B2', `Move pool voicing ${i + 1} up`);
+          move(1, '\u25BC', `Move pool voicing ${i + 1} down`);
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.className = 'secondary-button hook-pool-remove';
+          remove.textContent = 'Remove';
+          remove.setAttribute('aria-label', `Remove pool voicing ${i + 1}`);
+          remove.addEventListener('click', () => {
+            ensureHookRule().pool.splice(i, 1);
+            commitHookRule();
+          });
+          row.append(remove);
+          list.append(row);
+        });
+        if (!pool.length) {
+          const empty = document.createElement('p');
+          empty.className = 'hint';
+          empty.textContent = 'Empty: when the loop moves it moves its own way \u2014 a shape it kept comes back, or one chord changes.';
+          hookPoolEditor.append(empty);
+        } else {
+          hookPoolEditor.append(list);
+        }
+        const tools = document.createElement('div');
+        tools.className = 'hook-voicing-tools';
+        const addLive = document.createElement('button');
+        addLive.type = 'button';
+        addLive.className = 'secondary-button';
+        addLive.id = 'hook-pool-add-live';
+        addLive.textContent = 'Add what is playing';
+        addLive.disabled = pool.length >= 16;
+        addLive.addEventListener('click', () => {
+          const live = liveHookVoicing();
+          if (!live) return;
+          ensureHookRule().pool.push({ voicing: live, weight: 1 });
+          commitHookRule();
+        });
+        describe(addLive, 'Add the voicing the loop is sounding right now to the pool. Press Play first.');
+        const addNow = document.createElement('button');
+        addNow.type = 'button';
+        addNow.className = 'secondary-button';
+        addNow.id = 'hook-pool-add-now';
+        addNow.textContent = 'Add the Now';
+        addNow.disabled = pool.length >= 16;
+        addNow.addEventListener('click', () => {
+          ensureHookRule().pool.push({ voicing: editableVoicing(), weight: 1 });
+          commitHookRule();
+        });
+        describe(addNow, 'Add the voicing in Now to the pool, so a move can come back to it.');
+        const orderSelect = document.createElement('select');
+        orderSelect.className = 'genre-select';
+        orderSelect.id = 'hook-pool-order';
+        orderSelect.setAttribute('aria-label', 'Chord voicing pool: order');
+        for (const [value, label] of [['weight', 'by weight'], ['turn', 'in turn']]) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = label;
+          orderSelect.append(option);
+        }
+        orderSelect.value = order;
+        orderSelect.addEventListener('change', () => {
+          ensureHookRule().order = orderSelect.value === 'turn' ? 'turn' : 'weight';
+          commitHookRule();
+        });
+        describe(orderSelect, 'By weight draws a voicing at random, the heavier the likelier. In turn plays them in this order, one per move.');
+        tools.append(addLive, addNow, orderSelect);
+        hookPoolEditor.append(tools);
+      }
+
+      /** Re-read the rule into every part of its control. */
+      function refreshHookRule() {
+        if (!hookRuleHandle) return;
+        const rule = isPlainObject(settings.harmony.hookRule) ? settings.harmony.hookRule : null;
+        const voicing = Array.isArray(settings.harmony.voicing) ? settings.harmony.voicing : null;
+        hookRuleHandle.setNow(voicing ? voicingWords(voicing) : 'as the loop is written');
+        hookRuleHandle.setMark(Boolean(rule));
+        hookRuleHandle.setPool(rule ? rule.pool : [], rule ? rule.order : 'weight');
+        hookRuleHandle.setWhen(rule ? rule.when : 'pass');
+        if (hookChanceKnob && typeof hookChanceKnob.set === 'function') {
+          try { hookChanceKnob.set(hookRawFromChance(rule ? rule.chance : null)); } catch {}
+        }
+        if (hookVoicingEditor && !hookVoicingEditor.hidden) renderHookVoicingEditor();
+        if (hookPoolEditor && !hookPoolEditor.hidden) renderHookPoolEditor();
+      }
+
+      function mountHookRule() {
+        if (!ruleApi || !engineCaps.hookRule || !progressionControl || hookRuleHandle) return;
+        const host = document.createElement('div');
+        host.id = 'hook-rule-host';
+        host.className = 'hook-rule-host';
+        const rule = isPlainObject(settings.harmony.hookRule) ? settings.harmony.hookRule : null;
+        const handle = ruleApi.createRule(host, {
+          id: 'hook',
+          name: 'Voicing',
+          level: ruleLevel(),
+          describe,
+          now: {
+            text: '',
+            hint: 'How each chord of the loop is voiced: which note is lowest, and how wide it is. Press to set it chord by chord.',
+            onOpen: () => {
+              hookVoicingEditor.hidden = !hookVoicingEditor.hidden;
+              if (!hookVoicingEditor.hidden) renderHookVoicingEditor();
+            },
+          },
+          chance: {
+            when: rule ? rule.when : 'pass',
+            whenOptions: HOOK_WHEN,
+            whenHint: 'When the loop may move: each time round it, at each new section, or once per piece. A move always lands at the end of the loop, never in the middle.',
+            whenIds: { select: 'hook-rule-when' },
+            onWhen: (value) => {
+              ensureHookRule().when = value;
+              commitHookRule();
+            },
+          },
+          pool: {
+            rows: rule ? rule.pool : [],
+            order: rule ? rule.order : 'weight',
+            summarise: (rows, order) => (Array.isArray(rows) && rows.length
+              ? `${rows.map((entry) => voicingWords(entry.voicing)).join(' \u203A ')} \u00B7 ${order === 'turn' ? 'in turn' : 'by weight'}`
+              : 'empty \u2014 the loop\u2019s own moves'),
+            hint: 'The voicings a move may pick from, in order and weighted. Empty, the loop moves its own way.',
+            ids: { edit: 'hook-rule-pool' },
+            onEdit: () => {
+              hookPoolEditor.hidden = !hookPoolEditor.hidden;
+              if (!hookPoolEditor.hidden) renderHookPoolEditor();
+            },
+          },
+        });
+        hookRuleHandle = handle;
+        mountedRules.add(handle);
+        // Chance: Auto (follows Repetition) at the left detent, then Hold, then up to always.
+        const chanceHint = 'Chance: how likely the chord loop is to move at each When. Hold keeps the voicing for good \u2014 no chord changes, nothing comes back. At the left detent (Auto) it follows Repetition, as it always has.';
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = 'vary-knob';
+          handle.chanceSlot.append(cell);
+          try {
+            hookChanceKnob = knobApi.createKnob(cell, {
+              label: 'Loop chance',
+              min: 0,
+              max: 21,
+              step: 1,
+              value: hookRawFromChance(rule ? rule.chance : null),
+              marks: [0],
+              format: hookChanceFormat,
+              allowRange: false,
+              defaultValue: 0,
+              onInput: (v) => commitHookChance(v),
+            });
+            describe(hookChanceKnob.el, chanceHint);
+          } catch {
+            cell.remove();
+            hookChanceKnob = null;
+          }
+        }
+        if (!hookChanceKnob) {
+          const input = document.createElement('input');
+          input.type = 'range';
+          input.id = 'hook-rule-chance';
+          input.min = '0';
+          input.max = '21';
+          input.step = '1';
+          input.value = String(hookRawFromChance(rule ? rule.chance : null));
+          input.setAttribute('aria-label', 'Chord loop chance');
+          input.setAttribute('aria-valuetext', hookChanceFormat(Number(input.value)));
+          input.addEventListener('input', () => {
+            input.setAttribute('aria-valuetext', hookChanceFormat(Number(input.value)));
+            commitHookChance(Number(input.value));
+          });
+          describe(input, chanceHint);
+          handle.chanceSlot.append(input);
+          hookChanceKnob = { set: (v) => { input.value = String(v); input.setAttribute('aria-valuetext', hookChanceFormat(Number(v))); } };
+        }
+        hookVoicingEditor = document.createElement('div');
+        hookVoicingEditor.id = 'hook-voicing-editor';
+        hookVoicingEditor.className = 'hook-rule-editor';
+        hookVoicingEditor.hidden = true;
+        hookPoolEditor = document.createElement('div');
+        hookPoolEditor.id = 'hook-pool-editor';
+        hookPoolEditor.className = 'hook-rule-editor';
+        hookPoolEditor.hidden = true;
+        host.append(hookVoicingEditor, hookPoolEditor);
+        if (progressionHint) progressionHint.before(host);
+        else progressionControl.append(host);
+        refreshHookRule();
       }
 
       if (engineCaps.harmonySeed && progressionControl) {
@@ -6544,6 +7012,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const select = document.getElementById('rule-level');
         if (select && select.value !== level) select.value = level;
         persistSettings();
+      }
+      // "Chord loop as voiced": mounted here rather than beside the chords'
+      // own init, because mountedRules is declared just above.
+      if (engineCaps.harmonySeed) {
+        try { mountHookRule(); } catch (error) { console.warn('hook rule did not mount', error); }
       }
 
       /**
@@ -15566,6 +16039,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
           }
         }
+        // "Chord loop as voiced": a held loop rule (Chance 0) is yours too —
+        // Next keeps it and the voicing under it, over the new genre's chords.
+        if (isPlainObject(settings.harmony?.hookRule) && settings.harmony.hookRule.chance === 0) {
+          next.harmony = { ...(isPlainObject(next.harmony) ? next.harmony : {}), hookRule: structuredClone(settings.harmony.hookRule) };
+          if (Array.isArray(settings.harmony.voicing)) next.harmony.voicing = structuredClone(settings.harmony.voicing);
+        }
         // The SEED is the half of the provenance that was being thrown away.
         // `settings.genre` said which genre; nothing said which compile, and
         // one genre has as many bases as there are seeds.
@@ -19582,6 +20061,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         //     (`params.arp.mode === 'manual'` is the engine's own test), so a
         //     cleared arp lane still generated a pattern.
         blank.harmony = { ...(blank.harmony || {}), seed: ['I'] };
+        // "Chord loop as voiced" (his 96: every rule zeroed): the loop's rule
+        // at Chance 0 with an empty Pool, so the blank chord keeps the voicing
+        // it is given instead of turning over on its own every pass.
+        delete blank.harmony.voicing;
+        blank.harmony.hookRule = { chance: 0, when: 'pass', pool: [], order: 'weight' };
         blank.arp.mode = 'manual';
         // v0.0.89 (his 103): blank means the FX too — he pressed Blank slate
         // and "still [had] massive reverb and delay", because the voices'
@@ -20165,7 +20649,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#control-progression',
-          text: 'Chords is the loop the piece keeps coming back to. Each chord has a card: press one to hear it, and the notes it plays are printed on it, so you never have to imagine a chord from its name. The arrows move a chord through the scale and the button beside them makes it wider. Leave the box empty and the app writes the loop itself — or, on Create, Write → Chords offers Fit chords to the tune, which fits one to a tune you already have.',
+          text: 'Chords is the loop the piece keeps coming back to. Press a chord\'s card to hear it; the notes it plays are printed on it. The arrows move a chord through the scale and the button beside them widens it. Leave the box empty and the app writes the loop itself, or on Create, Write → Chords fits one to a tune you have. Voicing, under the cards, sets each chord\'s lowest note and width, and how often the loop changes: Hold keeps it exactly.',
         },
         {
           tab: 'advanced',
@@ -22460,6 +22944,63 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       font-size: 0.9rem;
     }
     /* v0.0.196: the rule primitive — three layers, one shape. */
+    .hook-rule-host {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .hook-rule-editor {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+      border-radius: 8px;
+    }
+    .hook-rule-editor[hidden] { display: none; }
+    .hook-voicing-slots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+    }
+    .hook-voicing-slot {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .hook-voicing-slot select,
+    .hook-voicing-tools select {
+      min-height: 30px;
+      padding: 2px 6px;
+      font-size: 0.85rem;
+      max-width: 16ch;
+    }
+    .hook-voicing-name { font-size: 0.8rem; opacity: 0.8; }
+    .hook-voicing-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .hook-pool-list {
+      margin: 0;
+      padding-left: 1.5em;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .hook-pool-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .hook-pool-words { font-family: ui-monospace, monospace; font-size: 0.85rem; }
+    .hook-pool-weight { width: 5ch; min-height: 30px; }
+    .hook-pool-move,
+    .hook-pool-remove { min-height: 30px; padding: 2px 8px; }
     .rule-level-row {
       display: flex;
       align-items: center;

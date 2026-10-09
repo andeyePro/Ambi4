@@ -70,6 +70,11 @@ export function chanceSummary(chance) {
  *   chance: { hint, when, onWhen, whenIds: { select } },  // the dial is mounted into handle.chanceSlot by the page
  *   pool:   { rows, order, labelOf, empty, hint, onEdit, ids: { edit } },  // empty: the empty pool's words
  * }
+ *
+ * A rule whose finest grain is not a bar (the chord loop moves only between
+ * passes of the loop) hands in its own `chance.whenOptions` ([value, text]
+ * pairs) and `chance.whenHint`; a pool whose rows are not voice ids hands in
+ * `pool.summarise(rows, order)`. Without them the voice rule's are used.
  */
 export function createRule(host, spec) {
   const doc = host.ownerDocument;
@@ -113,15 +118,20 @@ export function createRule(host, spec) {
   when.className = 'genre-select rule-when';
   if (spec.chance && spec.chance.whenIds && spec.chance.whenIds.select) when.id = spec.chance.whenIds.select;
   when.setAttribute('aria-label', `${spec.name}: when a redraw may happen`);
-  for (const [value, text] of RULE_WHEN) {
+  const whenOptions = spec.chance && Array.isArray(spec.chance.whenOptions) && spec.chance.whenOptions.length
+    ? spec.chance.whenOptions
+    : RULE_WHEN;
+  for (const [value, text] of whenOptions) {
     const option = doc.createElement('option');
     option.value = value;
     option.textContent = text;
     when.append(option);
   }
-  when.value = spec.chance && RULE_WHEN.some(([v]) => v === spec.chance.when) ? spec.chance.when : 'bar';
+  when.value = spec.chance && whenOptions.some(([v]) => v === spec.chance.when) ? spec.chance.when : whenOptions[0][0];
   when.addEventListener('change', () => { if (spec.chance && typeof spec.chance.onWhen === 'function') spec.chance.onWhen(when.value); });
-  describe(when, 'When the redraw may happen: at every bar, at every new section, or once per piece.');
+  describe(when, spec.chance && spec.chance.whenHint
+    ? spec.chance.whenHint
+    : 'When the redraw may happen: at every bar, at every new section, or once per piece.');
   chance.append(chanceName, chanceSlot, when);
 
   // -- Pool
@@ -175,7 +185,9 @@ export function createRule(host, spec) {
   }
 
   function setPool(rows, order) {
-    poolText.textContent = poolSummary(rows, order, spec.pool && spec.pool.labelOf, spec.pool && spec.pool.empty);
+    poolText.textContent = spec.pool && typeof spec.pool.summarise === 'function'
+      ? spec.pool.summarise(rows, order)
+      : poolSummary(rows, order, spec.pool && spec.pool.labelOf, spec.pool && spec.pool.empty);
   }
   function setMark(on) { mark.hidden = !on; }
   function setNow(text) { nowValue.textContent = text; }
@@ -184,7 +196,7 @@ export function createRule(host, spec) {
     el.dataset.expanded = '0';
     apply();
   }
-  function setWhen(value) { if (RULE_WHEN.some(([v]) => v === value)) when.value = value; }
+  function setWhen(value) { if (whenOptions.some(([v]) => v === value)) when.value = value; }
 
   setPool(spec.pool ? spec.pool.rows : [], spec.pool ? spec.pool.order : 'weight');
   apply();

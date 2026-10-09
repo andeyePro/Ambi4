@@ -2017,6 +2017,69 @@ try {
     }
   }
 
+  // "Chord loop as voiced" — the chord loop's voicing as a rule on the
+  // primitive, beside the chords: three layers, its own When (each time round /
+  // section / piece), and every edit asserted at the ENGINE, not the readout.
+  {
+    const engine = window.__ambi4Engine;
+    const host = doc.getElementById('hook-rule-host');
+    const rule = host && host.querySelector('.rule[data-rule="hook"]');
+    if (!rule) failures.push('the chord loop has no voicing rule on the primitive (#hook-rule-host .rule[data-rule="hook"])');
+    else if (!engine) failures.push('no engine seam for the chord loop rule');
+    else {
+      const layer = (name) => rule.querySelector(`.rule-layer[data-layer="${name}"]`);
+      for (const name of ['now', 'chance', 'pool']) if (!layer(name)) failures.push(`the voicing rule has no ${name} layer`);
+      if (!rule.querySelector('.rule-chance-slot .knob, .rule-chance-slot input[type="range"]')) failures.push('the voicing rule\'s Chance layer holds no dial');
+      const when = doc.getElementById('hook-rule-when');
+      const whenValues = when ? [...when.options].map((o) => o.value).join(',') : '';
+      if (whenValues !== 'pass,section,piece') failures.push(`the voicing rule's When offers ${JSON.stringify(whenValues)}, not pass,section,piece`);
+      const before = engine.getParams().harmony;
+      if ('voicing' in before || 'hookRule' in before) failures.push('a fresh boot already carries a voicing or loop rule — stored pieces would not be byte-identical');
+      rule.querySelector('.rule-now-value').click();
+      const inv = doc.getElementById('hook-voicing-inv-0');
+      if (!inv) failures.push('opening Now did not show the per-chord voicing editor (#hook-voicing-inv-0)');
+      else {
+        inv.value = '1';
+        inv.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const v = engine.getParams().harmony.voicing;
+        if (!Array.isArray(v) || !v[0] || v[0].inversion !== 1) failures.push(`an inversion picked in Now did not reach the engine: ${JSON.stringify(v)}`);
+        if (!/1st/.test(rule.querySelector('.rule-now-value').textContent)) failures.push('the Now readout does not name the inversion just set');
+      }
+      if (when) {
+        when.value = 'section';
+        when.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const r = engine.getParams().harmony.hookRule;
+        if (!r || r.when !== 'section') failures.push(`the voicing rule's When did not reach the engine: ${JSON.stringify(r)}`);
+      }
+      const edit = doc.getElementById('hook-rule-pool');
+      if (!edit) failures.push('the voicing rule\'s pool Edit… lost its id');
+      else {
+        edit.click();
+        const add = doc.getElementById('hook-pool-add-now');
+        if (!add) failures.push('the voicing pool editor has no Add the Now');
+        else {
+          add.click();
+          const pool = engine.getParams().harmony.hookRule?.pool;
+          if (!Array.isArray(pool) || pool.length !== 1 || pool[0].voicing[0].inversion !== 1) failures.push(`Add the Now did not reach the engine's pool: ${JSON.stringify(pool)}`);
+          const remove = doc.querySelector('#hook-pool-editor .hook-pool-remove');
+          if (remove) remove.click();
+        }
+        edit.click();
+      }
+      // Back to nothing: When to each time round with an empty pool and Auto
+      // drops the rule, and The loop's own drops the voicing.
+      if (when) {
+        when.value = 'pass';
+        when.dispatchEvent(new window.Event('change', { bubbles: true }));
+      }
+      doc.getElementById('hook-voicing-clear')?.click();
+      const after = engine.getParams().harmony;
+      if ('voicing' in after) failures.push('The loop\'s own did not clear the voicing at the engine');
+      if ('hookRule' in after) failures.push(`a rule back at Auto, each time round, empty pool was not dropped: ${JSON.stringify(after.hookRule)}`);
+      rule.querySelector('.rule-now-value').click();
+    }
+  }
+
   // v0.0.188 — the slider fallback editor, booted on purpose. With the seam
     // set, every stock voice renders through the path the page takes when
     // knob.js is missing: every control names its field (pinned, with its
