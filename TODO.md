@@ -102,7 +102,7 @@ The 2026-09-25 session (4 h, 8 % of the week) took the two smallest slices with 
 - [ ] **Minimalism's additive process (Glass)** — FINISHED, unmerged: 82fcc39 on `worktree-agent-a84161837ab71a51b` (`arp.additive = { every, mode }`, an Additive dial beside Phase; no stock genre ships it; arp-additive-smoke 10/10, 9 red on v0.0.222; audio-reference unmoved). Retag its v0.0.223 notes at merge.
 - [ ] **Advanced collapses to its Now (fix 18)** — WIP, unmerged: 4d59f1e on `worktree-agent-aac8cbbc2aa31af6f` (Sound / Music / Presets sections on `bindMore`; first visit 75 controls vs 92; page-boot 11 red on old, rule-control-smoke, tutorial-smoke green; six drives press the real "more" via `window.__ambi4FoldMore`). Owed: TESTING entry, a bridge drive sweep, measure.sh overlaps at desktop and 390×844. Its commit message's counts are wrong; the right ones are here.
 - [ ] **Pins and saved layouts** — WIP, unmerged: 2cf2552 on `worktree-agent-a28f00418d74af0ee` (right-click / hold / P pins a dial into a Pinned strip on Simple, a live second view; named layouts of pins, tab and open editor; page-boot green). Owed: red-on-old proof, tutorial-smoke / knobscope-smoke / knob-gesture, TESTING and tour, a browser check of the touch hold and the strip's layout. Owner looks: the strip still shows when only a layout is saved; a pin from a closed voice editor shows dimmed and opens it.
-- [ ] **Run the full gate on dev before pushing** — v0.0.224's full gate was interrupted by the stop.
+- [x] **Run the full gate on dev** — v0.0.224's full gate finished after the stop: 43/43 green.
 
 ### Built on 2026-10-03, NOT YET MERGED — each commit lives on its own branch; merge onto dev in this order (owner's "wind up without losing their contributions")
 
