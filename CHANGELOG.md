@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-09
+
+- [x] **v0.0.211 — the modulation graph's error states** — a removed track now takes its routing edges and sampling overrides with it, so a later track reusing the id inherits no patch nobody made for it and no share link carries the corpse; an offered edge the sanitiser drops (unknown source, bad destination, malformed, past the 64-edge cap) is reported — `routingRefusals()` and a `routing-refused` event — rather than swallowed; a cycle through a source is pinned as unspellable (a destination's track part has no dot). Engine only; nothing on screen changes. Gate: routing-contract 14/14 (the two new checks red on v0.0.210), 33 node suites; audio-reference unmoved. Built by a sonnet worktree agent on 2026-10-03 (0335420), merged by the chair; the engine contract's routing section says it.
+
 ## 2026-10-03
 
 - [x] **v0.0.210 — the voice editor gets layers** — UI review fixes 8–12. ↺ Back to factory sits in the editor's head beside the engine chip, not at the foot; the words line, Save voice and "A sound in mind?" fold behind one "more" under the dials (the rules' own "more"), open by default only at Rules show "+ pool"; the arp's Octaves and Gate and each structure block's intensity are dials like everything else (Gate reads as a percentage), sliders kept only as the fallback; the head's Off/Auto/On pills are gone — the row's lamp is the one state control. A first open drops from 80 to 64 controls on the melody and 75 to 59 on the arp. Gates: page-boot's editor-layers block (red on v0.0.206 eleven ways), 33 node suites; layout measured on the bridge with the melody editor open at 1280×900 and 390×844 — no collisions, overflow or clipping; on a phone the head wraps (reset one line under the chip, head 297 px). Built by an opus worktree agent (babd799), merged by the chair.

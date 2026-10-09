@@ -485,6 +485,70 @@ test('clearing params.routing returns the dial to its own walk, and it stops fol
 });
 
 // --------------------------------------------------------------------------
+// 7. Error states: dangling edges, unknown sources, cycles
+// --------------------------------------------------------------------------
+
+test('dangling: removing a track drops the edges and sampling overrides naming it — a re-added track does not inherit them', () => {
+  const engine = createEngine({}, { rng: seededRng(7001) });
+  const id = engine.addTrack({ label: 'Drone', family: 'melodic', voiceSet: 'pad' }).id;
+  engine.setParams({
+    routing: [
+      { source: 'macro.1', destination: `${id}:level` },
+      { source: 'lfo.1', destination: 'pad:level' },
+      { source: 'macro.1', destination: '@global:complexity' },
+    ],
+    sampling: { [`${id}:level`]: 'chord', 'pad:level': 'section' },
+  });
+  assert.equal(engine.getParams().routing.length, 3, 'setup: all three edges stored while the track exists');
+  engine.removeTrack(id);
+  const after = engine.getParams();
+  assert.deepEqual(after.routing.map((e) => e.destination).sort(), ['@global:complexity', 'pad:level'],
+    `only the removed track's edge may go; got ${JSON.stringify(after.routing)}`);
+  assert.equal(after.sampling[`${id}:level`], undefined, 'its sampling override must go with it');
+  assert.equal(after.sampling['pad:level'], 'section', 'a neighbour sampling override must stay');
+  const again = engine.addTrack({ label: 'Drone', family: 'melodic', voiceSet: 'pad' }).id;
+  assert.ok(!engine.getParams().routing.some((e) => e.destination.startsWith(`${again}:`)),
+    `a track re-added (${again}) must not silently inherit the dead patch`);
+});
+
+test('unknown sources: refused cleanly and REPORTED with index and reason; good neighbours still stored', () => {
+  const engine = createEngine({}, { rng: seededRng(7002) });
+  const reports = [];
+  engine.on('routing-refused', (r) => reports.push(r));
+  engine.setParams({ routing: [
+    { source: 'env.1', destination: 'pad:level' },
+    { source: 'macro.1', destination: 'pad:pan' },
+    { source: 'lfo.9', destination: 'pad:volume' },
+    { source: 'macro.1', destination: 'no colon' },
+  ] });
+  assert.deepEqual(engine.getParams().routing, [{ source: 'macro.1', destination: 'pad:pan' }]);
+  assert.equal(reports.length, 1, 'one report per offending setParams');
+  assert.deepEqual(reports[0].refused.map((r) => [r.index, r.reason]),
+    [[0, 'unknown-source'], [2, 'unknown-source'], [3, 'bad-destination']]);
+  assert.equal(reports[0].refused[0].source, 'env.1', 'the report names the refused source');
+  engine.setParams({ routing: [{ source: 'macro.1', destination: 'pad:level' }] });
+  assert.equal(reports.length, 1, 'a clean edit reports nothing');
+  assert.deepEqual(engineModule.routingRefusals(undefined), []);
+  assert.equal(engineModule.routingRefusals('x')[0].reason, 'not-a-list');
+});
+
+test('cycles: no destination can name a source, so a patch through a source is refused at setParams', () => {
+  const engine = createEngine({}, { rng: seededRng(7003) });
+  engine.setParams({ routing: [
+    { source: 'macro.1', destination: 'macro.1:value' },
+    { source: 'lfo.1', destination: 'lfo.1:bars' },
+    { source: 'macro.1', destination: 'lfo.1:bars' },
+    { source: 'macro.1', destination: '@global:macro1' },
+  ] });
+  const kept = engine.getParams().routing.map((e) => e.destination);
+  assert.ok(!kept.some((d) => d.split(':')[0].includes('.')),
+    `a source-addressed destination must never be stored; got ${JSON.stringify(kept)}`);
+  // macro1 and lfo1 are not walked dials: an edge onto them cannot feed back.
+  const spans = engine.getParams().spans || {};
+  assert.equal(spans.macro1, undefined);
+});
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 

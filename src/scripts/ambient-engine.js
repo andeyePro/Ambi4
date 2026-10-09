@@ -1373,6 +1373,39 @@ function genreSlug(value) {
  * address a sampling override or a routing edge names a dial by. */
 const WALK_KEY_GRAMMAR = /^[@A-Za-z][A-Za-z0-9_-]{0,31}:[A-Za-z0-9_.-]{1,64}$/;
 
+/** The modulation sources this build honours. A link naming any other is
+ * REFUSED (and reported by routingRefusals), never guessed at. */
+const ROUTING_SOURCES = Object.freeze(['lfo.1', 'macro.1']);
+const ROUTING_EDGE_CAP = 64;
+
+/** Why one offered edge cannot be stored, or null if it can. Destinations
+ * share the walk-key grammar, whose track part has no '.', so no destination
+ * can ever name a source ('lfo.1', 'macro.1'): a cycle through a source is
+ * unspellable, not merely unhandled. */
+function routingEdgeRefusal(edge) {
+  if (!edge || typeof edge !== 'object' || Array.isArray(edge)) return 'malformed';
+  if (!ROUTING_SOURCES.includes(edge.source)) return 'unknown-source';
+  if (typeof edge.destination !== 'string' || !WALK_KEY_GRAMMAR.test(edge.destination)) return 'bad-destination';
+  return null;
+}
+
+/** The edges of an offered routing list the sanitiser will not keep, with
+ * the reason, so a share link's loss is reported rather than silent. */
+export function routingRefusals(list) {
+  if (!Array.isArray(list)) return list === undefined ? [] : [{ index: -1, reason: 'not-a-list' }];
+  const out = [];
+  list.forEach((edge, index) => {
+    const reason = index >= ROUTING_EDGE_CAP ? 'over-cap' : routingEdgeRefusal(edge);
+    if (!reason) return;
+    out.push({
+      index, reason,
+      source: edge && typeof edge === 'object' ? edge.source : undefined,
+      destination: edge && typeof edge === 'object' ? edge.destination : undefined,
+    });
+  });
+  return out;
+}
+
 export const DEFAULT_PARAMS = Object.freeze({
   speed: 1,
   // v14: straight by default. The dial is global; per-track overrides are a
@@ -2838,15 +2871,12 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
   // destinations use the walk-key grammar. Supplying replaces; absent
   // inherits — same law as sampling.
   {
-    const ROUTING_SOURCES = ['lfo.1', 'macro.1'];
     const asked = at('routing');
     const source = asked !== undefined ? asked : from.routing;
     const byDest = new Map();
     if (Array.isArray(source)) {
-      for (const edge of source.slice(0, 64)) {
-        if (!edge || typeof edge !== 'object' || Array.isArray(edge)) continue;
-        if (!ROUTING_SOURCES.includes(edge.source)) continue;
-        if (typeof edge.destination !== 'string' || !WALK_KEY_GRAMMAR.test(edge.destination)) continue;
+      for (const edge of source.slice(0, ROUTING_EDGE_CAP)) {
+        if (routingEdgeRefusal(edge)) continue;
         byDest.set(edge.destination, { source: edge.source, destination: edge.destination });
       }
     }
@@ -9842,11 +9872,28 @@ export function createEngine(initialParams, options = {}) {
   }
 
   function setParams(partial) {
-    params = sanitiseParams(partial, params, trackOrder());
+    const tracksBefore = trackOrder();
+    params = sanitiseParams(partial, params, tracksBefore);
     // params.userTracks is AUTHORITATIVE: supplying an entry creates the track
     // and omitting one removes it, so the accessors and the graph follow it
     // before anything below reads either.
     const tracksChanged = syncTracks();
+    // A track that has gone takes its edges and sampling overrides with it:
+    // left stored, a later track reusing the id would silently inherit a
+    // patch nobody made for it, and every share link would carry the corpse.
+    if (tracksChanged) {
+      const gone = tracksBefore.filter((id) => !trackOrder().includes(id));
+      if (gone.length) {
+        const named = (key) => gone.includes(String(key).slice(0, String(key).indexOf(':')));
+        params.routing = (params.routing || []).filter((edge) => !named(edge.destination));
+        for (const key of Object.keys(params.sampling || {})) if (named(key)) delete params.sampling[key];
+      }
+    }
+    // An offered edge the sanitiser dropped is reported, not swallowed.
+    if (partial && partial.routing !== undefined) {
+      const refused = routingRefusals(partial.routing);
+      if (refused.length) emit('routing-refused', { refused });
+    }
     kindPatches.clear();
     resolvedPatches.clear();
     invalidateEditedPlans(partial);

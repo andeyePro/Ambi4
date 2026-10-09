@@ -230,6 +230,14 @@ Patch = {
   section-sampled route holds its delivered value all section. Envelopes
   (per-voice), more LFOs/macros, params-as-sources and the socket UI are later
   phases; supplying `routing` replaces the list, absent inherits.
+  Error states (v0.0.211): a track that is removed takes every edge whose
+  destination names it, and every `params.sampling` override keyed on it, with
+  it — a later track reusing the id inherits nothing. An offered edge the
+  sanitiser drops (unknown source, a destination off the walk-key grammar,
+  malformed, past the cap) is REPORTED: `routingRefusals(list)` lists each with
+  its index and reason, and `setParams` emits `routing-refused`. A cycle through
+  a source is unspellable rather than handled — a destination's track part
+  cannot contain a dot, so no destination can name `lfo.1` or `macro.1`.
 - Sampling (v0.0.167, routing phase 4's engine half): `params.sampling` — a sparse
   map keyed like the walks (`'track:param'`, the `'@global'` pseudo-track included)
   saying WHEN that spread's walk advances. Honoured values: `chord` (a bar that
