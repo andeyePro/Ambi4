@@ -2593,3 +2593,29 @@ an empty pool is that line, stated verbatim over the chord for the whole
 piece — the typed tool itself still writes a pinned sequencer. Gated by
 `tests/motif-rule-smoke.mjs` (12 checks, 11 red on the old engine) and
 recipe-roundtrip's secret-layers table (`motif` named).
+
+## The walk as a rule (v0.0.216)
+
+Module ownership: **the engine** (`tracks[t].walkSeed`, `tracks[t].walkHold`,
+`seededWalkDraw`, the recipe's `walks`). Every spread (min–max) dial walks
+inside its span on a bounded reflecting walk keyed `track:param`; until now
+every step drew from the piece's own rng, so a rebuild at another seed
+wandered elsewhere and nothing could say where a dial stood.
+
+- `walkSeed` — sparse, an unsigned 32-bit integer (`WALK_SEED_MAX`). Set, the
+  track's walks leave the piece rng for their own path: each step's draw is
+  `seededWalkDraw(seed, key, position)`, a pure function of the seed, the walk
+  key and where the walk stands, so the same seed walks the same path at ANY
+  rng seed. Unset, nothing moves — an unseeded walk draws from the piece rng
+  exactly as before, and `tests/audio-reference.mjs` does not move.
+- `walkHold` — sparse, up to 64 param halves of walk keys (`level`,
+  `patch.keys.filter.cutoff`) whose walk stands still where it is.
+- `getRecipe().walks` — the live position (0–1) inside every min–max walk, by
+  walk key in track order, named only while the engine runs (a stopped
+  engine's last positions are nobody's next ones; `start()` begins every
+  performance on fresh walks). `@global` spans are not recipe fields, so their
+  walks are not either. `applyRecipe` lands the positions at the next
+  barline, never mid-bar; a seeded walk rebuilt from them walks on along the
+  very same path, an unseeded one steps on from the rebuild's own rng.
+- The secret-layers ratchet's `walks` row is named. Gate:
+  `tests/walk-seed-smoke.mjs` (6 checks, all red on v0.0.215).

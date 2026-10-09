@@ -1406,6 +1406,53 @@ export function routingRefusals(list) {
   return out;
 }
 
+/** v0.0.216: the param half of a walk key — what `tracks[t].walkHold` lists. */
+const WALK_PARAM_GRAMMAR = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/** v0.0.216: the largest walk seed — any unsigned 32-bit integer. */
+export const WALK_SEED_MAX = 4294967295;
+
+/** FNV-1a over a walk key, so every dial of a seeded track walks its own path. */
+function hashWalkKey(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** A 32-bit avalanche (murmur3's finaliser). */
+function mixWalk32(h) {
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+const walkDrawBits = new Float64Array(1);
+const walkDrawWords = new Uint32Array(walkDrawBits.buffer);
+
+/**
+ * v0.0.216: the draw a SEEDED walk takes instead of the piece's rng — a pure
+ * function of (walkSeed, walk key, the walk's current position), in [0, 1).
+ * With no position it is the walk's starting point. Because the next step is
+ * decided by where the walk IS rather than by how many draws the piece has
+ * made, a rebuild at any rng seed that starts a dial from the same position
+ * (the recipe's `walks`) walks the very same path from there on.
+ */
+export function seededWalkDraw(seed, key, position) {
+  let h = mixWalk32((seed ^ hashWalkKey(key)) >>> 0);
+  if (position !== undefined) {
+    walkDrawBits[0] = position;
+    h = mixWalk32((h ^ walkDrawWords[0]) >>> 0);
+    h = mixWalk32((h ^ walkDrawWords[1]) >>> 0);
+  }
+  return h / 4294967296;
+}
+
 export const DEFAULT_PARAMS = Object.freeze({
   speed: 1,
   // v14: straight by default. The dial is global; per-track overrides are a
@@ -2307,6 +2354,23 @@ function sanitiseMotifRule(value, base) {
   return { chance, when, pool, order };
 }
 
+/**
+ * v0.0.216: a track's held walks — the param halves of its walk keys
+ * ('level', 'vary.volume', 'patch.keys.filter.cutoff') whose walk stands still
+ * where it is. Deduplicated, capped at 64; anything else (or an empty list)
+ * is no hold at all, which is the sparse answer.
+ */
+function sanitiseWalkHold(value) {
+  if (!Array.isArray(value)) return undefined;
+  const out = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !WALK_PARAM_GRAMMAR.test(entry) || out.includes(entry)) continue;
+    out.push(entry);
+    if (out.length >= 64) break;
+  }
+  return out.length ? out : undefined;
+}
+
 function sanitiseVoiceWeights(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const out = {};
@@ -2406,6 +2470,16 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
       );
       if (motifRule) track.motifRule = motifRule;
     }
+    // v0.0.216: the walk as a rule. walkSeed (an unsigned 32-bit integer)
+    // takes this track's min-max walks off the piece's rng onto their own
+    // seeded path; walkHold lists the walks that stand still. Both sparse,
+    // with the same three-way answer as autoThreshold / voiceWeights.
+    const walkSeed = nullableNumber(partial, baseTrack, 'walkSeed', [0, WALK_SEED_MAX]);
+    if (walkSeed !== null) track.walkSeed = Math.floor(walkSeed);
+    const walkHold = sanitiseWalkHold(
+      partial && 'walkHold' in partial ? partial.walkHold : baseTrack.walkHold
+    );
+    if (walkHold) track.walkHold = walkHold;
     if (shape.tuned) {
       track.dissonance = sanitiseRangeValue(partial && partial.dissonance, 0, 1)
         ?? sanitiseRangeValue(baseTrack.dissonance, 0, 1)
@@ -3192,6 +3266,7 @@ function copyTrack(track) {
   }
   if (track.lanes) out.lanes = track.lanes.map((lane) => ({ ...lane }));
   if (track.grooveRule) out.grooveRule = copyGrooveRule(track.grooveRule);
+  if (track.walkHold) out.walkHold = track.walkHold.slice();
   if (track.sequencers) {
     out.sequencers = track.sequencers.map(copySequencer);
     // The alias survives the copy: the caller edits one object, not two.
@@ -5195,6 +5270,13 @@ export function createEngine(initialParams, options = {}) {
 
   // Randomisation state
   const walkPhases = new Map();     // `${track}:${param}` → walk position in [0, 1]
+  // v0.0.216: how many bars each track's walks have stepped this performance
+  // (a held or frozen bar does not count) — what a SEEDED walk opened late
+  // replays to, so its position never depends on WHEN something first read it.
+  const walkTicks = new Map();
+  // v0.0.216: walk positions a recipe asked for, landed at the next barline
+  // (never mid-bar: nothing may change instantaneously while it is sounding).
+  const pendingWalkPositions = new Map();
   const held = new Set();           // tracks whose bar plan is frozen right now
   const frozenPlans = new Map();    // plan key → the plan a held track replays
   const pendingRandomise = new Set(); // tracks to re-roll at the next barline
@@ -5335,10 +5417,60 @@ export function createEngine(initialParams, options = {}) {
     if (routed !== undefined) return routed;
     let position = walkPhases.get(key);
     if (position === undefined) {
-      position = rng();
+      const seed = walkSeedFor(track);
+      position = seed === null ? rng() : seededWalkStart(track, key, seed);
       walkPhases.set(key, position);
     }
     return position;
+  }
+
+  /** v0.0.216: this track's walk seed, or null while its walks use the piece rng. */
+  function walkSeedFor(track) {
+    const config = params.tracks[track];
+    return config && Number.isInteger(config.walkSeed) ? config.walkSeed : null;
+  }
+
+  /** v0.0.216: is this walk key one its track holds still (tracks[t].walkHold)? */
+  function walkIsHeld(track, key) {
+    const config = params.tracks[track];
+    return Boolean(config && config.walkHold && config.walkHold.includes(key.slice(key.indexOf(':') + 1)));
+  }
+
+  /** v0.0.216: one step of the bounded reflecting walk, given its draw. */
+  function reflectStep(track, position, draw) {
+    let next = position + (draw * 2 - 1) * walkStep(track);
+    if (next < 0) next = -next;
+    if (next > 1) next = 2 - next;
+    return clamp(next, 0, 1);
+  }
+
+  /**
+   * v0.0.216: where a seeded walk stands when something first reads it — its
+   * seeded start, stepped once for every bar the track's walks have already
+   * stepped, so a dial first read on bar 9 stands where it would had it been
+   * read on bar 0. Only the plain 'drift' walk sampled per bar replays: a
+   * shaped drift follows its own phase, and a chord/section-sampled walk's
+   * steps depend on the chord loop rather than the bar count.
+   */
+  function seededWalkStart(track, key, seed) {
+    let position = seededWalkDraw(seed, key);
+    if (driftShapeFor(track) !== 'drift' || walkSampling(key) !== 'bar' || walkIsHeld(track, key)) {
+      return position;
+    }
+    const ticks = walkTicks.get(track) || 0;
+    for (let i = 0; i < ticks; i++) position = reflectStep(track, position, seededWalkDraw(seed, key, position));
+    return position;
+  }
+
+  /** v0.0.216: land the positions a recipe asked for (see applyRecipe). */
+  function landPendingWalkPositions() {
+    if (!pendingWalkPositions.size) return;
+    for (const [key, position] of pendingWalkPositions) {
+      const track = key.slice(0, key.indexOf(':'));
+      if (params.tracks[track]) walkPhases.set(key, position);
+    }
+    pendingWalkPositions.clear();
+    resolvedPatches.clear();
   }
 
   /** Which shape this track's spreads follow between their two ends. */
@@ -5388,7 +5520,9 @@ export function createEngine(initialParams, options = {}) {
       // everywhere else, and a held or frozen track never reaches this code.
       const previous = stepHolds.get(key);
       if (previous === undefined || phase < step) {
-        const drawn = rng();
+        // v0.0.203: a seeded track's sample-and-hold draws off its own path.
+        const seed = walkSeedFor(track);
+        const drawn = seed === null ? rng() : seededWalkDraw(seed, key, previous ?? position);
         stepHolds.set(key, drawn);
         return drawn;
       }
@@ -5410,12 +5544,18 @@ export function createEngine(initialParams, options = {}) {
     // v14 random/hold merge: randomness 0 IS a hold, so a track sitting at 0
     // drifts by nothing at all.
     const frozen = new Set(trackOrder().filter(isFrozenTrack));
+    // v0.0.216: the bar count a seeded walk opened late replays to.
+    for (const name of trackOrder()) {
+      if (!held.has(name) && !frozen.has(name)) walkTicks.set(name, (walkTicks.get(name) || 0) + 1);
+    }
     for (const [key, position] of walkPhases) {
       // SPEC-CRITIC [hold/prob] → ruling 5: hold freezes every draw the bar
       // makes, and the walk step is one of them. A held track's ranged params —
       // step probability included — therefore sit still until it is released.
       const track = key.slice(0, key.indexOf(':'));
       if (held.has(track) || frozen.has(track)) continue;
+      // v0.0.216: a held walk (tracks[t].walkHold) stands where it is.
+      if (walkIsHeld(track, key)) continue;
       // v0.0.167: a chord- or section-sampled walk advances only on a bar
       // that BEGINS one — covering the '@global' pseudo-track for free,
       // since its phases live in the same map. Shaped drifts hold their
@@ -5432,10 +5572,10 @@ export function createEngine(initialParams, options = {}) {
         walkPhases.set(key, shapedNext(track, key, position, shape));
         continue;
       }
-      let next = position + (rng() * 2 - 1) * walkStep(track);
-      if (next < 0) next = -next;
-      if (next > 1) next = 2 - next;
-      walkPhases.set(key, clamp(next, 0, 1));
+      // v0.0.203: a seeded track steps off its own path, decided by where
+      // the walk stands; every other track draws from the piece rng as ever.
+      const seed = walkSeedFor(track);
+      walkPhases.set(key, reflectStep(track, position, seed === null ? rng() : seededWalkDraw(seed, key, position)));
     }
     // Every patch resolution the last bar handed out was taken against the walk
     // positions this loop has just moved, so none of them survives the barline.
@@ -6686,6 +6826,10 @@ export function createEngine(initialParams, options = {}) {
     userPlans.delete(name);
     for (const key of [...walkPhases.keys()]) {
       if (key.slice(0, key.indexOf(':')) === name) walkPhases.delete(key);
+    }
+    walkTicks.delete(name);
+    for (const key of [...pendingWalkPositions.keys()]) {
+      if (key.slice(0, key.indexOf(':')) === name) pendingWalkPositions.delete(key);
     }
   }
 
@@ -9332,6 +9476,9 @@ export function createEngine(initialParams, options = {}) {
     // decides with exactly this comparison, after the walks have stepped.
     samplingChordFresh = chordBarsLeft <= 0;
     advanceWalks();
+    // v0.0.216: a recipe's walk positions land here, after the step, so this
+    // bar is the first to resolve them.
+    landPendingWalkPositions();
     advanceRouting();
     resolveGlobalSpans();
     // A lane's loop is the bar, so the Markov pick between a track's several
@@ -10150,6 +10297,7 @@ export function createEngine(initialParams, options = {}) {
       // A performance starts from a fresh set of decisions: no frozen bar from
       // the last run, and drift walks that begin wherever this run takes them.
       walkPhases.clear();
+      walkTicks.clear();
       resolvedPatches.clear();
       frozenPlans.clear();
       held.clear();
@@ -10398,17 +10546,47 @@ export function createEngine(initialParams, options = {}) {
     if (recipe.tracks && recipe.tracks.melody && recipe.tracks.melody.motif === undefined && openingMotif) {
       recipe.tracks.melody.motif = cloneMotif(openingMotif);
     }
+    // v0.0.216: the live position inside every min-max walk, by walk key, in
+    // track order — a recipe asked for and not yet landed counts as live.
+    // The '@global' spans are not recipe fields, so their walks are not
+    // either. Exact numbers, so a seeded walk rebuilt from here walks on
+    // along the very same path (seededWalkDraw); an unseeded walk is named
+    // at its position, and steps onward from the rebuild's own rng. Only
+    // while the engine runs: start() begins every performance on fresh
+    // walks, so a stopped engine's last positions are nobody's next ones
+    // (and a recipe taken after stop() replays from bar 0 exactly as before).
+    const live = new Map(isRunning ? walkPhases : []);
+    for (const [key, position] of pendingWalkPositions) live.set(key, position);
+    const walks = {};
+    for (const name of trackOrder()) {
+      const prefix = `${name}:`;
+      for (const key of [...live.keys()].filter((k) => k.startsWith(prefix)).sort()) walks[key] = live.get(key);
+    }
+    if (Object.keys(walks).length) recipe.walks = walks;
     return recipe;
   }
 
   /**
    * The recipe schema's write seam: a recipe is already shaped like a params
    * partial (recipeFromParams walks each field into the SAME dotted path), so
-   * applying one is exactly a setParams call — no rng, no behaviour beyond
-   * what setParams already does.
+   * applying one is a setParams call — no rng, no behaviour beyond what
+   * setParams already does — plus, since v0.0.216, the walk positions the
+   * recipe names, queued for the next barline.
    */
   function applyRecipe(recipe) {
-    setParams(recipe);
+    if (!recipe || typeof recipe !== 'object') return;
+    // v0.0.216: `walks` is the one recipe field that is engine state rather
+    // than params — it lands at the next barline (or the first bar of the
+    // next performance), never mid-bar.
+    const { walks, ...rest } = recipe;
+    setParams(rest);
+    if (!walks || typeof walks !== 'object') return;
+    for (const [key, value] of Object.entries(walks)) {
+      if (!WALK_KEY_GRAMMAR.test(key) || key[0] === '@') continue;
+      if (!params.tracks[key.slice(0, key.indexOf(':'))]) continue;
+      const position = typeof value === 'number' ? value : Number.NaN;
+      if (Number.isFinite(position)) pendingWalkPositions.set(key, clamp(position, 0, 1));
+    }
   }
 
   /**

@@ -50,6 +50,10 @@ function trackFields(track) {
     { path: `tracks.${track}.randomness`, label: `${label} randomness`, kind: 'range' },
     // v0.0.200: the auto ladder is a rule — the energy at which the track joins on Auto.
     { path: `tracks.${track}.autoThreshold`, label: `${label} joins at`, kind: 'number' },
+    // v0.0.216: the walk as a rule — the seed its min-max walks follow, and
+    // the walks it holds still.
+    { path: `tracks.${track}.walkSeed`, label: `${label} walk seed`, kind: 'number' },
+    { path: `tracks.${track}.walkHold`, label: `${label} walk hold`, kind: 'json' },
   ];
   if (TUNED_TRACKS.includes(track)) {
     rows.push({ path: `tracks.${track}.dissonance`, label: `${label} dissonance`, kind: 'range' });
@@ -114,6 +118,11 @@ export const RECIPE_FIELDS = Object.freeze([
   { path: 'arp.octaves', label: 'Arp octaves', kind: 'number' },
   { path: 'arp.steps', label: 'Arp steps', kind: 'json' },
   { path: 'patches', label: 'Patches', kind: 'json' },
+  // v0.0.216: the live position (0..1) inside every min-max walk, by walk key
+  // ('pad:level', 'melody:patch.keys.filter.cutoff'). Engine state rather than
+  // params: getRecipe writes it, applyRecipe lands it at the next barline,
+  // recipeFromParams never sees it.
+  { path: 'walks', label: 'Walk positions', kind: 'json' },
 ].map(Object.freeze));
 
 /** A dotted path read out of a plain object tree; undefined for anything absent. */

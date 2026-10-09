@@ -485,7 +485,15 @@ const SECRET_LAYERS = [
   ['kitVariant', 'which kit variant plays when, and fills (kitFillVariant, bank switching)',
     (recipe) => at(recipe, 'tracks.percussion.variantRule') !== undefined || at(recipe, 'tracks.percussion.fillRule') !== undefined],
   ['walks', 'the live position inside every min-max walk',
-    (recipe) => at(recipe, 'walks') !== undefined || anyTrack(recipe, 'walkSeed')],
+    // v0.0.203: a real naming — a seed, or a non-empty map of walk key to a
+    // position inside its span (0..1), not merely the key being present.
+    (recipe) => anyTrack(recipe, 'walkSeed') || (() => {
+      const walks = at(recipe, 'walks');
+      if (!walks || typeof walks !== 'object') return false;
+      const entries = Object.entries(walks);
+      return entries.length > 0 && entries.every(([key, value]) => key.includes(':')
+        && Number.isFinite(value) && value >= 0 && value <= 1);
+    })()],
   ['autoLadder', 'the intensity at which an auto track joins (AUTO_THRESHOLDS)',
     (recipe) => anyTrack(recipe, 'autoThreshold')],
   ['presetBlocks', 'the bar-by-bar blocks of abab / journey / waves (PRESET_BLOCKS)',
