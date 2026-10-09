@@ -2,7 +2,7 @@
   "slug": "minimalism",
   "name": "Minimalism",
   "cluster": 1,
-  "oneLiner": "One bright cell, repeated until repetition itself becomes the tune.",
+  "oneLiner": "One bright cell, played twice, the copy slipping slowly out of step and back.",
   "essence": {
     "bpm": [96, 138],
     "swing": [0, 0],
@@ -68,7 +68,8 @@
       { "value": "waves", "weight": 0.3 }
     ],
     "dissonanceRange": [0, 0.1],
-    "densityBias": 1.35
+    "densityBias": 1.35,
+    "process": { "arpPhase": 1.5 }
   },
   "fallbackLists": null,
   "defiance": [

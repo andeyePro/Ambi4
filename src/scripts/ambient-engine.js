@@ -484,6 +484,8 @@ const DEFAULT_TRACK_STATES = Object.freeze({
 });
 
 const ARP_MODES = ['auto', 'manual'];
+/** v0.0.217: the phase copy's level against the lead it follows. */
+const ARP_PHASE_VELOCITY = 0.8;
 const ARP_STEP_COUNT = 16;
 
 export const SEQUENCER_MODES = Object.freeze(['auto', 'manual']);
@@ -1763,11 +1765,32 @@ function sanitiseSteps(value, base) {
   return steps;
 }
 
+/**
+ * v0.0.217 — the arp's PHASE PROCESS (TODO "Minimalism needs a PROCESS
+ * mechanism"): `arp.phase` is how many PERCENT slower a second copy of the
+ * arp's own figure runs than the first — Reich's Piano Phase as a param.
+ * ARP_PHASE_MIN to ARP_PHASE_MAX; SPARSE — absent unless set, and 0 or null
+ * removes it — so the default arp, every genre that does not ask for it and
+ * every stored piece keep their params (and their audio) to the byte. A number
+ * outside the range clamps; anything that is not a number keeps what was there.
+ */
+export const ARP_PHASE_MAX = 10;
+const ARP_PHASE_MIN = 0.1;
+function sanitiseArpPhase(value, base) {
+  if (value === null) return undefined;
+  if (value !== undefined) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n <= 0 ? undefined : clamp(n, ARP_PHASE_MIN, ARP_PHASE_MAX);
+  }
+  const b = Number(base);
+  return Number.isFinite(b) && b > 0 ? clamp(b, ARP_PHASE_MIN, ARP_PHASE_MAX) : undefined;
+}
+
 function sanitiseArp(value, base) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.arp;
   const v = value && typeof value === 'object' ? value : null;
   const at = (key) => (v && key in v ? v[key] : undefined);
-  return {
+  const arp = {
     mode: oneOf(at('mode'), ARP_MODES, oneOf(from.mode, ARP_MODES, 'auto')),
     pattern: oneOf(at('pattern'), ARP_PATTERNS, oneOf(from.pattern, ARP_PATTERNS, 'up')),
     rate: oneOf(at('rate'), Object.keys(ARP_RATES), oneOf(from.rate, Object.keys(ARP_RATES), '1/8')),
@@ -1775,6 +1798,11 @@ function sanitiseArp(value, base) {
     gate: numberIn(at('gate'), [0.1, 1], numberIn(from.gate, [0.1, 1], 0.6)),
     steps: sanitiseSteps(at('steps'), from.steps),
   };
+  // v0.0.217: after `steps`, so an arp without a phase serialises exactly as
+  // it did before the key existed.
+  const phase = sanitiseArpPhase(at('phase'), from.phase);
+  if (phase !== undefined) arp.phase = phase;
+  return arp;
 }
 
 /**
@@ -5264,6 +5292,13 @@ export function createEngine(initialParams, options = {}) {
   // a kit's lane hits or a melodic line's notes.
   const userPlans = new Map();
   let arpCursor = 0;           // position in the note sequence
+  // v0.0.217 phase process: how many beats the copy has fallen behind the
+  // lead at the start of the NEXT bar, and at the start of the bar being
+  // played; and the copy notes a bar's lag pushed past its own barline,
+  // sounded early in the bar after (see schedulePulse).
+  let arpPhaseLag = 0;
+  let arpPhaseBarLag = 0;
+  let arpPhaseCarry = [];
   let autoArpSteps = null;
   let percussionBank = [];
   let bankTimeSignature = null; // metre the phrase/percussion banks were made in
@@ -6235,6 +6270,10 @@ export function createEngine(initialParams, options = {}) {
         case 'arp':
           autoArpSteps = null;
           arpCursor = 0;
+          // A re-rolled figure is new material: its process starts in unison.
+          arpPhaseLag = 0;
+          arpPhaseBarLag = 0;
+          arpPhaseCarry = [];
           break;
         case 'percussion':
           percussionBank = [];
@@ -7212,6 +7251,8 @@ export function createEngine(initialParams, options = {}) {
     // The motif-derivation flag rides on the notes it describes, which is the
     // only place outside the engine it could honestly be observed.
     if (typeof note.motif === 'boolean') event.motif = note.motif;
+    // v0.0.217: the phase copy says which player it is, for the same reason.
+    if (note.phase === true) event.phase = true;
     emit('note', event);
   }
 
@@ -9005,7 +9046,9 @@ export function createEngine(initialParams, options = {}) {
     const laneLength = manual ? arpLaneLength(metreAt(params.timeSignature, currentBarNumber), cfg.rate) : 0;
     const sequence = buildArpSequence(chordMidis(4, 4), cfg.pattern, cfg.octaves);
     if (!sequence.length) return null;
-    const plan = { pattern: cfg.pattern, octaves: cfg.octaves, steps: [] };
+    // v0.0.217: stepBeats rides on the plan for the phase copy, which needs
+    // the figure's length in beats (a frozen plan replays at its own rate).
+    const plan = { pattern: cfg.pattern, octaves: cfg.octaves, stepBeats, steps: [] };
     let steps = 0;
     const sounded = new Map();
     // The step grid is bar-anchored: step 0 realigns to every barline. A phase
@@ -9069,6 +9112,31 @@ export function createEngine(initialParams, options = {}) {
     return plan;
   }
 
+  /** v0.0.217: the arp's phase-copy offset in percent, or 0 when it has none. */
+  function arpPhasePercent() {
+    const phase = params.arp && Number(params.arp.phase);
+    return Number.isFinite(phase) && phase > 0 ? phase : 0;
+  }
+
+  /**
+   * v0.0.217 — where the phase copy stands for a lead step at `beat` of this
+   * bar: `shift` whole steps behind in the figure (the copy plays the note the
+   * lead played `shift` steps earlier) and `offset` beats late on top of that.
+   * The lag wraps at the figure's length — `length` steps of `stepBeats` — and
+   * at the wrap the copy is back in unison. Continuous across every step
+   * boundary: an offset of a whole step at shift n IS shift n+1 at offset 0.
+   */
+  function arpPhasePosition(beat, stepBeats, length) {
+    const lag = arpPhaseBarLag + (arpPhasePercent() / 100) * beat;
+    const figure = length * stepBeats;
+    const wrapped = ((lag % figure) + figure) % figure;
+    let shift = Math.floor(wrapped / stepBeats + 1e-9);
+    let offset = wrapped - shift * stepBeats;
+    if (offset < 0) offset = 0;
+    if (shift >= length) shift -= length;
+    return { shift, offset };
+  }
+
   /** The MIDI notes a frozen or fresh arp plan points at, in the current chord. */
   function arpSequenceFor(plan) {
     return buildArpSequence(chordMidis(4, 4), plan.pattern, plan.octaves);
@@ -9085,6 +9153,9 @@ export function createEngine(initialParams, options = {}) {
     chordExtension = 0;
     chordBarsLeft = 0;
     arpPlan = null;
+    // The closing bar is pad and bass alone: a phase copy still owed from the
+    // last bar is not sounded (it never started, so nothing is cut).
+    arpPhaseCarry = [];
     percussionPlan = [];
     melodyPlan = emptyMelodyPlan();
     responder = null;
@@ -9505,6 +9576,18 @@ export function createEngine(initialParams, options = {}) {
     // rhythm, so a two-bar chord still swells rather than sitting flat.
     padSwellPhase = (padSwellPhase + 1 / PAD_SWELL_BARS) % 1;
 
+    // v0.0.217 phase process: the copy falls `phase` percent of a beat behind
+    // for every beat played. Counted in BEATS, so a tempo change moves the
+    // offset in seconds but not the process's place in the figure; advanced
+    // under a repeat too, like the swell above — a process is a clock, not
+    // material. Off means unison: turning it on starts the copy together.
+    {
+      const phase = arpPhasePercent();
+      arpPhaseBarLag = phase > 0 ? arpPhaseLag : 0;
+      arpPhaseLag = phase > 0 ? arpPhaseLag + (phase / 100) * bar.beats : 0;
+      if (!(phase > 0)) arpPhaseCarry = [];
+    }
+
     // The chord frame of the bar, which under a repeat is the frame that bar
     // sounded on the first traversal: inside the brackets the hook does not
     // advance at all, so the range's harmony is frozen with its material.
@@ -9591,6 +9674,26 @@ export function createEngine(initialParams, options = {}) {
     const from = bar.starts[index];
     const length = bar.pulses[index];
     const to = from + length;
+
+    // v0.0.217 phase process: the copy notes the last bar's lag carried past
+    // its barline sound here, at their own place in this bar. Dropped, not
+    // moved, if the arp has since gone silent or mono — none has started.
+    if (index === 0 && arpPhaseCarry.length) {
+      const carried = arpPhaseCarry;
+      arpPhaseCarry = [];
+      if (isActive('arp') && !isMono('arp') && arpPhasePercent() > 0) {
+        for (const note of carried) {
+          playNote('arp', {
+            midi: note.midi,
+            when: time + note.beat * bar.secPerBeat + note.nudge,
+            duration: note.duration,
+            velocity: note.velocity,
+            pan: note.pan,
+            phase: true,
+          });
+        }
+      }
+    }
 
     if (isActive('melody')) {
       // v12 register band: ±14 semitones around the root in octave 4. A tune
@@ -9686,6 +9789,14 @@ export function createEngine(initialParams, options = {}) {
       // (v0.0.109 excluded the arp from per-step pins for exactly that
       // reason), so there is no stated note to preserve.
       const doubling = params.complexity >= 0.85 && !isMono('arp');
+      // v0.0.217 phase process — two players, one figure. The copy plays the
+      // lead's own steps, in the lead's own rhythm, `shift` notes behind and
+      // `offset` beats late (arpPhasePosition), quieter and on the other side
+      // of the field. Its notes are notes like any other: each has its own
+      // attack and release, and nothing sounding is ever moved or cut. A mono
+      // arp has room for one note, so it has no copy (the doubling's rule).
+      const phasing = arpPhasePercent() > 0 && !isMono('arp');
+      const stepBeats = arpPlan.stepBeats ?? ARP_RATES[params.arp.rate] ?? 0.5;
       for (const step of arpPlan.steps) {
         if (step.beat < from || step.beat >= to || !sequence.length) continue;
         const midi = sequence[step.seqIndex % sequence.length] + 12 * (step.octave ?? 0);
@@ -9698,6 +9809,24 @@ export function createEngine(initialParams, options = {}) {
           velocity: step.velocity,
           pan: step.pan,
         });
+        if (phasing) {
+          const len = sequence.length;
+          const { shift, offset } = arpPhasePosition(step.beat, stepBeats, len);
+          const copy = {
+            midi: clamp(sequence[(((step.seqIndex - shift) % len) + len) % len]
+              + 12 * (step.octave ?? 0), 36, 96),
+            duration,
+            velocity: step.velocity * ARP_PHASE_VELOCITY,
+            pan: -(step.pan ?? 0),
+          };
+          if (step.beat + offset < bar.beats - 1e-6) {
+            playNote('arp', { ...copy, when: when + offset * bar.secPerBeat, phase: true });
+          } else if (!finishRequest) {
+            // Late past the barline: it belongs to the next bar's first beat.
+            // Not owed into a closing bar, which is pad and bass alone.
+            arpPhaseCarry.push({ ...copy, beat: step.beat + offset - bar.beats, nudge: step.nudge ?? 0 });
+          }
+        }
         if (doubling) {
           playNote('arp', {
             midi: clamp(midi + 12, 36, 96),
@@ -10269,6 +10398,9 @@ export function createEngine(initialParams, options = {}) {
       structureKey = '';
       sectionAnnounced = false;
       arpCursor = 0;
+      arpPhaseLag = 0;
+      arpPhaseBarLag = 0;
+      arpPhaseCarry = [];
       arpPlan = null;
       percussionPlan = [];
       melodyPlan = emptyMelodyPlan();
@@ -10676,7 +10808,29 @@ export function createEngine(initialParams, options = {}) {
         degrees: [...hook.degrees],
         voicing: hook.degrees.map((_, i) => ({ inversion: hook.inversions[i], extension: hook.extensions[i] })),
       } : null,
+      arpPhase: resolvedArpPhase(),
     };
+  }
+
+  /**
+   * v0.0.217: where the phase process stands at the start of this bar — the
+   * offset in percent, the copy's lag in beats, and (while the arp has a
+   * figure this bar) that lag as steps of the figure, wrapped at its length,
+   * so "1.4 of 3" reads as "one note behind and drifting towards two". Null
+   * when the arp has no phase copy.
+   */
+  function resolvedArpPhase() {
+    const percent = arpPhasePercent();
+    if (!(percent > 0)) return null;
+    const out = { percent, lagBeats: round3(arpPhaseBarLag), steps: null, figure: null };
+    const sequence = arpPlan ? arpSequenceFor(arpPlan) : [];
+    const stepBeats = arpPlan ? arpPlan.stepBeats ?? ARP_RATES[params.arp.rate] ?? 0.5 : 0;
+    if (sequence.length && stepBeats > 0) {
+      const figure = sequence.length * stepBeats;
+      out.steps = round3((((arpPhaseBarLag % figure) + figure) % figure) / stepBeats);
+      out.figure = sequence.length;
+    }
+    return out;
   }
 
   /**

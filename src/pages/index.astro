@@ -3828,6 +3828,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // link made before genres existed) has to say so out loud or the old
         // tag rides along under a piece that is no longer that genre.
         p.genre = typeof p.genre === 'string' ? p.genre : null;
+        // v0.0.217: the arp's phase copy is stated on every push for the same
+        // reason — it is sparse, the sanitiser keeps a stored one when the key
+        // is missing, and only null clears it. Without this, Minimalism's copy
+        // rode along under the next genre picked.
+        if (isPlainObject(p.arp)) {
+          p.arp.phase = typeof p.arp.phase === 'number' && p.arp.phase > 0 ? p.arp.phase : null;
+        }
         // v0.0.117: sequencerAdvance is stated on EVERY push for the same
         // reason as the genre tag just above — the sanitiser keeps the stored
         // mode when the key is missing and only an explicit null clears it.
@@ -11003,6 +11010,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         ['updown', 'Up-down'],
         ['random', 'Random'],
       ];
+      // v0.0.217: the phase copy's ceiling — ambient-engine.js ARP_PHASE_MAX,
+      // copied as a literal because the engine module loads asynchronously.
+      const ARP_PHASE_MAX = 10;
       const ARP_RATES = [
         ['1/4', '1/4'],
         ['1/8', '1/8'],
@@ -11215,6 +11225,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           },
         });
 
+        // v0.0.217 — the phase process (Reich's Piano Phase): a second copy of
+        // the arp's own figure, this many percent slower, drifting out of step
+        // one note at a time and back into unison. Independent of Auto/Manual:
+        // it is a process applied to whatever figure is playing, so it sits
+        // outside both, like Gate. 0 is off — no copy at all.
+        // A dial like Octaves and Gate (UI review fix 10); the live line under
+        // the dials says how far behind the copy has fallen, read off the
+        // engine (getResolved().arpPhase) as it plays.
+        const phaseValue = typeof settings.arp.phase === 'number' && settings.arp.phase > 0
+          ? settings.arp.phase : 0;
+        const phaseLive = document.createElement('p');
+        phaseLive.className = 'arp-phase-live field-hint';
+        phaseLive.id = 'arp-phase-live';
+        const phase = arpRange('Phase', {
+          min: 0,
+          max: ARP_PHASE_MAX,
+          step: 0.1,
+          value: phaseValue,
+          defaultValue: 0,
+          format: (v) => (Number(v) > 0 ? `${Math.round(Number(v) * 10) / 10}%` : 'off'),
+          hint: 'Phase plays a second copy of the arp\u2019s figure this many percent slower. '
+            + 'The copy slips behind one note at a time until it is back in unison \u2014 the line under the dials says how '
+            + 'many notes behind it is now. At 1.5% and 120 bpm one note takes about half a minute. 0 is off.',
+          onChange: (v) => {
+            const n = Math.round(parseFloat(v) * 10) / 10;
+            if (n > 0) settings.arp.phase = n;
+            else delete settings.arp.phase;
+            phaseLive.textContent = `Phase: ${arpPhaseLabel(n, null)}`;
+            engine.setParams({ arp: { phase: n > 0 ? n : null } });
+            persistSettings();
+          },
+        });
+        phaseLive.textContent = `Phase: ${arpPhaseLabel(phaseValue, null)}`;
+        (arpKnobs.parentNode ? arpKnobs : phase.el).after(phaseLive);
+
         container.append(panel);
         arpUI = {
           modeRadios,
@@ -11225,6 +11270,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           rateOut: rateField.readout,
           octaves,
           gate,
+          phase,
+          phaseOut: phaseLive,
         };
         syncArpUI();
       }
@@ -14858,6 +14905,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
           }
         }
+        applyResolvedArpPhase(resolved && resolved.arpPhase);
         const tracks = resolved && isPlainObject(resolved.tracks) ? resolved.tracks : null;
         for (const id of TRACK_IDS) {
           const readout = document.getElementById(`resolved-${id}`);
@@ -15899,6 +15947,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * "measure, don't recompute" rule. `arp` is `resolved.arp` (or null
        * against an engine/poll tick with nothing to report).
        */
+      /**
+       * v0.0.217: the Phase readout. "off", or the offset with — while the
+       * engine reports one — where the copy stands in the figure this bar,
+       * read off getResolved().arpPhase rather than recomputed here.
+       */
+      function arpPhaseLabel(percent, live) {
+        if (!(percent > 0)) return 'off';
+        const head = `${percent}% slower copy`;
+        if (!isPlainObject(live) || !Number.isFinite(live.steps) || !Number.isFinite(live.figure)) return head;
+        return `${head} \u00b7 ${live.steps.toFixed(1)} of ${live.figure} notes behind`;
+      }
+
+      function applyResolvedArpPhase(live) {
+        if (!arpUI || !arpUI.phaseOut) return;
+        const v = typeof settings.arp.phase === 'number' && settings.arp.phase > 0 ? settings.arp.phase : 0;
+        arpUI.phaseOut.textContent = `Phase: ${arpPhaseLabel(v, live)}`;
+      }
+
       function applyResolvedArp(arp) {
         if (!arpUI) return;
         const auto = settings.arp.mode === 'auto' && isPlainObject(arp);
@@ -15963,6 +16029,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         arpUI.rate.value = settings.arp.rate;
         arpUI.octaves.show(settings.arp.octaves);
         arpUI.gate.show(settings.arp.gate);
+        {
+          const v = typeof settings.arp.phase === 'number' && settings.arp.phase > 0 ? settings.arp.phase : 0;
+          arpUI.phase.show(v);
+          arpUI.phaseOut.textContent = `Phase: ${arpPhaseLabel(v, null)}`;
+        }
         // Auto's Now, read straight from the engine rather than waiting on
         // the 4 Hz poll (which only runs while the transport is live) — the
         // editor must show the live reading the instant it opens.

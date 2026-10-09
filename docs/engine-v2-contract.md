@@ -60,6 +60,8 @@ Six tracks, fixed order and ids: `pad`, `bass`, `melody`, `texture`, `arp`, `per
     octaves: 2,            // 1–3
     gate: 0.6,             // 0.1–1
     steps: [true × 16],    // 16 booleans, step-enable mask
+    // phase: 1.5,         // v0.0.217, SPARSE: % slower a copy of the figure runs (0.1–10;
+                           // absent/0/null = no copy). See "The arp's phase process" below.
   },
   tracks: {
     pad:        { state: 'auto', voice: 'warm' },
@@ -2619,3 +2621,65 @@ wandered elsewhere and nothing could say where a dial stood.
   very same path, an unseeded one steps on from the rebuild's own rng.
 - The secret-layers ratchet's `walks` row is named. Gate:
   `tests/walk-seed-smoke.mjs` (6 checks, all red on v0.0.215).
+
+## The arp's phase process (v0.0.217)
+
+The TODO's verdict on Minimalism was that its surface was right and its
+PROCESS was missing: the engine could vary material (a bounded walk) and
+recall it (the hook bank), but not transform one fixed cell in one direction,
+audibly, on purpose. This is the first process, and it is Reich's Piano Phase.
+
+- **Param.** `arp.phase` — how many percent slower a SECOND copy of the arp's
+  own figure runs than the first, 0.1–10. Sparse: absent unless set, and 0 or
+  null removes it, so the default arp, every other genre and every stored
+  piece are byte-identical (audio-reference moved for Minimalism alone).
+- **What plays.** Every lead arp note gets a copy, in the lead's own rhythm
+  (same mask or lane, same gate), 0.8 of its velocity and mirrored in pan. The
+  copy has fallen `lag = phase% × beats played` behind; wrapped at the
+  figure's length (`sequence.length × stepBeats`), that lag is `shift` whole
+  steps plus an `offset` under one step. The copy plays the lead's note from
+  `shift` steps earlier, `offset` beats late. So the onset gap grows a little
+  every bar, wraps at a step as the copy falls one more note behind, and after
+  the whole figure the two are back in unison. The position is continuous at
+  every step boundary (an offset of one whole step at shift n IS shift n+1 at
+  offset 0), and it is counted in beats, so a tempo change moves the gap in
+  seconds but not the process's place in the figure.
+- **Why a copy and not a per-track tempo offset** (the TODO's candidate a):
+  phasing is two copies of the SAME figure drifting against each other. An
+  arp running slow against the pad, bass and kit is not phasing, it is an arp
+  out of time with the band.
+- **Nothing changes while it sounds.** Copy notes are ordinary notes with
+  their own envelopes; nothing already sounding is moved or cut. A copy whose
+  offset carries it past the barline is sounded early in the next bar (never
+  clamped onto the barline, never into a closing bar). A mono arp has room for
+  one note and plays no copy, by the same rule as the 0.85-complexity octave
+  doubling. A re-roll of the arp, start(), or turning phase off puts the
+  process back in unison. The lag keeps advancing under a repeat bracket: a
+  process is a clock, not material (as the pad's swell).
+- **Pattern 'random'** has no fixed figure, so its copy is a rotation of a
+  random draw: allowed, but it is not phasing. Minimalism's arp is `up`.
+- **Readout.** `getResolved().arpPhase` is `null`, or `{ percent, lagBeats,
+  steps, figure }` — where the process stands at this bar's downbeat, `steps`
+  being the lag in notes of the figure (wrapped), `figure` its length. The
+  'note' event of a copy carries `phase: true`.
+- **Genre data.** `essence.process.arpPhase` (percent) — compiled straight to
+  `arp.phase` with no rng draw, so every other draw is unmoved. Minimalism
+  ships 1.5: at 120 bpm and quarter-note arp steps (its usual auto rate) the
+  copy falls one note behind in about half a minute.
+- **UI.** The Arpeggiator panel's Phase dial, 0–10 in tenths, beside Octaves
+  and Gate (a dial like them since the v0.0.217 merge; the branch built a
+  slider before v0.0.210 turned the arp's sliders into dials), applying to
+  whatever figure is playing. The line under the dials says "Phase: off", or
+  "Phase: 1.5% slower copy · 1.4 of 3 notes behind" live from
+  `getResolved().arpPhase`. The page states `arp.phase` (null when unset)
+  on every whole-settings push, like the genre tag, so a phase never rides
+  along under a genre that did not ask for it.
+- **Recipe.** `arp.phase` ("Arp phase"), so a rebuilt piece phases too.
+- Gated by `tests/arp-phase-smoke.mjs` (8 checks, 6 red on the v0.0.202
+  engine): the onset gap is predicted to the microsecond for every lead note
+  over 24 bars, rises 40 ms a bar and wraps; the copy's pitch is the lead's
+  from `shift` slots earlier and goes 0 → 1 → 2 notes behind and back to
+  unison; copies crossing a 7/8 barline land in the next bar; mono and unset
+  play no copy; setting 0 stops it; every other genre compiles no phase key.
+- Next, not built: the ADDITIVE process (Glass — one note of a fixed cell
+  added or removed every N repetitions, in order), the TODO's candidate b.

@@ -117,6 +117,9 @@ export const RECIPE_FIELDS = Object.freeze([
   { path: 'arp.rate', label: 'Arp rate', kind: 'enum' },
   { path: 'arp.octaves', label: 'Arp octaves', kind: 'number' },
   { path: 'arp.steps', label: 'Arp steps', kind: 'json' },
+  // v0.0.217: the phase process — percent slower the arp's copy runs. Sparse:
+  // absent (no copy) on every piece that does not ask for one.
+  { path: 'arp.phase', label: 'Arp phase', kind: 'number' },
   { path: 'patches', label: 'Patches', kind: 'json' },
   // v0.0.216: the live position (0..1) inside every min-max walk, by walk key
   // ('pad:level', 'melody:patch.keys.filter.cutoff'). Engine state rather than

@@ -1149,3 +1149,15 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 - [ ] Automated: motif-rule-smoke (the engine: 12 checks, 11 red on the old
       engine — the twelfth pins that an Auto / Auto rule is the old law to the
       byte), recipe-roundtrip (the secret-layers table names `motif`), page-boot.
+
+## v0.0.217 delta — Minimalism's phase process
+
+- [ ] Pick Minimalism and let it play two or three minutes with the arp on:
+      the marimba figure is doubled, the second copy on the other side of the
+      field, first in unison, then a flam that widens bar by bar, then an
+      echo one note behind, then two, then back in unison. Nothing clicks.
+- [ ] Open the Arp editor: the line under the dials reads "Phase: 1.5% slower
+      copy · n of 3 notes behind" and the n climbs while it plays. Drag Phase to 0: the copy stops
+      at the next bar, readout "off". Pick Synthwave: Phase reads off.
+- [ ] Automated: `node tests/arp-phase-smoke.mjs` (8 checks; the downbeat
+      gap and notes-behind columns it prints are the process, measured).

@@ -50,6 +50,7 @@ A genre is one JSON file in `src/data/genres/`, compiled at runtime by
 | `energyArc` (weighted) | structure draw | no |
 | `dissonanceRange` [lo, hi] | dissonance band | no |
 | `densityBias` | density multiplier | no |
+| `process.arpPhase` | the arp's phase copy, % slower (v0.0.217; Minimalism) | as a dial (arp Phase), yes; as part of the genre, no |
 | `fallbackLists.progressions[]`, `.grooves[]` | the recognisable core | grooves yes; progressions folded into the grammar rows |
 | `defiance[]` | the genre's own "defy me" dials | no |
 | name, slug, cluster, one-liner | identity | no |

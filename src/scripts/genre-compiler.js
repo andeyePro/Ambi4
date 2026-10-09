@@ -47,6 +47,7 @@
  *   grooveGrammar                → the kit grid and the bass's params — below
  *   instrumentation.perTrack     → params.tracks[*].state/voice/level/randomness
  *   instrumentation.reverbTail   → params.reverbTail
+ *   essence.process.arpPhase     → params.arp.phase (v0.0.217; sparse, no draw)
  *   instrumentation.patches      → params.patches (pass-through; engine clamps)
  *   essence.dissonanceRange      → params.tracks[tuned].dissonance, as a RANGE
  *   essence.densityBias          → params.tracks[*].density on the five tracks
@@ -903,6 +904,14 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
 
   const reverbTail = numberOr(instrumentation.reverbTail, undefined);
   if (reverbTail !== undefined) partial.reverbTail = reverbTail;
+  // v0.0.203: a PROCESS is a genre's instruction to transform its own material
+  // over time, in one direction, on purpose. `process.arpPhase` is the arp's
+  // phase copy, in percent slower (ambient-engine.js § arp.phase). No draw, so
+  // the rng stream every other genre compiles from is untouched; absent, the
+  // compiled arp is exactly what it was before the field existed.
+  const process = isObject(essence.process) ? essence.process : {};
+  const arpPhase = numberOr(process.arpPhase, undefined);
+  if (arpPhase !== undefined && arpPhase > 0) partial.arp = { phase: arpPhase };
   // AUDIT FIX: a DEEP COPY. This aliased the imported genre module's own
   // object, and applyDefiance's setPath then wrote through it — one defiance
   // compile permanently rewrote the genre's authored patches for the rest of

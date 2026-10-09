@@ -1778,7 +1778,26 @@ try {
             const gated = await waitUntil(() => Math.abs(engine.getParams().arp.gate - 0.35) < 1e-6);
             if (!gated) failures.push(`editor layers: typing 35 % into the Gate dial left the engine at ${engine.getParams().arp.gate}`);
           }
-          engine.setParams({ arp: { mode: arpWas.mode, octaves: arpWas.octaves, gate: arpWas.gate } });
+          // v0.0.217: Minimalism's Phase merged as a dial like its
+          // neighbours; a typed value reaches the engine and the live line
+          // under the dials names it, and 0 removes the copy (sparse).
+          const phaseCell = arpEditor.querySelector('#arp-phase');
+          const phaseLine = arpEditor.querySelector('#arp-phase-live');
+          if (!phaseCell || !phaseCell.querySelector('.knob')) {
+            failures.push('editor layers: the arp\'s Phase is not a dial');
+          } else if (!phaseLine) {
+            failures.push('editor layers: the arp\'s Phase has no live line');
+          } else {
+            typeIntoKnob(phaseCell, '2');
+            const phased = await waitUntil(() => engine.getParams().arp.phase === 2);
+            if (!phased) failures.push(`editor layers: typing 2 into the Phase dial left the engine at ${engine.getParams().arp.phase}`);
+            if (!/^Phase: 2% slower copy/.test(phaseLine.textContent)) failures.push(`editor layers: the Phase line reads "${phaseLine.textContent}" after 2`);
+            typeIntoKnob(phaseCell, '0');
+            const off = await waitUntil(() => !(engine.getParams().arp.phase > 0));
+            if (!off) failures.push(`editor layers: typing 0 into the Phase dial left the engine at ${engine.getParams().arp.phase}`);
+            if (phaseLine.textContent !== 'Phase: off') failures.push(`editor layers: the Phase line reads "${phaseLine.textContent}" at 0`);
+          }
+          engine.setParams({ arp: { mode: arpWas.mode, octaves: arpWas.octaves, gate: arpWas.gate, phase: arpWas.phase ?? null } });
         }
       }
     }
