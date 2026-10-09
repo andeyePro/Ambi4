@@ -1602,8 +1602,8 @@ src/data/genres/[slug].json, one file per genre:
     articulation: [...], pocketMs: [lo, hi] },
     instrumentation: { perTrack: { state, voice, level, randomness } },
     energyArc: structure preset bias, dissonanceRange, densityBias },
-  fallbackLists: { progressions: [...], grooves: [...] } | null,  // only when
-    essence alone cannot stay recognisable
+  fallbackLists: { progressions: [...], grooves: [...], motifs: [...] } | null,
+    // only when essence alone cannot stay recognisable
   defiance: [ { param, label, range } ]  // the genre-defying dials
 }
 Rules: every value must survive the engine sanitiser when compiled to params;
@@ -1722,6 +1722,21 @@ beat 4½ of a 7/8 bar).
   `patches` pass through; `dissonanceRange` becomes a DRIFTING band on the
   tuned tracks; `densityBias` reaches the five tracks that read a density (the
   pad has no event rate).
+- v0.0.222 — the genre's own melody. `perTrack[t].densityScale` (0–2, absent
+  1) is a non-groove track's share of the bias: melody, texture and arp
+  compile `density = densityBias × densityScale`; bass and percussion keep the
+  groove grammar's drive and ignore it. `perTrack.melody.motifRule` passes
+  through (see "The melody's motif as a rule"). `fallbackLists.motifs` is a
+  list of cells in `tracks.melody.motif`'s own shape; when present the compiler
+  makes ONE extra draw, after every other (draw 8), and the drawn cell becomes
+  the piece's Now — the genre's own opening ideas, the way `grooves` is its own
+  kit. No list, no draw, so every genre without one compiles to the byte. A
+  `perTrack.melody.motif` (a person's Now) wins; the draw is still made, so the
+  rest of the stream does not move. Deep House and Lofi Beats ship six cells
+  each with Chance 0 and a repeat/transpose/displace pool — gated by
+  `tests/house-lofi-melody-smoke.mjs`, which measures both melodies over twelve
+  seeds (notes a bar, rest bars, sounding share, note length, off-beat share,
+  strong-beat chord tones, lay-back) and proves nothing but the melody moved.
 - `defiance` is applied LAST, keyed by a dial's own `param` path and carrying
   its POSITION 0–1 (what a slider hands over). A string range is a list of
   states; a numeric range interpolates, and snaps to the engine's enum where

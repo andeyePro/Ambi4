@@ -298,8 +298,8 @@ bottom of the TODO."
 - [x] Acid Jazz — dissonant throughout *(v0.0.221, measured: 4.10 → 0.79 clashes a bar; ear-test his, then unhide?)*
 - [x] Bossa — dissonant, plus the click on note onset *(dissonance v0.0.221, 2.09 → 1.21; click v0.0.140; ear-test his)*
 - [ ] Cinematic — does not sound like the genre it names
-- [ ] Deep House — bass fine, melody annoying
-- [ ] Lofi Beats — bad melody
+- [x] Deep House — bass fine, melody annoying *(v0.0.222, measured; ear-test his)*
+- [x] Lofi Beats — bad melody *(v0.0.222, measured; ear-test his)*
 - [x] Downtempo — bass and drums clash once the drums enter *(v0.0.214, measured; ear-test his)*
 - [x] Minimalism — needs a process mechanism (phasing / additive), not a voicing pass *(phasing v0.0.217; additive still open)*
 - [ ] New Age — accurate to its genre; he does not like the genre

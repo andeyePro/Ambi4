@@ -728,7 +728,10 @@ test('densityBias reaches every track that reads one, and the pad none', () => {
     const bias = genre.essence.densityBias;
     assert.equal(params.tracks.pad.density, null, `${genre.slug}: the pad has no event rate`);
     for (const name of ['melody', 'texture', 'arp']) {
-      assert.equal(params.tracks[name].density, bias, `${genre.slug}: ${name} density`);
+      // v0.0.222: perTrack[t].densityScale is the track's own share of the bias.
+      const spec = genre.essence.instrumentation.perTrack[name];
+      const share = spec && spec.densityScale !== undefined ? spec.densityScale : 1;
+      assert.equal(params.tracks[name].density, Math.round(bias * share * 1000) / 1000, `${genre.slug}: ${name} density`);
     }
     // The bass and the kit are the two the groove grammar moves off the bias.
     for (const name of ['bass', 'percussion']) {

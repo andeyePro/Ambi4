@@ -22,6 +22,9 @@
  *
  *   1 time signature   2 mode        3 bpm            4 swing
  *   5 harmonic rhythm  6 structure   7 progression seed + one roll per token
+ *   8 the melody's opening cell — ONLY when the genre writes
+ *     fallbackLists.motifs (v0.0.222). Last, and absent for a genre without
+ *     the list, so every other genre's stream is the stream it always was.
  *
  * Everything else — instrumentation, levels, densities, the kit, the patches —
  * is a deterministic function of the data and those draws.
@@ -53,6 +56,15 @@
  *   essence.densityBias          → params.tracks[*].density on the five tracks
  *                                  that read one (bass, melody, texture, arp,
  *                                  percussion; the pad has no event rate)
+ *   perTrack[t].densityScale     → that track's share of the bias (v0.0.222):
+ *                                  density = bias × scale on a non-groove track
+ *                                  (melody, texture, arp); absent is 1
+ *   perTrack.melody.motifRule    → params.tracks.melody.motifRule (pass-through)
+ *   fallbackLists.motifs         → params.tracks.melody.motif, ONE cell drawn
+ *                                  per compile (draw 8) — the genre's own
+ *                                  opening ideas, the way fallbackLists.grooves
+ *                                  is its own kit. A perTrack.melody.motif (a
+ *                                  person's Now) wins; the draw is still made.
  *   defiance                     → whatever each dial names, applied LAST
  *
  * THE PROGRESSION, AND WHAT SURVIVES THE TRIP. `expandProgression` is the real
@@ -833,6 +845,9 @@ export function applyGenreOverrides(genreJson, overrides = {}) {
       if (level !== undefined) clean.level = level;
       const randomness = cleanScalarOrSpan(spec.randomness, 0, 1);
       if (randomness !== undefined) clean.randomness = randomness;
+      // v0.0.222: the track's share of the density bias, a plain number 0..2.
+      const densityScale = numberOr(spec.densityScale, undefined);
+      if (densityScale !== undefined) clean.densityScale = clamp(densityScale, 0, 2);
       // v0.0.195: the voice rule rides through as the engine sanitises it.
       if (spec.voiceRule === null || isObject(spec.voiceRule)) clean.voiceRule = spec.voiceRule;
       // v0.0.203: the bass groove rule, the same pass-through (the engine
@@ -876,6 +891,12 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
   const rhythm = weightedPick(language.harmonicRhythm, rng, HARMONY_RHYTHMS);
   const structure = weightedPick(essence.energyArc, rng, STRUCTURES);
   const progression = expandProgression(genre, rng);
+  // Draw 8 (v0.0.222): the melody's opening cell, from the genre's own list.
+  // No list, no draw — the stream every other genre compiles from is untouched.
+  const motifList = Array.isArray(fallbacks.motifs) ? fallbacks.motifs.filter(isObject) : [];
+  const drawnMotif = motifList.length
+    ? motifList[Math.min(motifList.length - 1, Math.floor(rng() * motifList.length))]
+    : undefined;
 
   const metre = timeSignature ?? '4/4';
   const partial = {};
@@ -956,9 +977,16 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
       }
     }
     if (dissonance !== undefined && TUNED_TRACKS.includes(name)) track.dissonance = dissonance;
+    if (name === 'melody' && drawnMotif && track.motif === undefined) {
+      track.motif = JSON.parse(JSON.stringify(drawnMotif));
+    }
     if (DENSITY_TRACKS.includes(name)) {
       const drive = name === 'bass' ? bassDrive : name === 'percussion' ? percussionDrive : 1;
-      track.density = round3(clamp(bias * drive, 0, 2));
+      // v0.0.222: a track's own share of the genre's density. Groove tracks
+      // (bass, percussion) keep the grammar's drive and ignore it.
+      const share = name === 'bass' || name === 'percussion' || !spec
+        ? 1 : clamp(numberOr(spec.densityScale, 1), 0, 2);
+      track.density = round3(clamp(bias * drive * share, 0, 2));
     }
     if (name === 'bass' && timing !== null) track.vary = { timing };
     if (name === 'percussion' && kit) track.sequencers = kit;

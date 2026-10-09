@@ -52,7 +52,7 @@
       "perTrack": {
         "pad": { "state": "on", "voice": "warm", "level": 0.5, "randomness": { "min": 0.15, "max": 0.35 } },
         "arp": { "state": "auto", "voice": "softPluck", "level": 0.35, "randomness": { "min": 0.2, "max": 0.4 } },
-        "melody": { "state": "auto", "voice": "stab", "level": 0.42, "randomness": 0.25 },
+        "melody": {"state": "auto", "voice": "stab", "level": 0.42, "randomness": 0.25, "densityScale": 0.2, "motifRule": {"chance": 0, "when": "section", "order": "weight", "pool": [{"id": "repeat", "weight": 2}, {"id": "transpose", "weight": 1.5}, {"id": "displace", "weight": 1}]}},
         "bass": { "state": "on", "voice": "round", "level": 0.68, "randomness": 0.12 },
         "texture": { "state": "on", "voice": "colour", "level": { "min": 0.14, "max": 0.26 }, "randomness": 0.25 },
         "percussion": { "state": "on", "voice": "soft", "level": 0.5, "randomness": { "min": 0.15, "max": 0.3 } }
@@ -131,6 +131,14 @@
         "mid": "----x-------x---",
         "high": "--x---x---x---x-"
       }
+    ],
+    "motifs": [
+      {"shape": "own", "steps": [4, 4, 2], "beats": [0.5, 1.5, 3.5], "lengths": [0.25, 0.25, 0.5]},
+      {"shape": "own", "steps": [2, 4], "beats": [0.75, 2.5], "lengths": [0.25, 0.5]},
+      {"shape": "own", "steps": [0, 2, 0], "beats": [0.5, 1.75, 2.5], "lengths": [0.25, 0.25, 0.5]},
+      {"shape": "own", "steps": [4, 2], "beats": [1.5, 3.5], "lengths": [0.5, 0.5]},
+      {"shape": "own", "steps": [0, 0, 4], "beats": [0.5, 1.5, 2.75], "lengths": [0.25, 0.25, 0.5]},
+      {"shape": "own", "steps": [2, 0], "beats": [0.75, 1.5], "lengths": [0.25, 0.75]}
     ]
   },
   "defiance": [
