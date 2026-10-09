@@ -230,6 +230,22 @@ export const ARP_RATES = Object.freeze({ '1/4': 1, '1/8': 0.5, '1/16': 0.25, '1/
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
+/**
+ * A pitch brought into [lo, hi] by OCTAVES, keeping its pitch class — the rule
+ * the melody's band has always followed. Clamping a pitch lands it on the range
+ * edge, which is the same note whatever the chord: up to v0.0.220 the arp's top
+ * octave piled onto MIDI 96 (the tonic C over every Bossa V7, an eleventh
+ * against it). The range must be at least an octave wide, which every caller's
+ * is; a non-finite pitch is returned unchanged for the caller to refuse.
+ */
+export function foldIntoRange(midi, lo, hi) {
+  if (!Number.isFinite(midi)) return midi;
+  let out = midi;
+  while (out > hi) out -= 12;
+  while (out < lo) out += 12;
+  return out;
+}
+
 /** The subdivision swing is felt in: the eighth-note pair (v14). */
 export const SWING_UNIT = 0.5;
 
@@ -4537,6 +4553,10 @@ export function isContinuouslyAudible(notes, bars, { maxSilentBars = 0 } = {}) {
 }
 
 // -- arpeggiator ------------------------------------------------------------
+
+/** The arp's register: every arp note is FOLDED into it (foldIntoRange). */
+export const ARP_LOW = 36;
+export const ARP_HIGH = 96;
 
 /** Pattern/rate/octaves/density the arp uses in `mode: 'auto'`. */
 export function autoArpSettings(complexity = 0.5) {
@@ -9768,7 +9788,9 @@ export function createEngine(initialParams, options = {}) {
         let midi = scaleDegreeToMidi(event.degree, bar.scale, bar.rootPc, 6);
         while (midi > 100) midi -= 12;
         while (midi < 79) midi += 12;
-        midi = clamp(midi + 12 * (event.octave ?? 0) + (event.bend ?? 0), 67, 108);
+        // Folded, not clamped: an octave wander off the top of the
+        // 79-100 band reached 112, and a clamp sat it on 108 off the chord.
+        midi = foldIntoRange(midi + 12 * (event.octave ?? 0) + (event.bend ?? 0), 67, 108);
         playNote('texture', {
           midi,
           when: time + event.offset * bar.secPerBeat + (event.nudge ?? 0),
@@ -9799,11 +9821,16 @@ export function createEngine(initialParams, options = {}) {
       const stepBeats = arpPlan.stepBeats ?? ARP_RATES[params.arp.rate] ?? 0.5;
       for (const step of arpPlan.steps) {
         if (step.beat < from || step.beat >= to || !sequence.length) continue;
-        const midi = sequence[step.seqIndex % sequence.length] + 12 * (step.octave ?? 0);
+        // FOLDED into the arp's range, never clamped: three octaves
+        // of a chord plus an octave wander plus the doubling run past 96, and a
+        // clamp put every one of those notes on 96 whatever the chord.
+        const midi = foldIntoRange(
+          sequence[step.seqIndex % sequence.length] + 12 * (step.octave ?? 0), ARP_LOW, ARP_HIGH,
+        );
         const when = time + (swung(step.beat, 'arp') - from) * bar.secPerBeat + (step.nudge ?? 0);
         const duration = Math.max(0.05, step.gateBeats * bar.secPerBeat);
         playNote('arp', {
-          midi: clamp(midi, 36, 96),
+          midi,
           when,
           duration,
           velocity: step.velocity,
@@ -9813,8 +9840,8 @@ export function createEngine(initialParams, options = {}) {
           const len = sequence.length;
           const { shift, offset } = arpPhasePosition(step.beat, stepBeats, len);
           const copy = {
-            midi: clamp(sequence[(((step.seqIndex - shift) % len) + len) % len]
-              + 12 * (step.octave ?? 0), 36, 96),
+            midi: foldIntoRange(sequence[(((step.seqIndex - shift) % len) + len) % len]
+              + 12 * (step.octave ?? 0), ARP_LOW, ARP_HIGH),
             duration,
             velocity: step.velocity * ARP_PHASE_VELOCITY,
             pan: -(step.pan ?? 0),
@@ -9827,9 +9854,12 @@ export function createEngine(initialParams, options = {}) {
             arpPhaseCarry.push({ ...copy, beat: step.beat + offset - bar.beats, nudge: step.nudge ?? 0 });
           }
         }
-        if (doubling) {
+        // A doubling that folds back onto its own note is not a doubling: it
+        // would strike the same pitch twice at one instant. It is dropped.
+        const doubled = doubling ? foldIntoRange(midi + 12, ARP_LOW, ARP_HIGH) : midi;
+        if (doubled !== midi) {
           playNote('arp', {
-            midi: clamp(midi + 12, 36, 96),
+            midi: doubled,
             when,
             duration,
             velocity: step.velocity * 0.5,
@@ -9879,7 +9909,8 @@ export function createEngine(initialParams, options = {}) {
       }
       for (const note of plan.events) {
         if (note.beat < from || note.beat >= to) continue;
-        const midi = note.pinned != null ? note.pinned : clamp(
+        // Folded into range by octaves, not clamped — see foldIntoRange.
+        const midi = note.pinned != null ? note.pinned : foldIntoRange(
           scaleDegreeToMidi(chordDegree + note.degree, bar.scale, bar.rootPc, USER_TRACK_OCTAVE)
             + 12 * (note.octave ?? 0) + (note.bend ?? 0),
           24, 108,

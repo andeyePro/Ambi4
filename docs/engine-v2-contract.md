@@ -2698,3 +2698,24 @@ audibly, on purpose. This is the first process, and it is Reich's Piano Phase.
   play no copy; setting 0 stops it; every other genre compiles no phase key.
 - Next, not built: the ADDITIVE process (Glass — one note of a fixed cell
   added or removed every N repetitions, in order), the TODO's candidate b.
+
+## Registers FOLD, they never clamp (after v0.0.220)
+
+A pitch that leaves its track's register is brought back by OCTAVES, keeping
+its pitch class — `foldIntoRange(midi, lo, hi)` in the engine, the rule the
+melody's band has always followed. A clamp puts the note on the range edge,
+which is the same pitch whatever the chord. Up to v0.0.220 the arp clamped at
+96: at high Complexity (three octaves of the chord, an octave wander, and the
+0.85 doubling) the top of every run piled onto 96 — measured as the tonic C
+over every Bossa V7.
+
+- Arp: `ARP_LOW`..`ARP_HIGH` (36–96). The lead note, the phase copy and the
+  doubling all fold. A doubling that folds back onto its own note (any lead
+  note in the top octave, 85–96) is DROPPED, not struck twice at one pitch.
+- Texture (67–108) and user tracks (24–108) fold the same way. Pinned pitches
+  are never folded: a stated note plays as stated.
+- Bass and pad have no ceiling to hit: bass picks its octave pop inside
+  `BASS_RANGE`, the pad voices upward from octave 3.
+- Gated by `tests/arp-range-smoke.mjs`: every stock genre at Complexity 0.95,
+  six seeds each — every arp note's pitch class inside its chord, none out of
+  range, none struck twice. Red on v0.0.220 (870 foreign notes, all on 96).
