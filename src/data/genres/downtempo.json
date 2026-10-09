@@ -41,17 +41,15 @@
     },
     "grooveGrammar": {
       "anchorPatterns": [
-        "x---------x-----",
-        "x------x--x-----",
-        "x--------x----x-"
+        "x-------x-x-----"
       ],
       "syncopationCells": [
         "--x-",
         "---x",
         "-x--"
       ],
-      "articulation": ["longShort", "holdOne", "even"],
-      "pocketMs": [8, 22]
+      "articulation": ["longShort", "holdOne"],
+      "pocketMs": [0, 4]
     },
     "instrumentation": {
       "perTrack": {
@@ -76,17 +74,17 @@
     "progressions": null,
     "grooves": [
       {
-        "low": "x---------x-----",
+        "low": "x-------x-x-----",
         "mid": "----x-------x---",
         "high": "x-x-x-x-x-x-x-x-"
       },
       {
-        "low": "x------x--x-----",
+        "low": "x-------x-x-----",
         "mid": "----x-------x---",
         "high": "x-xxx-x-x-xxx-x-"
       },
       {
-        "low": "x--------x----x-",
+        "low": "x-------x-x-----",
         "mid": "----x-------x--x",
         "high": "--x---x---x---x-"
       }

@@ -107,7 +107,7 @@ Each is a worktree branch under `.claude/worktrees/`. Merge by `git cherry-pick 
 - [ ] **Walks as a rule** — WIP, unmerged: eb2da8f on `worktree-agent-aa61a095dcd7e9b33`. `tracks[t].walkSeed`, `tracks[t].walkHold`, recipe `walks` positions applied at the next barline; secret-layers `walks` named; walk-seed-smoke 6/6, recipe-roundtrip, engine-smoke, audio-reference green. Still owed: the red-on-old-code proof, the engine-v2-contract section, page-boot.
 - [ ] **Minimalism phases (Reich)** — WIP, unmerged: b3d741e on `worktree-agent-a19a0ae231b69f180`. `arp.phase` plays a second copy of the arp figure N % slower; Minimalism ships 1.5 %; an Arp Phase slider with "n of 3 notes behind". arp-phase-smoke 8/8 (6 red on old), engine-smoke green; audio-reference RE-BASELINED for Minimalism only in that commit (deliberate, and it also moves the baseline's "generated" field to 0.0.202). Still owed: genre-smoke, recipe-roundtrip, page-boot. The additive process (Glass) is not built.
 - [ ] **Ambient texture stops sawing** — WIP, unmerged: ebc9353 on `worktree-agent-ac9fcc3c544949c40`. Diagnosis: the sweep left in v0.0.80; the saw is the shared 2 s noise buffer looping (wash autocorrelation 0.49 at 1.87 s, coloured noise 0.997 at 2.00 s). Fix: wash and coloured noise read their own 12 s buffer (→ ~0.03), whistle kept ~25 dB clear. wash-saw-render 18/18 (5 red on old), audio-reference unmoved. Blocking: voices-smoke 295/297 — the buffer-count check needs updating for the third buffer, and "gust walks the bed" fails for coloured noise (not yet checked whether pre-existing).
-- [ ] **Downtempo bass and drums stop clashing** — WIP, unmerged: b3d1dae on `worktree-agent-aba0d6161f0edb14d`. Genre data only: lay-back 8–22 ms → 0–4 ms (flams 36 % → 0), one shared kick line across the three grooves (kicks doubled 57 % → ~73 %), "even" articulation dropped. downtempo-lock-smoke 4/4 (0/4 on old), genre-smoke, engine-smoke, recipe-roundtrip green. Still owed: `node tests/audio-reference.mjs --update` (only genre:downtempo moves, deliberately) in the merge commit.
+- [x] **Downtempo bass and drums stop clashing** — MERGED as v0.0.214 (agent b3d1dae, baseline regenerated at merge) on `worktree-agent-aba0d6161f0edb14d`. Genre data only: lay-back 8–22 ms → 0–4 ms (flams 36 % → 0), one shared kick line across the three grooves (kicks doubled 57 % → ~73 %), "even" articulation dropped. downtempo-lock-smoke 4/4 (0/4 on old), genre-smoke, engine-smoke, recipe-roundtrip green. Still owed: `node tests/audio-reference.mjs --update` (only genre:downtempo moves, deliberately) in the merge commit.
 
 ## The 10 Dependabot alerts — CLOSED END TO END (was the owner's FIRST item)
 
@@ -300,7 +300,7 @@ bottom of the TODO."
 - [ ] Cinematic — does not sound like the genre it names
 - [ ] Deep House — bass fine, melody annoying
 - [ ] Lofi Beats — bad melody
-- [ ] Downtempo — bass and drums clash once the drums enter
+- [x] Downtempo — bass and drums clash once the drums enter *(v0.0.214, measured; ear-test his)*
 - [ ] Minimalism — needs a process mechanism (phasing / additive), not a voicing pass
 - [ ] New Age — accurate to its genre; he does not like the genre
 - [ ] Ambient — the texture saws; keep the whistle, lose the sweep
