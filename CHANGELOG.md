@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-10
+
+- [x] **v0.0.226 — Surprise me reaches every genre** — his report: with only Synthwave and Techno Tools listed, Surprise me was "a coin flip". It now draws from every stock genre, the ten not yet on the list included, plus your own genres; it still never repeats the genre playing, and a drawn unlisted genre is named in the picker while it plays, leaving the list once you pick another. With "hide the rest" on and favourites set it draws only from your favourites, as you asked it to. The first-visit draw is unchanged: public genres only. The genre tour step says so (tightened to fit). Gate: page-boot's forty-draw check (red on v0.0.225: only Synthwave and Techno Tools in 40 draws), 43 node suites.
+
 ## 2026-10-09
 
 - [x] **v0.0.225 — npm audit: 10 vulnerabilities to 0** — GitHub reported 33 against the default branch after the 2026-10-09 push; `npm audit` on dev found 10 (1 critical, 8 high, 1 moderate) in astro (≤ 7.2.7), devalue, http-cache-semantics, js-yaml, nanoid, sharp, smol-toml, source-map-js, svgo and undici. `npm audit fix` moved the lockfile to patched versions (astro 7.3.8) without touching package.json's ranges; the last, undici 7.29 inside jsdom (the test harness, never shipped), needed an override to 7.30.0, which jsdom's own range allows. `npm audit`: 0. Gates: build, 43 node suites; audio-reference unmoved. The site only stops being flagged once `main` carries this lockfile — main's lockfile was the same as dev's until now, so the earlier "a main deploy clears them" was out of date.

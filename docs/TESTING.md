@@ -833,6 +833,10 @@ The genre picker (directly under Play/Finish)
 - [ ] Your master Volume does NOT jump when you change genre. Everything else
       is allowed to.
 - [ ] "Surprise me" never lands on the genre already playing.
+- [ ] "Surprise me" draws from EVERY genre, the ten not yet on the list
+      included (2026-10-09); a drawn unlisted genre shows in the picker while
+      it plays and leaves the list once another is picked. With "hide the
+      rest" on and favourites set, it draws only from your favourites.
 - [ ] "No genre" clears the tag and leaves the music alone (the params are
       still whatever the genre compiled — clearing the tag is not an undo).
 - [ ] Loading a factory preset clears the genre back to "No genre", and the

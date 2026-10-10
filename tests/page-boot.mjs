@@ -2485,6 +2485,31 @@ try {
       if (!values().includes('surprise')) {
         failures.push('the genre list has no "Surprise me" entry');
       }
+      // 2026-10-09 (owner): Surprise me reaches every stock genre, the
+      // unlisted ones too — with two public genres it was a coin flip. Forty
+      // draws from twelve genres, ten of them unlisted: a draw that never
+      // leaves the public two fails; a drawn unlisted genre must be named by
+      // the picker while it plays; and no draw repeats the genre in play.
+      {
+        const drawn = new Set();
+        let previous = select.value;
+        let repeated = 0;
+        let unnamed = 0;
+        for (let i = 0; i < 40; i++) {
+          select.value = 'surprise';
+          select.dispatchEvent(new window.Event('change', { bubbles: true }));
+          const now = select.value;
+          if (!now.startsWith('g:')) { unnamed += 1; continue; }
+          if (now === previous) repeated += 1;
+          drawn.add(now.slice(2));
+          previous = now;
+        }
+        const hiddenDrawn = [...drawn].filter((slug) => HIDDEN.has(slug));
+        if (!hiddenDrawn.length) failures.push(`Surprise me never left the listed genres in 40 draws (drew ${[...drawn].join(', ')})`);
+        if (drawn.size < 5) failures.push(`Surprise me drew only ${drawn.size} distinct genres in 40 draws`);
+        if (unnamed) failures.push(`${unnamed} Surprise me draws left the picker not naming the genre that plays`);
+        if (repeated) failures.push(`${repeated} Surprise me draws landed on the genre already playing`);
+      }
       // ui-review 2026-10-03 fix 13: favourites is the ☆ beside the picker,
       // not an action hiding among the genres.
       if (values().includes('favourites')) {

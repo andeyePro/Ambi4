@@ -17781,6 +17781,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /** A random genre from `pool`, never the one already playing. */
+      /**
+       * What Surprise me draws from (owner, 2026-10-09: with two public
+       * genres it was "a coin flip between Synthwave and Techno Tools"). It
+       * reaches EVERY stock genre, the ones not yet on the list included —
+       * a surprise is the one place a genre still waiting on its fix is
+       * offered, and the picker then lists it while it plays (listedGenres'
+       * withCurrent), so it is never unnamed. Two things narrow it: the
+       * person's own genres join the draw, and "hide the rest" with
+       * favourites set keeps it to the list they chose.
+       */
+      function surpriseGenres() {
+        if (genrePrefs.hideOthers && genrePrefs.favourites.length) return listedGenres();
+        return [...GENRES, ...USER_GENRES];
+      }
+
       function drawGenre(pool) {
         const choices = pool.filter((genre) => genre.slug !== settings.genre);
         const source = choices.length ? choices : pool;
@@ -17871,7 +17886,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // nothing, is the ☆ beside the picker since ui-review fix 13.)
         rememberSetup();
         if (value === 'surprise') {
-          const genre = drawGenre(listedGenres());
+          const genre = drawGenre(surpriseGenres());
           if (!genre || !applyGenre(genre)) syncGenreUI();
           return;
         }
@@ -21269,7 +21284,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#genre-select',
-          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices together, a different piece each time you pick it. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chord rules, every one changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, at the foot of the list, chooses for you. The ☆ beside it keeps your favourites.',
+          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices, a different piece each time. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chords, each changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, last in the list, picks from every genre, unlisted ones too. The ☆ beside it keeps your favourites.',
         },
         {
           tab: 'simple',
