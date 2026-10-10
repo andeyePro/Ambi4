@@ -1802,6 +1802,91 @@ function sanitiseArpPhase(value, base) {
   return Number.isFinite(b) && b > 0 ? clamp(b, ARP_PHASE_MIN, ARP_PHASE_MAX) : undefined;
 }
 
+/**
+ * v0.0.228 — the arp's ADDITIVE PROCESS, the second process of TODO
+ * "Minimalism needs a PROCESS mechanism": Philip Glass's additive structure.
+ * The arp's figure is a fixed cell; the arp plays only its first notes, and
+ * after `every` complete repetitions of that cell it adds the next note —
+ * 1-2, 1-2-3, 1-2-3-4, … — until the whole figure sounds. `mode` says what
+ * happens then: 'grow' holds the full figure for its `every` repetitions and
+ * starts again from two notes; 'grow-shrink' takes the notes away again one
+ * at a time (…, 1-2-3-4-5, 1-2-3-4, 1-2-3, 1-2, 1-2-3, …).
+ *
+ * `arp.additive = { every, mode }`, `every` a whole number of repetitions
+ * 1..ARP_ADDITIVE_MAX. SPARSE like `phase`: absent unless set, and 0, null or
+ * every < 1 removes it, so the default arp and every stored piece keep their
+ * params and their audio to the byte. A bare number is shorthand for
+ * `{ every }`. A partial that names only one field keeps the other; a
+ * non-number `every` or unknown `mode` keeps what was there. No rng draw
+ * anywhere in it (see planArpAdditive).
+ */
+export const ARP_ADDITIVE_MAX = 16;
+export const ARP_ADDITIVE_MODES = ['grow', 'grow-shrink'];
+function sanitiseArpAdditive(value, base) {
+  if (value === null || value === 0) return undefined;
+  const b = base && typeof base === 'object' ? base : null;
+  const bEvery = b ? Number(b.every) : NaN;
+  const baseOut = Number.isFinite(bEvery) && Math.round(bEvery) >= 1
+    ? { every: clamp(Math.round(bEvery), 1, ARP_ADDITIVE_MAX), mode: oneOf(b.mode, ARP_ADDITIVE_MODES, 'grow') }
+    : undefined;
+  if (value === undefined) return baseOut;
+  const v = typeof value === 'number' ? { every: value }
+    : value && typeof value === 'object' ? value : null;
+  if (!v) return baseOut;
+  let every = baseOut ? baseOut.every : undefined;
+  if ('every' in v) {
+    if (v.every === null) return undefined;
+    const n = Number(v.every);
+    if (Number.isFinite(n)) {
+      if (Math.round(n) < 1) return undefined;
+      every = clamp(Math.round(n), 1, ARP_ADDITIVE_MAX);
+    }
+  }
+  if (every === undefined) return undefined;
+  return { every, mode: oneOf(v.mode, ARP_ADDITIVE_MODES, baseOut ? baseOut.mode : 'grow') };
+}
+
+/**
+ * v0.0.228 — one bar of the additive process, pure and draw-free. `state` is
+ * where the process stood at the bar's first grid slot (`null` = it is just
+ * starting: two notes, position 0); `slots` the bar's arp grid slots, sounded
+ * or not; `length` the figure's length this bar. Returns the cell position
+ * and cell length of every slot, and the state at the next bar's first slot.
+ * A stage changes only at a CELL boundary — straight after the cell's
+ * `every`-th complete repetition — so no repetition is ever cut short, and a
+ * slot that is silent still counts (a rest is a place in the cell).
+ */
+export function planArpAdditive(state, slots, length, every, mode = 'grow') {
+  const L = Math.max(1, Math.floor(length) || 1);
+  const first = Math.min(2, L);
+  const n = Math.max(1, Math.round(every) || 1);
+  const s = state ? { ...state } : { stage: first, pos: 0, reps: 0, dir: 1 };
+  // A figure that shrank under the process (a thinner chord) clamps the cell.
+  if (s.stage > L) s.stage = L;
+  if (s.stage < first) s.stage = first;
+  if (s.pos >= s.stage) s.pos = 0;
+  const pos = new Array(slots);
+  const stage = new Array(slots);
+  for (let i = 0; i < slots; i++) {
+    pos[i] = s.pos;
+    stage[i] = s.stage;
+    s.pos += 1;
+    if (s.pos < s.stage) continue;
+    s.pos = 0;
+    s.reps += 1;
+    if (s.reps < n) continue;
+    s.reps = 0;
+    if (mode === 'grow-shrink') {
+      if (s.dir > 0 && s.stage >= L) s.dir = -1;
+      else if (s.dir < 0 && s.stage <= first) s.dir = 1;
+      s.stage = clamp(s.stage + s.dir, first, L);
+    } else {
+      s.stage = s.stage >= L ? first : s.stage + 1;
+    }
+  }
+  return { pos, stage, next: s };
+}
+
 function sanitiseArp(value, base) {
   const from = base && typeof base === 'object' ? base : DEFAULT_PARAMS.arp;
   const v = value && typeof value === 'object' ? value : null;
@@ -1818,6 +1903,9 @@ function sanitiseArp(value, base) {
   // it did before the key existed.
   const phase = sanitiseArpPhase(at('phase'), from.phase);
   if (phase !== undefined) arp.phase = phase;
+  // v0.0.228: after `phase`, for the same reason.
+  const additive = sanitiseArpAdditive(at('additive'), from.additive);
+  if (additive !== undefined) arp.additive = additive;
   return arp;
 }
 
@@ -5319,6 +5407,10 @@ export function createEngine(initialParams, options = {}) {
   let arpPhaseLag = 0;
   let arpPhaseBarLag = 0;
   let arpPhaseCarry = [];
+  // v0.0.228 additive process: where the cell stands at the next bar's first
+  // arp slot (planArpAdditive's state), and this bar's slot → cell map.
+  let arpAdditiveNext = null;
+  let arpAdditiveBar = null;
   let autoArpSteps = null;
   let percussionBank = [];
   let bankTimeSignature = null; // metre the phrase/percussion banks were made in
@@ -6294,6 +6386,8 @@ export function createEngine(initialParams, options = {}) {
           arpPhaseLag = 0;
           arpPhaseBarLag = 0;
           arpPhaseCarry = [];
+          arpAdditiveNext = null;
+          arpAdditiveBar = null;
           break;
         case 'percussion':
           percussionBank = [];
@@ -7273,6 +7367,11 @@ export function createEngine(initialParams, options = {}) {
     if (typeof note.motif === 'boolean') event.motif = note.motif;
     // v0.0.217: the phase copy says which player it is, for the same reason.
     if (note.phase === true) event.phase = true;
+    // v0.0.228: an additive lead note says where in the growing cell it is.
+    if (Number.isInteger(note.cell)) {
+      event.cell = note.cell;
+      event.cellLength = note.cellLength;
+    }
     emit('note', event);
   }
 
@@ -9132,6 +9231,47 @@ export function createEngine(initialParams, options = {}) {
     return plan;
   }
 
+  /** v0.0.228: the arp's additive settings, or null when it has none. */
+  function arpAdditiveSettings() {
+    const a = params.arp && params.arp.additive;
+    return a && Number(a.every) >= 1 ? a : null;
+  }
+
+  /**
+   * v0.0.228 — the additive process's bar: map every grid slot of this bar's
+   * arp plan to its place in the growing cell. Runs once per bar after the
+   * arp is planned. Like phase, it is a clock rather than material — a held
+   * or repeated plan still moves the process on — but it is the ARP's clock:
+   * a bar the arp does not play (silent, or answering the melody) does not
+   * count repetitions nobody heard. Off clears it, so turning it on starts
+   * again from two notes.
+   */
+  function advanceArpAdditive() {
+    const cfg = arpAdditiveSettings();
+    if (!cfg) {
+      arpAdditiveNext = null;
+      arpAdditiveBar = null;
+      return;
+    }
+    const length = arpPlan ? arpSequenceFor(arpPlan).length : 0;
+    if (!length) {
+      arpAdditiveBar = null;
+      return;
+    }
+    const stepBeats = arpPlan.stepBeats ?? ARP_RATES[params.arp.rate] ?? 0.5;
+    // The same grid planArp walks, so slot i here is step.index i there.
+    let slots = 0;
+    for (let beat = 0; beat < bar.beats - 1e-6; beat += stepBeats) slots += 1;
+    const start = arpAdditiveNext;
+    const planned = planArpAdditive(start, slots, length, cfg.every, cfg.mode);
+    arpAdditiveBar = {
+      ...planned,
+      length,
+      startReps: start && start.stage === planned.stage[0] ? start.reps : 0,
+    };
+    arpAdditiveNext = planned.next;
+  }
+
   /** v0.0.217: the arp's phase-copy offset in percent, or 0 when it has none. */
   function arpPhasePercent() {
     const phase = params.arp && Number(params.arp.phase);
@@ -9672,6 +9812,7 @@ export function createEngine(initialParams, options = {}) {
       ? planFor('texture', undefined, () => planTexture(intensity)) : [];
     arpPlan = isActive('arp') && responder !== 'arp'
       ? planFor('arp', undefined, () => planArp(intensity)) : null;
+    advanceArpAdditive();
     percussionPlan = isActive('percussion')
       ? planFor('percussion', undefined, () => planPercussion(intensity)) : [];
     planUserTracks();
@@ -9819,13 +9960,20 @@ export function createEngine(initialParams, options = {}) {
       // arp has room for one note, so it has no copy (the doubling's rule).
       const phasing = arpPhasePercent() > 0 && !isMono('arp');
       const stepBeats = arpPlan.stepBeats ?? ARP_RATES[params.arp.rate] ?? 0.5;
+      // v0.0.228 additive process: the slot's place in the growing cell
+      // replaces the step's place in the figure. Its phase copy, if any,
+      // phases against the CELL (the shift wraps at the cell's length).
+      const additive = arpAdditiveBar;
       for (const step of arpPlan.steps) {
         if (step.beat < from || step.beat >= to || !sequence.length) continue;
+        const cellPos = additive && step.index < additive.pos.length ? additive.pos[step.index] : -1;
+        const cellLen = cellPos >= 0 ? additive.stage[step.index] : 0;
+        const seqIndex = cellPos >= 0 ? cellPos : step.seqIndex;
         // FOLDED into the arp's range, never clamped: three octaves
         // of a chord plus an octave wander plus the doubling run past 96, and a
         // clamp put every one of those notes on 96 whatever the chord.
         const midi = foldIntoRange(
-          sequence[step.seqIndex % sequence.length] + 12 * (step.octave ?? 0), ARP_LOW, ARP_HIGH,
+          sequence[seqIndex % sequence.length] + 12 * (step.octave ?? 0), ARP_LOW, ARP_HIGH,
         );
         const when = time + (swung(step.beat, 'arp') - from) * bar.secPerBeat + (step.nudge ?? 0);
         const duration = Math.max(0.05, step.gateBeats * bar.secPerBeat);
@@ -9835,12 +9983,13 @@ export function createEngine(initialParams, options = {}) {
           duration,
           velocity: step.velocity,
           pan: step.pan,
+          ...(cellPos >= 0 ? { cell: cellPos, cellLength: cellLen } : {}),
         });
         if (phasing) {
-          const len = sequence.length;
+          const len = cellPos >= 0 ? cellLen : sequence.length;
           const { shift, offset } = arpPhasePosition(step.beat, stepBeats, len);
           const copy = {
-            midi: foldIntoRange(sequence[(((step.seqIndex - shift) % len) + len) % len]
+            midi: foldIntoRange(sequence[(((seqIndex - shift) % len) + len) % len]
               + 12 * (step.octave ?? 0), ARP_LOW, ARP_HIGH),
             duration,
             velocity: step.velocity * ARP_PHASE_VELOCITY,
@@ -10432,6 +10581,8 @@ export function createEngine(initialParams, options = {}) {
       arpPhaseLag = 0;
       arpPhaseBarLag = 0;
       arpPhaseCarry = [];
+      arpAdditiveNext = null;
+      arpAdditiveBar = null;
       arpPlan = null;
       percussionPlan = [];
       melodyPlan = emptyMelodyPlan();
@@ -10840,6 +10991,7 @@ export function createEngine(initialParams, options = {}) {
         voicing: hook.degrees.map((_, i) => ({ inversion: hook.inversions[i], extension: hook.extensions[i] })),
       } : null,
       arpPhase: resolvedArpPhase(),
+      arpAdditive: resolvedArpAdditive(),
     };
   }
 
@@ -10850,6 +11002,24 @@ export function createEngine(initialParams, options = {}) {
    * so "1.4 of 3" reads as "one note behind and drifting towards two". Null
    * when the arp has no phase copy.
    */
+  /**
+   * v0.0.228: where the additive process stands at the start of this bar —
+   * the cell's length out of the figure's, and which repetition of the cell
+   * is playing. Null when the arp has no additive process; cell null while
+   * the arp has not yet played a bar under it.
+   */
+  function resolvedArpAdditive() {
+    const cfg = arpAdditiveSettings();
+    if (!cfg) return null;
+    const out = { every: cfg.every, mode: cfg.mode, cell: null, figure: null, repetition: null };
+    if (arpAdditiveBar && arpAdditiveBar.stage.length) {
+      out.cell = arpAdditiveBar.stage[0];
+      out.figure = arpAdditiveBar.length;
+      out.repetition = arpAdditiveBar.startReps + 1;
+    }
+    return out;
+  }
+
   function resolvedArpPhase() {
     const percent = arpPhasePercent();
     if (!(percent > 0)) return null;

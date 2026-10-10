@@ -51,6 +51,7 @@
  *   instrumentation.perTrack     → params.tracks[*].state/voice/level/randomness
  *   instrumentation.reverbTail   → params.reverbTail
  *   essence.process.arpPhase     → params.arp.phase (v0.0.217; sparse, no draw)
+ *   essence.process.arpAdditive  → params.arp.additive (v0.0.228; sparse, no draw)
  *   instrumentation.patches      → params.patches (pass-through; engine clamps)
  *   essence.dissonanceRange      → params.tracks[tuned].dissonance, as a RANGE
  *   essence.densityBias          → params.tracks[*].density on the five tracks
@@ -933,6 +934,13 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
   const process = isObject(essence.process) ? essence.process : {};
   const arpPhase = numberOr(process.arpPhase, undefined);
   if (arpPhase !== undefined && arpPhase > 0) partial.arp = { phase: arpPhase };
+  // v0.0.228: `process.arpAdditive` is Glass's additive process, `{ every,
+  // mode }` (ambient-engine.js § arp.additive) — passed through for the engine
+  // to sanitise. No draw either; no stock genre sets it yet (see
+  // docs/engine-v2-contract.md for why Minimalism keeps phase alone).
+  if (isObject(process.arpAdditive) && numberOr(process.arpAdditive.every, 0) >= 1) {
+    partial.arp = { ...(partial.arp ?? {}), additive: { ...process.arpAdditive } };
+  }
   // AUDIT FIX: a DEEP COPY. This aliased the imported genre module's own
   // object, and applyDefiance's setPath then wrote through it — one defiance
   // compile permanently rewrote the genre's authored patches for the rest of

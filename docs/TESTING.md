@@ -1266,3 +1266,18 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       genre of your own can be deleted there too.
 - [ ] Reload (consent granted): everything hidden stays hidden.
 - [ ] Automated: `node tests/page-boot.mjs` (the hide block).
+## v0.0.228 delta — the additive process (Glass)
+
+- [ ] Open the Arp editor on any piece with the arp on: Additive reads off
+      and no Shape select shows. Type 2 into Additive: Shape appears, and the
+      arp narrows to two notes, then three, then four, two repetitions each,
+      up to the whole figure, then starts again from two. The line under the
+      dials reads "Additive: a note every 2 repetitions · n of N notes" and n
+      climbs while it plays. Nothing clicks; the rhythm does not change.
+- [ ] Shape → Grow, then shrink: at the top the notes come away again one at
+      a time. Additive to 0: the whole figure is back at the next bar, Shape
+      hides, the line reads "Additive: off".
+- [ ] Minimalism still phases and does NOT grow (it ships phase alone).
+- [ ] Automated: `node tests/arp-additive-smoke.mjs` (10 checks; the
+      cell-length-per-downbeat column it prints is the process, measured) and
+      page-boot (the Additive dial and Shape reach the engine).

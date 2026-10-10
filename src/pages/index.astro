@@ -3875,6 +3875,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // rode along under the next genre picked.
         if (isPlainObject(p.arp)) {
           p.arp.phase = typeof p.arp.phase === 'number' && p.arp.phase > 0 ? p.arp.phase : null;
+          // v0.0.228: the additive process is sparse in exactly the same way.
+          p.arp.additive = isPlainObject(p.arp.additive) && Number(p.arp.additive.every) >= 1
+            ? p.arp.additive : null;
         }
         // v0.0.117: sequencerAdvance is stated on EVERY push for the same
         // reason as the genre tag just above — the sanitiser keeps the stored
@@ -11201,6 +11204,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // v0.0.217: the phase copy's ceiling — ambient-engine.js ARP_PHASE_MAX,
       // copied as a literal because the engine module loads asynchronously.
       const ARP_PHASE_MAX = 10;
+      // v0.0.228: the additive process's ceiling (ARP_ADDITIVE_MAX) and its
+      // two shapes (ARP_ADDITIVE_MODES), copied for the same reason.
+      const ARP_ADDITIVE_MAX = 16;
+      const ARP_ADDITIVE_MODES = [
+        ['grow', 'Grow, then again'],
+        ['grow-shrink', 'Grow, then shrink'],
+      ];
       const ARP_RATES = [
         ['1/4', '1/4'],
         ['1/8', '1/8'],
@@ -11446,7 +11456,50 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           },
         });
         phaseLive.textContent = `Phase: ${arpPhaseLabel(phaseValue, null)}`;
+
+        // v0.0.228 — the additive process (Glass): the arp plays only the
+        // first two notes of its figure, and every N repetitions it adds the
+        // next one, until the whole figure sounds. A dial beside Phase, the
+        // same shape: 0 is off, the live line says where the cell stands
+        // (getResolved().arpAdditive). Its shape is a select like Pattern.
+        const additiveEvery = () => (isPlainObject(settings.arp.additive)
+          && Number(settings.arp.additive.every) >= 1 ? Number(settings.arp.additive.every) : 0);
+        const additiveMode = () => (isPlainObject(settings.arp.additive)
+          && settings.arp.additive.mode === 'grow-shrink' ? 'grow-shrink' : 'grow');
+        const additiveLive = document.createElement('p');
+        additiveLive.className = 'arp-additive-live field-hint';
+        additiveLive.id = 'arp-additive-live';
+        const pushAdditive = (every, mode) => {
+          if (every >= 1) settings.arp.additive = { every, mode };
+          else delete settings.arp.additive;
+          additiveLive.textContent = `Additive: ${arpAdditiveLabel(every, mode, null)}`;
+          // Progressive: the Shape only matters while the process runs.
+          additiveShapeWrap().hidden = !(every >= 1);
+          engine.setParams({ arp: { additive: every >= 1 ? { every, mode } : null } });
+          persistSettings();
+        };
+        const additive = arpRange('Additive', {
+          min: 0,
+          max: ARP_ADDITIVE_MAX,
+          step: 1,
+          value: additiveEvery(),
+          defaultValue: 0,
+          format: (v) => (Number(v) >= 1 ? `every ${Math.round(Number(v))}` : 'off'),
+          hint: 'Additive builds the arp\u2019s figure up a note at a time: it plays the first two notes, and after this many '
+            + 'repetitions adds the next \u2014 1-2, 1-2-3, 1-2-3-4 \u2014 until the whole figure sounds. The line under '
+            + 'the dials says how many notes the cell has now. Shape says what happens at the top. 0 is off.',
+          onChange: (v) => pushAdditive(Math.round(parseFloat(v)) || 0, additiveMode()),
+        });
+        const additiveShapeField = arpSelect('Shape', ARP_ADDITIVE_MODES, additiveMode(), (v) => {
+          pushAdditive(additiveEvery(), v === 'grow-shrink' ? 'grow-shrink' : 'grow');
+        });
+        const additiveShapeWrap = () => additiveShapeField.select.closest('.control') || additiveShapeField.select;
+        additiveShapeWrap().hidden = !(additiveEvery() >= 1);
+        describe(additiveShapeField.select, 'What the Additive process does once the whole figure sounds: start '
+          + 'again from two notes, or take the notes away again one at a time.');
+        additiveLive.textContent = `Additive: ${arpAdditiveLabel(additiveEvery(), additiveMode(), null)}`;
         (arpKnobs.parentNode ? arpKnobs : phase.el).after(phaseLive);
+        phaseLive.after(additiveLive);
 
         container.append(panel);
         arpUI = {
@@ -11460,6 +11513,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           gate,
           phase,
           phaseOut: phaseLive,
+          additive,
+          additiveShape: additiveShapeField.select,
+          additiveOut: additiveLive,
         };
         syncArpUI();
       }
@@ -15213,6 +15269,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
         }
         applyResolvedArpPhase(resolved && resolved.arpPhase);
+        applyResolvedArpAdditive(resolved && resolved.arpAdditive);
         const tracks = resolved && isPlainObject(resolved.tracks) ? resolved.tracks : null;
         for (const id of TRACK_IDS) {
           const readout = document.getElementById(`resolved-${id}`);
@@ -16937,6 +16994,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return `${head} \u00b7 ${live.steps.toFixed(1)} of ${live.figure} notes behind`;
       }
 
+      /**
+       * v0.0.228: the Additive readout. "off", or the setting with — while
+       * the engine reports one — how many notes of the figure the cell has
+       * this bar, read off getResolved().arpAdditive.
+       */
+      function arpAdditiveLabel(every, mode, live) {
+        if (!(every >= 1)) return 'off';
+        const head = `a note every ${every} repetition${every === 1 ? '' : 's'}`
+          + (mode === 'grow-shrink' ? ', then back' : '');
+        if (!isPlainObject(live) || !Number.isFinite(live.cell) || !Number.isFinite(live.figure)) return head;
+        return `${head} \u00b7 ${live.cell} of ${live.figure} notes`;
+      }
+
+      function applyResolvedArpAdditive(live) {
+        if (!arpUI || !arpUI.additiveOut) return;
+        const a = settings.arp.additive;
+        const every = isPlainObject(a) && Number(a.every) >= 1 ? Number(a.every) : 0;
+        arpUI.additiveOut.textContent = `Additive: ${arpAdditiveLabel(every, isPlainObject(a) ? a.mode : 'grow', live)}`;
+      }
+
       function applyResolvedArpPhase(live) {
         if (!arpUI || !arpUI.phaseOut) return;
         const v = typeof settings.arp.phase === 'number' && settings.arp.phase > 0 ? settings.arp.phase : 0;
@@ -17011,6 +17088,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const v = typeof settings.arp.phase === 'number' && settings.arp.phase > 0 ? settings.arp.phase : 0;
           arpUI.phase.show(v);
           arpUI.phaseOut.textContent = `Phase: ${arpPhaseLabel(v, null)}`;
+        }
+        {
+          const a = settings.arp.additive;
+          const every = isPlainObject(a) && Number(a.every) >= 1 ? Number(a.every) : 0;
+          const mode = isPlainObject(a) && a.mode === 'grow-shrink' ? 'grow-shrink' : 'grow';
+          arpUI.additive.show(every);
+          arpUI.additiveShape.value = mode;
+          (arpUI.additiveShape.closest('.control') || arpUI.additiveShape).hidden = !(every >= 1);
+          arpUI.additiveOut.textContent = `Additive: ${arpAdditiveLabel(every, mode, null)}`;
         }
         // Auto's Now, read straight from the engine rather than waiting on
         // the 4 Hz poll (which only runs while the transport is live) — the

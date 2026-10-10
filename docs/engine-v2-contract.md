@@ -2801,3 +2801,82 @@ unchanged), wired by `index.astro`'s New… chooser; gated by
   the engine and open the editor, and the picker reads "New subtractive ·
   edited" while that start is what plays. Sample is shown disabled: "Coming
   with audio input".
+- Next: the ADDITIVE process (Glass), the TODO's candidate b — built in
+  v0.0.223, below.
+
+## The arp's additive process (v0.0.228)
+
+The second process, Philip Glass's additive structure: a fixed cell to which
+one note is added every N repetitions, in order, until the whole figure
+sounds. Where phase transforms the figure's TIMING against itself, this
+transforms its LENGTH, in one direction, audibly, on purpose.
+
+- **Param.** `arp.additive = { every, mode }`. `every` is a whole number of
+  repetitions, 1–16 (`ARP_ADDITIVE_MAX`); `mode` is `'grow'` or
+  `'grow-shrink'` (`ARP_ADDITIVE_MODES`). A bare number is shorthand for
+  `{ every }`; a partial naming only one field keeps the other; nonsense keeps
+  what was there. Sparse like `phase`: absent unless set, and `0`, `null` or
+  `every < 1` removes it, so the default arp, every genre and every stored
+  piece are byte-identical (audio-reference unmoved). It serialises after
+  `phase`.
+- **What plays.** The figure is the arp's own sequence for the bar (pattern
+  and octaves over the chord, length L). The process starts on a cell of two
+  notes, positions 0-1 of the figure. Each arp grid slot — sounded or a rest,
+  a rest is a place in the cell — plays the next position of the cell; after
+  `every` complete repetitions of the cell the next note is added: 1-2,
+  1-2-3, … 1-…-L. Then `'grow'` holds the full figure for its `every`
+  repetitions and starts again from two notes (the process's wrap, as phase
+  returns to unison); `'grow-shrink'` takes notes away again one at a time,
+  L-1 … 2, and climbs again. A cell changes only at a CELL boundary, never
+  mid-repetition; the cell runs continuously across barlines. Rhythm,
+  velocity, gate, pan and octave wander are the arp's own and unchanged — the
+  process replaces only WHICH figure note a slot plays.
+- **Deterministic.** `planArpAdditive(state, slots, length, every, mode)` is
+  exported, pure and draw-free: one bar's slot → cell map from the state at
+  its first slot. No rng draw anywhere, so every other stream — every other
+  track, and the arp's own rhythm and mask — is unmoved (the smoke compares a
+  whole Minimalism piece with and without it, to the byte, everywhere but the
+  arp's pitches).
+- **A clock, but the arp's clock.** Like phase it advances under a held or
+  repeated plan. Unlike phase it counts repetitions the arp actually plays: a
+  bar the arp is silent, or gives to the melody's answer, adds nothing. A
+  figure that shrinks under it (a thinner chord) clamps the cell to the new
+  length. A re-roll of the arp, start(), or turning it off restarts from two
+  notes. Changing `every` or `mode` mid-process keeps the cell where it is.
+- **Nothing changes while it sounds.** The process picks the pitch of a note
+  before it starts; it never touches a sounding note.
+- **With phase.** The two coexist: the phase copy phases against the CELL —
+  its shift wraps at the cell's length, and it plays the note of the cell
+  `shift` places earlier — so it can never reach outside the notes the lead
+  is playing. Coexisting is not the same as sounding well together, which is
+  why no genre ships both (below).
+- **Readout.** `getResolved().arpAdditive` is `null`, or `{ every, mode,
+  cell, figure, repetition }` — the cell's length, the figure's, and which
+  repetition of the cell is playing at this bar's downbeat (`cell` null
+  before the arp has played a bar under it). An additive lead 'note' event
+  carries `cell` (its position) and `cellLength`.
+- **Genre data.** `essence.process.arpAdditive` (`{ every, mode }`) compiles
+  straight to `arp.additive` with no draw. **No stock genre sets it;
+  Minimalism keeps phase alone.** Both processes on one arp blur each other:
+  phasing is heard as a copy drifting against an UNCHANGING figure, and the
+  additive process changes the figure under it every few bars, so the ear
+  loses the drift and the copy's shift has to wrap at a cell that keeps
+  changing length. The engine has one arp, so there is no second track to put
+  the additive process on cleanly. It is opt-in, on the dial, for any genre.
+- **UI.** The Arpeggiator panel's Additive dial (0 off, 1–16 "every N"),
+  beside Phase, and a Shape select ("Grow, then again" / "Grow, then shrink")
+  that shows only while Additive is on (progressive: off is one dial). The
+  line under the dials reads "Additive: off", or "Additive: a note every 4
+  repetitions · 3 of 6 notes" live from `getResolved().arpAdditive`. The
+  page states `arp.additive` (null when unset) on every whole-settings push,
+  like phase.
+- **Recipe.** `arp.additive` ("Arp additive", json).
+- Gated by `tests/arp-additive-smoke.mjs` (10 checks, 9 red on the v0.0.222
+  engine; the tenth pins that an unset arp carries no cell): the planner and
+  the engine's note stream match an independently written reference slot for
+  slot over 24 bars in both shapes, every cell position sounds the figure's
+  note at that place, a cell never changes mid-repetition, the process is
+  identical under four rng seeds, a whole piece with it on differs only in
+  the arp's pitches, the phase copy stays inside the cell, null stops it, and
+  no stock genre compiles it. `tests/page-boot.mjs` types into the dial and
+  picks the Shape and reads both off the ENGINE.

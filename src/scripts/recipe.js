@@ -120,6 +120,8 @@ export const RECIPE_FIELDS = Object.freeze([
   // v0.0.217: the phase process — percent slower the arp's copy runs. Sparse:
   // absent (no copy) on every piece that does not ask for one.
   { path: 'arp.phase', label: 'Arp phase', kind: 'number' },
+  // v0.0.228: the additive process — { every, mode }. Sparse the same way.
+  { path: 'arp.additive', label: 'Arp additive', kind: 'json' },
   { path: 'patches', label: 'Patches', kind: 'json' },
   // v0.0.216: the live position (0..1) inside every min-max walk, by walk key
   // ('pad:level', 'melody:patch.keys.filter.cutoff'). Engine state rather than

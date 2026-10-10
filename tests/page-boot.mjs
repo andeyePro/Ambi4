@@ -1957,7 +1957,36 @@ try {
             if (!off) failures.push(`editor layers: typing 0 into the Phase dial left the engine at ${engine.getParams().arp.phase}`);
             if (phaseLine.textContent !== 'Phase: off') failures.push(`editor layers: the Phase line reads "${phaseLine.textContent}" at 0`);
           }
-          engine.setParams({ arp: { mode: arpWas.mode, octaves: arpWas.octaves, gate: arpWas.gate, phase: arpWas.phase ?? null } });
+          // v0.0.228: the Additive process is a dial beside Phase with a
+          // live line of its own and a Shape select; a typed count and a
+          // picked shape reach the ENGINE, and 0 removes it (sparse).
+          const addCell = arpEditor.querySelector('#arp-additive');
+          const addLine = arpEditor.querySelector('#arp-additive-live');
+          const addShape = arpEditor.querySelector('select#arp-shape');
+          if (!addCell || !addCell.querySelector('.knob')) {
+            failures.push('editor layers: the arp\'s Additive is not a dial');
+          } else if (!addLine || !addShape) {
+            failures.push('editor layers: the arp\'s Additive has no live line or no Shape select');
+          } else {
+            const shapeShown = () => !(addShape.closest('.control') || addShape).hidden;
+            if (shapeShown()) failures.push('editor layers: the Additive Shape shows while Additive is off');
+            typeIntoKnob(addCell, '3');
+            const added = await waitUntil(() => engine.getParams().arp.additive?.every === 3
+              && engine.getParams().arp.additive.mode === 'grow');
+            if (!added) failures.push(`editor layers: typing 3 into the Additive dial left the engine at ${JSON.stringify(engine.getParams().arp.additive)}`);
+            if (!/^Additive: a note every 3 repetitions/.test(addLine.textContent)) failures.push(`editor layers: the Additive line reads "${addLine.textContent}" after 3`);
+            if (!shapeShown()) failures.push('editor layers: the Additive Shape stays hidden once Additive is on');
+            addShape.value = 'grow-shrink';
+            addShape.dispatchEvent(new window.Event('change', { bubbles: true }));
+            const shaped = await waitUntil(() => engine.getParams().arp.additive?.mode === 'grow-shrink'
+              && engine.getParams().arp.additive.every === 3);
+            if (!shaped) failures.push(`editor layers: picking Grow, then shrink left the engine at ${JSON.stringify(engine.getParams().arp.additive)}`);
+            typeIntoKnob(addCell, '0');
+            const addOff = await waitUntil(() => !('additive' in engine.getParams().arp));
+            if (!addOff) failures.push(`editor layers: typing 0 into the Additive dial left the engine at ${JSON.stringify(engine.getParams().arp.additive)}`);
+            if (addLine.textContent !== 'Additive: off') failures.push(`editor layers: the Additive line reads "${addLine.textContent}" at 0`);
+          }
+          engine.setParams({ arp: { mode: arpWas.mode, octaves: arpWas.octaves, gate: arpWas.gate, phase: arpWas.phase ?? null, additive: arpWas.additive ?? null } });
         }
       }
     }
