@@ -80,6 +80,17 @@ It also asserts the placement rules, which are markup `astro build` cannot see:
   it, and the tour panel's Keyboard shortcuts button opens it too. The guards
   are checked the same way: a digit or letter typed into a text field, a
   Ctrl/⌘ chord, and any key while musical typing is on change nothing.
+- Hide (Factory, edited and your own, step 3) — "Hide this voice" in the pad
+  editor's "more" fold hides Glass: it stays listed and playing at the ENGINE
+  while in play, persists under prefs `hidden`, leaves the picker once Warm is
+  picked, and a factory preset naming it (`2`, Open Plan) still plays it. The
+  picker ends with "Hidden: 1 preset…" (then "…, 1 of yours…" once an own
+  voice is hidden too); choosing it changes nothing at the engine and opens
+  the Hidden view, where Delete is live only while every ticked item is the
+  person's own, Unhide puts Glass back, and Delete removes the own voice and
+  closes the empty view. Genres: the ☆ panel's "Hide <genre>" hides the one in
+  play (still listed while it plays), it leaves the list once another plays,
+  `]` does not step onto it, and the genre list's "Hidden…" view unhides it.
 - Fresh install — this harness boots with empty storage and no consent, which is
   every first-time visitor: nothing is persisted before consent is granted, every
   track row builds a randomness control, and no dial read-out comes up NaN
@@ -547,8 +558,27 @@ Factory, edited and user (v0.0.206)
 - [ ] Each picker reads in headings: Edited (only when something is), User (saved voices), Stock.
 - [ ] Move any dial: the picker reads "<voice> · edited" under Edited, the row shows ↺ Factory, the genre reads "Synthwave · edited" with ↺ Back to factory beside it.
 - [ ] ↺ Factory on the row puts that voice back at once (two changes or fewer); with three or more it asks, counts them, and "Show them" lists each.
-- [ ] Pick another genre, or pick the same voice under Stock: it plays the factory sound, and your edit waits under Edited — pick it to hear it again.
+- [ ] Pick another genre, or pick the same voice under Stock: the leave-guard asks first (below); Move on plays the factory sound, and your edit waits under Edited — pick it to hear it again.
 - [ ] ↺ Back to factory beside the genre: the same genre, same seed, every voice and rule as shipped.
+
+The leave-guard (TODO "Factory, edited and your own", step 2)
+- [ ] With nothing edited, picking another voice, closing the editor, Next and a genre pick all happen at once — no dialog.
+- [ ] Edit a stock voice, then pick another voice on that track: one small dialog titled "<Track>: <voice> · edited" offers Save as…, Reset to default, Move on and Keep editing — no Save changes, no Revert.
+- [ ] Keep editing (and Esc) closes it: the picker goes back to the edited voice and the edit keeps sounding.
+- [ ] Closing the editor on an edited voice asks the same; Reset to default puts the factory sound back and the editor closes.
+- [ ] Save as… opens a name box in the dialog; Save adds the voice under User and the pick goes ahead — nothing extra is parked under Edited.
+- [ ] Edit a User voice: the dialog offers Save changes (overwrites it), Save as…, and Revert to last save (when the save differs from stock) — never Reset to default.
+- [ ] Revert to last save or Reset to default with three or more changes asks with the Back-to-factory confirmation, worded Revert / Reset.
+- [ ] Move on goes ahead and parks the edit under Edited.
+- [ ] Edit two tracks and press Next: ONE dialog lists both, a row each; answering every row (or Move on) goes ahead.
+- [ ] Booting, opening a share link and loading a factory preset never ask.
+New… (Factory, edited and your own, step 3)
+- [ ] Every track's voice picker ends with New…. Choosing it leaves the picker on what plays and opens a small dialog titled "New — <track>" with four doors: Instrument, Synth, Noise, Sample.
+- [ ] Sample is greyed and says it is coming with audio input. On the melody, Noise is greyed ("Noise plays on the Texture track"); on the kit, Synth is greyed.
+- [ ] Instrument lists the track's voices under headings by kind (Keys, Wind, Plucked, Mallets and bells…); picking one plays it exactly as picking it in the picker does.
+- [ ] Synth on the melody: Subtractive, FM, Additive, Modal — Modal greyed and naming the tracks it plays on. Subtractive plays a plain bright sawtooth; the picker reads "New subtractive · edited" under Edited, the editor opens on its dials, and ↺ Factory brings Pluck back.
+- [ ] Noise on the texture: White, Pink, Brown, then Grains, Wash and Grain cloud. Brown is a low rumble, White a flat hiss, Pink between.
+- [ ] Esc or Close shuts the dialog; ‹ Back returns to the four doors.
 
 Factory presets: edited and back (ui-review 2026-10-03 fix 1)
 - [ ] Load any factory preset card on Simple: the genre picker reads "<preset> (preset)", the card has a border, and nothing says "· edited" — no ↺ Factory on any row either (a preset's own voices are its factory).
@@ -836,7 +866,7 @@ The genre picker (directly under Play/Finish)
 - [ ] "Surprise me" draws from EVERY genre, the ten not yet on the list
       included (2026-10-09); a drawn unlisted genre shows in the picker while
       it plays and leaves the list once another is picked. With "hide the
-      rest" on and favourites set, it draws only from your favourites.
+      rest" on and favourites set, it draws only from your favourites. A genre you hid yourself is never drawn.
 - [ ] "No genre" clears the tag and leaves the music alone (the params are
       still whatever the genre compiled — clearing the tag is not an undo).
 - [ ] Loading a factory preset clears the genre back to "No genre", and the
@@ -1211,3 +1241,28 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 - [ ] Create → Musical typing on: `2`, `3`, `5` play notes and load nothing;
       `A` does not switch tabs. Turn it off and the shortcuts are back.
 - [ ] Automated: `node tests/page-boot.mjs` (the keybindings block).
+
+## Factory, edited and your own — step 3: Hide
+
+- [ ] Open a track's editor, "more" under the dials: "Hide this voice". Press
+      it: the voice keeps playing and stays in the picker while it plays; the
+      picker now ends with "Hidden: 1 preset…". Pick another voice: the hidden
+      one is gone from that picker — and from every track that plays the same
+      voices.
+- [ ] Play your own saved voice and hide it the same way: the entry reads
+      "Hidden: 1 preset, 1 of yours…".
+- [ ] Choose "Hidden…": nothing changes in the sound; a small view lists each
+      hidden voice with "· Stock" or "· User" and a tick-box. Tick a Stock one:
+      Delete is greyed (its tip says presets can only be hidden). Tick only
+      your own: Delete is live. Unhide puts a voice back in its place in the
+      list; Delete removes your own for good; the view closes when empty.
+- [ ] Load a preset or a share link whose voices include a hidden one: it plays
+      exactly, and the picker shows it while it plays.
+- [ ] Genres: the ☆ beside the genre picker → "Hide <genre>" for the genre
+      playing. It keeps playing; once another genre plays it is gone from the
+      list, `]` / `[` skip it, a starred one loses its number key, and a fresh
+      visit's opening draw never lands on it (hide Synthwave, clear the saved
+      setup but keep the prefs, reload a few times: always Techno Tools). "Hidden…" at the foot of the genre list brings it back; a
+      genre of your own can be deleted there too.
+- [ ] Reload (consent granted): everything hidden stays hidden.
+- [ ] Automated: `node tests/page-boot.mjs` (the hide block).

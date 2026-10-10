@@ -260,6 +260,24 @@ const dom = new JSDOM(html, {
 
 const { window } = dom;
 
+/**
+ * TODO step 2, the leave-guard: leaving an edited voice through the UI (a
+ * pick, closing its editor, Next, a genre) now asks first. The blocks below
+ * that predate it edit a voice and move on without cleaning up — the step-1
+ * behaviour, which the guard's Move on keeps (go ahead, park the edit under
+ * Edited). So every window answers Move on by itself, unless a block that
+ * tests the guard sets `win.__leaveGuardManual = true` and answers it by hand.
+ */
+function answerLeaveGuardWithMoveOn(win) {
+  const observer = new win.MutationObserver(() => {
+    if (win.__leaveGuardManual) return;
+    const move = win.document.querySelector('#leave-guard .leave-guard-move');
+    if (move) move.click();
+  });
+  observer.observe(win.document.body || win.document.documentElement, { childList: true, subtree: false });
+}
+answerLeaveGuardWithMoveOn(window);
+
 // One stub ctx per canvas (not a fresh object per call): scope.js calls
 // canvas.getContext('2d') anew on every render, and the offline-waveform
 // tests below need to inspect what got drawn AFTER the fact — a fresh
@@ -3598,11 +3616,367 @@ try {
     }
   }
 
+  // ---- TODO "Factory, edited and your own" step 2: the leave-guard --------
+  // Moving away from an EDITED voice asks first, in one dialog: Save changes
+  // (a User voice) · Save as… · Revert to last save (a User voice whose save
+  // differs from stock) · Reset to default (a stock voice) · Move on (parked
+  // under Edited) · Keep editing (Cancel; Esc). Every path is asserted at the
+  // ENGINE: a dialog that says Reset while the old patch plays is the failure
+  // mode this repo keeps meeting. An unedited voice must move without asking.
+  {
+    const engine = window.__ambi4Engine;
+    const genrePick = doc.getElementById('genre-select');
+    const padSelect = doc.getElementById('track-voice-pad');
+    const forward = doc.getElementById('fast-forward');
+    const guard = () => doc.getElementById('leave-guard');
+    const settle = () => new Promise((r) => setTimeout(r, 60));
+    const pick = async (select, value) => {
+      select.value = value;
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await settle();
+    };
+    const typeInto = async (editor, field, value) => {
+      const cell = editor.querySelector(`.patch-controls .knob-cell[data-field="${field}"]`);
+      const readout = cell && cell.querySelector('.knob-value');
+      if (!readout) return false;
+      readout.click();
+      const box = cell.querySelector('.knob-value-edit');
+      if (!box) return false;
+      box.value = String(value);
+      box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await new Promise((r) => setTimeout(r, 40));
+      return true;
+    };
+    const release = (track, voice) => {
+      const r = engine.getParams().patches?.[track]?.[voice]?.adsr?.release;
+      return r && typeof r === 'object' ? r.min : Number(r);
+    };
+    const near = (a, b) => Math.abs(Number(a) - b) < 0.05;
+    const voiceOf = (track) => engine.getParams().tracks[track].voice;
+    const editPad = async (field, value) => {
+      const editor = await openEditor('pad');
+      await waitUntil(() => editor.querySelector(`.patch-controls .knob-cell[data-field="${field}"]`));
+      return typeInto(editor, field, value);
+    };
+    const buttons = () => [...(guard()?.querySelectorAll('button') || [])].map((b) => b.textContent);
+    if (!engine || !genrePick || !padSelect || !forward || ![...genrePick.options].some((o) => o.value === 'g:synthwave')) {
+      failures.push('leave-guard: the engine seam, genre picker, pad picker, Next or Synthwave is missing');
+    } else {
+      await pick(genrePick, 'g:synthwave'); // an earlier block's edits move on (the harness answers)
+      await waitUntil(() => engine.getParams().genre === 'synthwave');
+      window.__leaveGuardManual = true;
+      // Earlier blocks leave parked edits; clear them so "nothing parked" and
+      // "parked" below are about this block's moves. Each draft is picked
+      // (bringing it back) and put back to factory with the row's ↺ Factory.
+      const backToFactory = async (track) => {
+        const button = doc.getElementById(`track-factory-${track}`);
+        if (!button || button.hidden) return;
+        button.click();
+        await settle();
+        doc.querySelector('#factory-confirm .factory-confirm-go')?.click();
+        await settle();
+      };
+      for (const track of ['pad', 'bass']) {
+        const select = doc.getElementById(`track-voice-${track}`);
+        for (let i = 0; i < 12; i += 1) {
+          await backToFactory(track);
+          const draft = select.querySelector('option[value^="draft:"]');
+          if (!draft) break;
+          await pick(select, draft.value);
+        }
+      }
+      try {
+        // An unedited voice moves at once.
+        await pick(padSelect, 'warm');
+        if (guard()) failures.push('leave-guard: picking a voice asked while nothing was edited');
+        if (voiceOf('pad') !== 'warm') failures.push(`leave-guard: picking Warm on a factory pad left the engine on ${voiceOf('pad')}`);
+        const stockVoices = (await import(pathToFileURL(join(repoRoot, 'src/scripts/engine-voices.js')).href)).VOICES;
+        const factoryRelease = Number.isFinite(release('pad', 'warm')) ? release('pad', 'warm') : stockVoices.pad.warm.defaults.adsr.release;
+
+        // Edited Warm → pick Glass: asks; the pick waits.
+        if (!(await editPad('adsr.release', 2.5)) || !(await waitUntil(() => near(release('pad', 'warm'), 2.5)))) {
+          failures.push('leave-guard: typing Release 2.5 on Warm did not reach the engine');
+        }
+        await pick(padSelect, 'glass');
+        if (!guard()) {
+          failures.push('leave-guard: leaving an edited Warm for Glass did not ask');
+        } else {
+          const b = buttons();
+          for (const want of ['Save as…', 'Reset to default', 'Move on', 'Keep editing']) {
+            if (!b.includes(want)) failures.push(`leave-guard: a stock voice's guard has no ${want} (${JSON.stringify(b)})`);
+          }
+          for (const not of ['Save changes', 'Revert to last save']) {
+            if (b.includes(not)) failures.push(`leave-guard: a stock voice's guard offers ${not}, which only a User voice has`);
+          }
+          if (voiceOf('pad') !== 'warm') failures.push('leave-guard: the pick went ahead before the question was answered');
+          // Keep editing: nothing moves, the edit keeps sounding.
+          guard().querySelector('.leave-guard-cancel').click();
+          await settle();
+          if (guard()) failures.push('leave-guard: Keep editing did not close the dialog');
+          if (voiceOf('pad') !== 'warm' || !near(release('pad', 'warm'), 2.5)) failures.push(`leave-guard: Keep editing did not leave the edit sounding (${voiceOf('pad')}, release ${release('pad', 'warm')})`);
+          if (padSelect.value === 'glass') failures.push('leave-guard: Keep editing left the picker showing Glass');
+        }
+        // Esc is Keep editing.
+        await pick(padSelect, 'glass');
+        if (guard()) {
+          guard().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await settle();
+          if (guard()) failures.push('leave-guard: Esc did not close the dialog');
+          if (voiceOf('pad') !== 'warm' || !near(release('pad', 'warm'), 2.5)) failures.push('leave-guard: Esc moved on instead of cancelling');
+        }
+
+        // Closing the editor asks; Reset to default puts factory back at the engine.
+        doc.getElementById('voice-edit-toggle-pad').click();
+        await settle();
+        if (!guard()) {
+          failures.push('leave-guard: closing the editor on an edited Warm did not ask');
+        } else {
+          guard().querySelector('.leave-guard-reset').click();
+          await settle();
+          if (guard()) failures.push('leave-guard: Reset to default (one change) did not answer the guard');
+          if (!near(release('pad', 'warm'), factoryRelease)) failures.push(`leave-guard: Reset to default left Release ${release('pad', 'warm')} at the engine, factory is ${factoryRelease}`);
+          if (!doc.getElementById('voice-editor-pad').hidden) failures.push('leave-guard: the editor stayed open after Reset to default answered the close');
+        }
+
+        // Save as… makes a User voice and the pick goes ahead; nothing parks.
+        await editPad('adsr.release', 2.5);
+        await waitUntil(() => near(release('pad', 'warm'), 2.5));
+        await pick(padSelect, 'glass');
+        if (!guard()) {
+          failures.push('leave-guard: the second edit of Warm did not ask on leaving');
+        } else {
+          guard().querySelector('.leave-guard-save-as').click();
+          const box = guard().querySelector('.leave-guard-name-box');
+          if (!box || box.closest('[hidden]')) failures.push('leave-guard: Save as… opened no name box');
+          if (box) box.value = 'Guard pad';
+          guard().querySelector('.leave-guard-save-as-go')?.click();
+          await settle();
+          if (guard()) failures.push('leave-guard: Save as… did not answer the guard');
+          if (voiceOf('pad') !== 'glass') failures.push(`leave-guard: after Save as… the pick did not go ahead (engine on ${voiceOf('pad')})`);
+          if (near(release('pad', 'warm'), 2.5)) failures.push('leave-guard: after Save as… stock Warm still carries the edit at the engine');
+          if (padSelect.querySelector('option[value="draft:warm"]')) failures.push('leave-guard: a saved edit was parked under Edited as well');
+        }
+        const mineOption = [...padSelect.querySelectorAll('optgroup.my-voices option')].find((o) => o.textContent === 'Guard pad');
+        if (!mineOption) {
+          failures.push('leave-guard: Save as… did not list "Guard pad" under User');
+        } else {
+          await pick(padSelect, mineOption.value);
+          if (guard()) failures.push('leave-guard: leaving an unedited Glass asked');
+          if (voiceOf('pad') !== 'warm' || !near(release('pad', 'warm'), 2.5)) failures.push(`leave-guard: the saved User voice does not play its Release 2.5 (${voiceOf('pad')}, ${release('pad', 'warm')})`);
+
+          // Save changes overwrites the User voice.
+          await editPad('adsr.release', 3.5);
+          await waitUntil(() => near(release('pad', 'warm'), 3.5));
+          doc.getElementById('voice-edit-toggle-pad').click();
+          await settle();
+          if (!guard()) {
+            failures.push('leave-guard: closing the editor on an edited User voice did not ask');
+          } else {
+            const b = buttons();
+            for (const want of ['Save changes', 'Save as…', 'Revert to last save']) {
+              if (!b.includes(want)) failures.push(`leave-guard: a User voice's guard has no ${want} (${JSON.stringify(b)})`);
+            }
+            if (b.includes('Reset to default')) failures.push('leave-guard: a User voice\'s guard offers Reset to default');
+            guard().querySelector('.leave-guard-save').click();
+            await settle();
+            if (guard()) failures.push('leave-guard: Save changes did not answer the guard');
+          }
+          await pick(padSelect, 'glass');
+          if (guard()) { failures.push('leave-guard: a saved User voice still asked on leaving'); guard().querySelector('.leave-guard-move').click(); }
+          await pick(padSelect, mineOption.value);
+          if (!near(release('pad', 'warm'), 3.5)) failures.push(`leave-guard: Save changes did not overwrite the User voice (Release ${release('pad', 'warm')}, want 3.5)`);
+
+          // Revert to last save, past two changes, takes step 1's confirmation.
+          await editPad('adsr.release', 1.0);
+          await editPad('adsr.attack', 0.9);
+          await editPad('sends.delay', 0.7);
+          await waitUntil(() => near(release('pad', 'warm'), 1.0));
+          doc.getElementById('voice-edit-toggle-pad').click();
+          await settle();
+          guard()?.querySelector('.leave-guard-revert')?.click();
+          await settle();
+          const confirm = doc.getElementById('factory-confirm');
+          if (!confirm) {
+            failures.push('leave-guard: Revert to last save on three changes did not ask with step 1\'s confirmation');
+          } else {
+            if (!/Revert to last save/.test(confirm.textContent)) failures.push(`leave-guard: the Revert confirmation does not say Revert ("${confirm.querySelector('.popover-title')?.textContent}")`);
+            confirm.querySelector('.factory-confirm-go').click();
+            await settle();
+            if (guard()) failures.push('leave-guard: confirming Revert did not answer the guard');
+          }
+          if (!near(release('pad', 'warm'), 3.5)) failures.push(`leave-guard: Revert to last save left Release ${release('pad', 'warm')} at the engine, the save is 3.5`);
+
+          // Move on: the pick goes ahead and the edit is parked under Edited.
+          await editPad('adsr.release', 2.0);
+          await waitUntil(() => near(release('pad', 'warm'), 2.0));
+          await pick(padSelect, 'glass');
+          guard()?.querySelector('.leave-guard-move')?.click();
+          await settle();
+          if (voiceOf('pad') !== 'glass') failures.push('leave-guard: Move on did not make the pick');
+          if (!padSelect.querySelector('optgroup.edited-voices option[value="draft:warm"]')) failures.push('leave-guard: Move on did not park the edit under Edited');
+        }
+
+        // Next with two edited tracks asks ONCE, listing both.
+        await editPad('adsr.release', 1.5);
+        await waitUntil(() => near(release('pad', 'glass'), 1.5));
+        const bassVoice = voiceOf('bass');
+        const bassEditor = await openEditor('bass');
+        await waitUntil(() => bassEditor.querySelector('.patch-controls .knob-cell[data-field="adsr.release"]'));
+        await typeInto(bassEditor, 'adsr.release', 1.9);
+        await waitUntil(() => near(release('bass', bassVoice), 1.9));
+        forward.click();
+        await settle();
+        if (!guard()) {
+          failures.push('leave-guard: Next with two edited voices did not ask');
+        } else {
+          const rows = [...guard().querySelectorAll('.leave-guard-row')].map((r) => r.dataset.track).sort();
+          if (JSON.stringify(rows) !== JSON.stringify(['bass', 'pad'])) failures.push(`leave-guard: Next listed ${JSON.stringify(rows)}, want bass and pad in one dialog`);
+          if (doc.querySelectorAll('#leave-guard').length !== 1) failures.push('leave-guard: Next opened more than one dialog');
+          guard().querySelector('.leave-guard-cancel').click();
+          await settle();
+          if (!near(release('pad', 'glass'), 1.5) || !near(release('bass', bassVoice), 1.9)) failures.push('leave-guard: Keep editing on Next did not leave both edits sounding');
+          forward.click();
+          await settle();
+          guard()?.querySelector('.leave-guard-move')?.click();
+          await settle();
+          if (near(release('pad', 'glass'), 1.5) || near(release('bass', bassVoice), 1.9)) failures.push('leave-guard: Move on through Next left an old edit sounding at the engine');
+          if (!padSelect.querySelector('option[value="draft:glass"]')) failures.push('leave-guard: Next\'s Move on did not park the pad edit');
+          if (!doc.getElementById('track-voice-bass').querySelector(`option[value="draft:${bassVoice}"]`)) failures.push('leave-guard: Next\'s Move on did not park the bass edit');
+        }
+
+        // A genre pick asks too; one Reset answers it and the load goes ahead.
+        await pick(padSelect, 'warm');
+        if (guard()) guard().querySelector('.leave-guard-move').click();
+        await editPad('adsr.release', 2.5);
+        await waitUntil(() => near(release('pad', 'warm'), 2.5));
+        await pick(genrePick, 'g:synthwave');
+        if (!guard()) {
+          failures.push('leave-guard: picking a genre over an edited voice did not ask');
+        } else {
+          guard().querySelector('.leave-guard-reset').click();
+          await settle();
+          await waitUntil(() => !guard());
+          if (guard()) failures.push('leave-guard: Reset to default did not answer the genre\'s guard');
+          if (near(release('pad', 'warm'), 2.5)) failures.push('leave-guard: the genre load after Reset left the edit at the engine');
+          if (engine.getParams().genre !== 'synthwave') failures.push('leave-guard: the genre did not load after the guard was answered');
+        }
+      } finally {
+        guard()?.querySelector('.leave-guard-move')?.click();
+        window.__leaveGuardManual = false;
+      }
+    }
+  }
+
   // ---- ui-review 2026-10-03 fix 13: a voice picker lists voices only -------
   // The pool has one door, the voice rule's Pool… (voice-rule-page drives it).
   for (const select of doc.querySelectorAll('select[id^="track-voice-"]')) {
     const action = [...select.options].find((o) => o.value === '__blend' || /Pool of voices/.test(o.textContent));
     if (action) failures.push(`${select.id} still offers "${action.textContent}" among its voices — the voice rule's Pool… is the one door`);
+  }
+
+  // ---- New… (TODO "Factory, edited and your own", step 3) ------------------
+  // The last entry of every voice picker opens a chooser with four doors:
+  // Instrument, Synth, Noise, Sample (honestly disabled). Synth → Subtractive
+  // must put a plain open sawtooth into the ENGINE's patch for that track — not
+  // just a label on the page.
+  {
+    const engine = window.__ambi4Engine;
+    const params = () => engine.getParams();
+    const chooser = () => doc.getElementById('voice-new-chooser');
+    // waitUntil answers true or false; these waits want what they found.
+    const until = async (fn) => { let found = null; await waitUntil(() => (found = fn())); return found; };
+    const openNew = async (track) => {
+      const select = doc.getElementById(`track-voice-${track}`);
+      select.value = '__new';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      return until(() => chooser() && chooser().dataset.track === track && chooser().querySelector('[data-door]'));
+    };
+    const door = (name) => chooser() && chooser().querySelector(`button[data-door="${name}"]`);
+    for (const select of doc.querySelectorAll('select[id^="track-voice-"]')) {
+      const last = select.options[select.options.length - 1];
+      if (!last || last.value !== '__new' || last.textContent !== 'New…') {
+        failures.push(`New…: ${select.id} does not end with New… (${last ? JSON.stringify(last.textContent) : 'empty'})`);
+      }
+    }
+    const melody = doc.getElementById('track-voice-melody');
+    if (!engine || !melody) {
+      failures.push('New…: the engine seam or the melody picker is missing');
+    } else if (!(await openNew('melody'))) {
+      failures.push('New…: choosing New… on the melody picker opened no chooser');
+    } else {
+      if (melody.value === '__new') failures.push('New…: the picker was left reading New… instead of what plays');
+      for (const name of ['instrument', 'synth', 'noise', 'sample']) {
+        if (!door(name)) failures.push(`New…: the chooser has no ${name} door`);
+      }
+      const sample = door('sample');
+      if (sample && (!sample.disabled || !/audio input/i.test(sample.textContent))) {
+        failures.push(`New…: Sample should be disabled and say it comes with audio input ("${sample.textContent}")`);
+      }
+      if (door('noise') && !door('noise').disabled) failures.push('New…: Noise is offered on the melody, which has no noise voice');
+      door('synth')?.click();
+      const subtractive = await until(() => chooser() && chooser().querySelector('button[data-start="subtractive"]'));
+      if (!subtractive) {
+        failures.push('New…: the Synth door lists no Subtractive');
+      } else {
+        const additive = chooser().querySelector('button[data-start="additive"]');
+        if (!additive || additive.disabled) failures.push('New…: Additive should be offered on the melody (Organ stab plays it)');
+        subtractive.click();
+        const landed = await until(() => {
+          const p = params();
+          const patch = p.patches && p.patches.melody && p.patches.melody.pluck;
+          return p.tracks.melody.voice === 'pluck' && patch && patch.source && patch.source.shape1 === 2 ? patch : null;
+        });
+        if (!landed) {
+          failures.push(`New…: Synth → Subtractive did not put a sawtooth on the melody at the engine (${JSON.stringify(params().patches && params().patches.melody)})`);
+        } else {
+          if (landed.source.shape2 !== null) failures.push(`New…: Subtractive left OSC 2 on (${landed.source.shape2})`);
+          if (!landed.filter || landed.filter.cutoff !== 12000 || landed.filter.envAmount !== 0) failures.push(`New…: Subtractive's filter is not wide open (${JSON.stringify(landed.filter)})`);
+          if (chooser()) failures.push('New…: the chooser stayed open after a pick');
+          const live = melody.querySelector('optgroup.edited-voices .voice-live-option');
+          if (!live || !live.selected || live.textContent !== 'New subtractive · edited') {
+            failures.push(`New…: the picker does not read "New subtractive · edited" under Edited (${live ? JSON.stringify(live.textContent) : 'absent'})`);
+          }
+        }
+      }
+      // Instrument: headings by kind; a pick plays that voice at the engine.
+      await openNew('melody');
+      door('instrument')?.click();
+      const list = await until(() => doc.getElementById('new-voice-instrument-melody'));
+      if (!list) {
+        failures.push('New…: the Instrument door shows no list');
+      } else {
+        const headings = [...list.querySelectorAll('optgroup')].map((g) => g.label);
+        if (!headings.includes('Keys') || !headings.includes('Wind') || !headings.includes('Plucked')) failures.push(`New…: the Instrument list is not grouped by kind (${headings.join(', ')})`);
+        list.value = 'flute';
+        list.dispatchEvent(new window.Event('change', { bubbles: true }));
+        if (!(await until(() => params().tracks.melody.voice === 'flute'))) failures.push('New…: Instrument → Flute did not reach the engine');
+        if (melody.value !== 'flute') failures.push(`New…: after Instrument → Flute the picker reads ${melody.value}`);
+      }
+      // Noise on the texture: a colour lands on Coloured noise at the engine.
+      if (await openNew('texture')) {
+        door('noise')?.click();
+        const white = await until(() => chooser() && chooser().querySelector('button[data-start="white"]'));
+        if (!white || !chooser().querySelector('button[data-start="brown"]') || !chooser().querySelector('button[data-voice="wash"]')) {
+          failures.push('New…: the texture\'s Noise door lacks White, Brown or its Wash texture');
+        }
+        white?.click();
+        const tilt = await until(() => {
+          const p = params();
+          const s = p.patches && p.patches.texture && p.patches.texture.colour && p.patches.texture.colour.source;
+          return p.tracks.texture.voice === 'colour' && s && s.tilt === 0.35 && s.gust === 0;
+        });
+        if (!tilt) failures.push('New…: Noise → White did not reach the engine as Coloured noise with its weather off');
+      } else {
+        failures.push('New…: no chooser on the texture picker');
+      }
+      // The kit has no synth engine: the door says so instead of doing nothing.
+      if (await openNew('percussion')) {
+        const synth = door('synth');
+        if (!synth || !synth.disabled) failures.push('New…: Synth is offered on the kit, which has no host for it');
+        chooser().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        if (chooser()) failures.push('New…: Esc did not close the chooser');
+      }
+    }
   }
 
   // ---- factory PRESETS: factory, edited and back (ui-review 2026-10-03 fix 1)
@@ -3848,6 +4222,173 @@ try {
     }
   }
 
+  // ---- Factory, edited and your own, step 3: HIDE -----------------------
+  // His ruling: hide, never "use instead of factory". A hidden stock voice
+  // leaves its picker but KEEPS PLAYING where it is in use (read at the
+  // ENGINE), comes back under the picker's "Hidden…" entry, and only the
+  // person's own items can be deleted there. A hidden genre leaves the list
+  // and ] steps past it.
+  {
+    const engine = window.__ambi4Engine;
+    const select = doc.getElementById('track-voice-pad');
+    const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+    const pick = async (el, value) => {
+      el.value = value;
+      el.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await settle();
+    };
+    const values = (el) => [...el.options].map((o) => o.value);
+    const view = () => doc.getElementById('hidden-view');
+    const viewBoxes = () => [...(view()?.querySelectorAll('input[type="checkbox"]') || [])];
+    const tick = (pred) => {
+      for (const box of viewBoxes()) {
+        const want = pred(box);
+        if (box.checked !== want) {
+          box.checked = want;
+          box.dispatchEvent(new window.Event('change', { bubbles: true }));
+        }
+      }
+    };
+    if (!engine || !select) {
+      failures.push('hide: no engine seam or pad picker');
+    } else {
+      await pick(select, 'glass');
+      await waitUntil(() => engine.getParams().tracks.pad.voice === 'glass');
+      const editor = await openEditor('pad');
+      const more = editor.querySelector('.ve-more');
+      if (more && more.getAttribute('aria-expanded') !== 'true') more.click();
+      const hide = editor.querySelector('.ve-hide-voice');
+      if (!hide || hide.hidden) {
+        failures.push('hide: the pad editor\'s "more" fold has no visible "Hide this voice" (.ve-hide-voice)');
+      } else {
+        hide.click();
+        await settle();
+        // In play: still listed, still what the picker reads, still at the engine.
+        if (!values(select).includes('glass') || select.value !== 'glass') failures.push(`hide: hiding the voice in play dropped it from its picker (reads ${select.value})`);
+        if (engine.getParams().tracks.pad.voice !== 'glass') failures.push(`hide: hiding Glass changed what the pad plays at the engine (${engine.getParams().tracks.pad.voice})`);
+        if (!hide.hidden) failures.push('hide: "Hide this voice" is still offered for a voice already hidden');
+        // Persisted per device, like the favourites (consent was granted above).
+        let stored = null;
+        try { stored = JSON.parse(window.localStorage.getItem('ambi4:hidden')); } catch {}
+        if (!stored || !Array.isArray(stored.voices) || !stored.voices.includes('pad/glass')) failures.push(`hide: hiding Glass did not persist under prefs 'hidden' (${JSON.stringify(stored)})`);
+        const entry = () => select.querySelector('option[value="__hidden"]');
+        if (!entry() || entry().textContent !== 'Hidden: 1 preset…') failures.push(`hide: the pad picker has no "Hidden: 1 preset…" entry (${JSON.stringify(entry()?.textContent)})`);
+        if (entry() && select.lastElementChild !== entry()) failures.push('hide: the Hidden entry is not the picker\'s last');
+        // Away from it: gone from the picker.
+        await pick(select, 'warm');
+        if (engine.getParams().tracks.pad.voice !== 'warm') failures.push('hide: picking Warm after hiding Glass did not reach the engine');
+        if (values(select).includes('glass')) failures.push('hide: Glass, hidden and no longer in play, is still in the pad picker');
+        // A setup naming it still plays it exactly: "2" loads Open Plan, whose
+        // pad is Glass (no favourites are starred — the keybindings block above
+        // clears them).
+        const presetsJson = JSON.parse(readFileSync(join(repoRoot, 'src/data/factory-presets.json'), 'utf8'));
+        if (presetsJson[1]?.params?.tracks?.pad?.voice !== 'glass') failures.push('hide: the second factory preset no longer plays Glass on the pad — pick another for this check');
+        doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: '2', bubbles: true, cancelable: true }));
+        const restored = await waitUntil(() => engine.getParams().tracks.pad.voice === 'glass');
+        if (!restored) failures.push(`hide: a preset naming hidden Glass did not play it at the engine (${engine.getParams().tracks.pad.voice})`);
+        else if (select.value !== 'glass') failures.push(`hide: a setup playing hidden Glass shows the picker as ${JSON.stringify(select.value)}`);
+        await pick(select, 'warm');
+        // A voice of your own, hidden too.
+        const nameBox = editor.querySelector('.ve-voice-name');
+        const save = editor.querySelector('.ve-save-voice');
+        nameBox.value = 'Hide test';
+        save.click();
+        await settle();
+        const ownOption = () => [...select.querySelectorAll('optgroup.my-voices option')].find((o) => o.textContent === 'Hide test');
+        const ownHide = doc.querySelector('#voice-editor-pad .ve-hide-voice');
+        if (!ownOption() || !ownHide || ownHide.hidden) {
+          failures.push('hide: no own voice listed, or no "Hide this voice" for it');
+        } else {
+          ownHide.click();
+          await settle();
+          await pick(select, 'warm');
+          if (ownOption()) failures.push('hide: a hidden own voice no longer in play is still under User');
+          if (entry()?.textContent !== 'Hidden: 1 preset, 1 of yours…') failures.push(`hide: the entry reads ${JSON.stringify(entry()?.textContent)}, want "Hidden: 1 preset, 1 of yours…"`);
+        }
+        // The view.
+        await pick(select, '__hidden');
+        if (engine.getParams().tracks.pad.voice !== 'warm') failures.push('hide: choosing "Hidden…" changed the pad\'s voice at the engine');
+        if (select.value === '__hidden') failures.push('hide: the picker was left reading "Hidden…"');
+        if (!view()) {
+          failures.push('hide: choosing "Hidden…" in the pad picker opened no Hidden view (#hidden-view)');
+        } else {
+          const del = view().querySelector('.hidden-view-delete');
+          const unhide = view().querySelector('.hidden-view-unhide');
+          const labels = [...view().querySelectorAll('.genre-fav-item')].map((row) => row.textContent);
+          if (!labels.includes('Glass · Stock') || !labels.includes('Hide test · User')) failures.push(`hide: the view lists ${JSON.stringify(labels)}`);
+          tick((box) => box.dataset.own !== 'true');
+          if (!del || !del.disabled) failures.push('hide: Delete is live with a stock voice ticked');
+          tick(() => true);
+          if (!del || !del.disabled) failures.push('hide: Delete is live with a stock voice among the ticked');
+          tick((box) => box.dataset.own === 'true');
+          if (!del || del.disabled) failures.push('hide: Delete is not live with only your own voice ticked');
+          tick((box) => box.dataset.own !== 'true');
+          unhide.click();
+          await settle();
+          if (!values(select).includes('glass')) failures.push('hide: Unhide did not put Glass back in the pad picker');
+          tick(() => true);
+          view()?.querySelector('.hidden-view-delete')?.click();
+          await settle();
+          if (ownOption() || [...select.querySelectorAll('option')].some((o) => o.textContent === 'Hide test')) failures.push('hide: Delete left the own voice in the picker');
+          if (view()) failures.push('hide: the Hidden view stayed open with nothing left in it');
+          if (entry()) failures.push('hide: the "Hidden…" entry stayed with nothing hidden');
+        }
+      }
+
+      // Genres: hide one, ] steps past it; the one in play stays listed.
+      const genreSelect = doc.getElementById('genre-select');
+      const star = doc.getElementById('genre-favourites-toggle');
+      const listed = () => values(genreSelect).filter((v) => v.startsWith('g:')).map((v) => v.slice(2));
+      const stock = listed().filter((slug) => !slug.startsWith('u-'));
+      if (stock.length < 2) {
+        failures.push(`hide: fewer than two stock genres listed (${stock.join(', ')})`);
+      } else {
+        const [keep, gone] = stock;
+        await pick(genreSelect, `g:${gone}`);
+        await waitUntil(() => engine.getParams().genre === gone);
+        if (doc.getElementById('genre-favourites')?.hidden) star.click();
+        const hideGenre = doc.getElementById('genre-hide-current');
+        if (!hideGenre || hideGenre.hidden) {
+          failures.push('hide: the ☆ panel offers no "Hide <genre>" (#genre-hide-current) for the genre in play');
+        } else {
+          hideGenre.click();
+          doc.getElementById('genre-favourites-done')?.click();
+          await settle();
+          if (!listed().includes(gone) || genreSelect.value !== `g:${gone}`) failures.push(`hide: the hidden genre in play left the list (picker reads ${genreSelect.value})`);
+          if (engine.getParams().genre !== gone) failures.push('hide: hiding the genre in play changed the engine\'s genre');
+          await pick(genreSelect, `g:${keep}`);
+          await waitUntil(() => engine.getParams().genre === keep);
+          if (listed().includes(gone)) failures.push(`hide: hidden ${gone} is still in the genre list once another genre plays`);
+          const genreEntry = genreSelect.querySelector('option[value="hidden"]');
+          if (!genreEntry || genreEntry.textContent !== 'Hidden: 1 preset…') failures.push(`hide: the genre list has no "Hidden: 1 preset…" entry (${JSON.stringify(genreEntry?.textContent)})`);
+          doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: ']', bubbles: true, cancelable: true }));
+          await settle(250);
+          if (engine.getParams().genre === gone) failures.push(`hide: "]" from ${keep} stepped onto hidden ${gone}`);
+          // v0.0.227: Surprise me reaches unlisted genres (v0.0.226) but
+          // never one the person hid.
+          for (let i = 0; i < 30; i++) {
+            await pick(genreSelect, 'surprise');
+            if (engine.getParams().genre === gone) {
+              failures.push(`hide: Surprise me drew ${gone}, which the person hid`);
+              break;
+            }
+          }
+          await pick(genreSelect, 'hidden');
+          if (!view()) {
+            failures.push('hide: "Hidden…" in the genre list opened no Hidden view');
+          } else {
+            if (view().querySelector('.hidden-view-delete') && !view().querySelector('.hidden-view-delete').hidden) failures.push('hide: Delete is offered with only stock genres hidden');
+            tick(() => true);
+            view().querySelector('.hidden-view-unhide').click();
+            await settle();
+            if (!listed().includes(gone)) failures.push(`hide: Unhide did not put ${gone} back in the genre list`);
+            if (genreSelect.querySelector('option[value="hidden"]')) failures.push('hide: the genre list kept its "Hidden…" entry with nothing hidden');
+          }
+        }
+      }
+    }
+  }
+
   // ---- The Create rebuild: two doors (his "indecipherably complex") ------
   // The progressive rule, counted: at first open the Create part of the panel
   // shows the Start row and the Write picker and NOTHING else; choosing Melody
@@ -3993,6 +4534,7 @@ try {
       runScripts: 'outside-only',
     });
     const arrivalWindow = arrivalDom.window;
+    answerLeaveGuardWithMoveOn(arrivalWindow);
     const arrivalContexts = new WeakMap();
     arrivalWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
       let ctx = arrivalContexts.get(this);
@@ -4074,6 +4616,7 @@ try {
       runScripts: 'outside-only',
     });
     const reloadWindow = reloadDom.window;
+    answerLeaveGuardWithMoveOn(reloadWindow);
     const reloadContexts = new WeakMap();
     reloadWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
       let ctx = reloadContexts.get(this);
@@ -4160,6 +4703,7 @@ try {
       runScripts: 'outside-only',
     });
     const voiceWindow = voiceDom.window;
+    answerLeaveGuardWithMoveOn(voiceWindow);
     const voiceContexts = new WeakMap();
     voiceWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
       let ctx = voiceContexts.get(this);
@@ -4255,6 +4799,7 @@ try {
       runScripts: 'outside-only',
     });
     const carryWindow = carryDom.window;
+    answerLeaveGuardWithMoveOn(carryWindow);
     const carryContexts = new WeakMap();
     carryWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
       let ctx = carryContexts.get(this);

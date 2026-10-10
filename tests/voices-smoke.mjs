@@ -210,7 +210,7 @@ class MockAudioContext {
   }
 }
 
-const { VOICES, shapeWave } = await import('../src/scripts/engine-voices.js');
+const { VOICES, shapeWave, VOICE_CATEGORIES, STARTING_PATCHES } = await import('../src/scripts/engine-voices.js');
 
 // --------------------------------------------------------------------------
 // Harness
@@ -435,8 +435,10 @@ test('VOICES matches the contract exactly', () => {
       // detuneMode (v0.0.158) is optional — its own tests below pin exactly
       // which voices carry it and what each value must mean.
       const keys = Object.keys(voice).filter((k) => k !== 'detuneMode').sort().join(',');
-      assert.equal(keys, 'controls,defaults,engineType,label,play',
+      assert.equal(keys, 'category,controls,defaults,engineType,label,play',
         `${track}.${id}: unexpected keys`);
+      // New… (step 3): the Instrument door's shelf. new-voice-smoke holds the list.
+      assert.ok(VOICE_CATEGORIES.includes(voice.category), `${track}.${id}: category ${voice.category}`);
     }
   }
 });
@@ -3083,6 +3085,21 @@ test('pair voices: the authored default cents survive the normalisation', () => 
     }
   }
 });
+
+// New… (step 3): every starting patch, on every host that plays it, through
+// the same click / leak / level / cancel checks as a factory voice.
+for (const [id, entry] of Object.entries(STARTING_PATCHES)) {
+  for (const [track, host] of Object.entries(entry.hosts)) {
+    test(`starting patch ${id} on ${track}.${host} plays cleanly across the range`, () => {
+      const voice = VOICES[track][host];
+      for (const note of notesFor(track)) {
+        const label = `${id} on ${track}.${host} ${JSON.stringify(note)}`;
+        playAndCheck(label, voice, note, { patch: entry.patch });
+        playAndCheck(`${label} cancel`, voice, note, { patch: entry.patch, cancelAfter: true });
+      }
+    });
+  }
+}
 
 // --------------------------------------------------------------------------
 // Runner

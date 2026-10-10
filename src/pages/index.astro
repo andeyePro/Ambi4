@@ -556,6 +556,8 @@ const VOICES: Record<string, [string, string][]> = {
             Hide the rest of the genres from the list
           </label>
           <div class="genre-fav-actions">
+            <!-- Factory, edited and your own step 3: hide the genre in play. -->
+            <button type="button" id="genre-hide-current" class="secondary-button" hidden>Hide this genre</button>
             <button type="button" id="genre-favourites-done" class="secondary-button">Done</button>
           </div>
         </div>
@@ -3240,10 +3242,49 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       } catch {}
 
+      /**
+       * Factory, edited and your own — step 3, HIDE (his ruling, 2026-10-03:
+       * hide, never "use instead of factory" — a voice saved a semitone high
+       * and swapped in for a stock one would silently change every genre that
+       * names it). Any stock voice or genre, and any of the person's own, can
+       * be hidden: it leaves the pickers, the fresh-visit draw, ] / [ and the
+       * number keys. It is NOT gone — a setup, preset or link naming it plays
+       * it exactly, and whatever is in play stays listed (the HIDDEN_GENRES
+       * precedent: a picker cannot show a value it has no option for). Per
+       * device, under prefs 'hidden', like the favourites. Stock voices are
+       * keyed by voice set ('pad/glass'), own voices and genres by their id.
+       */
+      let hiddenPrefs = { voices: [], genres: [] };
+      try {
+        const stored = prefs.get('hidden');
+        if (isPlainObject(stored)) {
+          const strings = (list) => (Array.isArray(list) ? [...new Set(list.filter((key) => typeof key === 'string'))] : []);
+          hiddenPrefs = {
+            voices: strings(stored.voices).filter((key) => (isUserVoiceId(key)
+              ? Boolean(userVoiceById(key))
+              : isStockVoice(key.slice(0, key.lastIndexOf('/')), key.slice(key.lastIndexOf('/') + 1)))),
+            genres: strings(stored.genres).filter((slug) => hasGenre(slug)),
+          };
+        }
+      } catch {}
+      const stockVoiceKey = (voiceSet, id) => `${voiceSet}/${id}`;
+      const isHiddenGenre = (slug) => hiddenPrefs.genres.includes(slug);
+      const isHiddenStockVoice = (voiceSet, id) => hiddenPrefs.voices.includes(stockVoiceKey(voiceSet, id));
+      const isHiddenUserVoice = (id) => hiddenPrefs.voices.includes(id);
+      function persistHidden() {
+        persistKey('hidden', hiddenPrefs);
+      }
+
       /** The genres a fresh visit may open on, weighted (see BACKGROUND_GENRES). */
       function openingGenrePool() {
-        const favourites = genrePrefs.favourites;
-        const background = BACKGROUND_GENRES.map((slug) => GENRE_BY_SLUG.get(slug)).filter(Boolean);
+        // Step 3: a hidden genre is never drawn — not as background, not as a favourite.
+        const favourites = genrePrefs.favourites.filter((slug) => !isHiddenGenre(slug));
+        const everyBackground = BACKGROUND_GENRES.map((slug) => GENRE_BY_SLUG.get(slug)).filter(Boolean);
+        const shownBackground = everyBackground.filter((genre) => !isHiddenGenre(genre.slug));
+        // Every background genre hidden: any genre still listed, and only if
+        // the person has hidden the lot, the background list after all.
+        const shownListable = [...PUBLIC_GENRES, ...USER_GENRES].filter((genre) => !isHiddenGenre(genre.slug));
+        const background = shownBackground.length ? shownBackground : shownListable.length ? shownListable : everyBackground;
         // Hide-non-favourites prunes the opening draw too — a listener who
         // asked not to see the rest of the set should not be opened on one.
         const pool = genrePrefs.hideOthers && favourites.length
@@ -4372,6 +4413,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const soundingVoice = new Map();
       const VOICE_LIVE_VALUE = '__live';
       const VOICE_DRAFT_VALUE_PREFIX = 'draft:';
+      // New… (TODO "Factory, edited and your own", step 3): the picker's last
+      // entry opens the New chooser. '__' keeps it out of voiceBankIds and the
+      // Stock heading, like the live option.
+      const VOICE_NEW_VALUE = '__new';
+      // Which starting patch a track was given by New…, while it is still what
+      // plays there: the picker names it ("New subtractive · edited") instead
+      // of the host voice it rides on. Page-side and per visit — a reload
+      // reads the honest host name.
+      const startedVoice = new Map();
+      // Step 3: the picker's last entry, "Hidden: 2 presets, 1 of yours…".
+      const HIDDEN_ENTRY_VALUE = '__hidden';
 
       /**
        * Wire one track row's lamp and voice selector. Extracted from the boot
@@ -4421,20 +4473,62 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // opens the same editor — one way to do one job, and a list of voices
         // that is only voices.
         syncMyVoicesGroup(id);
+        ensureNewVoiceOption(voiceSelect);
         voiceSelect.addEventListener('change', () => {
           // The dynamic "what you're hearing" option is display-only and
           // disabled, so it can never be the user's pick — but a stray
           // programmatic change event must not store it as a voice id.
           if (voiceSelect.value === VOICE_LIVE_VALUE) return;
+          // Step 3: "Hidden: …" opens the Hidden view; the track plays on untouched.
+          if (voiceSelect.value === HIDDEN_ENTRY_VALUE) {
+            refreshVoiceSelect(id);
+            openHiddenView({ kind: 'voice', track: id });
+            return;
+          }
+          // New… is an action, not a voice: the picker goes back to what
+          // plays and the chooser opens — before the leave-guard, since
+          // nothing has been left yet.
+          if (voiceSelect.value === VOICE_NEW_VALUE) {
+            refreshVoiceSelect(id);
+            openNewVoiceChooser(id);
+            return;
+          }
+          // Step 2, the leave-guard: leaving an EDITED voice asks first —
+          // save, save as, revert, reset, move on (parked) or keep editing.
+          // An unedited voice moves at once, exactly as before.
+          const value = voiceSelect.value;
+          const leaving = soundingVoice.get(id) || settings.tracks[id]?.voice;
+          guardLeave([id], {
+            proceed: ({ settled }) => {
+              if (settled.has(id)) settleLeavingVoice(id, leaving);
+              // A Stock pick of the same voice parks it itself (step 1).
+              else if (value !== leaving) parkVoiceEdit(id, leaving);
+              applyVoicePick(id, value, { settled: settled.has(id) });
+            },
+            cancel: () => refreshVoiceSelect(id),
+          });
+        });
+      }
+
+      /**
+       * One pick in a track's voice picker, applied. Split out of the change
+       * handler for the leave-guard, which runs it after its question; a
+       * `settled` leave (saved or discarded in the guard) parks nothing.
+       */
+      function applyVoicePick(id, value, { settled = false } = {}) {
+          const voiceSelect = document.getElementById(`track-voice-${id}`);
+          if (!voiceSelect || !settings.tracks[id]) return;
+          voiceSelect.value = value;
+          startedVoice.delete(id);
           // v0.0.182: a voice of the person's own — its base voice and its patch.
-          if (voiceSelect.value.startsWith(USER_VOICE_VALUE_PREFIX)) {
-            applyUserVoice(id, voiceSelect.value.slice(USER_VOICE_VALUE_PREFIX.length));
+          if (value.startsWith(USER_VOICE_VALUE_PREFIX)) {
+            applyUserVoice(id, value.slice(USER_VOICE_VALUE_PREFIX.length));
             return;
           }
           // v0.0.206: a pick under Edited brings that parked edit back; a pick
           // under Stock always plays the factory sound, parking any edit of
           // that voice under Edited rather than losing it.
-          let pickedVoice = voiceSelect.value;
+          let pickedVoice = value;
           const fromDraft = pickedVoice.startsWith(VOICE_DRAFT_VALUE_PREFIX);
           if (fromDraft) pickedVoice = pickedVoice.slice(VOICE_DRAFT_VALUE_PREFIX.length);
           delete settings.tracks[id].userVoice;
@@ -4447,6 +4541,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               if (engineCaps.patchClear) engine.setParams({ patches: { [id]: null } });
               engine.setParams({ patches: { [id]: structuredClone(settings.patches[id]) } });
             }
+          } else if (settled && patchIsEdited(id, pickedVoice)) {
+            // Saved or discarded in the leave-guard: nothing to park.
+            settings.tracks[id].voice = pickedVoice;
+            resetVoiceToFactory(id, pickedVoice, { quiet: true });
           } else if (patchIsEdited(id, pickedVoice)) {
             if (!isPlainObject(settings.voiceDrafts)) settings.voiceDrafts = {};
             if (!isPlainObject(settings.voiceDrafts[id])) settings.voiceDrafts[id] = {};
@@ -4471,10 +4569,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           refreshVoiceSelect(id);
           const editor = document.getElementById(`voice-editor-${id}`);
           if (editor && !editor.hidden) renderVoiceEditor(id);
-        });
       }
 
       for (const id of TRACK_IDS) wireTrackRowControls(id);
+
+      /**
+       * New… — the last entry of every voice picker, below the voices (where
+       * "Pool of voices…" sat until v0.0.208). Idempotent, and kept last.
+       */
+      function ensureNewVoiceOption(select) {
+        let option = select.querySelector(`option[value="${VOICE_NEW_VALUE}"]`);
+        if (!option) {
+          option = document.createElement('option');
+          option.value = VOICE_NEW_VALUE;
+          option.className = 'voice-new-option';
+          option.textContent = 'New…';
+          option.title = 'Start a new sound on this track: an instrument, a plain synth, a noise colour.';
+        }
+        if (select.lastElementChild !== option) select.append(option);
+      }
 
       /**
        * v0.0.182: the "My voices" group in one track's picker — every voice of
@@ -4485,11 +4598,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const select = document.getElementById(`track-voice-${track}`);
         if (!select) return;
         const previous = select.querySelector('optgroup.my-voices');
+        // Step 3: a hidden one is not listed — unless this track plays it now.
+        const playing = isPlainObject(settings.tracks[track]?.userVoice) ? settings.tracks[track].userVoice.id : null;
+        const mine = USER_VOICES.filter((voice) => voice.voiceSet === voiceSetOf(track)
+          && (!isHiddenUserVoice(voice.id) || voice.id === playing));
+        // Rebuilt only when what it lists changed: refreshVoiceSelect calls
+        // this on every wander, and rebuilding an open list can close it.
+        const signature = JSON.stringify(mine.map((voice) => [voice.id, voice.name]));
+        if (previous && previous.dataset.signature === signature) return;
         if (previous) previous.remove();
-        const mine = USER_VOICES.filter((voice) => voice.voiceSet === voiceSetOf(track));
         if (!mine.length) return;
         const group = document.createElement('optgroup');
         group.className = 'my-voices';
+        group.dataset.signature = signature;
         // v0.0.206: his word for the saved ones — User (not Mine, not Yours).
         group.label = 'User';
         for (const voice of mine) {
@@ -4516,14 +4637,66 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           stock.className = 'stock-voices';
           stock.label = 'Stock';
           const loose = [...select.children].filter((el) => el.tagName === 'OPTION'
-            && el.value !== VOICE_LIVE_VALUE
+            && el.value !== VOICE_LIVE_VALUE && el.value !== VOICE_NEW_VALUE
             && !el.value.startsWith(USER_VOICE_VALUE_PREFIX) && !el.value.startsWith(VOICE_DRAFT_VALUE_PREFIX));
           const first = loose[0];
           if (first) select.insertBefore(stock, first);
           else select.append(stock);
           for (const option of loose) stock.append(option);
+          // Step 3: the whole bank, kept, so a hidden voice can come back in its place.
+          select.__stockAll = loose;
         }
         return stock;
+      }
+
+      /** Step 3: every stock option of a picker, listed or hidden, in bank order. */
+      function stockVoiceOptions(select) {
+        const stock = groupStockVoices(select);
+        if (!select.__stockAll) select.__stockAll = [...stock.children];
+        return select.__stockAll;
+      }
+
+      /**
+       * Step 3: the Stock heading lists every stock voice but the hidden ones
+       * — except the one this track has chosen or is sounding, which stays,
+       * because a picker cannot show a value it has no option for. The DOM is
+       * touched only when the list changes.
+       */
+      function syncHiddenStockVoices(track, select) {
+        const stock = groupStockVoices(select);
+        const voiceSet = voiceSetOf(track);
+        const inPlay = new Set([settings.tracks[track]?.voice, soundingVoice.get(track)]);
+        const want = stockVoiceOptions(select).filter((option) => inPlay.has(option.value) || !isHiddenStockVoice(voiceSet, option.value));
+        const have = [...stock.children];
+        if (want.length !== have.length || want.some((option, i) => option !== have[i])) stock.replaceChildren(...want);
+      }
+
+      /** Step 3: a hidden stock voice back in its picker, for code that picks it by value (the sound finder). */
+      function revealStockVoice(track, voiceId) {
+        const select = document.getElementById(`track-voice-${track}`);
+        if (!select) return;
+        const option = stockVoiceOptions(select).find((entry) => entry.value === voiceId);
+        // Appended for the pick; the refresh the pick triggers puts it back in bank order.
+        if (option && !option.isConnected) groupStockVoices(select).append(option);
+      }
+
+      /** Step 3: the picker's last entry, present only while this picker hides something. */
+      function syncHiddenVoiceEntry(track, select) {
+        const items = hiddenItems({ kind: 'voice', track });
+        let entry = select.querySelector('option.hidden-entry');
+        if (!items.length) {
+          entry?.remove();
+          return;
+        }
+        if (!entry) {
+          entry = document.createElement('option');
+          entry.className = 'hidden-entry';
+          entry.value = HIDDEN_ENTRY_VALUE;
+        }
+        if (select.lastElementChild !== entry) select.append(entry);
+        const text = hiddenEntryLabel(items);
+        if (entry.textContent !== text) entry.textContent = text;
+        entry.title = 'Opens the list of what you have hidden from this picker: unhide it, or delete your own.';
       }
 
       /**
@@ -4628,6 +4801,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return;
         }
         const patch = structuredClone(mine.patch);
+        startedVoice.delete(track);
         settings.tracks[track].voice = mine.voice;
         delete settings.tracks[track].voiceWeights;
         // v0.0.195: a pick holds the rule, your own voice or a stock one.
@@ -4688,6 +4862,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (!userVoiceById(id)) return;
         USER_VOICES = USER_VOICES.filter((voice) => voice.id !== id);
         persistKey('voices', persistable(USER_VOICES));
+        if (isHiddenUserVoice(id)) {
+          hiddenPrefs.voices = hiddenPrefs.voices.filter((key) => key !== id);
+          persistHidden();
+        }
         for (const track of TRACK_IDS) {
           if (settings.tracks[track] && isPlainObject(settings.tracks[track].userVoice) && settings.tracks[track].userVoice.id === id) {
             delete settings.tracks[track].userVoice;
@@ -4704,11 +4882,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // The resolved table, kept for the synchronous readers (the v18 voice
       // selector needs .defaults / .engineType without awaiting anything).
       let voicesTable = null;
+      // The rest of the module (New…'s categories and starting patches).
+      let voicesExports = null;
       function getVoicesTable() {
         if (!voicesModulePromise) {
           voicesModulePromise = import('../scripts/engine-voices.js')
             .then((m) => {
               voicesTable = m.VOICES || null;
+              voicesExports = m;
               return voicesTable;
             })
             .catch(() => null);
@@ -6954,9 +7135,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       /** v0.0.195: every voice this track can play, in bank order. */
       function voiceBankIds(track) {
         const select = document.getElementById(`track-voice-${track}`);
-        return select
-          ? [...select.options].map((o) => o.value).filter((v) => v && !v.startsWith('__') && !v.startsWith(USER_VOICE_VALUE_PREFIX))
-          : [settings.tracks[track].voice];
+        if (!select) return [settings.tracks[track].voice];
+        const ids = [...select.options].map((o) => o.value).filter((v) => v && !v.startsWith('__') && !v.startsWith(USER_VOICE_VALUE_PREFIX));
+        // Step 3: hiding a voice takes it out of the picker, not out of the
+        // bank — a rule derived from the bank must not change because of it.
+        for (const option of stockVoiceOptions(select)) if (!ids.includes(option.value)) ids.push(option.value);
+        return ids;
       }
 
       /** The rule this track would have: its own, or one made from the legacy blend or the bank. Pure. */
@@ -13316,7 +13500,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           moreBox.hidden = !open;
           moreToggle.textContent = open ? 'less' : 'more';
           moreToggle.setAttribute('aria-expanded', String(open));
-          moreToggle.setAttribute('aria-label', `${TRACK_LABELS[track] || track}: ${open ? 'fold away' : 'show'} the sound in words, Save voice and the sound finder`);
+          moreToggle.setAttribute('aria-label', `${TRACK_LABELS[track] || track}: ${open ? 'fold away' : 'show'} the sound in words, Save voice, Hide this voice and the sound finder`);
         };
         applyMore(veMoreOpen.has(track) ? veMoreOpen.get(track) : ruleLevel() === 'expert');
         moreToggle.addEventListener('click', () => {
@@ -13356,10 +13540,37 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return mine && mine.voice === voiceId ? mine : null;
         };
         forgetVoice.hidden = !currentMine();
+        // Factory, edited and your own step 3: hide what this track plays —
+        // the person's own voice if it is one, else the stock voice — from
+        // the pickers. The one place a voice is looked at closely, and the
+        // fold that already holds Save and Forget, so no new surface.
+        const hideVoice = document.createElement('button');
+        hideVoice.type = 'button';
+        hideVoice.className = 'secondary-button ve-hide-voice';
+        hideVoice.textContent = 'Hide this voice';
+        describe(hideVoice, 'Takes this voice out of the voice picker, on every track that plays these voices. It keeps playing wherever it is in use, and links that name it still play it. "Hidden…" at the foot of the picker brings it back.');
+        const hideKey = () => {
+          const mine = currentMine();
+          return mine ? mine.id : stockVoiceKey(voiceSetOf(track), voiceId);
+        };
+        const syncHideVoice = () => {
+          hideVoice.hidden = hiddenPrefs.voices.includes(hideKey());
+        };
+        syncHideVoice();
+        hideVoice.addEventListener('click', () => {
+          const key = hideKey();
+          const name = currentMine()?.name || voiceLabel(track, voiceId);
+          if (!hiddenPrefs.voices.includes(key)) hiddenPrefs.voices = [...hiddenPrefs.voices, key];
+          persistHidden();
+          syncMyVoicesEverywhere();
+          syncHideVoice();
+          sayUnderDials(`Hidden: ${name} keeps playing here, and leaves the list once you pick another voice. "Hidden…" at the foot of the picker brings it back.`);
+        });
         saveVoice.addEventListener('click', () => {
           if (saveAsMyVoice(track, voiceId, voiceName.value)) {
             voiceName.value = '';
             forgetVoice.hidden = !currentMine();
+            syncHideVoice();
           }
         });
         voiceName.addEventListener('keydown', (event) => {
@@ -13372,8 +13583,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const mine = currentMine();
           if (mine) forgetMyVoice(mine.id);
           forgetVoice.hidden = true;
+          syncHideVoice();
         });
-        saveRow.append(voiceName, saveVoice, forgetVoice);
+        saveRow.append(voiceName, saveVoice, forgetVoice, hideVoice);
         moreBox.append(saveRow);
 
         // v0.0.185 (unit 16): "What sound do you have in mind?" — pick words,
@@ -13456,6 +13668,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // The voice first, exactly as the picker would pick it.
             const select = document.getElementById(`track-voice-${track}`);
             if (select && select.value !== found.voice) {
+              revealStockVoice(track, found.voice);
               select.value = found.voice;
               select.dispatchEvent(new Event('change', { bubbles: true }));
             }
@@ -13656,8 +13869,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             focusOpenDisarmed.delete(id);
             openTrackEditor(id, { restoreScroll: true });
           } else {
-            focusOpenDisarmed.add(id);
-            closeTrackEditor(id);
+            // Step 2: closing the editor on an edited voice asks first; the
+            // sound goes on either way, Keep editing leaves it open.
+            guardLeave([id], {
+              proceed: () => {
+                focusOpenDisarmed.add(id);
+                closeTrackEditor(id);
+              },
+            });
           }
         });
 
@@ -15162,12 +15381,188 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return `${name}: ${showChangeValue(change.from)} → ${showChangeValue(change.to)}`;
       }
 
+      // ---- Factory, edited and your own, step 3: the Hidden view -----------
+      /**
+       * What one picker hides: `{ kind: 'genre' }` or `{ kind: 'voice', track }`
+       * (a voice picker's scope is its voice set — every track playing the same
+       * bank shares it). Each item: its key, its name, and whether it is the
+       * person's own (only those can be deleted; a stock one only hidden).
+       */
+      function hiddenItems(scope) {
+        if (scope.kind === 'genre') {
+          return hiddenPrefs.genres
+            .map((slug) => genreBySlug(slug))
+            .filter(Boolean)
+            .map((genre) => ({ key: genre.slug, name: genre.name, own: isUserGenreSlug(genre.slug) }));
+        }
+        const voiceSet = voiceSetOf(scope.track);
+        const items = [];
+        for (const key of hiddenPrefs.voices) {
+          if (isUserVoiceId(key)) {
+            const mine = userVoiceById(key);
+            if (mine && mine.voiceSet === voiceSet) items.push({ key, name: mine.name, own: true });
+          } else if (key.slice(0, key.lastIndexOf('/')) === voiceSet) {
+            const id = key.slice(key.lastIndexOf('/') + 1);
+            if (isStockVoice(voiceSet, id)) items.push({ key, name: VOICE_LABELS[voiceSet][id], own: false });
+          }
+        }
+        return items;
+      }
+
+      /** "Hidden: 3 presets, 1 of yours…" — his wording for the list's last entry. */
+      function hiddenEntryLabel(items) {
+        const stock = items.filter((item) => !item.own).length;
+        const own = items.length - stock;
+        const parts = [];
+        if (stock) parts.push(`${stock} preset${stock === 1 ? '' : 's'}`);
+        if (own) parts.push(`${own} of yours`);
+        return `Hidden: ${parts.join(', ')}…`;
+      }
+
+      function syncAfterHiddenChange(scope) {
+        persistHidden();
+        if (scope.kind === 'genre') {
+          syncGenreUI();
+          if (!document.getElementById('genre-favourites')?.hidden) renderFavourites();
+        } else {
+          syncMyVoicesEverywhere();
+          for (const id of TRACK_IDS) {
+            const editor = document.getElementById(`voice-editor-${id}`);
+            const button = editor && !editor.hidden ? editor.querySelector('.ve-hide-voice') : null;
+            if (button) renderVoiceEditor(id);
+          }
+        }
+      }
+
+      let hiddenViewReturn = null;
+      function closeHiddenView() {
+        const panel = document.getElementById('hidden-view');
+        if (!panel) return;
+        panel.remove();
+        const back = hiddenViewReturn;
+        hiddenViewReturn = null;
+        if (back && back.isConnected && typeof back.focus === 'function') back.focus();
+      }
+
+      /**
+       * The view itself, in the factory-confirm dialog's shape: what this
+       * picker hides, each with a tick-box; Unhide puts the ticked back; Delete
+       * appears only when the list holds something of the person's own, and
+       * is live only while every ticked item is theirs — a stock preset can be
+       * hidden, never deleted.
+       */
+      function openHiddenView(scope) {
+        document.getElementById('hidden-view')?.remove();
+        hiddenViewReturn = scope.kind === 'genre'
+          ? document.getElementById('genre-select')
+          : document.getElementById(`track-voice-${scope.track}`);
+        const panel = document.createElement('div');
+        panel.className = 'module-panel blend-editor hidden-view';
+        panel.id = 'hidden-view';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-labelledby', 'hidden-view-title');
+        const title = document.createElement('span');
+        title.className = 'panel-label popover-title';
+        title.id = 'hidden-view-title';
+        title.textContent = scope.kind === 'genre'
+          ? 'Hidden genres'
+          : `Hidden voices — ${TRACK_LABELS[scope.track] || scope.track}`;
+        const lead = document.createElement('p');
+        lead.className = 'hint';
+        lead.textContent = scope.kind === 'genre'
+          ? 'Kept out of the genre list, the opening draw and the [ ] and number keys. A link or saved setup that names one still plays it.'
+          : 'Kept out of this voice picker, on every track that plays these voices. Anything already using one still plays it, links included.';
+        const list = document.createElement('div');
+        list.className = 'genre-fav-list hidden-view-list';
+        const actions = document.createElement('div');
+        actions.className = 'genre-fav-actions';
+        const unhide = document.createElement('button');
+        unhide.type = 'button';
+        unhide.className = 'secondary-button hidden-view-unhide';
+        unhide.textContent = 'Unhide';
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'secondary-button hidden-view-delete';
+        del.textContent = 'Delete';
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'secondary-button hidden-view-close';
+        close.textContent = 'Close';
+        actions.append(unhide, del, close);
+
+        const ticked = () => [...list.querySelectorAll('input[type="checkbox"]')].filter((box) => box.checked);
+        const syncActions = () => {
+          const picked = ticked();
+          unhide.disabled = !picked.length;
+          const ownOnly = picked.length > 0 && picked.every((box) => box.dataset.own === 'true');
+          del.disabled = !ownOnly;
+          del.title = ownOnly
+            ? 'Deletes the ticked ones for good. They are yours, so nothing else is lost.'
+            : 'Delete is for your own — tick only those. A stock preset can be hidden, never deleted.';
+        };
+        const render = () => {
+          const items = hiddenItems(scope);
+          if (!items.length) {
+            closeHiddenView();
+            return false;
+          }
+          list.replaceChildren();
+          for (const item of items) {
+            const row = document.createElement('label');
+            row.className = 'genre-fav-item';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.value = item.key;
+            box.dataset.own = String(item.own);
+            box.addEventListener('change', syncActions);
+            const name = document.createElement('span');
+            // His words for the two kinds, as the picker's headings use them.
+            name.textContent = `${item.name} · ${item.own ? 'User' : 'Stock'}`;
+            row.append(box, name);
+            list.append(row);
+          }
+          del.hidden = !items.some((item) => item.own);
+          syncActions();
+          return true;
+        };
+        unhide.addEventListener('click', () => {
+          const keys = new Set(ticked().map((box) => box.value));
+          if (!keys.size) return;
+          if (scope.kind === 'genre') hiddenPrefs.genres = hiddenPrefs.genres.filter((key) => !keys.has(key));
+          else hiddenPrefs.voices = hiddenPrefs.voices.filter((key) => !keys.has(key));
+          syncAfterHiddenChange(scope);
+          if (render()) list.querySelector('input')?.focus();
+        });
+        del.addEventListener('click', () => {
+          const picked = ticked();
+          if (!picked.length || !picked.every((box) => box.dataset.own === 'true')) return;
+          for (const box of picked) {
+            if (scope.kind === 'genre') forgetMyGenre(box.value);
+            else forgetMyVoice(box.value);
+          }
+          syncAfterHiddenChange(scope);
+          sayUnderDials(picked.length === 1 ? 'Deleted.' : `Deleted ${picked.length}.`);
+          if (render()) list.querySelector('input')?.focus();
+        });
+        close.addEventListener('click', closeHiddenView);
+        panel.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeHiddenView();
+          }
+        });
+        panel.append(title, lead, list, actions);
+        document.body.append(panel);
+        if (!render()) return;
+        (list.querySelector('input') || close).focus();
+      }
+
       /**
        * v0.0.206: going back to factory asks first when more than two changes
        * would go (his rule) — the count, and a disclosure listing each one.
        * Two or fewer, it simply happens.
        */
-      function confirmBackToFactory(what, changes, run) {
+      function confirmBackToFactory(what, changes, run, { verb = 'Back to factory' } = {}) {
         if (changes.length <= 2) { run(); return; }
         document.getElementById('factory-confirm')?.remove();
         const panel = document.createElement('div');
@@ -15178,7 +15573,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const title = document.createElement('span');
         title.className = 'panel-label popover-title';
         title.id = 'factory-confirm-title';
-        title.textContent = `Back to factory — ${what}`;
+        title.textContent = `${verb} — ${what}`;
         const lead = document.createElement('p');
         lead.className = 'hint factory-confirm-count';
         lead.textContent = `This undoes ${changes.length} changes.`;
@@ -15198,7 +15593,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const go = document.createElement('button');
         go.type = 'button';
         go.className = 'secondary-button factory-confirm-go';
-        go.textContent = 'Back to factory';
+        go.textContent = verb;
         const cancel = document.createElement('button');
         cancel.type = 'button';
         cancel.className = 'secondary-button factory-confirm-cancel';
@@ -15259,6 +15654,213 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const changes = patchChanges(track, voiceId).map(describeChange);
         confirmBackToFactory(`${TRACK_LABELS[track] || track}: ${voiceLabel(track, voiceId)}`, changes,
           () => resetVoiceToFactory(track, voiceId));
+      }
+
+      /**
+       * TODO "Factory, edited and your own" step 2 — the leave-guard.
+       *
+       * Moving away from an EDITED voice (another pick on its track, closing
+       * its editor, Next, a genre) asks first, in ONE small dialog in the
+       * Back-to-factory confirmation's shape: a row per edited track, each
+       * with what can honestly be done to it —
+       *   Save changes        a User voice only: its save becomes this sound
+       *   Save as…            a new User voice, named in the row
+       *   Revert to last save a User voice whose save differs from stock
+       *   Reset to default    a stock voice only
+       * — and, under the rows, Move on (go ahead; anything unsaved is parked
+       * under Edited, step 1's promise that nothing is lost) and Keep editing
+       * (Cancel; Esc). Revert and Reset take step 1's confirmation. When every
+       * row is answered, the move goes ahead by itself.
+       *
+       * The per-item "last saved" snapshot is the User voice's own stored
+       * patch (USER_VOICES[n].patch): Save changes writes it, Revert reads it.
+       * A stock voice's last save is its factory sound, so it offers Reset.
+       *
+       * It never fires for an unedited voice (the move runs synchronously, as
+       * before), and it is wired to the UI's own handlers only — a boot, a
+       * share link, a preset or a test calling applyGenre / setParams never
+       * passes through it.
+       */
+      let leaveGuardCancel = null;
+      function editedLeaving(tracks) {
+        const out = [];
+        for (const track of tracks) {
+          if (!settings.tracks?.[track]) continue;
+          const voiceId = soundingVoice.get(track) || settings.tracks[track].voice;
+          if (!voiceId) continue;
+          const changes = patchChanges(track, voiceId);
+          if (!changes.length) continue;
+          const tag = isPlainObject(settings.tracks[track].userVoice) ? settings.tracks[track].userVoice : null;
+          const saved = tag ? userVoiceById(tag.id) : null;
+          const mine = saved && saved.voice === voiceId ? saved : null;
+          out.push({ track, voiceId, changes, mine });
+        }
+        return out;
+      }
+      /** Does a User voice's save differ from its stock (genre) sound? */
+      function savedDiffersFromDefault(track, mine) {
+        const base = voiceBasePatch(track, mine.voice);
+        const stock = normalisedPatch(deepMerge(base, genrePatchFor(track, mine.voice) || {}));
+        const saved = normalisedPatch(deepMerge(base, mine.patch || {}));
+        return JSON.stringify(stock) !== JSON.stringify(saved);
+      }
+      /** Save changes: the User voice's save becomes what is sounding. */
+      function saveUserVoiceChanges(track, mine) {
+        const stored = settings.patches?.[track]?.[mine.voice];
+        mine.patch = structuredClone(isPlainObject(stored) ? stored : resolveTrackPatch(track, mine.voice));
+        delete mine.transient;
+        persistKey('voices', persistable(USER_VOICES));
+        persistSettings();
+        syncMyVoicesEverywhere();
+      }
+      /** Move on: the leaving voice's edit, parked under Edited (step 1's promise). */
+      function parkVoiceEdit(track, voiceId) {
+        const stored = settings.patches?.[track]?.[voiceId];
+        if (!voiceId || !isPlainObject(stored) || !patchIsEdited(track, voiceId)) return;
+        if (!isPlainObject(settings.voiceDrafts)) settings.voiceDrafts = {};
+        if (!isPlainObject(settings.voiceDrafts[track])) settings.voiceDrafts[track] = {};
+        settings.voiceDrafts[track][voiceId] = structuredClone(stored);
+      }
+      /** A leave answered by a save or a discard: the stock slot goes back to factory, nothing is parked. */
+      function settleLeavingVoice(track, voiceId) {
+        if (!voiceId || !settings.tracks[track]) return;
+        delete settings.tracks[track].userVoice;
+        if (patchIsEdited(track, voiceId)) resetVoiceToFactory(track, voiceId, { quiet: true });
+      }
+
+      /**
+       * Ask before leaving any edited voice among `tracks`, then run
+       * proceed({ settled }) — settled is the set of tracks whose edit the
+       * dialog saved or discarded. cancel() runs on Keep editing / Esc.
+       */
+      function guardLeave(tracks, { proceed, cancel = () => {} }) {
+        const leaving = editedLeaving(tracks);
+        if (!leaving.length) {
+          proceed({ settled: new Set() });
+          return;
+        }
+        if (leaveGuardCancel) leaveGuardCancel();
+        const settled = new Set();
+        const panel = document.createElement('div');
+        panel.className = 'module-panel blend-editor factory-confirm leave-guard';
+        panel.id = 'leave-guard';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-labelledby', 'leave-guard-title');
+        const title = document.createElement('span');
+        title.className = 'panel-label popover-title';
+        title.id = 'leave-guard-title';
+        const name = (row) => `${TRACK_LABELS[row.track] || row.track}: ${row.mine ? row.mine.name : voiceLabel(row.track, row.voiceId)}`;
+        title.textContent = leaving.length === 1 ? `${name(leaving[0])} · edited` : `${leaving.length} edited voices`;
+        const lead = document.createElement('p');
+        lead.className = 'hint leave-guard-lead';
+        lead.textContent = leaving.length === 1
+          ? 'Keep this sound before you move on?'
+          : 'Keep these sounds before you move on?';
+        panel.append(title, lead);
+        const close = () => {
+          panel.remove();
+          document.getElementById('factory-confirm')?.remove();
+          if (leaveGuardCancel === onCancel) leaveGuardCancel = null;
+        };
+        const onCancel = () => { close(); cancel(); };
+        const goOn = () => { close(); proceed({ settled }); };
+        const button = (cls, text, hint) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = `secondary-button ${cls}`;
+          b.textContent = text;
+          if (hint) b.title = hint;
+          return b;
+        };
+        for (const row of leaving) {
+          const box = document.createElement('div');
+          box.className = 'leave-guard-row';
+          box.dataset.track = row.track;
+          if (leaving.length > 1) {
+            const label = document.createElement('span');
+            label.className = 'leave-guard-name';
+            label.textContent = `${name(row)} · edited`;
+            box.append(label);
+          }
+          const actions = document.createElement('div');
+          actions.className = 'genre-fav-actions';
+          const done = (word) => {
+            settled.add(row.track);
+            actions.replaceChildren();
+            nameRow.hidden = true;
+            const said = document.createElement('span');
+            said.className = 'hint leave-guard-done';
+            said.textContent = word;
+            actions.append(said);
+            if (leaving.every((r) => settled.has(r.track))) goOn();
+          };
+          if (row.mine) {
+            const save = button('leave-guard-save', 'Save changes', `Overwrite "${row.mine.name}" with this sound.`);
+            save.addEventListener('click', () => { saveUserVoiceChanges(row.track, row.mine); done('Saved'); });
+            actions.append(save);
+          }
+          const saveAs = button('leave-guard-save-as', 'Save as…', 'Keep this sound as a new voice of your own, under User.');
+          actions.append(saveAs);
+          if (row.mine && savedDiffersFromDefault(row.track, row.mine)) {
+            const revert = button('leave-guard-revert', 'Revert to last save', `Put "${row.mine.name}" back as you last saved it.`);
+            revert.addEventListener('click', () => confirmBackToFactory(name(row), row.changes.map(describeChange), () => {
+              resetVoiceToFactory(row.track, row.voiceId);
+              done('Reverted');
+            }, { verb: 'Revert to last save' }));
+            actions.append(revert);
+          }
+          if (!row.mine) {
+            const reset = button('leave-guard-reset', 'Reset to default', 'Put this voice back to its factory sound.');
+            reset.addEventListener('click', () => confirmBackToFactory(name(row), row.changes.map(describeChange), () => {
+              resetVoiceToFactory(row.track, row.voiceId);
+              done('Reset');
+            }, { verb: 'Reset to default' }));
+            actions.append(reset);
+          }
+          // Save as… opens a name box in the row — the editor's own Save voice row.
+          const nameRow = document.createElement('div');
+          nameRow.className = 've-save-row leave-guard-name-row';
+          nameRow.hidden = true;
+          const nameBox = document.createElement('input');
+          nameBox.type = 'text';
+          nameBox.className = 've-voice-name leave-guard-name-box';
+          nameBox.maxLength = 40;
+          nameBox.placeholder = 'Name this sound';
+          nameBox.setAttribute('aria-label', `A name for your ${voiceLabel(row.track, row.voiceId)}`);
+          nameBox.value = `My ${voiceLabel(row.track, row.voiceId)}`;
+          const nameGo = button('leave-guard-save-as-go', 'Save');
+          const commit = () => {
+            if (saveAsMyVoice(row.track, row.voiceId, nameBox.value)) done('Saved under User');
+          };
+          nameGo.addEventListener('click', commit);
+          nameBox.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') { event.preventDefault(); commit(); }
+          });
+          nameRow.append(nameBox, nameGo);
+          saveAs.addEventListener('click', () => {
+            nameRow.hidden = false;
+            nameBox.focus();
+            nameBox.select?.();
+          });
+          box.append(actions, nameRow);
+          panel.append(box);
+        }
+        const foot = document.createElement('div');
+        foot.className = 'genre-fav-actions';
+        const move = button('leave-guard-move', 'Move on',
+          'Go ahead. Anything not saved stays in the picker under Edited, one pick away.');
+        const keep = button('leave-guard-cancel', 'Keep editing');
+        move.addEventListener('click', goOn);
+        keep.addEventListener('click', onCancel);
+        foot.append(move, keep);
+        panel.append(foot);
+        // Esc is Cancel, as in every other dialog here.
+        panel.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') { event.preventDefault(); onCancel(); }
+        });
+        leaveGuardCancel = onCancel;
+        document.body.append(panel);
+        panel.querySelector('button')?.focus();
       }
 
       /** Every sounding voice's dial changes from its factory, one line each. */
@@ -15400,6 +16002,263 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+      // ---- New… (TODO "Factory, edited and your own", step 3) -------------
+      // The last entry of every voice picker opens one small dialog with four
+      // doors: Instrument (the track's voices, under headings by what a
+      // listener calls them), Synth (each engine's plain starting patch),
+      // Noise (three colours and the track's own noise voices), Sample (not
+      // built yet, and it says so). One door at a time, Back to the four — the
+      // progressive rule: the first view is four words.
+      function closeNewVoiceChooser() {
+        document.getElementById('voice-new-chooser')?.remove();
+      }
+
+      /** The panel's own row of actions: Back (inside a door) and Close. */
+      function newChooserActions(onBack) {
+        const actions = document.createElement('div');
+        actions.className = 'blend-actions';
+        if (onBack) {
+          const back = document.createElement('button');
+          back.type = 'button';
+          back.className = 'secondary-button new-voice-back';
+          back.textContent = '‹ Back';
+          back.addEventListener('click', onBack);
+          actions.append(back);
+        }
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'secondary-button new-voice-close';
+        close.textContent = 'Close';
+        close.addEventListener('click', closeNewVoiceChooser);
+        actions.append(close);
+        return actions;
+      }
+
+      /** One choice: a name, and one line under it saying what it is — or why not. */
+      function newChooserButton(name, words, { disabled = false, title = '', data = {} } = {}) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary-button new-voice-door';
+        for (const [key, value] of Object.entries(data)) button.dataset[key] = value;
+        const strong = document.createElement('span');
+        strong.className = 'new-voice-name';
+        strong.textContent = name;
+        button.append(strong);
+        if (words) {
+          const line = document.createElement('span');
+          line.className = 'new-voice-words';
+          line.textContent = words;
+          button.append(line);
+        }
+        button.disabled = disabled;
+        if (title) button.title = title;
+        return button;
+      }
+
+      /** A stock voice, picked exactly as the picker would pick it. */
+      function pickStockFromNew(track, voiceId) {
+        const select = document.getElementById(`track-voice-${track}`);
+        closeNewVoiceChooser();
+        if (!select) return;
+        select.value = voiceId;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      /**
+       * A starting patch onto a track, at the ENGINE: the host voice picked
+       * (holding the voice rule, as any pick does), its stored patch replaced
+       * outright — cleared first, since patches merge — and any edit of that
+       * voice parked under Edited, so nothing is lost. The editor opens on it.
+       */
+      function applyStartingPatch(track, id) {
+        const entry = voicesExports?.STARTING_PATCHES?.[id];
+        const made = entry && typeof voicesExports.startingPatchFor === 'function'
+          ? voicesExports.startingPatchFor(voiceSetOf(track), id)
+          : null;
+        if (!made || !settings.tracks[track]) return false;
+        const { voice, patch } = made;
+        if (patchIsEdited(track, voice) && isPlainObject(settings.patches[track]?.[voice])) {
+          if (!isPlainObject(settings.voiceDrafts)) settings.voiceDrafts = {};
+          if (!isPlainObject(settings.voiceDrafts[track])) settings.voiceDrafts[track] = {};
+          settings.voiceDrafts[track][voice] = structuredClone(settings.patches[track][voice]);
+        }
+        delete settings.tracks[track].userVoice;
+        delete settings.tracks[track].voiceWeights;
+        settings.tracks[track].voice = voice;
+        const held = isPlainObject(settings.tracks[track].voiceRule)
+          ? { ...settings.tracks[track].voiceRule, chance: 0 }
+          : null;
+        if (held) settings.tracks[track].voiceRule = held;
+        if (!isPlainObject(settings.patches[track])) settings.patches[track] = {};
+        settings.patches[track][voice] = structuredClone(patch);
+        if (engineCaps.patchClear) engine.setParams({ patches: { [track]: { [voice]: null } } });
+        engine.setParams({
+          tracks: { [track]: { voice, voiceWeights: null, ...(held ? { voiceRule: held } : {}) } },
+          patches: { [track]: { [voice]: structuredClone(patch) } },
+        });
+        startedVoice.set(track, { voice, id, name: entry.name });
+        persistSettings();
+        soundingVoice.delete(track);
+        refreshVoiceSelect(track);
+        scheduleScopeRender(track, true);
+        closeNewVoiceChooser();
+        const editor = document.getElementById(`voice-editor-${track}`);
+        const toggle = document.getElementById(`voice-edit-toggle-${track}`);
+        if (editor && !editor.hidden) renderVoiceEditor(track);
+        else if (toggle) toggle.click();
+        return true;
+      }
+
+      async function openNewVoiceChooser(track) {
+        closeNewVoiceChooser();
+        closeBlendEditor();
+        await getVoicesTable();
+        const select = document.getElementById(`track-voice-${track}`);
+        if (!select || !settings.tracks[track]) return;
+        const voiceSet = voiceSetOf(track);
+        const bank = isPlainObject(voicesTable?.[voiceSet]) ? voicesTable[voiceSet] : {};
+        const starts = isPlainObject(voicesExports?.STARTING_PATCHES) ? voicesExports.STARTING_PATCHES : {};
+        const categories = Array.isArray(voicesExports?.VOICE_CATEGORIES) ? voicesExports.VOICE_CATEGORIES : [];
+        const categoryLabels = isPlainObject(voicesExports?.CATEGORY_LABELS) ? voicesExports.CATEGORY_LABELS : {};
+        const trackName = TRACK_LABELS[track] || track;
+        const hostFor = (entry) => (entry.hosts && bank[entry.hosts[voiceSet]] ? entry.hosts[voiceSet] : null);
+        const tracksNaming = (entry) => Object.keys(entry.hosts || {}).map((id) => TRACK_LABELS[id] || id).join(', ');
+        const entriesOf = (door) => Object.entries(starts).filter(([, entry]) => entry.door === door);
+        const noiseVoices = Object.keys(bank).filter((id) => bank[id].category === 'noise');
+
+        const panel = document.createElement('div');
+        panel.className = 'module-panel blend-editor new-voice-chooser';
+        panel.id = 'voice-new-chooser';
+        panel.dataset.track = track;
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-labelledby', 'voice-new-title');
+        const title = document.createElement('span');
+        title.className = 'panel-label popover-title';
+        title.id = 'voice-new-title';
+        const body = document.createElement('div');
+        body.className = 'new-voice-list';
+        const actionSlot = document.createElement('div');
+        panel.append(title, body, actionSlot);
+
+        const show = (heading, door, fill) => {
+          title.textContent = heading;
+          panel.dataset.door = door;
+          body.innerHTML = '';
+          fill();
+          actionSlot.replaceChildren(newChooserActions(door === 'doors' ? null : showDoors));
+          body.querySelector('button:not(:disabled), select')?.focus();
+        };
+
+        function showDoors() {
+          show(`New — ${trackName}`, 'doors', () => {
+            const instrument = newChooserButton('Instrument', 'Every voice this track has, by kind: keys, plucked, mallets…', { data: { door: 'instrument' } });
+            instrument.addEventListener('click', showInstrument);
+            const synthAny = entriesOf('synth').some(([, entry]) => hostFor(entry));
+            const synth = newChooserButton('Synth',
+              synthAny ? 'Start from the plainest sound each engine makes, then shape it.' : `No synth engine plays on ${trackName}: pick an instrument instead.`,
+              { disabled: !synthAny, data: { door: 'synth' } });
+            synth.addEventListener('click', showSynth);
+            const noiseAny = noiseVoices.length > 0 || entriesOf('noise').some(([, entry]) => hostFor(entry));
+            const noise = newChooserButton('Noise',
+              noiseAny ? 'White, pink and brown, and this track\'s noise textures.' : 'Noise plays on the Texture track.',
+              { disabled: !noiseAny, data: { door: 'noise' } });
+            noise.addEventListener('click', showNoise);
+            // CLAUDE.md: a control that cannot do what it says says so.
+            const sample = newChooserButton('Sample', 'Coming with audio input: your own recordings and samples are not built yet.',
+              { disabled: true, data: { door: 'sample' } });
+            body.append(instrument, synth, noise, sample);
+          });
+        }
+
+        function showInstrument() {
+          show(`Instrument — ${trackName}`, 'instrument', () => {
+            const pick = document.createElement('select');
+            pick.className = 'genre-select';
+            pick.id = `new-voice-instrument-${track}`;
+            pick.setAttribute('aria-label', `Instrument for ${trackName}`);
+            const first = document.createElement('option');
+            first.value = '';
+            first.textContent = 'Pick an instrument…';
+            pick.append(first);
+            const order = [...categories, null];
+            for (const category of order) {
+              const ids = Object.keys(bank).filter((id) => (category === null
+                ? !categories.includes(bank[id].category)
+                : bank[id].category === category));
+              if (!ids.length) continue;
+              const group = document.createElement('optgroup');
+              group.label = category === null ? 'Other' : (categoryLabels[category] || category);
+              for (const id of ids) {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = voiceLabel(track, id);
+                group.append(option);
+              }
+              pick.append(group);
+            }
+            pick.addEventListener('change', () => {
+              if (pick.value) pickStockFromNew(track, pick.value);
+            });
+            const hint = document.createElement('p');
+            hint.className = 'hint';
+            hint.textContent = 'Each plays as it ships. Its dials are in the track\'s editor.';
+            body.append(pick, hint);
+          });
+        }
+
+        function showSynth() {
+          show(`Synth — ${trackName}`, 'synth', () => {
+            for (const [id, entry] of entriesOf('synth')) {
+              const host = hostFor(entry);
+              const label = ENGINE_WORDS[entry.engine]?.label || entry.name;
+              const button = newChooserButton(label,
+                host ? entry.words : `Not on ${trackName}: ${label} plays on ${tracksNaming(entry)}.`,
+                {
+                  disabled: !host,
+                  title: host ? `${entry.name}: played by ${voiceLabel(track, host)}, its dials opened at the plain starting point.` : '',
+                  data: { start: id },
+                });
+              if (host) button.addEventListener('click', () => applyStartingPatch(track, id));
+              body.append(button);
+            }
+          });
+        }
+
+        function showNoise() {
+          show(`Noise — ${trackName}`, 'noise', () => {
+            let colours = 0;
+            for (const [id, entry] of entriesOf('noise')) {
+              const host = hostFor(entry);
+              if (!host) continue;
+              colours += 1;
+              const button = newChooserButton(entry.name, entry.words, {
+                title: `${entry.name}: ${voiceLabel(track, host)} with its weather taken out.`,
+                data: { start: id },
+              });
+              button.addEventListener('click', () => applyStartingPatch(track, id));
+              body.append(button);
+            }
+            for (const id of noiseVoices) {
+              const button = newChooserButton(voiceLabel(track, id), 'A noise texture, as it ships.', { data: { voice: id } });
+              button.addEventListener('click', () => pickStockFromNew(track, id));
+              body.append(button);
+            }
+            if (colours) {
+              const hint = document.createElement('p');
+              hint.className = 'hint';
+              hint.textContent = 'Rain, wind and surf: start from a colour, then shape it with the Motion and Burst dials in the editor.';
+              body.append(hint);
+            }
+          });
+        }
+
+        panel.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') closeNewVoiceChooser();
+        });
+        document.body.append(panel);
+        showDoors();
+      }
+
       // ---- v0.0.163 (his 128 a): the voice-blend editor -----------------
       // A small fixed dialog: one weight per voice, 0 leaves a voice out.
       // Two or more nonzero weights store a blend; exactly one just picks
@@ -15412,8 +16271,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const select = document.getElementById(`track-voice-${track}`);
         if (!select || !settings.tracks[track]) return;
         const voices = [...select.options]
-          .filter((o) => o.value && o.value !== VOICE_LIVE_VALUE && !o.value.startsWith(USER_VOICE_VALUE_PREFIX))
+          .filter((o) => o.value && !o.value.startsWith('__') && !o.value.startsWith(USER_VOICE_VALUE_PREFIX)
+            && !o.value.startsWith(VOICE_DRAFT_VALUE_PREFIX))
           .map((o) => ({ id: o.value, label: o.textContent }));
+        // Step 3: a hidden voice is not offered — but one the pool already
+        // holds stays in it, or Done would quietly drop it from the rule.
+        {
+          const held = new Set(deriveVoiceRule(track).pool.map((entry) => entry.id));
+          for (const option of stockVoiceOptions(select)) {
+            if (held.has(option.value) && !voices.some((v) => v.id === option.value)) voices.push({ id: option.value, label: option.textContent });
+          }
+        }
         if (voices.length < 2) return;
         const labelOf = (id) => voices.find((v) => v.id === id)?.label || id;
         // v0.0.195: the editor edits the rule's POOL — an ordered, weighted
@@ -15598,6 +16466,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const select = document.getElementById(`track-voice-${track}`);
         if (!select || !settings.tracks[track]) return;
         groupStockVoices(select);
+        syncMyVoicesGroup(track);
+        syncHiddenStockVoices(track, select);
+        syncHiddenVoiceEntry(track, select);
         refreshVoiceSelectInner(track, select);
         const live = select.querySelector('.voice-live-option');
         const sounding = soundingVoice.get(track) || settings.tracks[track].voice;
@@ -15646,6 +16517,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           select.prepend(live);
         }
         const engineType = edited ? voiceEngineType(track, sounding) : null;
+        // New…: a starting patch reads by its own name while it is what plays.
+        const started = startedVoice.get(track);
+        const fromNew = Boolean(edited && started && started.voice === sounding && sounding === chosen && !blended);
         // v0.0.100 (his item 91): a pure wander SAYS it is one. He read
         // "Texture: Call" in Synthwave as a setting, because the sounding
         // voice was labelled exactly like a chosen one — the generator's
@@ -15653,7 +16527,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // choice. The label now carries the state, and the title carries the
         // escape hatch.
         const wandering = !edited && !blended && sounding !== chosen;
-        const text = edited
+        const text = fromNew
+          ? `${started.name} · edited`
+          : edited
           ? mineTag && sounding === chosen
             ? `${mineTag.name} · edited`
             // v0.0.205: the voice keeps its own name once edited (his report:
@@ -15665,7 +16541,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             : wandering
               ? `${voiceLabel(track, sounding)} · wandering`
               : voiceLabel(track, sounding);
-        live.title = edited && !(mineTag && sounding === chosen)
+        live.title = fromNew
+          ? `${started.name}, from New…: played by ${voiceLabel(track, sounding)}${engineType ? ` (${engineType})` : ''} with its dials at the plain starting point. ↺ Factory on its row brings ${voiceLabel(track, sounding)} back as it ships; Save voice in its editor keeps this as your own.`
+          : edited && !(mineTag && sounding === chosen)
           ? `${voiceLabel(track, sounding)}${engineType ? ` (${engineType})` : ''}, with its dials moved from the stock sound. ↺ Factory on its row brings the stock sound back.`
           : ruled
           ? 'This track draws its voice by its rule — Voice chance and its pool, in the Randomise row of its editor. Chance 0 holds it; picking a voice holds it too.'
@@ -17710,13 +18588,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /** v0.0.180: drop a genre of the person's own; the setup keeps playing, tagged with what it was made from. */
-      function forgetMyGenre() {
-        const genre = currentGenre();
+      function forgetMyGenre(slug) {
+        // Step 3: the Hidden view deletes by slug; the Rules panel's Forget
+        // (a click, whose argument is the event) means the genre in play.
+        const genre = typeof slug === 'string' ? genreBySlug(slug) : currentGenre();
         if (!genre || !isUserGenreSlug(genre.slug)) return;
         USER_GENRES = USER_GENRES.filter((entry) => entry.slug !== genre.slug);
         persistKey('genres', persistable(USER_GENRES));
         registerGenreTable();
         genrePrefs.favourites = genrePrefs.favourites.filter((slug) => slug !== genre.slug);
+        if (isHiddenGenre(genre.slug)) {
+          hiddenPrefs.genres = hiddenPrefs.genres.filter((entry) => entry !== genre.slug);
+          persistHidden();
+        }
+        if (genre.slug !== settings.genre) {
+          syncGenreUI();
+          sayUnderDials(`Deleted: ${genre.name}.`);
+          return;
+        }
         const back = typeof genre.madeFrom === 'string' && GENRE_BY_SLUG.has(genre.madeFrom) ? genre.madeFrom : null;
         settings.genre = back;
         if (isPlainObject(settings.origin) && settings.origin.kind === 'genre') {
@@ -17754,12 +18643,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // PUBLIC_GENRES, not GENRES: a hidden genre still exists and still
         // compiles, so an old link keeps working — it just is not offered.
         // v0.0.180: a person's own genres are listed like public ones.
-        const listable = [...PUBLIC_GENRES, ...USER_GENRES];
+        // Step 3: and never one the person has hidden.
+        const listable = [...PUBLIC_GENRES, ...USER_GENRES].filter((genre) => !isHiddenGenre(genre.slug));
         const current = settings.genre;
         // A hidden genre that IS in play stays listed, because a select cannot
         // show a value it has no option for — the alternative is a picker that
-        // silently reads as some other genre.
-        const withCurrent = HIDDEN_GENRES.has(current) && hasGenre(current)
+        // silently reads as some other genre. Ours or the person's.
+        const withCurrent = current && !listable.some((genre) => genre.slug === current) && hasGenre(current)
           ? [...listable, genreBySlug(current)]
           : listable;
         if (!genrePrefs.hideOthers || !favourites.length) return withCurrent;
@@ -17773,7 +18663,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const groups = [];
         for (const mood of [...MOODS, OTHER_MOOD]) {
           const members = PUBLIC_GENRES.filter(
-            (genre) => genrePrefs.favourites.includes(genre.slug) && moodOf(genre).id === mood.id
+            (genre) => genrePrefs.favourites.includes(genre.slug) && !isHiddenGenre(genre.slug) && moodOf(genre).id === mood.id
           );
           if (members.length) groups.push({ mood, members });
         }
@@ -17789,11 +18679,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * offered, and the picker then lists it while it plays (listedGenres'
        * withCurrent), so it is never unnamed. Two things narrow it: the
        * person's own genres join the draw, and "hide the rest" with
-       * favourites set keeps it to the list they chose.
+       * favourites set keeps it to the list they chose, and a genre the
+       * person hid (step 3) is never drawn.
        */
       function surpriseGenres() {
         if (genrePrefs.hideOthers && genrePrefs.favourites.length) return listedGenres();
-        return [...GENRES, ...USER_GENRES];
+        // Step 3: a genre the PERSON hid is never drawn (the ones the owner
+        // has not listed yet are a different thing, and stay in the draw).
+        return [...GENRES, ...USER_GENRES].filter((genre) => !isHiddenGenre(genre.slug));
       }
 
       function drawGenre(pool) {
@@ -17837,7 +18730,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const extras = document.createElement('optgroup');
         extras.label = 'More';
         extras.append(genreOption('surprise', 'Surprise me'));
+        // Step 3: the way back to anything hidden — last, and only when there is some.
+        const hidden = hiddenItems({ kind: 'genre' });
+        if (hidden.length) extras.append(genreOption('hidden', hiddenEntryLabel(hidden)));
         genreSelect.append(extras);
+        syncGenreHideButton();
         // ui-review fix 13: the ☆ beside the picker fills once any genre is a favourite.
         const star = document.getElementById('genre-favourites-toggle');
         if (star) {
@@ -17881,6 +18778,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       genreSelect.addEventListener('change', () => {
         const value = genreSelect.value;
+        // Step 3: "Hidden: …" opens the Hidden view; it changes nothing that plays.
+        if (value === 'hidden') {
+          syncGenreUI();
+          openHiddenView({ kind: 'genre' });
+          return;
+        }
+        // Step 2: a genre replaces every voice, so leaving edited ones asks
+        // once, listing them; Keep editing puts the picker back. Clearing
+        // the genre tag changes no sound and does not ask.
+        if (value === 'surprise' || value.startsWith('mood:') || value.startsWith('g:')) {
+          guardLeave(TRACK_IDS, { proceed: () => pickGenre(value), cancel: () => syncGenreUI() });
+        } else pickGenre(value);
+      });
+
+      function pickGenre(value) {
         // Everything past this point replaces the whole setup, so the one
         // being left is remembered for Back. (Favourites, which changes
         // nothing, is the ☆ beside the picker since ui-review fix 13.)
@@ -17904,7 +18816,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return;
         }
         clearGenreTag();
-      });
+      }
 
       describe(
         genreSelect,
@@ -17926,7 +18838,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const favouritesPopover = setupPopover('genre-favourites-toggle', 'genre-favourites');
       describe(
         document.getElementById('genre-favourites-toggle'),
-        'Favourite genres: tick the ones you come back to, and hide the rest from the list if you like.'
+        'Favourite genres: tick the ones you come back to, and hide the rest from the list if you like — or hide just the genre playing.'
       );
 
       setupPopover('genre-rules-toggle', 'genre-rules');
@@ -17970,7 +18882,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         for (const mood of [...MOODS, OTHER_MOOD]) {
           // Only the public set: offering a favourites tick-box for a genre
           // the picker will not list is a control that cannot do anything.
-          const members = PUBLIC_GENRES.filter((genre) => moodOf(genre).id === mood.id);
+          const members = PUBLIC_GENRES.filter((genre) => moodOf(genre).id === mood.id && !isHiddenGenre(genre.slug));
           if (!members.length) continue;
           const group = document.createElement('div');
           group.className = 'genre-fav-group';
@@ -18011,6 +18923,39 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       document.getElementById('genre-favourites-done').addEventListener('click', () => {
         favouritesPopover.close();
       });
+
+      // Step 3: hiding a genre lives in the ☆ panel — the one that already
+      // decides what the list shows — so the genre row gains no new button.
+      function genreToHide() {
+        const genre = currentGenre();
+        if (!genre || isHiddenGenre(genre.slug)) return null;
+        const listable = PUBLIC_GENRES.some((entry) => entry.slug === genre.slug) || isUserGenreSlug(genre.slug);
+        return listable ? genre : null;
+      }
+      function syncGenreHideButton() {
+        const button = document.getElementById('genre-hide-current');
+        if (!button) return;
+        const genre = genreToHide();
+        button.hidden = !genre;
+        if (genre) {
+          const text = `Hide ${genre.name}`;
+          if (button.textContent !== text) button.textContent = text;
+        }
+      }
+      document.getElementById('genre-hide-current')?.addEventListener('click', () => {
+        const genre = genreToHide();
+        if (!genre) return;
+        hiddenPrefs.genres = [...hiddenPrefs.genres, genre.slug];
+        persistHidden();
+        syncGenreUI();
+        renderFavourites();
+        sayUnderDials(`Hidden: ${genre.name} keeps playing, and leaves the list once you move on. "Hidden…" at the foot of the genre list brings it back.`);
+      });
+      describe(
+        document.getElementById('genre-hide-current'),
+        'Takes the genre playing now out of the genre list, the opening draw and the [ ] and number keys. It keeps playing until you move on, and links that name it still play it. "Hidden…" at the foot of the list brings it back.'
+      );
+      syncGenreHideButton();
 
       // ---- Back: undo a setup replacement ----------------------------------
       /**
@@ -18230,10 +19175,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       forwardButton.addEventListener('click', () => {
-        rememberSetup();
         const genre = currentGenre();
-        if (genre && genreCompiler && applyGenre(genre)) return;
-        reseedCurrentParams();
+        const run = () => {
+          rememberSetup();
+          if (genre && genreCompiler && applyGenre(genre)) return;
+          reseedCurrentParams();
+        };
+        // Step 2: a genre's Next replaces every voice, so it asks once for
+        // every edited track; a re-roll with no genre keeps the voices.
+        if (genre && genreCompiler) guardLeave(TRACK_IDS, { proceed: run });
+        else run();
       });
 
       describe(
@@ -20724,7 +21675,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const favourites = new Set(genrePrefs.favourites);
         for (const genre of [...PUBLIC_GENRES, ...USER_GENRES]) {
           if (slots.length >= 9) break;
-          if (favourites.has(genre.slug)) slots.push({ kind: 'genre', genre, name: genre.name });
+          if (favourites.has(genre.slug) && !isHiddenGenre(genre.slug)) slots.push({ kind: 'genre', genre, name: genre.name });
         }
         for (const preset of FACTORY_PRESETS) {
           if (slots.length >= 9) break;
@@ -21284,7 +22235,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#genre-select',
-          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices, a different piece each time. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chords, each changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, last in the list, picks from every genre, unlisted ones too. The ☆ beside it keeps your favourites.',
+          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices, a different piece each time. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chords, each changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, last in the list, picks from every genre, unlisted ones too. The ☆ beside it keeps favourites and hides genres.',
         },
         {
           tab: 'simple',
@@ -21317,7 +22268,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '.track-rows',
-          text: 'Six tracks, one line each. The lamp beside the name cycles off, auto and on; the box beside it picks that track\'s voice, and the two dials are its level and its randomness. A voice that keeps changing is the Voice chance dial in its editor: 0 holds your pick, Pool… chooses what it may move to; the bass\'s Groove rule works alike. Edited sounds are listed under Edited, with ↺ Factory to go back; Save voice (more, under the dials) keeps one under User.',
+          text: 'Six tracks, one line each. The lamp cycles off, auto and on; the box picks the track\'s voice, and the dials are its level and randomness. Voice chance in its editor: 0 holds your pick, Pool… says what it may move to. Edits list under Edited, ↺ Factory goes back; under more, Save voice keeps one under User, Hide this voice drops one; leaving an edit asks first. New…, last in the box, starts afresh: an instrument, a plain synth or a noise colour.',
         },
         {
           tab: 'advanced',
@@ -21760,6 +22711,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // A loaded preset brings its own patches, so the "Custom (…)"
           // display has to be recomputed, not just the stored selection.
           soundingVoice.delete(id);
+          startedVoice.delete(id);
           refreshVoiceSelect(id);
           levelControls.get(id)?.set(settings.tracks[id]?.level);
           const editor = document.getElementById(`voice-editor-${id}`);
@@ -23693,12 +24645,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
     .track-factory[hidden],
     .genre-factory[hidden] { display: none; }
+    /* Step 2, the leave-guard: the same dialog, one row per edited track. */
+    .leave-guard-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .leave-guard-name { font-size: 0.85rem; }
+    .leave-guard .genre-fav-actions { flex-wrap: wrap; gap: 6px; }
+    .leave-guard-row .genre-fav-actions { justify-content: flex-start; }
+    .leave-guard-name-row { margin: 0; }
+    .leave-guard-name-row[hidden] { display: none; }
     .factory-confirm-list {
       margin: 4px 0 0;
       padding-left: 18px;
       max-height: 40vh;
       overflow: auto;
       font-size: 0.85rem;
+    }
+
+    /* Factory, edited and your own step 3: the Hidden view's list scrolls
+       inside the dialog rather than pushing its buttons off a phone. */
+    .hidden-view-list {
+      max-height: 40vh;
+      overflow: auto;
     }
 
     /* ui-review fix 19: the shortcut sheet — key column, action column. */
@@ -23734,6 +24704,29 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       gap: 8px;
       z-index: 60;
     }
+    /* New…: four doors, then one door's list — the Pool editor's dialog. */
+    .new-voice-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 55vh;
+      overflow: auto;
+    }
+    .new-voice-door {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      min-height: 40px;
+      padding: 6px 10px;
+      text-align: left;
+      white-space: normal;
+    }
+    .new-voice-door:disabled { opacity: 0.6; cursor: default; }
+    .new-voice-name { font-weight: 600; }
+    .new-voice-words { font-size: 0.8rem; opacity: 0.8; }
+    .new-voice-list select { width: 100%; }
+    .new-voice-list .hint { margin: 4px 0 0; }
     /* v0.0.195: the Pool editor's move/remove buttons and its add row, and
        the When selector beside the Voice chance knob. */
     .blend-move,

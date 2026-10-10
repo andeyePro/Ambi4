@@ -4465,3 +4465,214 @@ const DETUNE_MODES = {
 for (const [mode, pairs] of Object.entries(DETUNE_MODES)) {
   for (const [track, id] of pairs) VOICES[track][id].detuneMode = mode;
 }
+
+// ---------------------------------------------------------------------------
+// 6. New… — categories and starting patches (TODO "Factory, edited and your
+//    own", step 3: the New… half)
+// ---------------------------------------------------------------------------
+
+/**
+ * What a listener would call each voice — the shelf it sits on in the New…
+ * chooser's Instrument door. The order here IS the order the door lists its
+ * headings in; a category no voice of a track uses simply has no heading
+ * there (no brass voice exists yet, and the list does not pretend one does).
+ *
+ * The test is what an ear names, not how the voice is built: Upright is a
+ * plucked string even though it is subtractive underneath; Bell, Chimes and
+ * Marimba are struck tuned objects (mallets) whether FM or modal makes them;
+ * a synth is a sound that only exists on a synthesiser. `nature` is the
+ * birdsong the Call voices make; `drums` is every kit.
+ */
+export const VOICE_CATEGORIES = Object.freeze([
+  'keys', 'wind', 'brass', 'strings', 'plucked', 'mallets', 'voice', 'synth', 'noise', 'nature', 'drums',
+]);
+
+export const CATEGORY_LABELS = Object.freeze({
+  keys: 'Keys',
+  wind: 'Wind',
+  brass: 'Brass',
+  strings: 'Strings',
+  plucked: 'Plucked',
+  mallets: 'Mallets and bells',
+  voice: 'Voices',
+  synth: 'Synth',
+  noise: 'Noise and texture',
+  nature: 'Nature',
+  drums: 'Drums',
+});
+
+const CATEGORIES = {
+  pad: { warm: 'synth', glass: 'synth', strings: 'strings', choir: 'voice', polysaw: 'synth' },
+  bass: {
+    sub: 'synth', round: 'synth', breath: 'synth', fingered: 'plucked', sawbass: 'synth',
+    acid: 'synth', upright: 'plucked',
+  },
+  melody: {
+    pluck: 'synth', bell: 'mallets', flute: 'wind', keys: 'keys', call: 'nature', tines: 'keys',
+    nylon: 'plucked', tape: 'keys', stab: 'keys',
+  },
+  texture: {
+    sparkle: 'synth', grains: 'noise', chimes: 'mallets', wash: 'noise', colour: 'noise',
+    cloud: 'noise', call: 'nature',
+  },
+  arp: { softPluck: 'synth', crystal: 'synth', marimba: 'mallets', muted: 'plucked' },
+  percussion: { soft: 'drums', hand: 'drums', tick: 'drums', dust: 'drums' },
+};
+for (const [track, bank] of Object.entries(CATEGORIES)) {
+  for (const [id, category] of Object.entries(bank)) {
+    if (VOICES[track]?.[id]) VOICES[track][id].category = category;
+  }
+}
+
+/**
+ * The starting patch per synthesis engine, and the three noise colours — what
+ * New… → Synth and New… → Noise put on a track. Blank slate's init patch (his
+ * 117: one oscillator, no spread, the filter open, resonance and filter
+ * envelope at their floors) is the precedent; his brief for these adds "the
+ * simplest voice that still sounds good: a plain open sawtooth for
+ * Subtractive, not a sine". So each is one source at its plainest audible
+ * setting, the filter open, an envelope that plays a held note as held and
+ * lets it go without a click, and a little room — never a factory voice's
+ * character.
+ *
+ * Every entry is a COMPLETE patch for the sections it names, so laying it over
+ * a cleared voice gives exactly this sound whatever was there before. It is
+ * played by a HOST: an existing voice of the track's own bank whose engine is
+ * the one named and whose dials reach every field the patch sets
+ * (new-voice-smoke holds that, and voices-smoke plays each one). A track with
+ * no such voice has no host for it, and New… says so rather than offering a
+ * door that does nothing — the kit, for one, has no oscillator voice, and
+ * Additive is only the melody's organ.
+ *
+ * The noise colours are the Coloured noise voice with its weather taken out:
+ * no sweep, no gusts, no droplets, the band as wide as it goes, and the bed's
+ * tilt and band centre set so its slope across 125 Hz-8 kHz measures close to
+ * white (flat), pink (-3 dB per octave) and brown (-6 dB per octave) —
+ * new-voice-smoke renders them and measures it. They are approximations by a
+ * bandpassed pink bed, which is the only noise this voice has; nothing new is
+ * synthesised for them.
+ */
+const PLAIN_ROOM = { reverb: 0.2, delay: 0 };
+const OPEN_FILTER = { type: 'lowpass', cutoff: 12000, q: 0.7 };
+const HELD = { attack: 0.01, decay: 0.3, sustain: 0.8, release: 0.3 };
+const STRUCK = { attack: 0.003, decay: 0.8, sustain: 0, release: 0.05 };
+const NOISE_SOURCE = {
+  octave: 0, bandWidth: 4, sweepRate: 0, sweepDepth: 0, gust: 0, burst: 0, swell: 0,
+};
+const NOISE_BED = { attack: 1, decay: 0.01, sustain: 1, release: 1.5 };
+
+const deepFreeze = (value) => {
+  if (value && typeof value === 'object') {
+    for (const inner of Object.values(value)) deepFreeze(inner);
+    Object.freeze(value);
+  }
+  return value;
+};
+
+export const STARTING_PATCHES = deepFreeze({
+  subtractive: {
+    door: 'synth',
+    engine: 'subtractive',
+    name: 'New subtractive',
+    words: 'A plain open sawtooth: one oscillator, the filter wide open.',
+    hosts: { pad: 'warm', bass: 'round', melody: 'pluck', arp: 'softPluck' },
+    patch: {
+      source: { shape1: 2, shape2: null, mix: 0, detune: 0, octave: 0, fold: 0 },
+      filter: { ...OPEN_FILTER, q: 0.1, envAmount: 0 },
+      adsr: { ...HELD },
+      sends: { ...PLAIN_ROOM },
+    },
+  },
+  fm: {
+    door: 'synth',
+    engine: 'fm',
+    name: 'New FM',
+    words: 'One sine wobbling another at the same pitch: bright at the start, mellowing as it holds.',
+    hosts: { melody: 'keys', arp: 'crystal', texture: 'sparkle' },
+    patch: {
+      source: { octave: 0 },
+      fm: { ratio: 1, depth: 1, bite: 0.5 },
+      filter: { ...OPEN_FILTER },
+      adsr: { attack: 0.005, decay: 1.2, sustain: 0.3, release: 0.4 },
+      sends: { ...PLAIN_ROOM },
+    },
+  },
+  additive: {
+    door: 'synth',
+    engine: 'additive',
+    name: 'New additive',
+    words: 'The sawtooth again, built from its partials: each a sine at 1/n of the first.',
+    hosts: { melody: 'stab' },
+    patch: {
+      source: { octave: 0 },
+      additive: { p1: 1, p2: 0.5, p3: 0.33, p4: 0.25, p5: 0.2, p6: 0.17, stretch: 0 },
+      filter: { ...OPEN_FILTER },
+      adsr: { ...HELD },
+      sends: { ...PLAIN_ROOM },
+    },
+  },
+  modal: {
+    door: 'synth',
+    engine: 'physical',
+    name: 'New modal',
+    words: 'A wooden bar struck by an even mallet, ringing at its own overtones.',
+    hosts: { arp: 'marimba', texture: 'chimes' },
+    patch: {
+      source: { octave: 0 },
+      modal: { material: 'wood', hardness: 1, damping: 1 },
+      filter: { ...OPEN_FILTER },
+      adsr: { ...STRUCK },
+      sends: { ...PLAIN_ROOM },
+    },
+  },
+  white: {
+    door: 'noise',
+    engine: 'noise',
+    name: 'White noise',
+    words: 'Flat: as much at the top as the bottom, a radio between stations.',
+    hosts: { texture: 'colour' },
+    patch: {
+      source: { ...NOISE_SOURCE, tilt: 0.35, bandCentre: 4000 },
+      filter: { ...OPEN_FILTER },
+      adsr: { ...NOISE_BED },
+      sends: { reverb: 0.3, delay: 0 },
+    },
+  },
+  pink: {
+    door: 'noise',
+    engine: 'noise',
+    name: 'Pink noise',
+    words: 'Softer at the top: steady rain, a waterfall.',
+    hosts: { texture: 'colour' },
+    patch: {
+      source: { ...NOISE_SOURCE, tilt: 0, bandCentre: 1000 },
+      filter: { ...OPEN_FILTER },
+      adsr: { ...NOISE_BED },
+      sends: { reverb: 0.3, delay: 0 },
+    },
+  },
+  brown: {
+    door: 'noise',
+    engine: 'noise',
+    name: 'Brown noise',
+    words: 'Mostly low: a rumble, like distant traffic or surf heard from indoors.',
+    hosts: { texture: 'colour' },
+    patch: {
+      source: { ...NOISE_SOURCE, tilt: -0.3, bandCentre: 450 },
+      filter: { ...OPEN_FILTER },
+      adsr: { ...NOISE_BED },
+      sends: { reverb: 0.3, delay: 0 },
+    },
+  },
+});
+
+/**
+ * The voice that plays a starting patch on a track of this voice set, and the
+ * patch itself (a fresh copy), or null when the set has no host for it.
+ */
+export function startingPatchFor(voiceSet, id) {
+  const entry = Object.prototype.hasOwnProperty.call(STARTING_PATCHES, id) ? STARTING_PATCHES[id] : null;
+  const voice = entry ? entry.hosts[voiceSet] : null;
+  if (!voice || !VOICES[voiceSet]?.[voice]) return null;
+  return { voice, patch: structuredClone(entry.patch) };
+}

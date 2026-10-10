@@ -2768,3 +2768,36 @@ What changed, and which measure each answers:
 
 Cinematic stays in HIDDEN_GENRES (the test asserts it): this pass is to make
 it worth his listening again, not to publish it.
+## New… — categories and starting patches (TODO "Factory, edited and your own", step 3)
+
+Module ownership: **`src/scripts/engine-voices.js`** (data only; the engine is
+unchanged), wired by `index.astro`'s New… chooser; gated by
+`tests/new-voice-smoke.mjs`, `tests/voices-smoke.mjs` and `tests/page-boot.mjs`.
+
+- `VOICES[track][id].category` — every voice carries one of
+  `VOICE_CATEGORIES` (`keys`, `wind`, `brass`, `strings`, `plucked`, `mallets`,
+  `voice`, `synth`, `noise`, `nature`, `drums`), labelled by `CATEGORY_LABELS`.
+  It is what a listener calls the sound, not how it is made: Upright is
+  plucked although subtractive, Bell and Marimba are mallets although FM and
+  modal. No voice is brass yet; the Instrument door shows only headings a
+  track uses.
+- `STARTING_PATCHES[id] = { door, engine, name, words, hosts, patch }` —
+  `door` `synth` (subtractive, fm, additive, modal) or `noise` (white, pink,
+  brown); `hosts` maps a voice set to the existing voice that plays it, which
+  must BE that engine and have a dial for every field `patch` sets. Each patch
+  is complete for the sections it names, so it is sent after clearing the
+  host's stored patch (`patches: { [t]: { [host]: null } }`) and what plays is
+  exactly it. Subtractive is a plain open sawtooth (shape 2, OSC 2 off, filter
+  12 kHz with resonance and envelope at their floors) — Blank slate's init
+  patch (his 117) with a saw instead of a sine. The colours are Coloured noise
+  with its weather off, the band four octaves wide, measured at about 0, -3 and
+  -6 dB per octave across 125 Hz-8 kHz.
+- `startingPatchFor(voiceSet, id)` returns `{ voice, patch }` (a copy) or null
+  when that set has no host — the kit has none for any synth engine, Additive
+  plays only on the melody (Organ stab), the colours only on the texture.
+- The page: New… is the last entry of every voice picker (`__new`, never a
+  voice id). Instrument picks a stock voice exactly as the picker does; Synth
+  and Noise pick the host, park any edit of it under Edited, set the patch at
+  the engine and open the editor, and the picker reads "New subtractive ·
+  edited" while that start is what plays. Sample is shown disabled: "Coming
+  with audio input".
