@@ -5373,16 +5373,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         box.className = 'info-box module-panel';
         box.hidden = true;
         box.textContent = body;
-        btn.addEventListener('click', () => {
-          const open = box.hidden;
+        // v0.0.235: open momentarily on hover, toggle on click. A mouse
+        // resting on the ⓘ PEEKS at the box and leaving closes it again; a
+        // click PINS it open (and a second click closes it), whatever the
+        // pointer does next. Touch has no hover, so on touch the tap is the
+        // only gesture — a pointerenter from a finger is ignored, or the tap
+        // that follows would close what the touch had just opened.
+        let pinned = false;
+        const show = (open) => {
           box.hidden = !open;
           btn.setAttribute('aria-expanded', String(open));
+        };
+        const isMouse = (event) => !event.pointerType || event.pointerType === 'mouse';
+        wrap.addEventListener('pointerenter', (event) => {
+          if (isMouse(event) && !pinned) show(true);
+        });
+        wrap.addEventListener('pointerleave', (event) => {
+          if (isMouse(event) && !pinned) show(false);
+        });
+        btn.addEventListener('click', () => {
+          pinned = !pinned;
+          show(pinned);
         });
         // v0.0.207: Esc closes the box whether focus is in it or on its ⓘ.
         wrap.addEventListener('keydown', (event) => {
           if (event.key !== 'Escape' || box.hidden) return;
-          box.hidden = true;
-          btn.setAttribute('aria-expanded', 'false');
+          pinned = false;
+          show(false);
           btn.focus();
         });
         wrap.append(btn, box);

@@ -1171,6 +1171,36 @@ try {
       if (!box || box.hidden || btn.getAttribute('aria-expanded') !== 'true') failures.push(`help in one form: the ⓘ for ${why} does not open`);
       btn.click();
     }
+    // v0.0.235: hover peeks, click pins. A mouse entering opens the box and
+    // leaving closes it; a click keeps it open after the mouse leaves; a
+    // finger's pointerenter does nothing (the tap is touch's one gesture).
+    {
+      const slot = doc.getElementById('share-name-info');
+      const wrap = slot && slot.querySelector('.info-anchor');
+      const box = wrap && wrap.querySelector('.info-box');
+      const btn = wrap && wrap.querySelector('button.info-button');
+      const pointer = (type, pointerType) => {
+        const event = new window.Event(type);
+        Object.defineProperty(event, 'pointerType', { value: pointerType });
+        wrap.dispatchEvent(event);
+      };
+      if (!wrap || !box || !btn) {
+        failures.push('ⓘ hover: no ⓘ beside the link name to hover');
+      } else {
+        pointer('pointerenter', 'mouse');
+        if (box.hidden || btn.getAttribute('aria-expanded') !== 'true') failures.push('ⓘ hover: a mouse over the ⓘ did not open its box');
+        pointer('pointerleave', 'mouse');
+        if (!box.hidden) failures.push('ⓘ hover: the box stayed open after the mouse left without a click');
+        pointer('pointerenter', 'mouse');
+        btn.click();
+        pointer('pointerleave', 'mouse');
+        if (box.hidden) failures.push('ⓘ hover: a click did not keep the box open once the mouse left');
+        btn.click();
+        if (!box.hidden) failures.push('ⓘ hover: a second click did not close the pinned box');
+        pointer('pointerenter', 'touch');
+        if (!box.hidden) failures.push('ⓘ hover: a finger touching down opened the box before its tap');
+      }
+    }
     const leftovers = [...doc.querySelectorAll('p.hint')].filter((p) =>
       /^(Every share link has its own|Submitting opens our contact form|Save genre keeps|The rules this genre draws)/.test(p.textContent.trim()));
     if (leftovers.length) failures.push(`help in one form: ${leftovers.length} explanatory paragraph(s) still on the page: "${leftovers[0].textContent.trim().slice(0, 40)}"`);

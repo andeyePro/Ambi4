@@ -1019,6 +1019,11 @@ A sound in mind (v0.0.185)
 - [ ] On the kit, every word answers plainly that nothing here is honestly
       that word; there is no Set it up.
 
+ⓘ hover (v0.0.235)
+- [ ] Rest the mouse on any ⓘ: its box opens; move away: it closes. Click
+      the ⓘ: it stays open after the mouse leaves; click again or Esc: it
+      closes. On a phone a tap opens and a second tap closes.
+
 Pins and saved layouts (v0.0.233, UI review fix 19's second half)
 - [ ] Right-click any dial (Advanced, a voice editor): a one-item menu, Pin to
       Simple. On Simple a Pinned strip appears with a live copy: turn the copy

@@ -321,7 +321,7 @@ bottom of the TODO."
 - [x] Minimalism — needs a process mechanism (phasing / additive), not a voicing pass *(phasing v0.0.217; additive v0.0.228, opt-in)*
 - [ ] New Age — accurate to its genre; he does not like the genre
 - [x] Ambient — the texture saws; keep the whistle, lose the sweep *(v0.0.215, measured; ear-test his)*
-- [ ] Soul Groove — the click on note onset
+- [x] Soul Groove — the click on note onset *(v0.0.140, the fingered-bass onset; ear-test his)*
 
 ## Owner replies, 2026-07-29 (second round)
 
@@ -520,7 +520,7 @@ so it waits.
 - [ ] No-orphan layout control across the whole UI — **the worst offender is fixed (v0.0.96): Processor's label, dial and readout are one block now**, and the no-JS removal path is one removal instead of three. The general sweep (any other label/control/readout split across containers) remains open
 - [x] *(SHIPPED v0.0.38, 39f2164)* Collapse play-along/capture behind a single open/close button — not collapsible today (`#play-along`, :290; the comment at :280 saying no control may move is superseded)
 - [x] *(SHIPPED v0.0.40, 0abb56d — this line was left unticked by mistake; found by the 2026-07-28 audit)* Fold sleep and alarm into one button — one clock icon opens a Timers popover holding both
-- [ ] Every info section gets a ⓘ, opening momentarily on hover and toggling on click. *(Checked 2026-10-23: `infoButton` now has eleven call sites; what remains is the hover-open and the sections still without one.)* **[flagged]** touch has no hover, so tap-toggle is the only behaviour there
+- [ ] Every info section gets a ⓘ, opening momentarily on hover and toggling on click. *(Checked 2026-10-23: `infoButton` has eleven call sites. **Hover-open SHIPPED v0.0.235** — a mouse peeks, a click pins, touch taps only, which settles the [flagged] note below. What remains: the sections still without an ⓘ.)* **[flagged]** touch has no hover, so tap-toggle is the only behaviour there
 - [ ] ⓘ content opens in the tutorial area right of the main UI where space permits — `#tutorial-panel` (:656) already collapses to a static block below 1100px
 - [x] *(SHIPPED v0.0.59)* Group dials so an even number that will not fit on one row splits evenly, instead of three on one line and one below.
 
