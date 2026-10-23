@@ -2316,7 +2316,14 @@ function padWarm(ctx, destination, note, patch) {
   const at = cutoffAt(p, f * 2);
   const open = clamp(f * (4 + 3 * v), 500, 4200);
   lowpass.frequency.setValueAtTime(at(Math.max(f * 1.5, 110)), t);
-  lowpass.frequency.exponentialRampToValueAtTime(at(open), t + attack * 1.3);
+  // v0.0.236: the sweep ends no later than the release begins. It used to
+  // end at attack x 1.3 whatever the note, so a note shorter than that (a
+  // one-bar chord at 60-90 bpm) put the release target BEFORE the sweep's
+  // end on the same param — an out-of-order timeline no engine draws as an
+  // opening sweep (tests/automation-order-smoke.mjs). Every longer note is
+  // scheduled exactly as before.
+  const sweepEnd = Math.min(t + attack * 1.3, t + attack + hold);
+  lowpass.frequency.exponentialRampToValueAtTime(at(open), sweepEnd);
   lowpass.frequency.setTargetAtTime(at(Math.max(open * 0.45, 220)), t + attack + hold, release * 0.5);
   // A held chord that never moves reads as synthetic; this is the slow breath.
   lfo(rig, lowpass.frequency, {

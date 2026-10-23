@@ -2102,6 +2102,15 @@ later (a saw's wrap heard through an open attack filter is the instrument). Its
 recorded-click list is empty and must stay that way; a fixed one has to be
 removed from it, which the harness enforces.
 
+- **Every param's events are scheduled in time order (v0.0.236).** Web Audio
+  keeps one sorted timeline per AudioParam and draws a ramp from the event before
+  it, so a ramp ending at 3.17 s followed by a target starting at 2.75 s is not
+  "rise, then fall" to any engine — Warm's opening sweep did exactly that on any
+  note shorter than 1.3 × its attack, and a second engine rendered the pad as
+  silence and then a step. A voice ends a ramp no later than the next event on
+  the same param begins. `tests/automation-order-smoke.mjs` holds it for every
+  voice at seven note lengths.
+
 ## `patches`: null clears (v0.0.143)
 
 Module ownership: **the engine** (`sanitisePatches` in `ambient-engine.js`).
