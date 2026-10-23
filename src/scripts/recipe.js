@@ -111,6 +111,9 @@ export const RECIPE_FIELDS = Object.freeze([
   { path: 'harmony.voicing', label: 'Chord voicing', kind: 'voicing' },
   { path: 'harmony.hookRule', label: 'Chord loop rule', kind: 'hookRule' },
   { path: 'harmony.rhythm', label: 'Harmonic rhythm', kind: 'enum' },
+  // Chord length in beats — sparse: absent (bar-level harmony) on every piece
+  // that does not ask for it; when present it governs the harmonic rhythm.
+  { path: 'harmony.beats', label: 'Chord length in beats', kind: 'number' },
   ...TRACK_ORDER.flatMap(trackFields),
   { path: 'arp.mode', label: 'Arp mode', kind: 'enum' },
   { path: 'arp.pattern', label: 'Arp pattern', kind: 'enum' },

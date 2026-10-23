@@ -1019,6 +1019,12 @@ A sound in mind (v0.0.185)
 - [ ] On the kit, every word answers plainly that nothing here is honestly
       that word; there is no Set it up.
 
+Chord length in beats (v0.0.241)
+- [ ] Advanced → Music → more → Chord length: 2 beats. Play: two chords a
+      bar, the bass and melody moving with each, the pad changing on beat 3
+      with no cut-off. 3 beats in 4/4: a long chord then a short one. Back to
+      1 bar: one chord a bar again.
+
 Touch keys and pads (v0.0.240)
 - [ ] On a phone or tablet, open Create: under the Keys row, thirteen keys.
       Touch one: Keys arms and the note plays; three fingers play a chord;

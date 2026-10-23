@@ -2275,6 +2275,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       s.swing = clamp(typeof s.swing === 'number' && Number.isFinite(s.swing) ? s.swing : 0, 0, 1);
       s.harmony = isPlainObject(s.harmony) ? s.harmony : {};
       s.harmony.rhythm = CHORD_LENGTHS.includes(s.harmony.rhythm) ? s.harmony.rhythm : 'auto';
+      // v0.0.241: chord length in beats — sparse, a whole number of beats.
+      {
+        const beats = Number(s.harmony.beats);
+        if (Number.isInteger(beats) && beats >= 1 && beats <= 8) s.harmony.beats = beats;
+        else delete s.harmony.beats;
+      }
       // "Chord loop as voiced": sparse — present only when set, the engine
       // sanitises the contents.
       if (!Array.isArray(s.harmony.voicing) || !s.harmony.voicing.length) delete s.harmony.voicing;
@@ -3971,6 +3977,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (p.harmony && typeof p.harmony === 'object') {
           if (!Array.isArray(p.harmony.voicing)) p.harmony.voicing = null;
           if (!isPlainObject(p.harmony.hookRule)) p.harmony.hookRule = null;
+          // Chord length in beats, by the same law: absent would keep the
+          // last piece's, so an absent one is said as null (cleared).
+          if (!Number.isInteger(p.harmony.beats)) p.harmony.beats = null;
         }
         return p;
       }
@@ -7220,24 +7229,46 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (value === 'section') return 'One per section';
             return value === 1 ? '1 bar' : `${value} bars`;
           };
-          chordLengthSelect.replaceChildren(...rhythms.map((value) => {
+          const options = rhythms.map((value) => {
             const option = document.createElement('option');
             option.value = String(value);
             option.textContent = label(value);
             return option;
-          }));
+          });
+          // v0.0.241: chord length in BEATS (harmony.beats) — where the
+          // engine has it. A chord changes inside the bar and every
+          // instrument plays the chord in force at its own beat.
+          if (engineModule && Number.isFinite(engineModule.HARMONY_BEATS_MAX)) {
+            for (const beats of [1, 2, 3]) {
+              const option = document.createElement('option');
+              option.value = `beats:${beats}`;
+              option.textContent = beats === 1 ? '1 beat' : `${beats} beats`;
+              options.push(option);
+            }
+          }
+          chordLengthSelect.replaceChildren(...options);
         }
-        chordLengthSelect.value = String(settings.harmony.rhythm);
+        const chordLengthValue = () => (Number.isInteger(settings.harmony.beats)
+          && chordLengthSelect.querySelector(`option[value="beats:${settings.harmony.beats}"]`)
+          ? `beats:${settings.harmony.beats}` : String(settings.harmony.rhythm));
+        chordLengthSelect.value = chordLengthValue();
         chordLengthSelect.addEventListener('change', () => {
           const raw = chordLengthSelect.value;
-          const value = raw === 'auto' || raw === 'section' ? raw : Number(raw);
-          settings.harmony.rhythm = value;
-          engine.setParams({ harmony: { rhythm: value } });
+          if (raw.startsWith('beats:')) {
+            const beats = Number(raw.slice('beats:'.length));
+            settings.harmony.beats = beats;
+            engine.setParams({ harmony: { beats } });
+          } else {
+            const value = raw === 'auto' || raw === 'section' ? raw : Number(raw);
+            settings.harmony.rhythm = value;
+            delete settings.harmony.beats;
+            engine.setParams({ harmony: { rhythm: value, beats: null } });
+          }
           persistSettings();
         });
         describe(
           chordLengthSelect,
-          'How many bars the chord progression holds each chord for. Auto lets the hook decide, and One per section gives each part of the piece a single chord of its own length. Beats are not offered: chords change on the bar here, and every instrument plans a whole bar against one chord.'
+          'How long the chord progression holds each chord. Bars: Auto lets the hook decide, and One per section gives each part of the piece a single chord of its own length. Beats: the chord changes inside the bar — 2 beats in 4/4 is two chords a bar — and every instrument plays the chord in force at its own beat. A length that does not divide the bar leaves a shorter last chord; the barline always starts a new one.'
         );
       }
 
@@ -23840,7 +23871,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try { renderProgression(); } catch {}
         }
         syncGenreUI();
-        if (engineCaps.harmonyRhythm) chordLengthSelect.value = String(settings.harmony.rhythm);
+        if (engineCaps.harmonyRhythm) {
+          const beatsValue = Number.isInteger(settings.harmony.beats) ? `beats:${settings.harmony.beats}` : null;
+          chordLengthSelect.value = beatsValue && chordLengthSelect.querySelector(`option[value="${beatsValue}"]`)
+            ? beatsValue : String(settings.harmony.rhythm);
+        }
         syncStructureUI();
         syncArpUI();
         syncTrackStateUI();

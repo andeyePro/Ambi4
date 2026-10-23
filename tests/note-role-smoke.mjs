@@ -208,6 +208,21 @@ test('a scale tone outside the chord reads passing, never outside', async () => 
   }
 });
 
+test('with chords in beats, a role reads the chord in force at the note (harmony.beats)', async () => {
+  // The bass plays its own chord's root, fifth or octave (tests/chord-beats-
+  // smoke.mjs holds that), so a bass note read against the wrong chord shows
+  // up as some other role. The pad cannot witness this: it voices each chord
+  // with that chord already in force.
+  const notes = await collect({ harmony: { beats: 2 } });
+  const bass = notes.filter((n) => n.track === 'bass' && !n.live);
+  assert.ok(bass.length > 6, `${bass.length} bass notes`);
+  // Its chromatic approach into the next chord is off the scale by design
+  // and reads `outside`; anything else — a third, a seventh, a passing tone —
+  // is a root or fifth judged against the wrong chord (29 of 49 were, before).
+  const off = bass.filter((n) => !['root', 'fifth', 'outside'].includes(n.role));
+  assert.equal(off.length, 0, `${off.length} of ${bass.length} bass notes read as ${[...new Set(off.map((n) => n.role))].join('/')} — judged against the wrong chord`);
+});
+
 test('the roles say something: a busy piece has more than one kind', async () => {
   const kinds = new Set((await collect()).filter((n) => n.track === 'melody' || n.track === 'arp').map((n) => n.role));
   assert.ok(kinds.size >= 3, `only ${[...kinds].join(', ')}`);

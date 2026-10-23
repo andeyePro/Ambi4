@@ -254,7 +254,9 @@ Patch = {
   the harmony frame's full stack, `passing` for a scale tone outside it, `outside`
   for a note off the scale — and `interval`, its semitones above the chord's root
   (0-11). Drum notes (a lane-owning track) carry neither. Telemetry only: it reads
-  the frame and draws nothing.
+  the frame and draws nothing. Under `harmony.beats` (v0.0.241) the chord is the
+  one in force at the note's own beat, read a tenth of a beat late so a note
+  humanised early onto a change still belongs to the chord it was planned for.
 - Step rule (v0.0.231, the fourth-bay item's engine half): `params.stepRule` — a
   sparse map keyed like the walks saying what value a `step` (sample-and-hold)
   drift takes each time it fires: `walk` (a random step either way from the held
@@ -1114,10 +1116,51 @@ space, so users sculpt real-world impressions themselves:
   a whole structure block, reading the length from the block itself as it starts
   — so a six-bar verse and an eight-bar chorus each get one chord of their own
   length. On the shapeless presets (drone, waves) it degrades to one bar, which
-  is more honest than pretending a boundary exists. **Beats are deliberately
-  absent**: harmony advances once per BAR and every scheduler plans a whole bar
-  against one chord, so a sub-bar chord is a change to the harmony frame and to
-  every track that reads it — not a new value on this list.
+  is more honest than pretending a boundary exists. Beats are not on THIS list:
+  a sub-bar chord is a change to the harmony frame, so it is its own field,
+  `harmony.beats`, below.
+- harmony.beats (chord length in BEATS; sparse, opt-in): an integer 1..8
+  (`HARMONY_BEATS_MAX`) of quarter-note beats per chord.
+  - **Sanitiser.** A number or numeric string is rounded and clamped into
+    1..8; an explicit `null` clears it; junk (a non-numeric string, a boolean,
+    an object, an array, NaN) keeps the stored value; absent keeps the stored
+    value. Never in `DEFAULT_PARAMS`: absent is today's bar-level harmony, to
+    the byte (`tests/chord-beats-smoke.mjs` holds a digest of the pre-field
+    note stream; `audio-reference` is unmoved).
+  - **When set it governs the harmonic rhythm; `harmony.rhythm` is ignored.**
+    Every barline starts a chord, and inside the bar the hook advances again at
+    beats 0, b, 2b, … while that is still inside the bar. **The barline
+    restarts the grid**, so a length that does not divide the bar leaves a
+    shorter last chord (3 in 4/4: three beats then one; 2 in 3/4: two then
+    one; 2 in 7/8's 3.5 beats: 2 then 1.5), and a length of the bar or more is
+    one chord per bar — note for note what `rhythm: 1` plays.
+  - **Switching on is quantised to a chord boundary**: a bar-level chord that
+    still has bars to run finishes first, so nothing sounding is cut or
+    doubled. Switching off, the next bar starts a fresh bar-level chord.
+  - **The frame.** The bar's `once('harmony')` frame carries `chords: [{ beat,
+    degree, inversion, extension }]`, so a repeat bracket replays every chord
+    of the bar. Every pitched reader asks `chordAtBeat(beat)` (the last chord
+    starting at or before the note's PLANNED beat, before swing and nudge) or
+    runs under `withChordAt(beat, fn)` for the chordMidis() readers: melody
+    pitch and its bar octave, bass root/fifth/octave and its empty-pattern
+    root (one per chord), the arp's figure per step (and its phase copy), user
+    tracks, the cover notes (bounded to the first chord's length). Texture
+    reads absolute scale degrees, not the chord, so it is unchanged. Without
+    the field both helpers answer the bar's one chord at every beat.
+    `chordAtBeat` is the seam note-role telemetry should read.
+  - **The pad** voices each chord at its own onset for that chord's length —
+    the first in beginBar, each later one from the pulse it starts in — so the
+    old chord's notes end exactly as the new ones strike, the same hand-over
+    a bar-level change makes at a barline. One rest/breath plan per bar; the
+    half-bar breath only where the chord is long enough to hold it.
+  - **The 'chord' event fires per chord** and, only under this field, carries
+    `beat` (its onset in the bar); a bar-level chord's event is unchanged.
+  - **Limits.** The bass's approach note leans only into the NEXT BAR's first
+    chord, not into a mid-bar change; `sampling: 'chord'` steps once a bar
+    under this field (each bar is one harmony frame); there is no UI control
+    yet (the Chord length select would be the place).
+  - Recipe: `harmony.beats`, "Chord length in beats", a number, named only
+    when set.
 - Pad breathing: swell phase locks to bar phase (existing sin contour keyed to
   bar clock — already bar-phased; expose padBreath 0-1 depth param).
 - Modes add: ionian, mixolydian, phrygian (scale tables + chord naming).

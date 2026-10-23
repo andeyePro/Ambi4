@@ -4855,6 +4855,26 @@ try {
     }
   }
 
+  // v0.0.241: chord length in BEATS reaches the engine from the Chord length
+  // select, and picking a bar length clears it again.
+  {
+    const engineRef = window.__ambi4Engine;
+    const select = doc.getElementById('chordLength');
+    const two = select && select.querySelector('option[value="beats:2"]');
+    if (!two) {
+      failures.push('chord length: the select offers no "2 beats"');
+    } else {
+      select.value = 'beats:2';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      if (engineRef.getParams().harmony.beats !== 2) failures.push(`chord length: "2 beats" left the engine on beats ${JSON.stringify(engineRef.getParams().harmony.beats)}`);
+      select.value = '1';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const h = engineRef.getParams().harmony;
+      if (h.beats !== undefined && h.beats !== null) failures.push(`chord length: "1 bar" left beats ${h.beats} at the engine`);
+      if (h.rhythm !== 1) failures.push(`chord length: "1 bar" set rhythm ${JSON.stringify(h.rhythm)}`);
+    }
+  }
+
   // ---- The Create rebuild: two doors (his "indecipherably complex") ------
   // The progressive rule, counted: at first open the Create part of the panel
   // shows the Start row and the Write picker and NOTHING else; choosing Melody

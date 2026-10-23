@@ -1328,16 +1328,29 @@ export const REVERB_TAIL_RANGE = Object.freeze([0.5, 6]);
  * verse of six bars and a chorus of eight each get one chord of their own
  * length without anyone typing either number.
  *
- * BEATS are deliberately absent and the reason is in the code rather than in a
- * promise: harmony advances once per BAR here — every track plans a whole bar
- * against one chord — so a sub-bar chord is a change to the harmony frame and
- * to every scheduler that reads it, not a new option on this list.
+ * BEATS are deliberately absent from THIS list, because a sub-bar chord is a
+ * change to the harmony frame and to every scheduler that reads it, not a new
+ * bar count: that is `harmony.beats` (HARMONY_BEATS_MAX, below), a separate
+ * opt-in field which, when set, governs the harmonic rhythm instead of this.
  */
 export const HARMONY_RHYTHM_MAX_BARS = 16;
 export const HARMONY_RHYTHMS = Object.freeze([
   'auto', 'section',
   ...Array.from({ length: HARMONY_RHYTHM_MAX_BARS }, (_, i) => i + 1),
 ]);
+
+/**
+ * Chord length in BEATS — `harmony.beats`, sparse and opt-in. A whole number
+ * of quarter-note beats from 1 to HARMONY_BEATS_MAX. When set it replaces
+ * `harmony.rhythm` as the harmonic rhythm: every barline starts a chord, and
+ * inside the bar the hook advances again every `beats` beats — at beats 0, b,
+ * 2b, … while that is still inside the bar. The barline always restarts the
+ * grid, so a length that does not divide the bar leaves a shorter LAST chord
+ * (3 beats in 4/4: a three-beat chord, then a one-beat one), and a length of
+ * the whole bar or more is exactly one chord per bar. Absent is today's
+ * bar-level harmony, to the byte. See docs/engine-v2-contract.md.
+ */
+export const HARMONY_BEATS_MAX = 8;
 
 /**
  * v21 padBreath: the depth of the pad's bar-phased swell, which is exactly
@@ -1639,6 +1652,19 @@ function harmonyRhythm(value) {
 }
 
 /**
+ * One chord length in beats (harmony.beats): a whole number of beats, rounded
+ * and clamped into 1..HARMONY_BEATS_MAX, from a number or a numeric string. Junk
+ * (anything else, or a string that is not a number) returns null so the caller keeps the stored
+ * value.
+ */
+function harmonyBeats(value) {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
+  const num = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(num)) return null;
+  return clamp(Math.round(num), 1, HARMONY_BEATS_MAX);
+}
+
+/**
  * v26 hook seed. `harmony.seed` is a chord loop supplied from OUTSIDE the
  * engine — the genre compiler's expanded progression, a UI, a share link — in
  * the same mode-relative degrees everything else here speaks: degree 0 is the
@@ -1782,6 +1808,13 @@ function sanitiseHarmony(value, base, mode) {
   const hookRule = v && 'hookRule' in v && v.hookRule === null ? undefined
     : sanitiseHookRule(v && 'hookRule' in v ? v.hookRule : undefined, from.hookRule);
   if (hookRule) out.hookRule = hookRule;
+  // Chord length in beats, sparse by the same law: an explicit null clears,
+  // a number is rounded and clamped into 1..HARMONY_BEATS_MAX, junk keeps the
+  // stored value, absent keeps the stored value — and absent everywhere is
+  // no field at all, which is what keeps every older piece byte-identical.
+  const beats = v && 'beats' in v && v.beats === null ? null
+    : (v && 'beats' in v ? harmonyBeats(v.beats) : null) ?? harmonyBeats(from.beats);
+  if (beats !== null) out.beats = beats;
   return out;
 }
 
@@ -5372,6 +5405,13 @@ export function createEngine(initialParams, options = {}) {
   let chordInversion = 0;
   let chordExtension = 0;
   let chordBarsLeft = 0;
+  // Chord length in beats (harmony.beats): the bar's chords, one entry per
+  // chord in force — { beat, degree, inversion, extension } — or null when the
+  // bar has ONE chord, which is every bar unless harmony.beats is set. Read
+  // through chordAtBeat()/withChordAt(), never directly.
+  let barChords = null;
+  // The pad's plan for this bar's later chords (null: no pad, or resting).
+  let barPadPlan = null;
 
   // Pad breathing (v11)
   let padSwellPhase = 0;       // position in the pad's four-bar dynamic contour
@@ -7435,7 +7475,7 @@ export function createEngine(initialParams, options = {}) {
     // tracks only; a drum has no pitch to relate.
     // A kit is the track that owns lanes (trackShape's `percussive`).
     const kit = params.tracks[track] && Array.isArray(params.tracks[track].lanes);
-    if (!kit && Number.isFinite(full.midi)) Object.assign(event, noteRole(full.midi));
+    if (!kit && Number.isFinite(full.midi)) Object.assign(event, noteRole(full.midi, full.when));
     emit('note', event);
   }
 
@@ -7454,7 +7494,16 @@ export function createEngine(initialParams, options = {}) {
     6: 'fifth', 7: 'fifth', 8: 'fifth', 9: 'sixth', 10: 'seventh', 11: 'seventh',
   });
   let roleFrame = null;
-  function noteRole(midi) {
+  function noteRole(midi, when) {
+    // Chord length in beats: the chord in force at the note's own beat. A
+    // note humanised a hair EARLY onto a chord change still belongs to the
+    // chord it was planned for, so the beat is read a tenth of a beat late.
+    if (barChords && bar && Number.isFinite(bar.time) && Number.isFinite(when) && bar.secPerBeat > 0) {
+      return withChordAt((when - bar.time) / bar.secPerBeat + 0.1, () => noteRoleNow(midi));
+    }
+    return noteRoleNow(midi);
+  }
+  function noteRoleNow(midi) {
     const key = `${chordDegree}|${params.mode}|${params.root}|${chordInversion}|${chordExtension}|${colour().toFixed(3)}`;
     if (!roleFrame || roleFrame.key !== key) {
       const root = ((scaleDegreeToMidi(chordDegree, scale(), pitchClass(params.root), 3) % 12) + 12) % 12;
@@ -8369,16 +8418,73 @@ export function createEngine(initialParams, options = {}) {
    * actually sounding, and the name is derived from those semitones rather
    * than from the degree the stack was built from.
    */
-  function emitChord(barNumber, time) {
+  function emitChord(barNumber, time, beat) {
     const midis = chordMidis(3, colour() > 0.5 ? 4 : 3);
     if (!midis.length) return;
     const rootMidi = scaleDegreeToMidi(chordDegree, scale(), pitchClass(params.root), 3);
-    emit('chord', {
+    const event = {
       name: nameChord(rootMidi % 12, midis.map((midi) => midi - rootMidi)),
       midis,
       bar: barNumber,
       time,
-    });
+    };
+    // Chord length in beats: one event per chord, each saying where in the
+    // bar it starts. Only then — a bar-level chord's event is unchanged.
+    if (barChords) event.beat = beat ?? 0;
+    emit('chord', event);
+  }
+
+  /**
+   * Chord length in beats — the chord in force at `beat` (quarter-note beats
+   * from this bar's downbeat, the PLANNED beat, before swing or nudge): the
+   * last of the bar's chords that starts at or before it. Null when the bar
+   * has one chord, where the live chord state IS the chord at every beat.
+   */
+  function chordSegmentAt(beat) {
+    if (!barChords) return null;
+    let found = barChords[0];
+    for (const chord of barChords) {
+      if (chord.beat <= beat + 1e-9) found = chord;
+    }
+    return found;
+  }
+
+  /**
+   * THE seam every pitched reader goes through to ask "which chord is this
+   * note on?" — { beat, degree, inversion, extension } for the chord in force
+   * at `beat` of the current bar. Without harmony.beats it is the bar's one
+   * chord at every beat, so a caller switched onto it changes nothing.
+   */
+  function chordAtBeat(beat) {
+    return chordSegmentAt(beat) ?? {
+      beat: 0, degree: chordDegree, inversion: chordInversion, extension: chordExtension,
+    };
+  }
+
+  /**
+   * Run `fn` with the chord state set to the chord in force at `beat`, then
+   * put the bar's own chord back — for the readers that go through
+   * chordMidis() (the pad's voicing, the arp's figure, the chord event). A
+   * plain call without harmony.beats.
+   */
+  function withChordAt(beat, fn) {
+    const chord = chordSegmentAt(beat);
+    if (!chord) return fn();
+    const saved = [chordDegree, chordInversion, chordExtension];
+    chordDegree = chord.degree;
+    chordInversion = chord.inversion;
+    chordExtension = chord.extension;
+    try {
+      return fn();
+    } finally {
+      [chordDegree, chordInversion, chordExtension] = saved;
+    }
+  }
+
+  /** How many beats the bar's chord at `index` holds (harmony.beats only). */
+  function barChordBeats(index) {
+    const next = barChords[index + 1];
+    return (next ? next.beat : bar.beats) - barChords[index].beat;
   }
 
   /** The current chord, voiced upward from `baseOctave` with no crossings. */
@@ -8512,7 +8618,8 @@ export function createEngine(initialParams, options = {}) {
     if (track === 'pad') {
       // The pad's own voicing, a shade under its usual level — the rest it was
       // taking becomes a quieter re-entry rather than a hole.
-      attackChord(time, bar.duration * (Math.max(0, chordBarsLeft) + 1), {
+      attackChord(time, barChords ? barChordBeats(0) * bar.secPerBeat
+        : bar.duration * (Math.max(0, chordBarsLeft) + 1), {
         maxNotes: 3,
         jitters: [1, 1, 1, 1, 1],
         nudges: [0, 0, 0, 0, 0],
@@ -8530,10 +8637,13 @@ export function createEngine(initialParams, options = {}) {
     }
     const octave = track === 'texture' ? 6 : track === 'bass' ? 2 : 4;
     const midi = scaleDegreeToMidi(chordDegree, scale(), rootPc, octave);
+    const length = bar.duration * (track === 'texture' ? 1.5 : 0.9);
     playNote(track, {
       midi,
       when: time,
-      duration: bar.duration * (track === 'texture' ? 1.5 : 0.9),
+      // Under harmony.beats a cover note is the bar's FIRST chord, so it ends
+      // with that chord rather than ringing on under the next one.
+      duration: barChords ? Math.min(length, barChordBeats(0) * bar.secPerBeat * 0.95) : length,
       velocity: track === 'texture' ? 0.32 : track === 'bass' ? 0.6 : 0.4,
       pan: 0,
     });
@@ -8856,12 +8966,28 @@ export function createEngine(initialParams, options = {}) {
 
   function scheduleBass(time, barDuration, plan) {
     const rootPc = pitchClass(params.root);
-    const root = scaleDegreeToMidi(chordDegree, scale(), rootPc, 2);
     // A perfect fifth above the root, NOT the scale's fifth degree: in a
     // pentatonic or whole-tone mode the fifth degree is not seven semitones up,
     // and what a bass line wants under a chord is the chord's own fifth
     // reinforcing the root, not a melodic scale tone.
-    const fifth = root + 7;
+    //
+    // v24: the octave pop keeps the line in the bass's own register. Off a high
+    // chord root, root + 12 lands in the tune's octave and stops reading as a
+    // bass at all, so it drops instead — and if THAT is below the bottom of the
+    // range it stays on the root, which is always in it.
+    //
+    // Chord length in beats: the tones are those of the chord in force at the
+    // step's own beat; with one chord a bar every beat answers the same.
+    const tonesAt = (beat) => {
+      const root = scaleDegreeToMidi(chordAtBeat(beat).degree, scale(), rootPc, 2);
+      return {
+        root,
+        fifth: root + 7,
+        octave: root + 12 <= BASS_RANGE.high ? root + 12
+          : root - 12 >= BASS_RANGE.low ? root - 12 : root,
+      };
+    };
+    const { root } = tonesAt(0);
     if (plan.manual) {
       plan.steps.forEach((step) => {
         // v0.0.143 (his 119): as long as what is DRAWN. This used to ring until
@@ -8871,8 +8997,9 @@ export function createEngine(initialParams, options = {}) {
         // Sustain is now something the grid says: tie the steps, or set a gate.
         const at = swung(step.beat, 'bass');
         const gated = drawnSpan(step, trackStepBeats('bass')) * bar.secPerBeat;
+        const tones = tonesAt(step.beat);
         playNote('bass', {
-          midi: step.pinned ?? (step.fifth ? fifth : root),
+          midi: step.pinned ?? (step.fifth ? tones.fifth : tones.root),
           when: time + at * bar.secPerBeat + step.nudge,
           duration: Math.max(0.08, gated),
           velocity: step.velocity,
@@ -8881,14 +9008,8 @@ export function createEngine(initialParams, options = {}) {
       return;
     }
 
-    // v24: the octave pop keeps the line in the bass's own register. Off a high
-    // chord root, root + 12 lands in the tune's octave and stops reading as a
-    // bass at all, so it drops instead — and if THAT is below the bottom of the
-    // range it stays on the root, which is always in it.
-    const octave = root + 12 <= BASS_RANGE.high ? root + 12
-      : root - 12 >= BASS_RANGE.low ? root - 12 : root;
-    const midiOf = (tone) => (tone === 'fifth' ? fifth : tone === 'octave' ? octave : root);
-    const events = plan.steps.map((step) => ({ ...step, midi: midiOf(step.tone) }));
+    const midiOf = (tone, tones) => (tone === 'fifth' ? tones.fifth : tone === 'octave' ? tones.octave : tones.root);
+    const events = plan.steps.map((step) => ({ ...step, midi: midiOf(step.tone, tonesAt(step.beat)) }));
 
     // The approach: on a bar that turns to a new chord, the last off-beat note
     // leans towards where the harmony is going — the chord tone available here
@@ -8901,7 +9022,8 @@ export function createEngine(initialParams, options = {}) {
       ? nextChordAhead() : null;
     if (target !== null) {
       const to = scaleDegreeToMidi(target, scale(), rootPc, 2);
-      const options = [root, fifth, octave];
+      const tones = tonesAt(last.beat);
+      const options = [tones.root, tones.fifth, tones.octave];
       last.midi = options.reduce(
         (best, midi) => (Math.abs(midi - to) < Math.abs(best - to) ? midi : best),
       );
@@ -8928,7 +9050,18 @@ export function createEngine(initialParams, options = {}) {
         velocity: event.velocity,
       });
     });
-    if (!events.length) {
+    if (!events.length && barChords) {
+      // Under harmony.beats it owes every CHORD its root, each ending with
+      // its own chord, so no root rings on under the chord after it.
+      barChords.forEach((chord, i) => {
+        playNote('bass', {
+          midi: tonesAt(chord.beat).root,
+          when: time + chord.beat * bar.secPerBeat + bassPocketFor(),
+          duration: barChordBeats(i) * bar.secPerBeat * 0.95,
+          velocity: 0.8,
+        });
+      });
+    } else if (!events.length) {
       // A pattern that emptied itself still owes the bar its root — in the
       // line's own pocket, like every other note it plays.
       playNote('bass', {
@@ -9078,7 +9211,7 @@ export function createEngine(initialParams, options = {}) {
     let lo = Infinity;
     let hi = -Infinity;
     for (const note of plan.notes) {
-      const midi = scaleDegreeToMidi(chordDegree + note.degree, bar.scale, bar.rootPc, 4);
+      const midi = scaleDegreeToMidi(chordAtBeat(note.beat).degree + note.degree, bar.scale, bar.rootPc, 4);
       if (midi < lo) lo = midi;
       if (midi > hi) hi = midi;
     }
@@ -9411,6 +9544,8 @@ export function createEngine(initialParams, options = {}) {
     chordInversion = 0;
     chordExtension = 0;
     chordBarsLeft = 0;
+    barChords = null;
+    barPadPlan = null;
     arpPlan = null;
     // The closing bar is pad and bass alone: a phase copy still owed from the
     // last bar is not sounded (it never started, so nothing is cut).
@@ -9693,6 +9828,9 @@ export function createEngine(initialParams, options = {}) {
       acc += p;
     }
     bar = {
+      // When the bar starts — read by the note-role telemetry to place a
+      // note on its own beat under harmony.beats; nothing schedules from it.
+      time,
       pulses,
       starts,
       beats: acc,
@@ -9854,6 +9992,28 @@ export function createEngine(initialParams, options = {}) {
       // Harmony advances even under hold: a held track keeps following the hook,
       // it just stops re-drawing its own material (ruling 5).
       const fresh = chordBarsLeft <= 0;
+      // Chord length in BEATS (harmony.beats): the barline starts a chord and
+      // the hook advances again every `beats` beats inside the bar, so one bar
+      // carries every chord in force across it. Only where a chord boundary
+      // falls anyway (`fresh`): switching it on while a bar-level chord still
+      // has bars to run lets that chord finish rather than cutting it.
+      const beatsLength = params.harmony.beats;
+      if (fresh && beatsLength) {
+        const chords = [];
+        for (let beat = 0; beat < bar.beats - 1e-6; beat += beatsLength) {
+          advanceHarmony(intensity);
+          chords.push({ beat, degree: chordDegree, inversion: chordInversion, extension: chordExtension });
+        }
+        return {
+          fresh,
+          degree: chords[0].degree,
+          inversion: chords[0].inversion,
+          extension: chords[0].extension,
+          // The bar is the span: every bar under harmony.beats starts fresh.
+          span: 1,
+          chords,
+        };
+      }
       if (fresh) advanceHarmony(intensity);
       return {
         fresh,
@@ -9871,6 +10031,8 @@ export function createEngine(initialParams, options = {}) {
     chordDegree = frame.degree;
     chordInversion = frame.inversion;
     chordExtension = frame.extension;
+    barChords = frame.chords ?? null;
+    barPadPlan = null;
     if (frame.fresh) {
       chordBarsLeft = frame.span;
       if (isActive('pad')) {
@@ -9880,7 +10042,17 @@ export function createEngine(initialParams, options = {}) {
         // instead of going silent for the length of the hold.
         const resting = once('padRest', () => plan.rest && !padRested);
         padRested = resting;
-        if (!resting) playChordVoicing(time, bar.duration * chordBarsLeft, plan);
+        // Under harmony.beats the pad voices the bar's FIRST chord here, for
+        // that chord's length only; each later chord is voiced by the pulse
+        // it starts in (schedulePulse), struck as the one before it ends —
+        // the same hand-over a bar-level chord change makes at the barline,
+        // so nothing sounding is cut short.
+        if (!resting && barChords) {
+          barPadPlan = plan;
+          playChordVoicing(time, barChordBeats(0) * bar.secPerBeat, plan);
+        } else if (!resting) {
+          playChordVoicing(time, bar.duration * chordBarsLeft, plan);
+        }
       }
     }
     chordBarsLeft -= 1;
@@ -9935,6 +10107,22 @@ export function createEngine(initialParams, options = {}) {
     const length = bar.pulses[index];
     const to = from + length;
 
+    // Chord length in beats: a chord that starts inside this pulse is
+    // announced, and voiced on the pad, here — at its own beat, ringing to
+    // the next chord or the barline. The bar's first chord was beginBar's.
+    if (barChords) {
+      barChords.forEach((chord, i) => {
+        if (i === 0 || chord.beat < from - 1e-9 || chord.beat >= to - 1e-9) return;
+        const at = time + (chord.beat - from) * bar.secPerBeat;
+        withChordAt(chord.beat, () => {
+          if (barPadPlan && isActive('pad')) {
+            playChordVoicing(at, barChordBeats(i) * bar.secPerBeat, barPadPlan);
+          }
+          emitChord(currentBarNumber, at, chord.beat);
+        });
+      });
+    }
+
     // v0.0.217 phase process: the copy notes the last bar's lag carried past
     // its barline sound here, at their own place in this bar. Dropped, not
     // moved, if the arp has since gone silent or mono — none has started.
@@ -9985,7 +10173,7 @@ export function createEngine(initialParams, options = {}) {
           midi = note.pinned;
         } else {
           midi = scaleDegreeToMidi(
-            chordDegree + note.degree, bar.scale, bar.rootPc, 4,
+            chordAtBeat(note.beat).degree + note.degree, bar.scale, bar.rootPc, 4,
           ) + 12 * (melodyShift + (melodyPlan.octave ?? 0) + (note.octave ?? 0))
             + (note.bend ?? 0);
           // The band is a last guard behind the bar's own transposition, and it
@@ -10064,7 +10252,11 @@ export function createEngine(initialParams, options = {}) {
       // phases against the CELL (the shift wraps at the cell's length).
       const additive = arpAdditiveBar;
       for (const step of arpPlan.steps) {
-        if (step.beat < from || step.beat >= to || !sequence.length) continue;
+        if (step.beat < from || step.beat >= to) continue;
+        // Chord length in beats: the figure of the chord in force at the
+        // step's beat. One chord a bar: the same figure for every step.
+        const figure = barChords ? withChordAt(step.beat, () => arpSequenceFor(arpPlan)) : sequence;
+        if (!figure.length) continue;
         const cellPos = additive && step.index < additive.pos.length ? additive.pos[step.index] : -1;
         const cellLen = cellPos >= 0 ? additive.stage[step.index] : 0;
         const seqIndex = cellPos >= 0 ? cellPos : step.seqIndex;
@@ -10072,7 +10264,7 @@ export function createEngine(initialParams, options = {}) {
         // of a chord plus an octave wander plus the doubling run past 96, and a
         // clamp put every one of those notes on 96 whatever the chord.
         const midi = foldIntoRange(
-          sequence[seqIndex % sequence.length] + 12 * (step.octave ?? 0), ARP_LOW, ARP_HIGH,
+          figure[seqIndex % figure.length] + 12 * (step.octave ?? 0), ARP_LOW, ARP_HIGH,
         );
         const when = time + (swung(step.beat, 'arp') - from) * bar.secPerBeat + (step.nudge ?? 0);
         const duration = Math.max(0.05, step.gateBeats * bar.secPerBeat);
@@ -10085,10 +10277,10 @@ export function createEngine(initialParams, options = {}) {
           ...(cellPos >= 0 ? { cell: cellPos, cellLength: cellLen } : {}),
         });
         if (phasing) {
-          const len = cellPos >= 0 ? cellLen : sequence.length;
+          const len = cellPos >= 0 ? cellLen : figure.length;
           const { shift, offset } = arpPhasePosition(step.beat, stepBeats, len);
           const copy = {
-            midi: foldIntoRange(sequence[(((seqIndex - shift) % len) + len) % len]
+            midi: foldIntoRange(figure[((((seqIndex - shift) % len) + len) % len) % figure.length]
               + 12 * (step.octave ?? 0), ARP_LOW, ARP_HIGH),
             duration,
             velocity: step.velocity * ARP_PHASE_VELOCITY,
@@ -10159,7 +10351,7 @@ export function createEngine(initialParams, options = {}) {
         if (note.beat < from || note.beat >= to) continue;
         // Folded into range by octaves, not clamped — see foldIntoRange.
         const midi = note.pinned != null ? note.pinned : foldIntoRange(
-          scaleDegreeToMidi(chordDegree + note.degree, bar.scale, bar.rootPc, USER_TRACK_OCTAVE)
+          scaleDegreeToMidi(chordAtBeat(note.beat).degree + note.degree, bar.scale, bar.rootPc, USER_TRACK_OCTAVE)
             + 12 * (note.octave ?? 0) + (note.bend ?? 0),
           24, 108,
         );
@@ -10669,6 +10861,8 @@ export function createEngine(initialParams, options = {}) {
 
       isRunning = true;
       chordBarsLeft = 0;
+      barChords = null;
+      barPadPlan = null;
       pulseIndex = 0;
       barIndex = 0;
       currentBarNumber = 0;
