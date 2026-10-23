@@ -243,6 +243,14 @@ const VOICES: Record<string, [string, string][]> = {
             </span>
             <span class="record-label">Record</span>
           </button>
+          <!-- Save as WAV: Record's twin, uncompressed. Press to start, press
+               again to stop and save; see the v0.0.245 block in the script. -->
+          <button id="wav-save" type="button" class="transport-button record-button wav-button" data-transport="wav" aria-pressed="false">
+            <span class="transport-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M11 4h2v9l3.5-3.5 1.4 1.4L12 16.8 6.1 10.9l1.4-1.4L11 13Z" /><path d="M5 18h14v2H5Z" /></svg>
+            </span>
+            <span class="wav-label">Save as WAV</span>
+          </button>
         </div>
         <!-- v0.0.40: one clock for both timers, and the play-along keyboard
              joins them as a peer icon instead of a strip below the genre
@@ -674,6 +682,7 @@ const VOICES: Record<string, [string, string][]> = {
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
         <span id="record-status" class="record-status" role="status"></span>
+        <span id="wav-status" class="record-status wav-status" role="status"></span>
       </div>
 
     </div>
@@ -1402,7 +1411,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     // Hidden on BOTH tabs while PAID_FEATURES_HIDDEN — by data-transport id,
     // the same handle SIMPLE_HIDDEN uses.
-    const HIDDEN_UNTIL_LAUNCH = new Set(['record']);
+    // 'wav' joins it: the pricing ruling (2026-07-28) puts wav/stereo recording
+    // in Plus, and a feature shown free cannot later be taken back.
+    const HIDDEN_UNTIL_LAUNCH = new Set(['record', 'wav']);
 
     // ---- v6 step sequencers (shared shape) ------------------------------
     // Steps-per-bar by metre; all 20 slots persist, the first N render/play.
@@ -20210,6 +20221,122 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       }
 
+
+      // ---- v0.0.245 Save as WAV -------------------------------------------
+      // Record's uncompressed twin. A real-time tap, not an offline render:
+      // the engine's scheduler ticks against the live context and draws its
+      // music with Math.random, so an offline render would be another
+      // performance of these settings rather than the one being heard. The
+      // tap sits on the engine's output analyser — post-fader, post-limiter,
+      // so the file is at the listening level, Volume dial included — and
+      // src/scripts/wav-capture.js / wav-export.js turn it into 16-bit stereo
+      // PCM. The file is built from a Blob URL on this device; nothing is
+      // uploaded. Where the browser cannot tap raw audio, or nothing is
+      // playing yet, pressing it says which in the status line rather than
+      // pretending (the page-boot harness is exactly that browser).
+      const wavButton = document.getElementById('wav-save');
+      const wavStatus = document.getElementById('wav-status');
+      const wavLabel = wavButton.querySelector('.wav-label');
+      const WAV_MAX_MINUTES = 10;
+      let wavModules = null;
+      let wavCapture = null;
+      let wavBusy = false;
+      let wavShownSecond = -1;
+      const wavClock = (seconds) => {
+        const total = Math.max(0, Math.floor(seconds));
+        return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+      };
+      function wavSay(text) { wavStatus.textContent = text; }
+      function wavPressed(on) {
+        wavButton.setAttribute('aria-pressed', on ? 'true' : 'false');
+        wavButton.classList.toggle('recording', on);
+        wavLabel.textContent = on ? 'Stop and save' : 'Save as WAV';
+      }
+      function wavOutputNode() {
+        try { return typeof engine.getOutputAnalyser === 'function' ? engine.getOutputAnalyser() : null; } catch { return null; }
+      }
+      async function loadWavModules() {
+        if (!wavModules) {
+          const [capture, encode] = await Promise.all([
+            import('../scripts/wav-capture.js'),
+            import('../scripts/wav-export.js'),
+          ]);
+          wavModules = { ...capture, ...encode };
+        }
+        return wavModules;
+      }
+      async function finishWav() {
+        const capture = wavCapture;
+        if (!capture) return;
+        wavCapture = null;
+        wavBusy = true;
+        let result = null;
+        try { result = await capture.stop(); } catch { result = null; } finally { wavBusy = false; }
+        wavPressed(false);
+        if (!result || !result.frames) {
+          wavSay('Nothing reached the tap, so there was nothing to save.');
+          return;
+        }
+        const name = wavModules.wavFileName();
+        const url = URL.createObjectURL(new Blob(result.parts, { type: 'audio/wav' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        wavSay(`Saved ${wavClock(result.seconds)} as ${name}`);
+      }
+      async function startWav() {
+        wavBusy = true;
+        try {
+          const m = await loadWavModules();
+          const node = wavOutputNode();
+          const problem = m.wavCaptureProblem(node);
+          if (problem) { wavSay(problem); return; }
+          wavShownSecond = -1;
+          wavCapture = await m.startWavCapture(node, {
+            maxSeconds: WAV_MAX_MINUTES * 60,
+            onProgress: (seconds) => {
+              const whole = Math.floor(seconds);
+              if (whole === wavShownSecond) return;
+              wavShownSecond = whole;
+              wavSay(`WAV ${wavClock(seconds)} of ${WAV_MAX_MINUTES}:00`);
+            },
+            onFull: () => { finishWav(); },
+          });
+          wavPressed(true);
+          wavSay(`WAV 0:00 of ${WAV_MAX_MINUTES}:00`);
+        } catch (error) {
+          wavCapture = null;
+          wavPressed(false);
+          wavSay(error && error.message ? error.message : 'Save as WAV could not start in this browser.');
+        } finally {
+          wavBusy = false;
+        }
+      }
+      wavButton.addEventListener('click', () => {
+        if (wavBusy) return;
+        if (wavCapture) finishWav();
+        else startWav();
+      });
+      // A stop (or the piece finishing) ends the take and saves it; a pause
+      // suspends the context, so the paused stretch is simply not in the file.
+      if (typeof engine.on === 'function') {
+        engine.on('state', ({ running }) => { if (!running && wavCapture) finishWav(); });
+      }
+      if (!PAID_FEATURES_HIDDEN) {
+        describe(
+          wavButton,
+          `Saves what you hear as a WAV file on this device: 16-bit stereo, uncompressed, nothing uploaded. ` +
+            `Press to start, press again to stop and save; it stops and saves by itself at ${WAV_MAX_MINUTES} minutes (about 110 MB). ` +
+            'It is the music only (the engine’s own mix, anything you play along included, no other sound on the device), ' +
+            'taken after the Volume dial and the limiter, so it is at your listening level. A pause is left out. ' +
+            'It records from the moment you press it; it cannot reach back.'
+        );
+      }
+
       // ---- v28 play along (computer keyboard + MIDI) + Capture -------------
       // The keys sound through the CHOSEN TRACK's own voice, patch and level —
       // the engine routes a live note down the same chain the piece uses — and
@@ -24946,6 +25073,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       font-size: 14px;
       font-weight: 600;
     }
+
+    /* Save as WAV's line takes no room until it has something to say, so the
+       transport row is unchanged for everyone who never presses it (and for
+       every visitor while it is hidden pre-launch). */
+    .wav-status { min-width: 0; }
+    .wav-status:empty { display: none; }
 
     /* Small round utility button: the "?" tour opener, the ⓘ info buttons
        and the per-track dice re-roll. */

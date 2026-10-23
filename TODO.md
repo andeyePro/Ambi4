@@ -644,7 +644,7 @@ All three can run concurrently with any build version.**
 - [ ] Vocal-input auto-accompaniment with lyrics displayed against the derived chords — significant effort; wants the audio-in track first
 - [ ] Block editor phase 2 — full JS seam editor (>_ icon), "default to code" pref (Pro, hidden until purchasable; sandbox design wants an owner glance)
 - [ ] Arrangement studio — MIDI capture, offline render, mastered binaural/lossless exports (Pro)
-- [ ] Stereo recording polish — wav via offline render (webm live capture already ships free)
+- [x] *(v0.0.252 — WAV from a LIVE capture, not an offline render: an offline render would be a different performance; hidden until launch with Record)* Stereo recording polish — wav via offline render (webm live capture already ships free)
 - [ ] AI-free pledge labelling — a listed preset/album can carry "AI-free" if the user signs a pledge that no external AI compiled it
 - [ ] Standalone one-off-purchase Mac/iOS build (Tauri/Capacitor) — a distribution commitment, strategic call not routine build
 - [ ] Share tier 2 (named links via Workers KV + submit/approve) and tier 3 (code-bearing presets, sandbox + review gate, paid)

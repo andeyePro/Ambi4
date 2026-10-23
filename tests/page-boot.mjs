@@ -744,6 +744,28 @@ try {
     edit.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     return true;
   }
+  // v0.0.245: Save as WAV. The button sits in the transport row beside
+  // Record, hidden before launch like Record (the pricing ruling puts wav in
+  // Plus). This harness is the browser with nothing to tap — no AudioWorklet,
+  // no ScriptProcessor, no OfflineAudioContext, no MediaRecorder, and the
+  // engine never played — so pressing it must say so in its status line, not
+  // throw and not sit pressed recording nothing.
+  {
+    const wav = doc.getElementById('wav-save');
+    const status = doc.getElementById('wav-status');
+    if (!wav || !status) {
+      failures.push('the transport row has no Save as WAV button (#wav-save) and status line (#wav-status)');
+    } else {
+      if (!/Save as WAV/.test(wav.textContent)) failures.push(`the WAV button reads ${JSON.stringify(wav.textContent.trim())}`);
+      if (wav.closest('.transport-buttons') !== doc.getElementById('record-toggle').closest('.transport-buttons')) failures.push('Save as WAV is not beside Record');
+      if (!wav.hidden) failures.push('Save as WAV shows before launch, but wav recording is a Plus feature');
+      if (status.textContent !== '') failures.push(`the WAV status line speaks before anyone pressed it: ${JSON.stringify(status.textContent)}`);
+      wav.click();
+      const said = await waitUntil(() => /cannot hand raw audio to the page \(it has neither AudioWorklet nor ScriptProcessor\), so Save as WAV is unavailable here/.test(status.textContent));
+      if (!said) failures.push(`with nothing to tap, Save as WAV said ${JSON.stringify(status.textContent)}`);
+      if (wav.getAttribute('aria-pressed') !== 'false') failures.push('Save as WAV was left pressed with nothing recording');
+    }
+  }
   const NON_TRIVIAL_TRACE_POINTS = 50;
   function traceColorCount(ctx) {
     return Object.values(ctx.pointsByColor || {}).filter(

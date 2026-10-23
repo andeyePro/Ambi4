@@ -128,6 +128,7 @@ node tests/prefs-smoke.mjs         # consent + persistence
 node tests/share-name-smoke.mjs    # three-word link names
 node tests/energy-measure.mjs      # the Energy dial's own measurements
 node tests/content-check.mjs       # playlist frontmatter against the schema
+node tests/wav-export-smoke.mjs    # Save as WAV: the encoder's bytes and the tap
 npm run build && node tests/tutorial-smoke.mjs   # the guided tour
 npm run build && node tests/page-boot.mjs        # the built page in jsdom (above)
 ```
@@ -1386,3 +1387,32 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       before; under chord-length-in-beats the whole next bar; letting go
       carries on) and page-boot (the toggle exists, boots off, and three held
       keys and three held MIDI notes reach the engine's stored follow degree).
+## Save as WAV delta — the music as an uncompressed file
+
+Hidden before launch, like Record (wav recording is Plus in the pricing
+ruling). To see it: `localStorage.setItem('ambi4:dev','1')`, then refresh.
+
+- [ ] The transport row has Save as WAV (a download arrow) beside Record. Its
+      tooltip says: 16-bit stereo, nothing uploaded, stops by itself at 10
+      minutes, the music only, after the Volume dial and the limiter (your
+      listening level), a pause left out, records from the press onwards.
+- [ ] Stopped, press it: the line beside the transport status says "Press
+      Play first" and nothing is pressed. Nothing else in the row moves.
+- [ ] Play, press it: it reads Stop and save, highlighted like Record, and
+      the line counts "WAV 0:07 of 10:00". Press again: a file named
+      ambi4-<date>T<time>.wav downloads and the line says "Saved 0:12 as …".
+- [ ] Open the file in a player (QuickTime, Audacity): stereo, the length
+      the line said, the same music, and as loud as you heard it. Turn Volume
+      down and save again: the second file is quieter. That is on purpose.
+- [ ] Pause halfway through a take, wait ten seconds, resume, save: the file
+      is ten seconds shorter than the wall clock and has no gap of silence.
+- [ ] Stop (or let Finish end the piece) while saving: the take saves by
+      itself.
+- [ ] Network tab during the whole thing: no request.
+- [ ] Automated: `node tests/wav-export-smoke.mjs` (header field by field,
+      byte length, ±1 and beyond-range clamp, round trip, the tap's cap and
+      mono-to-stereo) and page-boot (the button exists, is hidden pre-launch,
+      and in a browser with nothing to tap says "neither AudioWorklet nor
+      ScriptProcessor" rather than throwing). That a real AudioWorklet hands
+      over the same samples is the manual pass above: nothing in Node or jsdom
+      runs an audio thread.

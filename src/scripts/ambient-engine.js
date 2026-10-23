@@ -11478,6 +11478,8 @@ export function createEngine(initialParams, options = {}) {
     };
   }
 
+  // The page's Save as WAV taps this node (src/scripts/wav-capture.js), so it
+  // has to stay what leaves the engine: post-fader, post-limiter.
   function getOutputAnalyser() {
     return graph ? graph.outputAnalyser : null;
   }
