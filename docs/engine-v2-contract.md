@@ -711,7 +711,7 @@ play(); RangeValue walk: w∈[0,1], ±0.15/bar, effective = min+(max-min)·w.
 - Engine: engine.setPowerBudget(budget) + per-track live stats API
   engine.getStats() → {perTrack: {activeNotes, nodesEstimate, notesPerMin}, total}
   for the UI's per-track cost meters.
-- UI: "Processor" dial (Eco–Full + Auto) on the transport panel; per-track cost
+- UI: "Processor" dial (Eco–Full; a span is the band the governor may move in, the full span is Auto — v0.0.249) on the transport panel; per-track cost
   meter (bar) in the tracks list; the meters and dial are the user-facing story of
   what is eating CPU.
 - Factory presets: curated preset gallery (name + one-line character) shipping in
@@ -932,7 +932,7 @@ Live readouts: dials show the currently-resolved drifting value (≤4 Hz poll vi
 getParams + resolved-values accessor engine.getResolved?.() — engine may expose it
 cheaply). Editor follows the SOUNDING voice (wander switches the visible dial set).
 
-Power governor (v9 ships now): src/scripts/power.js + Processor dial (Eco-Full+Auto)
+Power governor (v9 ships now): src/scripts/power.js + Processor dial (Eco-Full; rangeable since v0.0.249)
 + per-track cost meters from getStats(); auto-tier from PressureObserver/frame-time.
 Factory presets: 6-10 curated snapshots in the page (name + one-liner), fully
 editable after load. Footer build stamp (short SHA + build date).

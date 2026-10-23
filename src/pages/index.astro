@@ -651,6 +651,10 @@ const VOICES: Record<string, [string, string][]> = {
              processor column, on the genre picker's own row. -->
         <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
       </div>
+      <!-- v0.0.249 (dial-control-plane-plan D10): said in words, never a
+           modal, only while the engine's modulation connections exceed what
+           the Processor tier in force is budgeted for. -->
+      <p id="processor-warning" class="hint processor-warning" role="status" hidden></p>
 
       <div class="transport-row">
         <p id="transport-status" class="timer-status" role="status"></p>
@@ -14947,22 +14951,67 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       if (typeof engine.on === 'function') engine.on('tracks', onRegistryChanged);
 
       // ---- v9/v14 power governor + Processor dial --------------------------
-      // The dial reads Eco / Low / Med / Full / Auto; power.js owns the tier
-      // budgets and the auto sensing, the page applies the parts of the
-      // budget that live up here (live scope on/off, texture/arp density).
-      const PROCESSOR_TIERS = ['eco', 'low', 'med', 'full', 'auto'];
-      const PROCESSOR_LABELS = ['Eco', 'Low', 'Med', 'Full', 'Auto'];
+      // v0.0.249: the dial is Eco / Low / Med / Full and RANGEABLE. A span is
+      // the band power.js may move the tier inside (it senses CPU pressure
+      // and frame times and steps one tier at a time, never past an end); the
+      // untouched default is the whole Eco–Full span, which IS the old Auto;
+      // a single position pins that tier, as picking one always did. The spec
+      // is stored as power.js's string ('auto' | 'low' | 'low-med'), so a
+      // value saved by an older build ('auto', 'eco', …) reads unchanged.
+      // power.js owns the tier budgets and the sensing; the page applies the
+      // parts of the budget that live up here (live scope on/off, texture/arp
+      // density) and words the D10 connection warning.
+      const PROCESSOR_TIERS = ['eco', 'low', 'med', 'full'];
+      const PROCESSOR_LABELS = ['Eco', 'Low', 'Med', 'Full'];
       const processorReadout = document.getElementById('processor-readout');
+      const processorWarning = document.getElementById('processor-warning');
+      let parseProcessorSpec = null; // power.js's parseTierSpec, once loaded
+      let processorSpecOf = null; // power.js's tierSpec, once loaded
+
+      const tierLabel = (tier) => PROCESSOR_LABELS[PROCESSOR_TIERS.indexOf(tier)] || tier;
+
+      /** The stored spec as the dial's value: an index, or {min,max} of them. */
+      function processorDialValue(spec) {
+        const range = (parseProcessorSpec && parseProcessorSpec(spec)) || { min: 'eco', max: 'full' };
+        const lo = PROCESSOR_TIERS.indexOf(range.min);
+        const hi = PROCESSOR_TIERS.indexOf(range.max);
+        return lo === hi ? lo : { min: lo, max: hi };
+      }
+
+      /** The dial's value (an index, or a span of them) as the spec power.js takes. */
+      function processorSpecFromDial(v) {
+        const at = (x) => PROCESSOR_TIERS[clamp(Math.round(x), 0, PROCESSOR_TIERS.length - 1)];
+        if (v && typeof v === 'object') return processorSpecOf(at(v.min), at(v.max));
+        return at(v);
+      }
 
       function applyPowerBudget(budget) {
         powerBudget = budget;
+        const requested = governor ? governor.getTier() : settings.ui.processor;
+        const range = governor ? governor.getRange() : null;
         if (processorReadout) {
-          const requested = governor ? governor.getTier() : settings.ui.processor;
-          const auto = requested === 'auto' ? ` (${budget.tier})` : '';
+          let name = tierLabel(requested);
+          if (requested === 'auto') name = `Auto (${budget.tier})`;
+          else if (range && range.min !== range.max) {
+            name = `${tierLabel(range.min)}–${tierLabel(range.max)} (${budget.tier})`;
+          }
           processorReadout.textContent =
-            `${PROCESSOR_LABELS[PROCESSOR_TIERS.indexOf(requested)] || 'Auto'}${auto}` +
+            `${name}` +
             ` · ${budget.maxNotes === Infinity ? 'no note cap' : `${budget.maxNotes} notes`}` +
             ` · ${budget.visualFps} fps`;
+        }
+        // Where inside the span the governor has the tier right now — the
+        // same live pointer every spread dial draws.
+        if (range && range.min !== range.max) processorDial?.setLive?.(PROCESSOR_TIERS.indexOf(budget.tier));
+        // D10: the warning is the governor's verdict, put into words. Hidden
+        // whenever the connections fit the tier in force.
+        if (processorWarning) {
+          const over = !!budget.connectionsOver;
+          processorWarning.hidden = !over;
+          processorWarning.textContent = over
+            ? `${budget.connections} modulation connections — more than ${tierLabel(budget.tier)} is budgeted for (${budget.maxConnections}). ` +
+              'Everything here runs in your browser, so fewer connections play smoother.'
+            : '';
         }
         // scopeEnabled: the page owns the live scope, so this one is applied
         // directly — updateAllScopeModes falls back to the cheap static
@@ -14997,52 +15046,80 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (Object.keys(tracks).length) engine.setParams({ tracks });
       }
 
-      function setProcessorTier(tier) {
-        settings.ui.processor = tier;
+      /** spec: 'auto' | tier | '<min>-<max>' — stored as given, applied by power.js. */
+      function setProcessorTier(spec) {
+        settings.ui.processor = spec;
         persistSettings();
-        if (governor) governor.setTier(tier);
+        if (governor) governor.setTier(spec);
         else if (powerBudget) applyPowerBudget(powerBudget);
       }
 
+      /**
+       * D10: how many ACTIVE modulation connections the ENGINE holds — its
+       * sanitised params.routing, not what the page sent (the sanitiser drops
+       * refused edges and keeps one per destination). Reported at boot, after
+       * any snapshot load, and once a bar while playing; power.js re-emits
+       * only when the count changes. The only routes in today are a share
+       * link or preset carrying `routing` (there is no socket UI yet).
+       */
+      function reportConnections() {
+        if (!governor || typeof governor.setConnections !== 'function') return;
+        try {
+          const routing = engine.getParams().routing;
+          governor.setConnections(Array.isArray(routing) ? routing.length : 0);
+        } catch {}
+      }
+
       try {
-      const { createGovernor } = await import('../scripts/power.js');
-        if (typeof createGovernor === 'function') {
-          governor = createGovernor({ engine, onTierChange: applyPowerBudget });
+      const powerModule = await import('../scripts/power.js');
+        if (typeof powerModule.createGovernor === 'function') {
+          parseProcessorSpec = powerModule.parseTierSpec || null;
+          processorSpecOf = powerModule.tierSpec || null;
+          governor = powerModule.createGovernor({ engine, onTierChange: applyPowerBudget });
+          // A deliberate test seam, like window.__ambi4Engine: what the
+          // governor was actually handed (getTier / getRange / getAuto /
+          // connectionStatus), which a readout alone cannot prove.
+          if (typeof window !== 'undefined') window.__ambi4Governor = governor;
         }
       } catch {
         // No governor module: everything below simply never runs.
       }
 
-      if (governor) {
-        const tierIndex = Math.max(0, PROCESSOR_TIERS.indexOf(settings.ui.processor));
+      if (governor && parseProcessorSpec && processorSpecOf) {
+        // A stored spec nothing can read (hand-edited storage, a future
+        // build's) falls back to the default span rather than to a guess.
+        if (!parseProcessorSpec(settings.ui.processor)) settings.ui.processor = 'auto';
         processorDial = buildSimpleDial(
           'processor-dial',
           {
             id: 'processor',
             label: 'Processor',
-            // v0.0.57 opt-out: five NAMED tiers (Eco, Low, Med, Full, Auto),
-            // which makes this an enumeration — and `setProcessorTier` takes
-            // one of them, so a span would be silently rounded to whichever
-            // end the midpoint landed on. The TODO item asking for a
-            // Eco→Full range here is a different feature: it needs the power
-            // governor to be the thing that moves the value INSIDE the range,
-            // which is a governor change, not a dial change.
-            allowRange: false,
+            // v0.0.246: rangeable. Until now (v0.0.57) this was an opt-out —
+            // five named tiers with Auto as the fifth, and a span would have
+            // been rounded to one of them. Now the span IS the input: power.js
+            // moves the tier only inside it, so a horizontal drag means what
+            // it means on every other dial, and Auto is simply the whole span.
+            allowRange: true,
             min: 0,
-            max: 4,
+            max: 3,
             step: 1,
-            marks: [0, 1, 2, 3, 4],
-            value: tierIndex,
-            format: (v) => PROCESSOR_LABELS[clamp(Math.round(v), 0, 4)],
-            defaultValue: 4,
+            marks: [0, 1, 2, 3],
+            value: processorDialValue(settings.ui.processor),
+            format: (v) => PROCESSOR_LABELS[clamp(Math.round(v), 0, 3)],
+            defaultValue: { min: 0, max: 3 },
           },
-          (v) => setProcessorTier(PROCESSOR_TIERS[clamp(Math.round(v), 0, 4)])
+          (v) => {
+            const spec = processorSpecFromDial(v);
+            if (spec) setProcessorTier(spec);
+          }
         );
         describe(
           processorDial.el,
-          'How hard the generator may work. Auto watches CPU pressure and frame times and picks for you; Eco is the coolest, Full the busiest.'
+          'How hard the generator may work. Left as Eco–Full it watches CPU pressure and frame times and picks a tier inside that span for you; drag sideways to narrow the span, or set one tier to pin it. Eco is the coolest, Full the busiest.'
         );
         setProcessorTier(settings.ui.processor);
+        reportConnections();
+        if (typeof engine.on === 'function') engine.on('bar', reportConnections);
       } else {
         // The processor column spans three rows (title / dial / readout), so
         // no governor means three removals, not one.
@@ -15050,6 +15127,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         document.getElementById('processor-info')?.remove();
         document.getElementById('processor-dial')?.remove();
         document.getElementById('processor-readout')?.remove();
+        document.getElementById('processor-warning')?.remove();
       }
 
       // ---- v13/v18 front-page oscilloscope (above the tabs) ---------------
@@ -22334,6 +22412,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         engine.setParams(engineParamsFrom(settings));
         syncUIFromSettings();
         applyDensityScale();
+        // D10: a preset can carry routing edges; the warning must not wait for
+        // the next bar (there is none while stopped).
+        reportConnections();
         persistSettings();
       }
 
@@ -23478,7 +23559,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#processor-dial',
-          text: 'Processor decides how hard this runs. Auto watches the machine and backs off when it gets warm; Eco is the coolest setting.',
+          text: 'Processor decides how hard this runs. Left alone it spans Eco to Full and picks inside that span itself, backing off when the machine gets warm; drag sideways to narrow the span, or set one tier to pin it. Eco is the coolest setting. If a patch uses more modulation connections than the tier in force is budgeted for, a line under the genre picker says so.',
         },
         {
           target: '#play-along',
@@ -23975,6 +24056,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       } catch {}
       activateTab(settings.ui.activeTab, { persist: false });
       applyDensityScale();
+      // D10: the boot push just above is where a share link's or a stored
+      // setup's routing edges first reach the engine — count them now, not at
+      // the first bar (there is none until Play).
+      reportConnections();
       setTransportUI();
       updateTimerUI();
       if (settings.ui.tutorialOpen) setTutorialOpen(true);
@@ -24320,6 +24405,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       margin-left: auto;
       text-align: right;
       white-space: nowrap;
+    }
+    /* v0.0.249 (D10): wraps, unlike the readout above it — it is a sentence,
+       shown only while the connections are over the tier's budget. */
+    .processor-warning {
+      margin: 4px 0 0;
+      text-align: right;
+      overflow-wrap: anywhere;
     }
 
 

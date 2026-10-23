@@ -5000,6 +5000,58 @@ try {
     }
   }
 
+  // ---- v0.0.249 the Processor dial takes a span ------------------------------
+  // Untouched it IS the whole Eco–Full span, which is the old Auto; a sideways
+  // gesture (here its keyboard form, Shift+Left/Right) narrows the span the
+  // governor may move inside, a collapsed span pins one tier, and the reset
+  // goes back to Auto. Asserted at the GOVERNOR (window.__ambi4Governor), not
+  // the readout — a dial drawing a value nobody received is the failure mode.
+  {
+    const gov = window.__ambi4Governor;
+    const knob = doc.querySelector('#processor-dial [role="slider"]');
+    const readout = doc.getElementById('processor-readout');
+    if (!gov || typeof gov.getRange !== 'function') {
+      failures.push('the page exposes no range-aware governor (window.__ambi4Governor.getRange)');
+    } else if (!knob) {
+      failures.push('the Processor dial rendered no slider');
+    } else {
+      const press = (key, shiftKey = false) =>
+        knob.dispatchEvent(new window.KeyboardEvent('keydown', { key, shiftKey, bubbles: true }));
+      const state = () => ({ spec: gov.getTier(), range: gov.getRange(), auto: gov.getAuto() });
+      const fresh = state();
+      if (fresh.spec !== 'auto' || fresh.range.min !== 'eco' || fresh.range.max !== 'full' || !fresh.auto) {
+        failures.push(`an untouched Processor dial did not hand the governor the full Eco–Full span (auto): ${JSON.stringify(fresh)}`);
+      }
+      if (!/min Eco, max Full/.test(knob.getAttribute('aria-valuetext') || '')) {
+        failures.push(`an untouched Processor dial does not read as the Eco–Full span (${knob.getAttribute('aria-valuetext')})`);
+      }
+      press('ArrowLeft', true); // narrow: Eco–Full → Low–Med
+      const narrowed = state();
+      if (narrowed.spec !== 'low-med' || narrowed.range.min !== 'low' || narrowed.range.max !== 'med'
+        || !['low', 'med'].includes(narrowed.auto)) {
+        failures.push(`narrowing the Processor span did not hand the governor Low–Med, sensing inside it: ${JSON.stringify(narrowed)}`);
+      }
+      if (readout && !/^Low–Med \((low|med)\)/.test(readout.textContent)) {
+        failures.push(`the Processor status does not say the span it is moving in: "${readout.textContent}"`);
+      }
+      press('ArrowLeft', true); // narrow past nothing: a single tier — a pin
+      const pinned = state();
+      if (pinned.auto !== null || pinned.range.min !== pinned.range.max || pinned.spec !== pinned.range.min) {
+        failures.push(`collapsing the Processor span did not pin one tier at the governor: ${JSON.stringify(pinned)}`);
+      }
+      press('ArrowRight', true); // widen again from the pin
+      const widened = state();
+      if (widened.range.min === widened.range.max || widened.auto === null) {
+        failures.push(`widening a pinned Processor dial did not give the governor a span again: ${JSON.stringify(widened)}`);
+      }
+      press('Backspace'); // reset → the declared default, Eco–Full
+      const reset = state();
+      if (reset.spec !== 'auto' || reset.range.min !== 'eco' || reset.range.max !== 'full') {
+        failures.push(`resetting the Processor dial did not go back to Auto (Eco–Full): ${JSON.stringify(reset)}`);
+      }
+    }
+  }
+
   // ---- v27 blank slate (fromMartin 25) --------------------------------------
   // Clicking Blank slate must leave every track OFF — the "all you" state.
   // Runs LAST: it rewrites the whole params object, so it must follow every
@@ -5373,6 +5425,123 @@ try {
     }
     if (!/env\(safe-area-inset-left\)/.test(globalCss)) {
       failures.push('global.css never reads env(safe-area-inset-left) though the viewport is viewport-fit=cover');
+    }
+  }
+
+  // v0.0.249: the Processor span is the DEVICE's (it lives in settings.ui, which
+  // no share link or preset carries — a laptop's budget is not a phone's), so
+  // what has to round-trip is storage: a stored 'low-med' reaches the governor
+  // on the next visit, a share link arriving on top does not clobber it, and a
+  // change persists as the same string. The link also carries more modulation
+  // connections (D10) than either tier of that span is budgeted for — the only
+  // route by which edges reach the engine today, there being no socket UI —
+  // and the page must say so in words near the dial.
+  {
+    const edges = Array.from({ length: 20 }, (_, i) => ({ source: i % 2 ? 'lfo.1' : 'macro.1', destination: `pad:p${i}` }));
+    const payload = Buffer.from(JSON.stringify({ bpm: 72, routing: edges, v: 2 }), 'utf8').toString('base64url');
+    const procDom = new JSDOM(html, {
+      url: `https://ambi4.work/#p=${payload}`,
+      pretendToBeVisual: true,
+      runScripts: 'outside-only',
+    });
+    const procWindow = procDom.window;
+    answerLeaveGuardWithMoveOn(procWindow);
+    const procContexts = new WeakMap();
+    procWindow.HTMLCanvasElement.prototype.getContext = function getContext() {
+      let ctx = procContexts.get(this);
+      if (!ctx) {
+        ctx = stubCanvasContext();
+        ctx.canvas = this;
+        procContexts.set(this, ctx);
+      }
+      return ctx;
+    };
+    procWindow.HTMLCanvasElement.prototype.toDataURL = () => 'data:,';
+    procWindow.AudioContext = StubAudioContext;
+    procWindow.OfflineAudioContext = undefined;
+    procWindow.devicePixelRatio = 1;
+    installClipboard(procWindow);
+    for (const key of passthrough) {
+      if (procWindow[key] !== undefined) globalThis[key] = procWindow[key];
+    }
+    globalThis.self = procWindow;
+    for (const d of new Set([procWindow.document, globalThis.document])) if (d) d.cookie = 'ambi4-consent=granted';
+    const stores = [...new Set([procWindow.localStorage, globalThis.localStorage])].filter((st) => st && typeof st.setItem === 'function');
+    const storedSetup = { bpm: 90, ui: { processor: 'low-med' } };
+    for (const store of stores) store.setItem('ambi4:generator', JSON.stringify(storedSetup));
+    // The bundle's prefs module is shared across these boots (Node caches it
+    // by URL), and its in-memory layer still holds the first boot's
+    // pre-consent setup, which it reads BEFORE storage. Writing through that
+    // same module with consent granted clears the shadow, as a real reload
+    // would never have had one.
+    const prefsChunk = readdirSync(join(distDir, '_astro')).find((f) => /^prefs\..*\.js$/.test(f));
+    if (prefsChunk) {
+      const prefsModule = await import(pathToFileURL(join(distDir, '_astro', prefsChunk)).href);
+      prefsModule.prefs?.set?.('generator', storedSetup);
+    }
+    const storedSpec = () => {
+      for (const store of stores) {
+        try {
+          const parsed = JSON.parse(store.getItem('ambi4:generator') || 'null');
+          if (parsed && parsed.ui && parsed.ui.processor !== undefined) return parsed.ui.processor;
+        } catch {}
+      }
+      return undefined;
+    };
+    try {
+      await import(`${pathToFileURL(bundlePath).href}?processor-span`);
+      const procDoc = procWindow.document;
+      const booted = await waitUntil(() => {
+        const el = procDoc.getElementById('generator-app');
+        return Boolean(el) && !el.hidden;
+      }, 8000);
+      if (!booted) {
+        failures.push('the page did not boot with a stored Processor span and a link carrying routing');
+      } else {
+        const gov = procWindow.__ambi4Governor;
+        const engineRouting = procWindow.__ambi4Engine.getParams().routing;
+        if (!gov || typeof gov.getRange !== 'function') {
+          failures.push('the stored-span boot exposes no range-aware governor');
+        } else {
+          const range = gov.getRange();
+          if (gov.getTier() !== 'low-med' || range.min !== 'low' || range.max !== 'med' || !['low', 'med'].includes(gov.getAuto())) {
+            failures.push(`a stored Processor span 'low-med' did not reach the governor on the next visit (${gov.getTier()}, ${JSON.stringify(range)}, at ${gov.getAuto()})`);
+          }
+          const knob = procDoc.querySelector('#processor-dial [role="slider"]');
+          if (!knob || !/min Low, max Med/.test(knob.getAttribute('aria-valuetext') || '')) {
+            failures.push(`the Processor dial does not draw the stored Low–Med span (${knob && knob.getAttribute('aria-valuetext')})`);
+          }
+          // D10: twenty edges at the engine, over Low's 8 and Med's 16.
+          if (!Array.isArray(engineRouting) || engineRouting.length !== 20) {
+            failures.push(`a link carrying 20 routing edges left the engine holding ${engineRouting && engineRouting.length}`);
+          }
+          const status = gov.connectionStatus();
+          if (status.count !== 20 || !status.over) {
+            failures.push(`the governor was not told the engine's connections, or did not call them over budget: ${JSON.stringify(status)}`);
+          }
+          const warning = procDoc.getElementById('processor-warning');
+          if (!warning || warning.hidden || !/20 modulation connections/.test(warning.textContent)
+            || !/(Low|Med) is budgeted for/.test(warning.textContent)) {
+            failures.push(`connections over the tier's budget are not said in words near the Processor dial ("${warning ? warning.textContent : '(no #processor-warning)'}", hidden ${warning && warning.hidden})`);
+          }
+          // Removing the edges takes the warning away (counted once a bar, and
+          // by any snapshot load; here the count is reported directly).
+          procWindow.__ambi4Engine.setParams({ routing: [] });
+          gov.setConnections(procWindow.__ambi4Engine.getParams().routing.length);
+          if (warning && !warning.hidden) failures.push('the connection warning stayed up after the edges were removed');
+          // Persist: narrow the dial to a pin and read storage back.
+          if (knob) {
+            knob.dispatchEvent(new procWindow.KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true }));
+            const pin = gov.getTier();
+            const persisted = await waitUntil(() => storedSpec() === pin, 3000);
+            if (!persisted || gov.getAuto() !== null) {
+              failures.push(`pinning the Processor dial did not persist the governor's spec (stored ${JSON.stringify(storedSpec())}, governor ${pin}, sensing at ${gov.getAuto()})`);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      failures.push(`booting with a stored Processor span threw: ${err && err.stack ? err.stack : err}`);
     }
   }
 

@@ -10,16 +10,26 @@
  * ---------------------------------------------------------------------
  * Tier budget table (the contract other modules should treat as fixed):
  *
- *   tier   maxNotes  visualFps  scopeEnabled  reverbSeconds  textureDensityScale
- *   eco    8         15         false         1              0.5
- *   low    14        24         true          2              0.75
- *   med    22        30         true          4              1
- *   full   Infinity  30         true          4              1
+ *   tier   maxNotes  visualFps  scopeEnabled  reverbSeconds  textureDensityScale  maxConnections
+ *   eco    8         15         false         1              0.5                  4
+ *   low    14        24         true          2              0.75                 8
+ *   med    22        30         true          4              1                    16
+ *   full   Infinity  30         true          4              1                    32
  *
  * - maxNotes: engine.setPowerBudget({maxNotes}) — the only field the
  *   engine itself currently consumes (voice-steal oldest/quietest).
  * - visualFps / scopeEnabled / textureDensityScale: for the visualiser /
  *   scope / texture+arp density — the page applies these from onTierChange.
+ * - maxConnections (dial-control-plane-plan D10): how many ACTIVE modulation
+ *   connections (the engine's params.routing edges — lfo.1 / macro.1 into a
+ *   dial) the tier is budgeted for. The governor never refuses an edge and
+ *   never moves the tier because of one — the edges are the person's own
+ *   choice — it only says so: setConnections(n) records the count, and the
+ *   emitted budget carries `connections` and `connectionsOver` (n > the
+ *   current tier's maxConnections) for the page to put into words. The
+ *   numbers are a forward budget, NOT a measurement: today an edge costs a
+ *   little arithmetic once a bar; the plan expects a node per connection
+ *   once sources run at audio rate, and that is what the budget is sized for.
  * - reverbSeconds: budget field only. The engine has no reverb-length hook
  *   yet (v9 addendum flags this); the governor exposes the number anyway
  *   so a page/engine that grows one later needs no governor change —
@@ -49,6 +59,16 @@
  *   step, it is only applied if at least HYSTERESIS_MS has passed since the
  *   last tier change, and it is always exactly one tier at a time.
  *
+ * RANGE (v0.0.249 — the Processor dial's span): sensing moves the tier only
+ * INSIDE a declared [min, max] of TIER_ORDER. 'auto' IS the full range
+ * eco..full, so the old behaviour is the default and is unchanged; a range
+ * of one tier ('low', or 'low-low') pins it exactly as a manual tier always
+ * did, with no sensing at all. A narrower span ('low-med') senses, but every
+ * step — pressure, frame time, headroom — stops at its ends, and the
+ * starting tier (the static prior, or the tier already applied) is clamped
+ * into it. The spec is a string so it persists anywhere a tier name did:
+ * 'auto' | <tier> | '<min>-<max>' (see parseTierSpec / tierSpec).
+ *
  * ---------------------------------------------------------------------
  * Integration sketch (page agent, next wave — not wired here):
  *
@@ -65,7 +85,7 @@
  *       // exists — feature-detect it, this budget field is forward-looking.
  *     },
  *   });
- *   processorDial.onInput = (tier) => governor.setTier(tier); // eco|low|med|full|auto
+ *   processorDial.onInput = (spec) => governor.setTier(spec); // auto | eco | 'low-med' …
  *   processorDial.set(governor.getTier());                    // restore on load
  *   // live readout while in auto: governor.getAuto() / governor.stats()
  *   // teardown: governor.destroy();
@@ -74,13 +94,41 @@
 export const TIER_ORDER = Object.freeze(['eco', 'low', 'med', 'full']);
 
 export const TIER_BUDGETS = Object.freeze({
-  eco: Object.freeze({ maxNotes: 8, visualFps: 15, scopeEnabled: false, reverbSeconds: 1, textureDensityScale: 0.5 }),
-  low: Object.freeze({ maxNotes: 14, visualFps: 24, scopeEnabled: true, reverbSeconds: 2, textureDensityScale: 0.75 }),
-  med: Object.freeze({ maxNotes: 22, visualFps: 30, scopeEnabled: true, reverbSeconds: 4, textureDensityScale: 1 }),
-  full: Object.freeze({ maxNotes: Infinity, visualFps: 30, scopeEnabled: true, reverbSeconds: 4, textureDensityScale: 1 }),
+  eco: Object.freeze({ maxNotes: 8, visualFps: 15, scopeEnabled: false, reverbSeconds: 1, textureDensityScale: 0.5, maxConnections: 4 }),
+  low: Object.freeze({ maxNotes: 14, visualFps: 24, scopeEnabled: true, reverbSeconds: 2, textureDensityScale: 0.75, maxConnections: 8 }),
+  med: Object.freeze({ maxNotes: 22, visualFps: 30, scopeEnabled: true, reverbSeconds: 4, textureDensityScale: 1, maxConnections: 16 }),
+  full: Object.freeze({ maxNotes: Infinity, visualFps: 30, scopeEnabled: true, reverbSeconds: 4, textureDensityScale: 1, maxConnections: 32 }),
 });
 
-const VALID_TIERS = new Set([...TIER_ORDER, 'auto']);
+/**
+ * The governor's whole input as one string: 'auto' (eco..full), a single tier
+ * (a pin), or '<min>-<max>' (a span). Returns { min, max } tier names, or null
+ * for anything else — never a guess, so a corrupt stored value falls back to
+ * whatever the caller's default is rather than to an arbitrary tier.
+ */
+export function parseTierSpec(spec) {
+  if (spec === 'auto') return { min: TIER_ORDER[0], max: TIER_ORDER[TIER_ORDER.length - 1] };
+  if (typeof spec !== 'string') return null;
+  if (TIER_ORDER.includes(spec)) return { min: spec, max: spec };
+  const m = /^([a-z]+)-([a-z]+)$/.exec(spec);
+  if (!m || !TIER_ORDER.includes(m[1]) || !TIER_ORDER.includes(m[2])) return null;
+  const a = TIER_ORDER.indexOf(m[1]);
+  const b = TIER_ORDER.indexOf(m[2]);
+  return { min: TIER_ORDER[Math.min(a, b)], max: TIER_ORDER[Math.max(a, b)] };
+}
+
+/** The canonical spec for a [min, max] of tiers: the full range is 'auto', a
+ * collapsed one is the bare tier, anything else '<min>-<max>'. */
+export function tierSpec(min, max) {
+  const a = TIER_ORDER.indexOf(min);
+  const b = TIER_ORDER.indexOf(max);
+  if (a < 0 || b < 0) return null;
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  if (lo === hi) return TIER_ORDER[lo];
+  if (lo === 0 && hi === TIER_ORDER.length - 1) return 'auto';
+  return `${TIER_ORDER[lo]}-${TIER_ORDER[hi]}`;
+}
 
 const VISIBLE_EVAL_MS = 2000;
 const HIDDEN_EVAL_MS = 30000;
@@ -120,12 +168,15 @@ function staticPriorTier() {
 }
 
 /**
- * createGovernor({ engine, onTierChange }) → { setTier, getTier, getAuto,
- * stats, destroy }. See file header for the tier table and auto heuristic.
+ * createGovernor({ engine, onTierChange }) → { setTier, setRange, getTier,
+ * getRange, getAuto, setConnections, connectionStatus, stats, destroy }. See file header for the tier table and auto heuristic.
  */
 export function createGovernor({ engine, onTierChange } = {}) {
   let destroyed = false;
-  let requestedTier = null; // 'eco'|'low'|'med'|'full'|'auto' — as configured
+  let requestedTier = null; // canonical spec: 'auto' | tier | '<min>-<max>'
+  let rangeLo = 0; // TIER_ORDER index bounds the tier may move inside
+  let rangeHi = TIER_ORDER.length - 1;
+  let connections = 0; // active modulation edges, as last reported by the page
   let currentTier = null; // 'eco'|'low'|'med'|'full' — currently applied
   let lastChangeAt = 0;
 
@@ -145,8 +196,17 @@ export function createGovernor({ engine, onTierChange } = {}) {
   let frameEma = null;
   let headroomStreak = 0;
 
+  function budgetFor(tier) {
+    return {
+      ...TIER_BUDGETS[tier],
+      tier,
+      connections,
+      connectionsOver: connections > TIER_BUDGETS[tier].maxConnections,
+    };
+  }
+
   function emit() {
-    const budget = { ...TIER_BUDGETS[currentTier], tier: currentTier };
+    const budget = budgetFor(currentTier);
     if (engine && typeof engine.setPowerBudget === 'function') {
       try {
         engine.setPowerBudget({ maxNotes: budget.maxNotes });
@@ -175,9 +235,10 @@ export function createGovernor({ engine, onTierChange } = {}) {
     return Date.now() - lastChangeAt >= HYSTERESIS_MS;
   }
 
+  /** Only ever inside the declared range — sensing cannot leave [min, max]. */
   function stepTier(direction) {
     const idx = TIER_ORDER.indexOf(currentTier);
-    const nextIdx = Math.max(0, Math.min(TIER_ORDER.length - 1, idx + direction));
+    const nextIdx = Math.max(rangeLo, Math.min(rangeHi, idx + direction));
     if (nextIdx === idx) return false;
     return applyTier(TIER_ORDER[nextIdx]);
   }
@@ -196,9 +257,17 @@ export function createGovernor({ engine, onTierChange } = {}) {
   }
 
   /** Immediate reaction to a PressureObserver callback (not tick-gated). */
+  function atFloor() {
+    return TIER_ORDER.indexOf(currentTier) <= rangeLo;
+  }
+
+  function atCeiling() {
+    return TIER_ORDER.indexOf(currentTier) >= rangeHi;
+  }
+
   function maybeReactToPressure() {
-    if (requestedTier !== 'auto' || destroyed) return;
-    if (PRESSURE_BAD.has(pressureState) && currentTier !== 'eco' && hysteresisOk()) {
+    if (!sensing || destroyed) return;
+    if (PRESSURE_BAD.has(pressureState) && !atFloor() && hysteresisOk()) {
       headroomStreak = 0;
       stepTier(-1);
     }
@@ -206,15 +275,15 @@ export function createGovernor({ engine, onTierChange } = {}) {
 
   /** Periodic sustained-headroom decision (and frame-time-driven lowering). */
   function decideTierStep() {
-    if (requestedTier !== 'auto' || destroyed) return;
+    if (!sensing || destroyed) return;
     if (isBadSignal()) {
       headroomStreak = 0;
-      if (currentTier !== 'eco' && hysteresisOk()) stepTier(-1);
+      if (!atFloor() && hysteresisOk()) stepTier(-1);
       return;
     }
     if (isGoodSignal()) {
       headroomStreak += 1;
-      if (headroomStreak >= RAISE_STREAK_TICKS && currentTier !== 'full' && hysteresisOk()) {
+      if (headroomStreak >= RAISE_STREAK_TICKS && !atCeiling() && hysteresisOk()) {
         headroomStreak = 0;
         stepTier(1);
       }
@@ -394,32 +463,77 @@ export function createGovernor({ engine, onTierChange } = {}) {
     headroomStreak = 0;
   }
 
-  function setTier(tier) {
-    if (destroyed || !VALID_TIERS.has(tier)) return;
-    requestedTier = tier;
-    if (tier === 'auto') {
-      startSensing();
-      applyTier(currentTier ?? staticPriorTier());
-    } else {
+  /**
+   * setTier(spec): 'auto' | tier | '<min>-<max>'. An unparseable spec is
+   * ignored (the governor keeps what it had). A one-tier range pins; any
+   * wider one senses inside it, starting from the tier already applied (or
+   * the static prior) clamped into the span.
+   */
+  function setTier(spec) {
+    if (destroyed) return;
+    const range = parseTierSpec(spec);
+    if (!range) return;
+    const lo = TIER_ORDER.indexOf(range.min);
+    const hi = TIER_ORDER.indexOf(range.max);
+    requestedTier = tierSpec(range.min, range.max);
+    rangeLo = lo;
+    rangeHi = hi;
+    if (lo === hi) {
       stopSensing();
-      applyTier(tier);
+      applyTier(TIER_ORDER[lo]);
+      return;
     }
+    startSensing();
+    const from = TIER_ORDER.indexOf(currentTier ?? staticPriorTier());
+    applyTier(TIER_ORDER[Math.max(lo, Math.min(hi, from))]);
+  }
+
+  /** setRange(min, max) — the same input as setTier('<min>-<max>'). */
+  function setRange(min, max) {
+    const spec = tierSpec(min, max);
+    if (spec) setTier(spec);
   }
 
   function getTier() {
     return requestedTier;
   }
 
+  function getRange() {
+    return { min: TIER_ORDER[rangeLo], max: TIER_ORDER[rangeHi] };
+  }
+
+  /** The applied tier while the governor is sensing (any span), else null. */
   function getAuto() {
-    return requestedTier === 'auto' ? currentTier : null;
+    return sensing ? currentTier : null;
+  }
+
+  /**
+   * D10: the page reports how many active modulation connections the engine
+   * holds. Re-emits only when the count changes, so a caller may report
+   * every bar without churning the consumers.
+   */
+  function setConnections(n) {
+    if (destroyed) return;
+    const next = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    if (next === connections) return;
+    connections = next;
+    if (currentTier) emit();
+  }
+
+  /** { count, budget, tier, over } against the tier applied right now. */
+  function connectionStatus() {
+    const budget = currentTier ? TIER_BUDGETS[currentTier].maxConnections : null;
+    return { count: connections, budget, tier: currentTier, over: budget != null && connections > budget };
   }
 
   function stats() {
     return {
       tier: currentTier,
-      mode: requestedTier === 'auto' ? 'auto' : 'manual',
+      mode: sensing ? 'auto' : 'manual',
       requestedTier,
-      budget: currentTier ? { ...TIER_BUDGETS[currentTier], tier: currentTier } : null,
+      range: getRange(),
+      connections: connectionStatus(),
+      budget: currentTier ? budgetFor(currentTier) : null,
       sensors: {
         pressureState,
         frameEmaMs: frameEma,
@@ -440,7 +554,7 @@ export function createGovernor({ engine, onTierChange } = {}) {
 
   setTier('auto'); // sensible ready-to-go default; page may setTier() again from a saved pref
 
-  return { setTier, getTier, getAuto, stats, destroy };
+  return { setTier, setRange, getTier, getRange, getAuto, setConnections, connectionStatus, stats, destroy };
 }
 
 export default createGovernor;

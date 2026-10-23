@@ -373,8 +373,10 @@ layer editing inline in the rule (it summarises and opens the editor).
 ## 5. Routing — sources feeding the layers (not built)
 
 Modulation sources (envelopes, LFOs, macros, any parameter patched out) feed a
-destination's Chance and Pool. None of D5 to D7 or D10 is built beyond the
-engine slice noted in the build sequence (phase 5). They are kept whole,
+destination's Chance and Pool. None of D5 to D7 is built beyond the
+engine slice noted in the build sequence (phase 5); D10's accounting and
+warning shipped in v0.0.249 (its own status line says what is and is not
+there). They are kept whole,
 because the token table in D7 is already reserved and permanent.
 
 ### D5 — Always show routing in use; no visibility switch
@@ -451,7 +453,20 @@ Two spellings ruled out on sight, so nobody books them by accident: `inst`
 
 ### D10 — Warn on measured degradation
 
-*Status: decided 2026-07-27. Not built (no connections to account for).*
+*Status: decided 2026-07-27. **Accounting and warning BUILT v0.0.249.** Every
+tier in `power.js` now carries `maxConnections` (Eco 4, Low 8, Med 16, Full
+32 — a forward budget sized for a node per connection, not a measurement:
+today an edge is a little arithmetic once a bar). The page counts the
+ENGINE's sanitised `params.routing` edges (`lfo.1` / `macro.1` sources) at
+boot, after any snapshot load and once a bar, and hands the count to
+`governor.setConnections`; the emitted budget carries `connectionsOver`, and
+while it is true a plain sentence under the genre picker
+(`#processor-warning`) names the count, the tier and its budget. The governor
+never refuses an edge or moves the tier because of one. Reachable today only
+by a share link or preset carrying `routing` — there is no socket UI yet —
+and held by `tests/power-smoke.mjs` (budget and threshold per tier, the
+verdict flipping when the governor steps down) and `tests/page-boot.mjs` (a
+20-edge link over a Low–Med span).*
 
 The draft's "warn from LFO 3" becomes a warning on **active modulation
 connections**, wired into the existing power governor (`power.js`), which
@@ -594,8 +609,8 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
    sanitiser (last wins); a routed walk key's position IS the source value,
    gated by hold/freeze and composed with v0.0.167 sampling. Still to come
    in this phase: envelopes as sources (per-voice), LFO 2+/macro 2+,
-   params-as-sources, the socket UI (after the phase-3 ruling), and the
-   D10 power-governor accounting.
+   params-as-sources and the socket UI (after the phase-3 ruling). The D10
+   power-governor accounting shipped v0.0.249.
 6. **Dissolve the Randomise row (D8).** Volume, Timing and Pan become spreads
    on their own dials; Pitch splits into Passing notes and Octave wander; Voice
    becomes a probability dial. `vary.*` migrates: `null` becomes a MACRO patch,
