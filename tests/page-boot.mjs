@@ -950,6 +950,38 @@ try {
     }
   }
 
+  // v0.0.246 — the grid says WHY: a lit step's tooltip and aria-label carry
+  // the note's role AND its source/development in plain words. Driven through
+  // the open editor's noteChosen exactly as the engine's 'note' wiring does.
+  {
+    const wordsMod = await import(pathToFileURL(join(repoRoot, 'src/scripts/note-words.js')).href);
+    for (const [track, values] of Object.entries(engineModule.NOTE_SOURCES)) {
+      for (const value of values) {
+        if (!wordsMod.SOURCE_WORDS[value]) failures.push(`NOTE_SOURCES.${track} has "${value}" but SOURCE_WORDS has no words for it`);
+      }
+    }
+    const whyEditor = await openEditor('melody');
+    const seq = window.__ambi4Editors && window.__ambi4Editors.get('melody') && window.__ambi4Editors.get('melody').seq;
+    if (!seq || typeof seq.noteChosen !== 'function') {
+      failures.push('the open melody editor exposes no seq.noteChosen to drive');
+    } else {
+      seq.noteChosen(0, null, 9001, 64, 'third', 'motif', 'transpose');
+      seq.noteChosen(1, null, 9001, 43, 'root', 'approach', null);
+      const cells = whyEditor.querySelectorAll('.seq-cell');
+      const first = cells[0];
+      const second = cells[1];
+      const need = (cell, label, parts) => {
+        for (const text of [cell.title, cell.getAttribute('aria-label') || '']) {
+          for (const part of parts) {
+            if (!text.includes(part)) failures.push(`${label} should say "${part}" but reads: ${text}`);
+          }
+        }
+      };
+      need(first, 'a motif note on step 1', ['its third', 'from the motif', 'transposed']);
+      need(second, 'an approach note on step 2', ['the chord\u2019s root', 'leaning into the next chord']);
+    }
+  }
+
   // Kit lanes: the list renders HIGH kinds at the top, "Add lane" copies the
   // pattern of the lane it lands beside, the name is click-to-type, and the
   // built-ins keep their remove-proof status.
