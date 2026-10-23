@@ -1171,6 +1171,30 @@ try {
       if (!box || box.hidden || btn.getAttribute('aria-expanded') !== 'true') failures.push(`help in one form: the ⓘ for ${why} does not open`);
       btn.click();
     }
+    // v0.0.241: the sections that were left without an ⓘ each have one that
+    // opens on click with real text (static slots, then the editor's fold).
+    {
+      for (const [slotId, why] of [['processor-info', 'the Processor'], ['sleep-timer-info', 'the sleep timer'], ['alarm-timer-info', 'Schedule start'], ['tracks-info', 'the tracks']]) {
+        const slot = doc.getElementById(slotId);
+        const btn = slot && slot.querySelector('button.info-button');
+        const box = slot && slot.querySelector('.info-box');
+        if (!btn || !box) { failures.push(`ⓘ coverage: ${why} has no ⓘ (#${slotId})`); continue; }
+        btn.click();
+        if (box.hidden || btn.getAttribute('aria-expanded') !== 'true' || box.textContent.trim().length < 40) failures.push(`ⓘ coverage: the ⓘ for ${why} does not open with text`);
+        btn.click();
+        if (!box.hidden) failures.push(`ⓘ coverage: the ⓘ for ${why} does not close on a second click`);
+      }
+      const ed = await openEditor('pad');
+      const moreSlot = ed && ed.querySelector('.ve-more-info');
+      const moreBtn = moreSlot && moreSlot.querySelector('button.info-button');
+      const moreBox = moreSlot && moreSlot.querySelector('.info-box');
+      if (!moreBtn || !moreBox) failures.push('ⓘ coverage: the voice editor\'s "more" fold has no ⓘ');
+      else {
+        moreBtn.click();
+        if (moreBox.hidden || moreBox.textContent.trim().length < 40) failures.push('ⓘ coverage: the voice editor\'s "more" ⓘ does not open with text');
+        moreBtn.click();
+      }
+    }
     // v0.0.235: hover peeks, click pins. A mouse entering opens the box and
     // leaving closes it; a click keeps it open after the mouse leaves; a
     // finger's pointerenter does nothing (the tap is touch's one gesture).

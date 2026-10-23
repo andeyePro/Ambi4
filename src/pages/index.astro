@@ -187,6 +187,7 @@ const VOICES: Record<string, [string, string][]> = {
              the panel's three rows — title here beside TRANSPORT, dial level
              with the play buttons, readout on the genre-picker row. -->
         <span class="panel-label processor-label" id="processor-label">Processor</span>
+        <span class="head-info head-info-end" id="processor-info"></span>
       </div>
       <div class="transport-main">
         <div class="transport-buttons">
@@ -482,7 +483,10 @@ const VOICES: Record<string, [string, string][]> = {
             <div id="timers-popover" class="popover module-panel" role="dialog" aria-labelledby="timers-popover-title" hidden>
               <span class="panel-label popover-title" id="timers-popover-title">Timers</span>
 
-              <span class="panel-label timer-section" id="sleep-popover-title">Sleep timer</span>
+              <div class="info-head timer-section">
+                <span class="panel-label" id="sleep-popover-title">Sleep timer</span>
+                <span id="sleep-timer-info"></span>
+              </div>
               <div id="sleep-idle" class="timer-row">
                 <button type="button" class="secondary-button sleep-preset" data-minutes="15">15 min</button>
                 <button type="button" class="secondary-button sleep-preset" data-minutes="30">30 min</button>
@@ -499,7 +503,10 @@ const VOICES: Record<string, [string, string][]> = {
                 <button type="button" id="sleep-cancel" class="link-button">Cancel</button>
               </div>
 
-              <span class="panel-label timer-section" id="alarm-popover-title">Schedule start</span>
+              <div class="info-head timer-section">
+                <span class="panel-label" id="alarm-popover-title">Schedule start</span>
+                <span id="alarm-timer-info"></span>
+              </div>
               <div id="alarm-idle" class="timer-row">
                 <label for="alarm-time" class="visually-hidden">Alarm time</label>
                 <input id="alarm-time" type="time" />
@@ -878,7 +885,10 @@ const VOICES: Record<string, [string, string][]> = {
       </div>
 
       <div class="tracks-section module-panel">
-        <h2 class="tracks-heading panel-label">Tracks</h2>
+        <div class="info-head tracks-head">
+          <h2 class="tracks-heading panel-label">Tracks</h2>
+          <span id="tracks-info"></span>
+        </div>
         <div class="track-rows">
           {TRACKS.map(([id, label]) => (
             <div class={`track-item track-color-${id}`}>
@@ -13914,7 +13924,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           applyMore();
         }
         ed.applyMore = applyMore;
-        container.append(moreToggle, moreBox);
+        const moreRow = document.createElement('div');
+        moreRow.className = 've-more-row';
+        const moreInfo = document.createElement('span');
+        moreInfo.className = 've-more-info';
+        moreInfo.id = `ve-more-info-${track}`;
+        infoButton(
+          moreInfo,
+          'the voice editor\u2019s more',
+          'The next layer down, for when the dials are not enough. It holds the sound described in words; Save voice (keeps this voice, with every dial as it is, under a name you choose, on this device) and Forget this voice; Hide this voice (takes it out of the voice picker); \u201cA sound in mind?\u201d, which turns words you pick into a voice setting; and Match a sample, which measures one recording you give it, in your browser and uploading nothing, and sets this track\u2019s dials to the closest stock voice. It starts open only when Rules show is at + pool.'
+        );
+        moreRow.append(moreToggle, moreInfo);
+        container.append(moreRow, moreBox);
         const wordsLine = document.createElement('p');
         wordsLine.className = 'hint ve-words';
         wordsLine.hidden = !wordsApi;
@@ -15026,6 +15047,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // The processor column spans three rows (title / dial / readout), so
         // no governor means three removals, not one.
         document.getElementById('processor-label')?.remove();
+        document.getElementById('processor-info')?.remove();
         document.getElementById('processor-dial')?.remove();
         document.getElementById('processor-readout')?.remove();
       }
@@ -17242,6 +17264,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       {
         const slot = document.getElementById('share-name-info');
         if (slot) infoButton(slot, 'the link name', SHARE_NAME_INFO);
+      }
+      // v0.0.241: the ⓘ on the sections that still had none.
+      {
+        const slot = document.getElementById('processor-info');
+        if (slot) infoButton(slot, 'the Processor', 'How hard the generator may work. Eco, Low, Med and Full each cap how many notes can sound at once and how often the visuals redraw \u2014 the readout under the dial shows both, and Full has no note cap. Auto watches CPU pressure and frame times and picks a tier for you, showing the one it chose in brackets. A lower tier only trims what the engine is sent (the busiest tracks sit a little lower, the longest reverb tails are shortened); your own Level and Reverb tail settings are never overwritten, so raising the tier brings them back.');
+      }
+      {
+        const slot = document.getElementById('sleep-timer-info');
+        if (slot) infoButton(slot, 'the sleep timer', 'Pick 15 min, 30 min, 1 h, 2 h, or type any number of minutes (up to 720) and Start. While it counts down a chip shows the time left; when it reaches zero a playing piece finishes musically \u2014 it resolves and fades \u2014 instead of cutting off. Cancel stops the countdown.');
+      }
+      {
+        const slot = document.getElementById('alarm-timer-info');
+        if (slot) infoButton(slot, 'Schedule start', 'Choose a time of day and Set alarm: the music starts by itself at that time (tomorrow, if the time has already passed today). It only works while this tab stays open and the device is awake \u2014 the page asks the screen to stay on where the browser allows. If the browser refuses the automatic start you are told to press Play. Cancel clears it.');
+      }
+      {
+        const slot = document.getElementById('tracks-info');
+        if (slot) infoButton(slot, 'the tracks', 'One row per instrument. Its name is a lamp: press it to cycle Off (never plays), Auto (the generator decides when it plays) and On (always plays). The menu picks the voice, the level control sets how loud it is, and Edit opens that instrument\u2019s voice editor with all its controls.');
       }
       {
         const slot = document.getElementById('preset-submit-info');
@@ -24296,6 +24335,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .timer-section {
       margin-top: 10px;
     }
+
+    /* v0.0.241: a heading and its ⓘ on one line. */
+    .info-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .info-head > .panel-label { margin: 0; }
+    .tracks-head { margin-bottom: 12px; }
+    .tracks-head > .tracks-heading { margin: 0; }
+    /* The Processor title sits at the right edge: its box opens leftward. */
+    .head-info-end .info-box { left: auto; right: 0; }
+    .ve-more-row { display: flex; align-items: center; gap: 4px; margin: 4px 0 10px; }
+    .ve-more-row > .ve-more { margin: 0; }
 
     /* v0.0.40: the genre picker was full width for a single short name. */
     .genre-row .genre-select {
