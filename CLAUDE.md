@@ -140,6 +140,15 @@ was not meant to move it and does, that is a regression.
   than hiding the control. See the chord widen button, which explains that
   Complexity is what decides the width.
 
+## Shell safety (his rule, 2026-10-23)
+
+- **Never `rm -rf` a path built from variables without guarding them.** Write
+  `rm -rf "${S:?}/${d:?}"` (fails loudly when either is empty) or use a literal
+  path — never `rm -rf $S/$d`, which becomes `rm -rf /` when both are empty.
+  The same goes for `rm -r`, `find … -delete` and `mv` onto a variable path.
+  Quote every variable in a destructive command. Subagent briefs must carry
+  this line.
+
 ## Traps in the browser tests, all of which have produced false results here
 
 - **`page.goto` to a URL differing only in its fragment does not reload.** It is

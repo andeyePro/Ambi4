@@ -44,6 +44,13 @@ must be verifiably public domain or CC0, and the pull request must name the
 source and the licence for each file. Artwork whose provenance cannot be shown
 is removed rather than researched later.
 
+One exemption, by the owner's ruling: the Ambi4 logo in public/logo/ is not
+artwork in this sense. It is drawn live by components — the app's own dial
+geometry and colour tokens (src/scripts/knob.js, src/styles/global.css) and
+oscilloscope traces computed from the Synthwave voices — by
+scripts/build-logo.mjs, which regenerates every file in that folder. Change
+the generator, not the files.
+
 ### AI-generated code and music
 
 You may use whatever tools you like to write your contribution — this project

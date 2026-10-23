@@ -360,8 +360,8 @@ const VOICES: Record<string, [string, string][]> = {
               spellcheck="false"
             />
             <label class="create-picker-label" for="compose-melody-track">onto</label>
-            <select id="compose-melody-track" class="genre-select create-midi-track"></select>
-            <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
+            <select id="compose-melody-track" class="genre-select create-midi-track" aria-label="Write the melody onto which instrument"></select>
+            <button type="button" id="compose-melody-write" class="secondary-button" aria-label="Write the melody">Write it</button>
           </div>
           <div class="create-row create-harmonise-row" data-write="chords" hidden>
             <label class="visually-hidden" for="compose-chords-text">Type the chords, one numeral per chord</label>
@@ -373,7 +373,7 @@ const VOICES: Record<string, [string, string][]> = {
               autocomplete="off"
               spellcheck="false"
             />
-            <button type="button" id="compose-chords-write" class="secondary-button">Write it</button>
+            <button type="button" id="compose-chords-write" class="secondary-button" aria-label="Write the typed chords">Write it</button>
             <button type="button" id="compose-chords" class="secondary-button">Chord editor</button>
             <span id="create-harmonise-wrap" class="create-harmonise-wrap" hidden>
               <button type="button" id="compose-harmonise" class="secondary-button">Fit chords to the tune</button>
@@ -383,7 +383,7 @@ const VOICES: Record<string, [string, string][]> = {
             <span id="create-tune-wrap" class="create-harmonise-wrap">
               <button type="button" id="compose-tune" class="secondary-button">Write a tune over these chords</button>
               <label class="create-picker-label" for="compose-tune-track">onto</label>
-              <select id="compose-tune-track" class="genre-select create-midi-track"></select>
+              <select id="compose-tune-track" class="genre-select create-midi-track" aria-label="Write the tune onto which instrument"></select>
             </span>
           </div>
           <div class="create-row create-melody-row" data-write="beat" hidden>
@@ -397,8 +397,8 @@ const VOICES: Record<string, [string, string][]> = {
               spellcheck="false"
             />
             <label class="create-picker-label" for="compose-beat-track">onto</label>
-            <select id="compose-beat-track" class="genre-select create-midi-track"></select>
-            <button type="button" id="compose-beat-write" class="secondary-button">Write it</button>
+            <select id="compose-beat-track" class="genre-select create-midi-track" aria-label="Write the beat onto which kit"></select>
+            <button type="button" id="compose-beat-write" class="secondary-button" aria-label="Write the beat">Write it</button>
           </div>
           <div class="create-row create-words-row" data-write="words" hidden>
             <label class="visually-hidden" for="compose-words-text">Type the words, one line per phrase</label>
@@ -417,7 +417,7 @@ const VOICES: Record<string, [string, string][]> = {
           <div class="create-row" data-write="tap" hidden>
             <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
             <label class="create-picker-label" for="create-tap-track">onto</label>
-            <select id="create-tap-track" class="genre-select create-midi-track"></select>
+            <select id="create-tap-track" class="genre-select create-midi-track" aria-label="Tap the rhythm onto which kit"></select>
             <button type="button" id="create-refit" class="secondary-button" hidden>Re-fit the last take</button>
           </div>
           <div class="create-row create-midi-row" data-write="midi" hidden>
@@ -452,7 +452,7 @@ const VOICES: Record<string, [string, string][]> = {
             </button>
             <label class="visually-hidden" for="play-along-track">Track the keys play</label>
             <select id="play-along-track" class="genre-select play-along-select"></select>
-            <span id="play-along-readout" class="value-readout play-along-readout" role="status"></span>
+            <span id="play-along-readout" class="value-readout play-along-readout" aria-live="off"></span>
             <button
               type="button"
               id="play-along-capture"
@@ -693,7 +693,7 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
         <!-- v0.0.157 (his 136): the processor readout closes the right-aligned
              processor column, on the genre picker's own row. -->
-        <span id="processor-readout" class="value-readout processor-readout" role="status"></span>
+        <span id="processor-readout" class="value-readout processor-readout" aria-live="off"></span>
       </div>
       <!-- v0.0.249 (dial-control-plane-plan D10): said in words, never a
            modal, only while the engine's modulation connections exceed what
@@ -5197,13 +5197,63 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
       } catch {}
 
+      /**
+       * A registry of live UI pieces that does not keep them alive by itself.
+       * The pins registry and the mounted-rules registry used to be plain
+       * Sets, pruned only on destroy() or on a level change — so every dial or
+       * rule that left the page any other way (an editor rebuilt by innerHTML,
+       * a row re-rendered) stayed in the Set for the life of the tab, holding
+       * its whole detached subtree and every closure its listeners hold.
+       * page-boot, which rebuilds editors a few hundred times, measured
+       * gigabytes of dead editors that way (2026-10-23).
+       *
+       * add(value, holder): the value lives as long as `holder` does (its
+       * element, normally) or as long as anything else holds it — so a member
+       * that can still be seen or touched is always iterated, exactly as
+       * before; only unreachable ones fall out. Without WeakRef (very old
+       * browsers) it degrades to the old strong Set.
+       */
+      function weakRegistry() {
+        const refs = new Set();
+        const refOf = new WeakMap();
+        const keepAlive = new WeakMap();
+        const makeRef = typeof WeakRef === 'function' ? (value) => new WeakRef(value) : (value) => ({ deref: () => value });
+        return {
+          add(value, holder) {
+            if (holder && (typeof holder === 'object' || typeof holder === 'function')) keepAlive.set(holder, value);
+            if (refOf.has(value)) return;
+            const ref = makeRef(value);
+            refOf.set(value, ref);
+            refs.add(ref);
+          },
+          delete(value) {
+            const ref = refOf.get(value);
+            if (!ref) return false;
+            refOf.delete(value);
+            return refs.delete(ref);
+          },
+          get size() {
+            return refs.size;
+          },
+          *[Symbol.iterator]() {
+            for (const ref of refs) {
+              const value = ref.deref();
+              if (value === undefined) refs.delete(ref);
+              else yield value;
+            }
+          },
+        };
+      }
+
       // ---- Pins: the registry (the UI is wired with the keybindings) ------
       // ONE setting, TWO views: a pinned copy commits through the original
       // dial's own onInput (so the engine and every other view hear it the
       // same way), then sets the original silently; the original echoes into
       // its pinned copies the same way. Declared here, before any dial is
       // built, because the first dials are built long before the strip.
-      const pinRecords = new Set();
+      //
+      // The registry holds each record WEAKLY (2026-10-23): see weakRegistry.
+      const pinRecords = weakRegistry();
       /** pin key -> Set of mirror handles in the strip. */
       const pinMirrors = new Map();
       /** Set once the strip is wired: { menu(rec|null, key, event), changed() }. */
@@ -5240,7 +5290,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           pinUi.menu(rec, null, event);
         });
         pinLongPress(handle.el, (event) => pinUi?.menu(rec, null, event));
-        pinRecords.add(rec);
+        pinRecords.add(rec, handle.el);
         pinUi?.changed();
         return handle;
       }
@@ -5557,6 +5607,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /** A small ⓘ button that toggles a dismissable info box under it. */
+      let infoBoxSerial = 0;
       function infoButton(container, title, body) {
         const wrap = document.createElement('span');
         wrap.className = 'info-anchor';
@@ -5568,6 +5619,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         btn.setAttribute('aria-expanded', 'false');
         const box = document.createElement('div');
         box.className = 'info-box module-panel';
+        box.id = `info-box-${++infoBoxSerial}`;
+        btn.setAttribute('aria-controls', box.id);
         box.hidden = true;
         box.textContent = body;
         // v0.0.235: open momentarily on hover, toggle on click. A mouse
@@ -7382,7 +7435,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           },
         });
         hookRuleHandle = handle;
-        mountedRules.add(handle);
+        mountedRules.add(handle, handle.el);
         // Chance: Auto (follows Repetition) at the left detent, then Hold, then up to always.
         const chanceHint = 'Chance: how likely the chord loop is to move at each When. Hold keeps the voicing for good \u2014 no chord changes, nothing comes back. At the left detent (Auto) it follows Repetition, as it always has.';
         if (knobApi) {
@@ -7766,7 +7819,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       // v0.0.196: every mounted rule, so a level change reaches them all.
-      const mountedRules = new Set();
+      // Held weakly (see weakRegistry): a rule whose element is gone is not
+      // kept alive here until the next level change.
+      const mountedRules = weakRegistry();
       // UI review fix 9: a voice editor's "more" (words, save, finder), per
       // track, once the person has pressed it. A level change clears it, so
       // the new level decides every editor's fold again.
@@ -7853,7 +7908,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
         handle.setMark(Boolean(stored));
         container.append(row);
-        mountedRules.add(handle);
+        mountedRules.add(handle, handle.el);
         return handle;
       }
 
@@ -8136,7 +8191,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         handle.el.querySelector('.rule-pool')?.after(poolPanel);
 
         container.append(row);
-        mountedRules.add(handle);
+        mountedRules.add(handle, handle.el);
         grooveUi = { handle, selects, chanceKnob, renderPool };
         refreshGrooveUi();
         return handle;
@@ -8385,7 +8440,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           chanceKnob = { set: (v) => { input.value = String(v); } };
         }
         container.append(row);
-        mountedRules.add(handle);
+        mountedRules.add(handle, handle.el);
         return handle;
       }
 
@@ -11156,7 +11211,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             });
             describe(handle.when, HINTS[key].when, { replace: true });
             host.append(row);
-            mountedRules.add(handle);
+            mountedRules.add(handle, handle.el);
             handles[key] = handle;
             // Chance: raw 0 is Auto (variant only), 1 is Hold / Off, 2..21 are 5..100 %.
             const rawOf = (chance) => (chance === null || chance === undefined ? 0 : 1 + Math.round(clamp(chance, 0, 1) * 20));
@@ -11326,6 +11381,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           // The Now of the variant follows the kit live: the bar event fires
           // before the bar's tab is chosen, so it reads a tick later.
+          // Unsubscribed by the sequencer's destroy() as well as lazily on a
+          // bar: a STOPPED engine fires no bars, so each kit-editor rebuild
+          // while stopped used to leave one more listener (and the whole
+          // detached editor it closes over) on the engine until Play.
           const off = engine.on('bar', () => setTimeout(() => {
             if (!host.isConnected) { off(); return; }
             handles.variantRule.setNow(nowText('variantRule'));
@@ -11333,6 +11392,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return {
             host,
             refresh,
+            destroy: off,
             supersedes: () => {
               const rule = own('variantRule');
               return Boolean(rule && rule.chance !== null);
@@ -11853,6 +11913,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             blockEditor?.destroy?.();
           } catch {}
           blockEditor = null;
+          try {
+            kitRules?.destroy?.();
+          } catch {}
         }
 
         render();
@@ -14088,7 +14151,49 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * is untouched: it keeps showing the user's own choice, because the
        * wander is ephemeral and getParams still reports the chosen voice.
        */
+      /**
+       * An editor rebuild throws its DOM away, and focus with it: a keyboard
+       * or screen-reader user who pressed Match, Set it up, Add a step grid
+       * or Write was dropped on <body>. The wrapper below remembers where
+       * focus was and puts it on the same control in the new editor, else the first
+       * thing the editor offers.
+       */
+      function editorFocusHint(container) {
+        const a = document.activeElement;
+        if (!container || !a || a === document.body || !container.contains(a)) return null;
+        return {
+          id: a.id || '',
+          tag: a.tagName,
+          cls: a.getAttribute('class') || '',
+          name: a.getAttribute('aria-label') || (a.textContent || '').trim().slice(0, 80),
+        };
+      }
+      function restoreEditorFocus(container, hint) {
+        if (!hint || !container || container.hidden) return;
+        const a = document.activeElement;
+        if (a && a !== document.body) return; // focus is somewhere real: leave it
+        let target = null;
+        if (hint.id) target = container.querySelector(`[id="${hint.id}"]`);
+        if (!target && hint.tag) {
+          for (const el of container.getElementsByTagName(hint.tag)) {
+            if ((el.getAttribute('class') || '') !== hint.cls) continue;
+            if ((el.getAttribute('aria-label') || (el.textContent || '').trim().slice(0, 80)) !== hint.name) continue;
+            target = el;
+            break;
+          }
+        }
+        if (!target || target.hidden || target.disabled) {
+          target = container.querySelector('button:not([disabled]):not([hidden]), [tabindex="0"], select, input:not([type="hidden"])');
+        }
+        if (target && typeof target.focus === 'function') target.focus({ preventScroll: true });
+      }
       async function renderVoiceEditor(track, opts = {}) {
+        const container = document.getElementById(`voice-editor-${track}`);
+        const hint = editorFocusHint(container);
+        await renderVoiceEditorBuild(track, opts);
+        restoreEditorFocus(container, hint);
+      }
+      async function renderVoiceEditorBuild(track, opts = {}) {
         const container = document.getElementById(`voice-editor-${track}`);
         const voiceId = opts.voiceId || settings.tracks[track].voice;
 
@@ -14104,6 +14209,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         const voices = await getVoicesTable();
         if (container.hidden) return; // closed while awaiting — leave no live rAF scope loop behind
+        // Superseded while awaiting: a second render of this track claimed the
+        // slot after this one did. It builds the editor; this one must build
+        // nothing — appending here as well put every control in the container
+        // twice, and left this build's listeners (engine subscriptions, the
+        // pins and rules registries) holding it alive after the next render
+        // detached it, since teardownEditor only ever sees the registered one.
+        if (openEditors.get(track) !== ed) return;
         const voiceEntry = voices && voices[track] && voices[track][voiceId] ? voices[track][voiceId] : null;
         // Feature-detect .defaults / .controls — absent on an older
         // engine-voices build; absent .controls = render every section/field
@@ -14795,9 +14907,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
           const matchUi = { answer: matchAnswer, choose, record, stop };
           const showRunning = (ui, on) => {
+            // The progress line counts up while it runs: busy keeps the live
+            // region quiet until the run says its one real answer.
+            ui.answer.setAttribute('aria-busy', String(on));
+            const held = document.activeElement;
+            ui.stop.hidden = !on;
             ui.choose.disabled = on;
             ui.record.disabled = on;
-            ui.stop.hidden = !on;
+            // A disabled button cannot keep focus; Stop is what the run offers.
+            if (on && (held === ui.choose || held === ui.record)) ui.stop.focus();
+            else if (!on && held === ui.stop) ui.choose.focus();
+          };
+          // The match ends by rebuilding this editor. If the user's focus was
+          // in it (Stop, usually, or Choose), it belongs on Choose in the new
+          // one; the generic restore cannot know Stop is gone.
+          let focusWasHere = false;
+          const settleMatchFocus = () => {
+            const c = document.getElementById(`voice-editor-${track}`);
+            const a = document.activeElement;
+            if (focusWasHere && c && !c.hidden && (!a || a === document.body)) {
+              c.querySelector('.ve-sample-choose')?.focus({ preventScroll: true });
+            }
           };
           choose.addEventListener('click', () => fileInput.click());
           // One path for a chosen file and a recorded note: `source` names it
@@ -14883,6 +15013,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 return;
               }
               const best = result.best;
+              {
+                const c = document.getElementById(`voice-editor-${track}`);
+                const a = document.activeElement;
+                focusWasHere = !!c && (!a || a === document.body || c.contains(a));
+              }
               if (kitMatch) {
                 // The sound's own dials, exactly as turning them on its tab:
                 // set them on the tab's view and commit, which keeps only
@@ -14909,7 +15044,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 const line = `${sampleMatchApi.describeMatch(target, result, nameOf)}${job.cancelled ? ' (stopped early — the best so far)' : ''} Only ${tabLabel} changed. ⌘Z takes it back.`;
                 lastSampleMatch.set(track, line);
                 sampleMatchRuns.delete(track);
-                renderVoiceEditor(track, { kind: kitKind });
+                await renderVoiceEditor(track, { kind: kitKind });
+                settleMatchFocus();
                 sayUnderDials(line);
                 return;
               }
@@ -14939,7 +15075,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               const line = `${sampleMatchApi.describeMatch(target, result, nameOf)}${job.cancelled ? ' (stopped early — the best so far)' : ''} ⌘Z takes it back.`;
               lastSampleMatch.set(track, line);
               sampleMatchRuns.delete(track);
-              renderVoiceEditor(track);
+              await renderVoiceEditor(track);
+              settleMatchFocus();
               sayUnderDials(line);
             } catch (error) {
               say(source.kind === 'file'
@@ -15639,10 +15776,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (processorWarning) {
           const over = !!budget.connectionsOver;
           processorWarning.hidden = !over;
-          processorWarning.textContent = over
+          const warningText = over
             ? `${budget.connections} modulation connections — more than ${tierLabel(budget.tier)} is budgeted for (${budget.maxConnections}). ` +
               'Everything here runs in your browser, so fewer connections play smoother.'
             : '';
+          // Same words again is not news: rewriting them re-announces them.
+          if (processorWarning.textContent !== warningText) processorWarning.textContent = warningText;
         }
         // scopeEnabled: the page owns the live scope, so this one is applied
         // directly — updateAllScopeModes falls back to the cheap static
@@ -15682,7 +15821,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         settings.ui.processor = spec;
         persistSettings();
         if (governor) governor.setTier(spec);
-        else if (powerBudget) applyPowerBudget(powerBudget);
+        // Always redrawn, governor or not: a new span that still holds the
+        // tier in force moves nothing, so the governor emits nothing, and the
+        // readout went on naming the old span or pin (2026-10-23).
+        if (powerBudget) applyPowerBudget(powerBudget);
       }
 
       /**
@@ -20795,6 +20937,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         wavButton.setAttribute('aria-pressed', on ? 'true' : 'false');
         wavButton.classList.toggle('recording', on);
         wavLabel.textContent = on ? 'Stop and save' : 'Save as WAV';
+        // The seconds counter ticks every second for up to ten minutes; a
+        // busy live region stays silent through it and speaks the result.
+        wavStatus.setAttribute('aria-busy', on ? 'true' : 'false');
       }
       function wavOutputNode() {
         try { return typeof engine.getOutputAnalyser === 'function' ? engine.getOutputAnalyser() : null; } catch { return null; }
@@ -21126,6 +21271,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const track = playAlongTarget();
         let speak = null;
         try { speak = await voiceSpeakMs(track); } catch {}
+        // The render takes a moment; if Keys went off meanwhile, the line
+        // must not come back with a measurement for keys that are not armed.
+        if (!playAlongOn) { sayLatency(); return; }
         const voiceName = voiceLabel(track, settings.tracks[track] && settings.tracks[track].voice);
         const parts = [];
         if (outMs !== null && outMs > 0) parts.push(`${outMs} ms is your browser and sound card (a DAW gets 5–15 ms; a web page cannot go below this)`);
@@ -21182,7 +21330,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           el.className = `play-along-pad${cell.black ? ' play-along-pad-black' : ''}`;
           el.textContent = cell.label;
           el.dataset.midi = String(cell.midi);
-          el.setAttribute('aria-label', lanes ? `Play ${cell.label}` : `Play ${cell.label}`);
+          el.setAttribute('aria-label', lanes ? `Play the ${cell.label} drum` : `Play ${cell.label}`);
           el.addEventListener('pointerdown', (event) => {
             event.preventDefault();
             if (!playAlongOn) setPlayAlong(true);
@@ -21214,6 +21362,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (event.key !== 'Enter' && event.key !== ' ') return;
             event.preventDefault();
             event.stopPropagation();
+            if (event.repeat) return; // a held key is one press, not a drum roll
             if (!playAlongOn) setPlayAlong(true);
             const target = playAlongTarget();
             try {
@@ -23940,8 +24089,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const before = layoutPrefs.pins.length;
         layoutPrefs.pins = layoutPrefs.pins.filter((pin) => pin.key !== key);
         if (layoutPrefs.pins.length === before) return false;
+        const hadFocus = !!pinRow && pinRow.contains(document.activeElement);
         savePins();
         renderPins(true);
+        // The mirror that had focus is gone; its dial is where the user was.
+        const origin = pinLive(key);
+        if (hadFocus && origin && origin.handle && origin.handle.el && typeof origin.handle.el.focus === 'function') {
+          origin.handle.el.focus({ preventScroll: true });
+        }
         return true;
       }
       /** P on the keyboard: pin the focused dial, or unpin it (from either view). */
@@ -23976,6 +24131,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const live = new Map(layoutPrefs.pins.map((pin) => [pin.key, pinLive(pin.key)]));
         const same = !force && live.size === pinBound.size && [...live].every(([key, rec]) => pinBound.get(key) === rec);
         if (!same) {
+          // A rebuild drops the focused cell; remember it to put focus back.
+          const focusedCell = document.activeElement && pinRow.contains(document.activeElement)
+            ? document.activeElement.closest('[data-pin]') : null;
+          const focusedKey = focusedCell ? focusedCell.dataset.pin : null;
           dropMirrors();
           pinRow.innerHTML = '';
           for (const pin of layoutPrefs.pins) {
@@ -24028,6 +24187,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
           }
           pinBound = live;
+          if (focusedKey) {
+            const cell = [...pinRow.children].find((c) => c.dataset.pin === focusedKey);
+            const again = cell && cell.querySelector('.knob, button');
+            if (again) again.focus({ preventScroll: true });
+          }
         }
         const hasLayouts = Object.keys(layoutPrefs.saved).length > 0;
         pinStrip.hidden = !layoutPrefs.pins.length && !hasLayouts;
@@ -24045,16 +24209,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       let pinMenuEl = null;
-      function closePinMenu() {
+      let pinMenuOpener = null;
+      /** `restore`: give focus back to the dial the menu was opened from. */
+      function closePinMenu(restore = false) {
         if (!pinMenuEl) return;
+        const had = pinMenuEl.contains(document.activeElement);
+        const opener = pinMenuOpener;
+        pinMenuOpener = null;
         pinMenuEl.remove();
         pinMenuEl = null;
+        if (restore && had && opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
       }
       /** The dial's menu: one item, Pin to Simple or Unpin. */
       function pinMenu(rec, mirrorKey, event) {
         closePinMenu();
         const key = mirrorKey || pinKeyOf(rec);
         if (!key) return;
+        pinMenuOpener = document.activeElement && document.activeElement !== document.body
+          ? document.activeElement
+          : (rec && rec.handle && rec.handle.el) || null;
         const pinned = isPinned(key);
         const menu = document.createElement('div');
         menu.className = 'module-panel pin-menu';
@@ -24066,15 +24239,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         item.setAttribute('role', 'menuitem');
         item.textContent = pinned ? 'Unpin from Simple' : 'Pin to Simple';
         item.addEventListener('click', () => {
-          closePinMenu();
+          closePinMenu(true);
           if (pinned) unpinKey(key);
           else if (rec) pinDial(rec);
         });
         menu.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') {
             e.preventDefault();
-            closePinMenu();
+            closePinMenu(true);
           }
+        });
+        // Tabbing out of a menu closes it; it is not a place to get stuck.
+        menu.addEventListener('focusout', (e) => {
+          if (pinMenuEl === menu && !menu.contains(e.relatedTarget)) closePinMenu();
         });
         menu.append(item);
         const x = Number(event && event.clientX) || 0;

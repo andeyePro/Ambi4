@@ -44,7 +44,9 @@ else
   # Discovered, not listed: a new drive is swept the day it lands. The three
   # offline render harnesses (onset-render, call-breath-render,
   # wash-sweep-render) are drives too — they run in the same browser.
-  mapfile -t DRIVES < <(ls tests/*-drive.mjs tests/*-render.mjs 2>/dev/null | sort)
+  # A drive is a file whose default export is drive(page), so a Node render
+  # suite that merely shares the -render name is not swept here.
+  mapfile -t DRIVES < <(grep -lE '^export default (async )?function drive\b' tests/*.mjs 2>/dev/null | sort)
 fi
 
 run_one() {

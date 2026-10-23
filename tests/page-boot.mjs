@@ -23,8 +23,81 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { JSDOM } from 'jsdom';
+import { registerHooks } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { readTutorialSteps, resolveTutorialTargets, readLessonChapters, readRuleChapters } from './tutorial-smoke.mjs';
+
+// --------------------------------------------------------------------------
+// Memory: a heap ceiling, so garbage is collected rather than banked
+// --------------------------------------------------------------------------
+// What this harness keeps ALIVE is a few hundred MB (six booted pages). What it
+// ALLOCATES is far more — every editor is rebuilt hundreds of times — and on
+// an 8 GB machine V8's default old-space ceiling (~4 GB) lets that garbage
+// pile up to 2.5 GB+ before a full collection bothers: two concurrent runs
+// were OOM-killed (exit 137) that way (2026-10-23). So the gate re-runs itself
+// once under an explicit ceiling. Live data peaks at about half of it; a
+// change that truly needs more fails loudly as an out-of-memory crash, which
+// is a finding, not a flake. PAGE_BOOT_HEAP_MB overrides the ceiling; passing
+// your own --max-old-space-size runs in-process as given.
+const HEAP_FLAG = '--max-old-space-size';
+if (!process.execArgv.some((arg) => arg.startsWith(HEAP_FLAG))) {
+  const heapMb = Number(process.env.PAGE_BOOT_HEAP_MB) || 1280;
+  const child = spawnSync(
+    process.execPath,
+    [`${HEAP_FLAG}=${heapMb}`, ...process.execArgv, fileURLToPath(import.meta.url), ...process.argv.slice(2)],
+    { stdio: 'inherit' }
+  );
+  if (child.error) throw child.error;
+  if (child.signal) console.error(`page-boot: the run was killed by ${child.signal}`);
+  process.exit(child.status === null ? 1 : child.status);
+}
+
+// --------------------------------------------------------------------------
+// Memory: jsdom's selector engine keeps garbage alive
+// --------------------------------------------------------------------------
+// nwsapi (under jsdom's querySelector) caches a compiled resolver per selector
+// string, and with it the RESULT ARRAY and context of the first query that
+// compiled it — never refreshed, never dropped. In this harness, where every
+// editor is rebuilt dozens of times, each cached selector pins the detached
+// editor its first answer lived in, and every closure that editor's listeners
+// hold. That cache alone was a large share of a ~3.5 GB heap (2026-10-23).
+// The cache changes no answer (a hit recomputes the nodes), so dropping it is
+// free: every nwsapi instance is remembered here, and dropSelectorCaches()
+// asks each to clear itself through nwsapi's own configure(option, clear).
+// The factory is wrapped by a load hook BEFORE jsdom loads (hence jsdom's
+// dynamic import below); a newer nwsapi whose source no longer matches is
+// simply left alone — the gate then runs as it did, only heavier.
+const NWSAPI_KEY = Symbol.for('ambi4.pageBoot.nwsapiInstances');
+const nwsapiInstances = [];
+globalThis[NWSAPI_KEY] = nwsapiInstances;
+registerHooks({
+  load(url, context, nextLoad) {
+    const loaded = nextLoad(url, context);
+    if (!url.endsWith('/@asamuzakjp/nwsapi/src/nwsapi.js')) return loaded;
+    const source = String(loaded.source);
+    const hook = 'module.exports = factory;';
+    if (!source.includes(hook)) return loaded;
+    return {
+      ...loaded,
+      source: source.replace(
+        hook,
+        'module.exports = function nwsapiTracked() { const dom = factory.apply(this, arguments); ' +
+          "globalThis[Symbol.for('ambi4.pageBoot.nwsapiInstances')].push(new WeakRef(dom)); return dom; };"
+      ),
+    };
+  },
+});
+function dropSelectorCaches() {
+  for (let i = nwsapiInstances.length - 1; i >= 0; i--) {
+    const instance = nwsapiInstances[i].deref();
+    if (!instance) nwsapiInstances.splice(i, 1);
+    else instance.configure({}, true);
+  }
+}
+// Between blocks is not often enough (one block rebuilds editors hundreds of
+// times), and a query is synchronous, so this timer can never land inside one.
+setInterval(dropSelectorCaches, 1000).unref();
+const { JSDOM } = await import('jsdom');
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = join(repoRoot, 'dist');
@@ -439,6 +512,14 @@ const SHARE_POOL = shareNameModule.wordPoolFrom(
 const failures = [];
 let bootMs = 0;
 
+// Every self-contained section below is `await (async () => { ... })();`
+// rather than a bare `{ ... }` block (2026-10-23). This module's body is one
+// long async function, and V8 keeps a suspended function's registers — every
+// block-scoped const it has ever held — alive until the function ends: an
+// element a finished section looked at stays reachable, and with it the whole
+// detached editor it lived in. A section's own function frees them when it
+// returns. Nothing else changes: the sections still run in order, one at a
+// time, against the same shared state.
 try {
   await import(pathToFileURL(bundlePath).href);
 
@@ -470,7 +551,7 @@ try {
   // the object form shows "NaN" here rather than throwing anywhere.
   // Two things are asserted: nothing was persisted before consent was asked,
   // and every dial that built came up with a readable value.
-  {
+  await (async () => {
     const stored = ['ambi4:generator', 'ambi4-generator-settings-v2'].filter(
       (key) => window.localStorage.getItem(key) !== null
     );
@@ -493,13 +574,13 @@ try {
         failures.push(`the ${track} row rendered no randomness control on a fresh install`);
       }
     }
-  }
+  })();
 
   // v21 track-registry gate: the page holds no track list of its own. Every
   // row it renders — count, order and label — comes from the engine's
   // getTracks(), so a registry the page has drifted from shows up here as a
   // row that is missing, extra, out of order or wrongly named.
-  {
+  await (async () => {
     const rows = Array.from(window.document.querySelectorAll('.track-row[data-track]'));
     const rowIds = rows.map((row) => row.getAttribute('data-track'));
     if (rowIds.join() !== REGISTRY_IDS.join()) {
@@ -518,7 +599,7 @@ try {
         );
       }
     }
-  }
+  })();
 
   // Fallback proof: an engine bundle without getTracks() boots the page on its
   // one remaining hardcoded table, FALLBACK_TRACKS. A fallback that has
@@ -526,7 +607,7 @@ try {
   // nothing else in this harness would ever exercise it — so the table is read
   // out of the page source and matched against the live registry 1:1: ids,
   // order, labels, families, and both of the sets derived from it.
-  {
+  await (async () => {
     const pageSource = readFileSync(join(repoRoot, 'src/pages/index.astro'), 'utf8');
     const table = /const FALLBACK_TRACKS = (\[[\s\S]*?\n {4}\]);/.exec(pageSource);
     if (!table) {
@@ -574,7 +655,7 @@ try {
         );
       }
     }
-  }
+  })();
 
   // v16 placement gate: the factory-preset gallery moved BELOW the Simple
   // dials, and it is built by the page script from the build-time preset list
@@ -660,7 +741,7 @@ try {
   // no Fullscreen API, so the page feature-detects and HIDES both buttons
   // here — presence in the document is what this gate can prove, and a
   // missing button is the regression it is for.
-  {
+  await (async () => {
     const scopeFs = doc.getElementById('front-scope-fullscreen');
     const rollFs = doc.getElementById('roll-fullscreen');
     if (!scopeFs) failures.push('the oscilloscope has no fullscreen button (#front-scope-fullscreen)');
@@ -683,14 +764,14 @@ try {
     if (!doc.getElementById('fullscreen-add')) {
       failures.push('the fullscreen host has no "+ the other display" control (#fullscreen-add)');
     }
-  }
+  })();
 
   // Guided tour: every step rings a control, and a step whose selector matches
   // nothing walks the newcomer past a blank. tests/tutorial-smoke.mjs holds the
   // whole rule set against the built MARKUP; this is the half only a booted
   // page can prove — the targets the page script builds itself (Add track)
   // exist, and exactly once, in the document the visitor actually gets.
-  {
+  await (async () => {
     const steps = readTutorialSteps();
     failures.push(...resolveTutorialTargets(steps, doc));
     for (const [index, step] of steps.entries()) {
@@ -699,12 +780,12 @@ try {
         failures.push(`tutorial step ${index + 1} switches to a tab the page has not got: "${step.tab}"`);
       }
     }
-  }
+  })();
 
   // v26 Advanced layout rule: dials pack HORIZONTALLY. Repetition, Swing and
   // Reverb tail share the main-dial row rather than sitting on lines of their
   // own — a regression here reads to the user as "dials scattered at random".
-  {
+  await (async () => {
     const row = doc.querySelector('#advanced-dials .advanced-dial-row');
     if (!row) {
       failures.push('the Advanced main-dial row (#advanced-dials .advanced-dial-row) is missing');
@@ -715,7 +796,7 @@ try {
         else if (!row.contains(dial)) failures.push(`#${id} is not in the shared main-dial row`);
       }
     }
-  }
+  })();
 
   // v19 roadmap "Offline waveform rule": with the engine stopped (this
   // harness never plays — no Play click, no OfflineAudioContext), the
@@ -829,7 +910,7 @@ try {
     }
   }
   // The kit editor's per-instrument tab is the one path that renders ghosts.
-  {
+  await (async () => {
     doc.getElementById('voice-edit-toggle-percussion').click();
     await waitUntil(() => !!doc.getElementById('kit-kind-percussion-high'));
     const highTab = doc.getElementById('kit-kind-percussion-high');
@@ -845,7 +926,7 @@ try {
         failures.push('the kit editor High tab showed no Common-value ghost on any dial');
       }
     }
-  }
+  })();
 
   // ---- v21 probe-gated surfaces --------------------------------------------
   // The page renders these only where the engine's own sanitiser accepts the
@@ -895,7 +976,7 @@ try {
   // Per-track Swing (pulsed tracks) and Density (tuned tracks). Melody is both,
   // so one editor answers for both dials; percussion (untuned) must NOT grow a
   // Density dial even though the engine accepts the param on every track.
-  {
+  await (async () => {
     await openEditor('melody');
     const swingKnob = () =>
       doc.querySelector('#voice-editor-melody .track-swing-knob, #voice-editor-melody [id^="swing-melody"]');
@@ -921,10 +1002,10 @@ try {
     if (doc.querySelector('#voice-editor-percussion .track-density-knob')) {
       failures.push('the percussion editor grew a Density dial — it is a tuned-track control');
     }
-  }
+  })();
 
   // Per-step note length: the third axis on a melodic lane, keyboard path.
-  {
+  await (async () => {
     const gateProbe = sanitise
       ? sanitise({ tracks: { melody: { sequencer: { steps: [{ on: true, gate: 1.5 }] } } } })
       : null;
@@ -948,7 +1029,7 @@ try {
         );
       }
     }
-  }
+  })();
 
   // v0.0.246 — the grid says WHY: a lit step's tooltip and aria-label carry
   // the note's role AND its source/development in plain words. Driven through
@@ -985,7 +1066,7 @@ try {
   // Kit lanes: the list renders HIGH kinds at the top, "Add lane" copies the
   // pattern of the lane it lands beside, the name is click-to-type, and the
   // built-ins keep their remove-proof status.
-  {
+  await (async () => {
     const editor = await openEditor('percussion');
     const heads = () => Array.from(editor.querySelectorAll('.seq-lane-head'));
     const laneNames = () =>
@@ -1085,7 +1166,7 @@ try {
         }
       }
     }
-  }
+  })();
 
   // ---- iteration 4 probe-gated surfaces ------------------------------------
   // Same discipline as the v21 block above: ask the engine's own sanitiser the
@@ -1106,7 +1187,7 @@ try {
       return false;
     }
   }
-  {
+  await (async () => {
     const modeSelect = doc.getElementById('mode');
     if (!modeSelect) {
       failures.push('the Scale select (#mode) is missing');
@@ -1121,10 +1202,10 @@ try {
         }
       }
     }
-  }
+  })();
 
   // Chord length select (harmony.rhythm), near Structure on the Advanced tab.
-  {
+  await (async () => {
     let engineTakesHarmonyRhythm = false;
     if (typeof sanitise === 'function') {
       try {
@@ -1139,10 +1220,10 @@ try {
     } else if (!engineTakesHarmonyRhythm && visible) {
       failures.push('the Chord length select is showing against an engine that drops harmony.rhythm');
     }
-  }
+  })();
 
   // Pad breath depth knob — pad's own editor only, never another track's.
-  {
+  await (async () => {
     // AUDIT FIX: this probed `tracks.pad.padBreath`, but the engine ships
     // padBreath as a GLOBAL param — so the gate was permanently false, the
     // dial never rendered, and BOTH branches of this assertion were dead
@@ -1169,7 +1250,7 @@ try {
     if (arpEditor.querySelector('.pad-breath-knob, #pad-breath')) {
       failures.push('the arp editor grew a pad Breath control — it is pad-only');
     }
-  }
+  })();
 
   // v0.0.254 — opt-in saturation: a Drive dial on the master (Advanced →
   // Sound, behind its "more") and in every track editor's feel row. Typed in
@@ -1236,7 +1317,7 @@ try {
   // 16: the scope legend solos on Alt/Option-click and on a press-and-hold,
   // not only a double-click. The legend is drawn from the page's
   // settings.ui.scopeTracks (selectedTracks), so aria-pressed is that state.
-  {
+  await (async () => {
     const keys = [...doc.querySelectorAll('#front-scope-legend .scope-legend-track')]
       .filter((b) => b.id !== 'front-scope-total');
     const pressed = () => keys.filter((b) => b.getAttribute('aria-pressed') === 'true').length;
@@ -1274,9 +1355,83 @@ try {
         }
       }
     }
-  }
+  })();
+  // 14b: accessibility of the controls added in the 0.0.229-0.0.263 run.
+  await (async () => {
+    // Every ⓘ names the box it opens.
+    for (const btn of doc.querySelectorAll('button.info-button')) {
+      const id = btn.getAttribute('aria-controls');
+      const box = id && doc.getElementById(id);
+      if (!box || !btn.parentElement.contains(box)) failures.push(`a11y: the ⓘ "${btn.getAttribute('aria-label')}" has no aria-controls pointing at its box`);
+    }
+    // Live regions only where the user's act changes them: the played-note
+    // and processor readouts change on every key / governor tick.
+    for (const id of ['play-along-readout', 'processor-readout']) {
+      const el = doc.getElementById(id);
+      if (!el || el.getAttribute('aria-live') !== 'off' || el.getAttribute('role') === 'status') failures.push(`a11y: #${id} is a live region that speaks on every change`);
+    }
+    // Six "Write it" buttons must not all be called "Write it".
+    const writeNames = ['compose-melody-write', 'compose-chords-write', 'compose-beat-write'].map((id) => {
+      const el = doc.getElementById(id);
+      return el ? (el.getAttribute('aria-label') || el.textContent.trim()) : '';
+    });
+    if (new Set(writeNames).size !== writeNames.length || writeNames.some((n) => !n || n === 'Write it')) failures.push(`a11y: the Write it buttons share a name (${JSON.stringify(writeNames)})`);
+    // A visible "onto" is not a name.
+    for (const id of ['compose-melody-track', 'create-tap-track', 'compose-tune-track', 'compose-beat-track']) {
+      const el = doc.getElementById(id);
+      const label = el && (el.getAttribute('aria-label') || [...doc.querySelectorAll(`label[for="${id}"]`)].map((l) => l.textContent.trim()).join(' '));
+      if (!el || !label || label.length < 6 || /^onto$/i.test(label)) failures.push(`a11y: #${id} has no accessible name that says what it picks (${JSON.stringify(label)})`);
+    }
+    // The pads are buttons whose names say the note.
+    const pads = [...doc.querySelectorAll('#play-along-pads button.play-along-pad')];
+    if (!pads.length) failures.push('a11y: the on-screen keys rendered no buttons');
+    for (const pad of pads) {
+      const name = pad.getAttribute('aria-label') || '';
+      if (!/^Play .+/.test(name)) failures.push(`a11y: a pad is named ${JSON.stringify(name)}`);
+    }
+    if (pads.length && !doc.getElementById('play-along-pads').getAttribute('aria-label')) failures.push('a11y: the pads group has no name');
+    // Toggles expose their state; the disabled Follow says so by attribute.
+    for (const id of ['play-along-toggle', 'play-along-capture', 'play-along-follow', 'create-tap', 'wav-save']) {
+      const el = doc.getElementById(id);
+      if (el && !['true', 'false'].includes(el.getAttribute('aria-pressed'))) failures.push(`a11y: #${id} exposes no aria-pressed state`);
+    }
+    // A held Enter on a pad is one press: a repeat must not sound again.
+    if (pads.length) {
+      const engine = window.__ambi4Engine;
+      let ons = 0;
+      const realOn = engine.noteOn;
+      engine.noteOn = (...args) => { ons += 1; return true; };
+      try {
+        const down = (repeat) => pads[0].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', repeat, bubbles: true, cancelable: true }));
+        down(false);
+        down(true);
+        down(true);
+      } finally { engine.noteOn = realOn; }
+      // Put the keys back as the pad found them (it armed Keys), so the
+      // play-along checks that follow start from a cold page.
+      const keysToggle = doc.getElementById('play-along-toggle');
+      if (keysToggle.getAttribute('aria-pressed') === 'true') keysToggle.click();
+      if (ons !== 1) failures.push(`a11y: a held Enter on a pad sounded ${ons} times, not once`);
+    }
+    // The pin menu hands focus back to where it came from.
+    {
+      const knob = doc.querySelector('.knob[tabindex="0"]');
+      if (knob) {
+        knob.focus();
+        knob.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+        const menu = doc.getElementById('pin-menu');
+        if (!menu) failures.push('a11y: a context-menu on a dial opened no pin menu');
+        else {
+          if (!menu.contains(doc.activeElement)) failures.push('a11y: opening the pin menu did not move focus into it');
+          menu.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          if (doc.getElementById('pin-menu')) failures.push('a11y: Esc did not close the pin menu');
+          else if (doc.activeElement !== knob) failures.push('a11y: closing the pin menu with Esc did not return focus to its dial');
+        }
+      }
+    }
+  })();
   // 15: Presets and Rules explanations are ⓘ buttons, not paragraphs.
-  {
+  await (async () => {
     for (const [slotId, why] of [['preset-submit-info', 'Submit preset'], ['genre-rules-info', 'Genre rules'], ['genre-rules-save-info', 'Save genre'], ['share-name-info', 'the link name']]) {
       const slot = doc.getElementById(slotId);
       const btn = slot && slot.querySelector('button.info-button');
@@ -1343,9 +1498,9 @@ try {
     const leftovers = [...doc.querySelectorAll('p.hint')].filter((p) =>
       /^(Every share link has its own|Submitting opens our contact form|Save genre keeps|The rules this genre draws)/.test(p.textContent.trim()));
     if (leftovers.length) failures.push(`help in one form: ${leftovers.length} explanatory paragraph(s) still on the page: "${leftovers[0].textContent.trim().slice(0, 40)}"`);
-  }
+  })();
   // 17: "Rules show" is mirrored in each voice editor head — one setting.
-  {
+  await (async () => {
     const padEd = await openEditor('pad');
     const arpEd = await openEditor('arp');
     const padSel = padEd && padEd.querySelector('.ve-header select.ve-rule-level');
@@ -1374,7 +1529,7 @@ try {
       global.dispatchEvent(new window.Event('change', { bubbles: true }));
       if (padSel.value !== was || arpSel.value !== was) failures.push('Rules show: changing the Advanced copy did not reach the editors');
     }
-  }
+  })();
 
   // v0.0.201 — owner ruling 2026-09-25, "auto writes its choice into Now":
   // the arp's Pattern/Rate/Octaves readouts must equal the ENGINE's own
@@ -1383,7 +1538,7 @@ try {
   // seeded from exactly what auto had just chosen, so the sound does not
   // jump. Asserted at the ENGINE (getParams()), not just the DOM, per the
   // house rule that a DOM-only pass has hidden this exact failure before.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const toggle = doc.getElementById('voice-edit-toggle-arp');
     const editorEl = doc.getElementById('voice-editor-arp');
@@ -1474,13 +1629,13 @@ try {
         engine.setParams({ complexity: 0.5, arp: { mode: 'auto' } });
       }
     }
-  }
+  })();
 
   // v26 OSC 2 ↔ Mix linkage: Mix is the BALANCE between the two oscillators,
   // so with Osc 2 switched off there is nothing for it to balance and it must
   // hide with the toggle. Switching Osc 2 back on brings it straight back —
   // this is a visibility rule, the stored balance is never rewritten.
-  {
+  await (async () => {
     let checked = false;
     for (const track of REGISTRY_IDS) {
       const editor = await openEditor(track);
@@ -1510,13 +1665,13 @@ try {
     if (!checked) {
       failures.push('no voice editor offered both an Osc 2 toggle and a Mix dial (v26 linkage unproved)');
     }
-  }
+  })();
 
   // v26 layout rule, per-track feel dials: Randomness/Swing/Density/Drift
   // rate/Dissonance form ONE aligned row inside the editor, never a column of
   // one-dial lines. The percussion editor (drift rate + swing, no dissonance,
   // no density) is the named offender, so it is the one asserted.
-  {
+  await (async () => {
     const editor = await openEditor('percussion');
     const rows = editor.querySelectorAll(':scope > .dissonance-row');
     if (rows.length > 1) {
@@ -1524,7 +1679,7 @@ try {
         `the percussion editor scatters its feel dials over ${rows.length} rows — they share one`
       );
     }
-  }
+  })();
 
   // v19 gate: the sculpting surface is only real if the dials actually build.
   // Texture's "Coloured noise" voice declares eleven source fields in its
@@ -1586,7 +1741,7 @@ try {
   // reader users get the same words. And the chip's class must be the one
   // the voice table declares for the sounding voice, not a page-side guess.
   // --------------------------------------------------------------------------
-  {
+  await (async () => {
     const registry = engineModule.PARAM_REGISTRY || {};
     const voicesModule = await import(
       pathToFileURL(join(repoRoot, 'src/scripts/engine-voices.js')).href
@@ -2089,6 +2244,7 @@ try {
           failures.push('the finder has an answer but no Set it up button');
         } else {
           const depthBefore = 1;
+          go.focus();
           go.click();
           const landed = await waitUntil(() => {
             const params = engine.getParams();
@@ -2096,6 +2252,9 @@ try {
             return params.tracks.melody.voice === 'bell' && fm && Number(fm.depth) > depthBefore;
           });
           if (!landed) failures.push(`Set it up did not put Bell with a raised FM depth at the engine (${JSON.stringify(engine.getParams().tracks.melody.voice)})`);
+          // a11y: the editor rebuilt under the press; focus must not fall to <body>.
+          const refocused = await waitUntil(() => doc.activeElement && doc.activeElement !== doc.body && doc.getElementById('voice-editor-melody').contains(doc.activeElement));
+          if (!refocused) failures.push('a11y: after Set it up rebuilt the editor, keyboard focus was dropped on the page body');
         }
         // Pressing the opposite un-presses its pair.
         const rebuilt = await openEditor('melody');
@@ -2357,10 +2516,14 @@ try {
         };
         await openEditor('melody');
         await waitUntil(() => q('.ve-sample-match input[type="file"]'));
+        q('.ve-sample-choose').focus();
         feed(q('.ve-sample-match input[type="file"]'));
         if (!await waitUntil(() => /Trying the voices/.test(answer()), 6000)) {
           failures.push(`match ownership: the melody match never started searching: ${JSON.stringify(answer())}`);
         } else {
+          // a11y: progress is silent (aria-busy) and focus moved to Stop, not lost on a disabled button.
+          if (q('.ve-sample-answer').getAttribute('aria-busy') !== 'true') failures.push('a11y: the match answer is not aria-busy while the percent counts up');
+          if (doc.activeElement !== q('.ve-sample-stop')) failures.push('a11y: pressing Match left focus off Stop (Choose and Record are disabled for the run)');
           const oldStop = q('.ve-sample-stop');
           doc.getElementById('voice-edit-toggle-melody').click(); // close
           await waitUntil(() => doc.getElementById('voice-editor-melody').hidden);
@@ -2376,9 +2539,14 @@ try {
             feed(q('.ve-sample-match input[type="file"]'));
             await new Promise((resolve) => setTimeout(resolve, 100));
             if (decodes !== was) failures.push('match ownership: a second match started on the same track while one ran');
-            stop.click();
+            const liveStop = q('.ve-sample-stop') || stop;
+            liveStop.focus();
+            if (doc.activeElement !== liveStop) failures.push('a11y: the running match\'s Stop would not take focus');
+            liveStop.click();
             if (!await waitUntil(() => /stopped early|Nothing on this track|alike/.test(answer()) && q('.ve-sample-stop')?.hidden, 20000)) {
               failures.push(`match ownership: Stop in the rebuilt editor did not end the match (${JSON.stringify(answer())})`);
+            } else if (doc.activeElement === doc.body) {
+              failures.push(`a11y: after a match ended focus was left on the page body (choose ${q('.ve-sample-choose') ? (q('.ve-sample-choose').disabled ? 'disabled' : 'enabled') : 'absent'}, active ${doc.activeElement && doc.activeElement.tagName})`);
             }
           }
         }
@@ -3180,7 +3348,7 @@ try {
         failures.push(`${track}: the words line says ${JSON.stringify(line.textContent)} but the module says ${JSON.stringify(want)}`);
       }
     }
-  }
+  })();
 
   if (scopeModule && !scopeModule.hidden) {
     const activeTracks = doc.querySelectorAll('.track-row:not([data-track-state="off"])').length;
@@ -3209,7 +3377,7 @@ try {
   // the same discipline the track-registry gate uses: a glob that silently
   // resolved to nothing, or a genre file added without the page picking it up,
   // is invisible to `astro build` and to every module smoke test.
-  {
+  await (async () => {
     const genreDir = join(repoRoot, 'src/data/genres');
     const genres = readdirSync(genreDir)
       .filter((name) => name.endsWith('.json'))
@@ -3490,7 +3658,7 @@ try {
     } else if (forwardButton.hidden) {
       failures.push('the fast-forward button is hidden against an engine that can re-seed');
     }
-  }
+  })();
   // ---- v23 user tracks — probe-gated ---------------------------------------
   // The Add Track surface renders ONLY where the engine can answer both halves
   // of the question — canAddTrack (may I) and addTrack (do it). Against a build
@@ -3503,7 +3671,7 @@ try {
     engineTakesUserTracks =
       typeof probe.canAddTrack === 'function' && typeof probe.addTrack === 'function';
   } catch {}
-  {
+  await (async () => {
     const button = doc.getElementById('add-track');
     if (!engineTakesUserTracks) {
       if (button) {
@@ -3530,14 +3698,14 @@ try {
         failures.push('the Add Track control has no always-present note line (#add-track-note)');
       }
     }
-  }
+  })();
 
   // v0.0.178 — unit 10: the Rules panel shows the genre's essence, and an
   // edit reaches the ENGINE. Pin the genre first (a fresh visit draws a
   // random one). The Tempo dial's typed readout takes "lo-hi" — the same
   // click-to-type every dial has — so the test edits through the real
   // control, then Apply, then reads the engine's stored bpm, not the readout.
-  {
+  await (async () => {
     const genreSelect = doc.getElementById('genre-select');
     const toggle = doc.getElementById('genre-rules-toggle');
     const engine = window.__ambi4Engine;
@@ -3760,7 +3928,7 @@ try {
       }
       if (panel && !panel.hidden) toggle.click();
     }
-  }
+  })();
 
   // ---- v23 fallback table is still the built-in six -------------------------
   // FALLBACK_TRACKS is the branch an engine bundle WITHOUT getTracks() boots
@@ -3769,7 +3937,7 @@ try {
   // comparison is against the MODULE registry (built-ins), never the live
   // instance list, or adding a track in this harness would fail a test about
   // something else entirely.
-  {
+  await (async () => {
     const pageSource = readFileSync(join(repoRoot, 'src/pages/index.astro'), 'utf8');
     const table = /const FALLBACK_TRACKS = (\[[\s\S]*?\n {4}\]);/.exec(pageSource);
     const fallback = table ? new Function(`return ${table[1]};`)() : [];
@@ -3792,7 +3960,7 @@ try {
           `[${REGISTRY_IDS.join(', ')}]`
       );
     }
-  }
+  })();
 
   // ---- v23 a user track row appends below the built-in six ------------------
   // The whole of commit 4 in one gate: the row is BUILT (it did not exist at
@@ -3910,7 +4078,7 @@ try {
     engineTakesLiveNotes =
       typeof probe.noteOn === 'function' && typeof probe.noteOff === 'function';
   } catch {}
-  {
+  await (async () => {
     // v0.0.40: the panel became a POPOVER hanging off a keyboard icon in the
     // transport icon row, so the panel itself is correctly hidden until asked
     // for. What the probe gate now proves is that the ICON is there and
@@ -4243,14 +4411,14 @@ try {
         if (followAfter && !followAfter.disabled) failures.push('Follow my chords is still live with Keys switched off');
       }
     }
-  }
+  })();
 
   // ---- v29 share names, sending end ----------------------------------------
   // Copying a link must show the link's three-word name: in the reserved line
   // under the Share row, in the share note, and as the suggested preset name
   // while the name box is still empty. The expected name is computed here from
   // the copied fragment, so a page that shows A name but not THE name fails.
-  {
+  await (async () => {
     const shareButton = doc.getElementById('preset-share');
     const nameValue = doc.getElementById('share-name-value');
     const nameBox = doc.getElementById('preset-name');
@@ -4354,13 +4522,13 @@ try {
         nameBox.value = '';
       }
     }
-  }
+  })();
 
   // ---- v0.0.202 preset blocks, shown and taken over -----------------------
   // abab shows its own two blocks (not only Custom); the first edit turns the
   // structure Custom starting from exactly those blocks, with the edit — and
   // the ENGINE holds it, not just the DOM. A curve preset says it has none.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const select = doc.getElementById('structure');
     const builder = doc.getElementById('custom-structure-builder');
@@ -4396,7 +4564,7 @@ try {
       if (rows().length !== 0 && !doc.getElementById('structure-blocks').hidden) failures.push('preset blocks: Waves should show no blocks');
       if (!/16-bar swell/.test(note.textContent)) failures.push(`preset blocks: Waves should say it is a curve: ${JSON.stringify(note.textContent)}`);
     }
-  }
+  })();
 
   // ---- v0.0.206 factory, edited and user ------------------------------------
   // His brief: good defaults, clarity when not on them, an easy way back.
@@ -4405,7 +4573,7 @@ try {
   // row and beside the genre; a load clears the ENGINE's old edits (it merges
   // patches, so they used to sound on under a page that showed none) and
   // parks them under Edited; more than two changes ask first, listing them.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const genrePick = doc.getElementById('genre-select');
     const padSelect = doc.getElementById('track-voice-pad');
@@ -4517,7 +4685,7 @@ try {
         }
       }
     }
-  }
+  })();
 
   // ---- TODO "Factory, edited and your own" step 2: the leave-guard --------
   // Moving away from an EDITED voice asks first, in one dialog: Save changes
@@ -4526,7 +4694,7 @@ try {
   // under Edited) · Keep editing (Cancel; Esc). Every path is asserted at the
   // ENGINE: a dialog that says Reset while the old patch plays is the failure
   // mode this repo keeps meeting. An unedited voice must move without asking.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const genrePick = doc.getElementById('genre-select');
     const padSelect = doc.getElementById('track-voice-pad');
@@ -4768,7 +4936,7 @@ try {
         window.__leaveGuardManual = false;
       }
     }
-  }
+  })();
 
   // ---- ui-review 2026-10-03 fix 13: a voice picker lists voices only -------
   // The pool has one door, the voice rule's Pool… (voice-rule-page drives it).
@@ -4782,7 +4950,7 @@ try {
   // Instrument, Synth, Noise, Sample (honestly disabled). Synth → Subtractive
   // must put a plain open sawtooth into the ENGINE's patch for that track — not
   // just a label on the page.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const params = () => engine.getParams();
     const chooser = () => doc.getElementById('voice-new-chooser');
@@ -4880,7 +5048,7 @@ try {
         if (chooser()) failures.push('New…: Esc did not close the chooser');
       }
     }
-  }
+  })();
 
   // ---- factory PRESETS: factory, edited and back (ui-review 2026-10-03 fix 1)
   // The genre got "· edited" and Back to factory in v0.0.206; the twelve
@@ -4889,7 +5057,7 @@ try {
   // (settings.origin), its own patches are its factory voices, an edit reads
   // "· edited" with the same Back to factory beside the picker, and more than
   // two changes ask first, listing them. Engine values, never the readouts.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const genrePick = doc.getElementById('genre-select');
     const genreFactory = doc.getElementById('genre-factory');
@@ -4973,7 +5141,7 @@ try {
         }
       }
     }
-  }
+  })();
 
   // ---- ui-review 2026-10-03 fix 19: the pro layer's keybindings ----------
   // 1–9 load the ☆ favourite genres, then the factory presets in order; [ and
@@ -4983,7 +5151,7 @@ try {
   // genre), never the picker's text. And the keys stand down where they
   // would steal from something else: a text field, a Ctrl/Meta chord, and
   // musical typing — whose number keys are notes.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const presetsJson = JSON.parse(readFileSync(join(repoRoot, 'src/data/factory-presets.json'), 'utf8'));
     const press = (k, target = doc.body, extra = {}) => {
@@ -5123,7 +5291,7 @@ try {
         if (doc.getElementById('shortcut-sheet')) failures.push('keybindings: Close did not close the shortcut sheet');
       }
     }
-  }
+  })();
 
   // ---- Factory, edited and your own, step 3: HIDE -----------------------
   // His ruling: hide, never "use instead of factory". A hidden stock voice
@@ -5131,7 +5299,7 @@ try {
   // ENGINE), comes back under the picker's "Hidden…" entry, and only the
   // person's own items can be deleted there. A hidden genre leaves the list
   // and ] steps past it.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const select = doc.getElementById('track-voice-pad');
     const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
@@ -5290,7 +5458,7 @@ try {
         }
       }
     }
-  }
+  })();
 
   // ---- Pro layer: pins and saved layouts -------------------------------
   // Any dial can be pinned (P on the focused dial, or its right-click menu);
@@ -5298,7 +5466,7 @@ try {
   // Asserted at the ENGINE and on the original dial's own readout, both ways
   // round, then unpin from the copy, then a saved layout recalled over
   // different pins. Nothing pinned, no strip.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const settle = () => new Promise((r) => setTimeout(r, 30));
     const press = (k, target) => {
@@ -5397,7 +5565,7 @@ try {
       }
       doc.getElementById('tab-simple')?.click();
     }
-  }
+  })();
 
   // Review follow-up: saved layout names were keys of a plain object, so
   // "__proto__" was silently not saved and "constructor" / "toString" got
@@ -5437,7 +5605,7 @@ try {
 
   // v0.0.241: chord length in BEATS reaches the engine from the Chord length
   // select, and picking a bar length clears it again.
-  {
+  await (async () => {
     const engineRef = window.__ambi4Engine;
     const select = doc.getElementById('chordLength');
     const two = select && select.querySelector('option[value="beats:2"]');
@@ -5453,7 +5621,7 @@ try {
       if (h.beats !== undefined && h.beats !== null) failures.push(`chord length: "1 bar" left beats ${h.beats} at the engine`);
       if (h.rhythm !== 1) failures.push(`chord length: "1 bar" set rhythm ${JSON.stringify(h.rhythm)}`);
     }
-  }
+  })();
 
   // ---- The Create rebuild: two doors (his "indecipherably complex") ------
   // The progressive rule, counted: at first open the Create part of the panel
@@ -5462,7 +5630,7 @@ try {
   // ENGINE what Zero notes did — every melodic grid empty and Manual, the drum
   // grid untouched. Visibility is the `hidden` attribute up the tree (the
   // page's [hidden] rule is !important), which is what jsdom can see.
-  {
+  await (async () => {
     const engine = window.__ambi4Engine;
     const panel = doc.getElementById('play-along');
     const doors = doc.getElementById('create-doors');
@@ -5554,7 +5722,7 @@ try {
       writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
       if (!panel.hidden) opener.click();
     }
-  }
+  })();
 
   // ---- Start with ANY track (his "chords=pad … even texture") ---------------
   // Every Write door must be able to START its instrument from a Blank slate,
@@ -5961,7 +6129,7 @@ try {
   // governor may move inside, a collapsed span pins one tier, and the reset
   // goes back to Auto. Asserted at the GOVERNOR (window.__ambi4Governor), not
   // the readout — a dial drawing a value nobody received is the failure mode.
-  {
+  await (async () => {
     const gov = window.__ambi4Governor;
     const knob = doc.querySelector('#processor-dial [role="slider"]');
     const readout = doc.getElementById('processor-readout');
@@ -5999,19 +6167,29 @@ try {
       if (widened.range.min === widened.range.max || widened.auto === null) {
         failures.push(`widening a pinned Processor dial did not give the governor a span again: ${JSON.stringify(widened)}`);
       }
+      // The widened span holds the pinned tier, so the governor's tier does
+      // not move and it emits nothing — the readout must still say the new
+      // span. It used to keep the pin's name ("Low · 14 notes"), and the
+      // narrowing check above failed whenever the sensed tier was already
+      // inside the narrowed span (2026-10-23, seen once the run got faster).
+      const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+      if (readout && widened.range.min !== widened.range.max
+        && !readout.textContent.startsWith(`${cap(widened.range.min)}–${cap(widened.range.max)} (`)) {
+        failures.push(`the Processor status did not follow a span that kept the governor's tier: "${readout.textContent}" for ${JSON.stringify(widened.range)}`);
+      }
       press('Backspace'); // reset → the declared default, Eco–Full
       const reset = state();
       if (reset.spec !== 'auto' || reset.range.min !== 'eco' || reset.range.max !== 'full') {
         failures.push(`resetting the Processor dial did not go back to Auto (Eco–Full): ${JSON.stringify(reset)}`);
       }
     }
-  }
+  })();
 
   // ---- v27 blank slate (fromMartin 25) --------------------------------------
   // Clicking Blank slate must leave every track OFF — the "all you" state.
   // Runs LAST: it rewrites the whole params object, so it must follow every
   // boot-state and fresh-visit-genre assertion.
-  {
+  await (async () => {
     const button = doc.getElementById('blank-slate');
     if (!button) {
       failures.push('the Advanced tab has no #blank-slate button');
@@ -6032,7 +6210,7 @@ try {
         failures.push(`after Blank slate the melody's motif rule is ${JSON.stringify(motifRule)}, not Chance 0 with an empty pool`);
       }
     }
-  }
+  })();
 
   // ---- v29 share names, receiving end --------------------------------------
   // A `#p=` link must announce itself by the SAME three words its sender saw.
@@ -6040,7 +6218,7 @@ try {
   // fragment — so this is a second, deliberately minimal boot of the same
   // bundle in a second jsdom, against a URL that carries a share link. It runs
   // LAST because it swaps the DOM globals the bundle reads.
-  {
+  await (async () => {
     const payload = Buffer.from(JSON.stringify({ bpm: 71, reverb: 0.42, harmony: { beats: 5 } }), 'utf8').toString(
       'base64url'
     );
@@ -6124,13 +6302,13 @@ try {
     } catch (err) {
       failures.push(`booting on a #p= share link threw: ${err && err.stack ? err.stack : err}`);
     }
-  }
+  })();
 
   // v0.0.182 (unit 8): a voice of the person's own survives a reload — the
   // storage format is what a fresh boot reads. Consent recorded, one voice
   // under prefs 'voices', and the pad picker lists it; picking it puts its
   // base and its patch at the engine.
-  {
+  await (async () => {
     const storedVoice = {
       id: 'v-reloadtest',
       name: 'Kept pad',
@@ -6206,16 +6384,49 @@ try {
           });
           if (!played) failures.push('picking a reloaded voice did not put its base and patch at the engine');
         }
+        // Two renders of one editor in the same tick (two picks, a pick and a
+        // wander, a genre and a pick) used to BOTH build: each claimed the
+        // slot, awaited the voices table, then appended its whole editor into
+        // the one container — every control twice, every id twice — and the
+        // first build, no longer the registered one, was never torn down, so
+        // its listeners kept it alive after the next render detached it (the
+        // bulk of this harness's ~3.5 GB, 2026-10-23). The later render wins;
+        // the superseded one must build nothing.
+        const padToggle = reloadDoc.getElementById('voice-edit-toggle-pad');
+        const padEditor = reloadDoc.getElementById('voice-editor-pad');
+        if (select && padToggle && padEditor) {
+          if (padEditor.hidden) padToggle.click();
+          const opened = await waitUntil(() => !padEditor.hidden && padEditor.querySelector('.patch-controls'));
+          if (!opened) {
+            failures.push('the reloaded page\'s pad editor never opened');
+          } else {
+            const pick = select.value;
+            for (let i = 0; i < 2; i++) {
+              select.value = pick;
+              select.dispatchEvent(new reloadWindow.Event('change', { bubbles: true }));
+            }
+            await new Promise((r) => setTimeout(r, 300));
+            const panels = padEditor.querySelectorAll('.patch-controls').length;
+            const ids = Array.from(padEditor.querySelectorAll('[id]'), (el) => el.id);
+            const twice = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+            if (panels !== 1 || twice.length) {
+              failures.push(
+                `two renders of the pad editor in one tick left ${panels} dial panels in it` +
+                  (twice.length ? ` and ${twice.length} ids twice (${twice.slice(0, 3).join(', ')})` : '')
+              );
+            }
+          }
+        }
       }
     } catch (err) {
       failures.push(`booting with a stored voice threw: ${err && err.stack ? err.stack : err}`);
     }
-  }
+  })();
 
   // v0.0.183 (unit 9): a link whose pad is tagged with a voice of someone's
   // own arrives on a device that has never seen it: the sound plays (voice
   // and patch, as any link), and the name joins this visit's My voices.
-  {
+  await (async () => {
     const payload = Buffer.from(JSON.stringify({
       tracks: {
         pad: { voice: 'strings', state: 'on', userVoice: { id: 'v-arrivedtest', name: 'Arrived pad' } },
@@ -6301,13 +6512,13 @@ try {
     } catch (err) {
       failures.push(`booting on a link naming a voice threw: ${err && err.stack ? err.stack : err}`);
     }
-  }
+  })();
 
   // v0.0.181 (unit 13): a link CARRYING a genre of someone's own arrives on a
   // device that has never seen it. The base rebuilds from the carried genre
   // (tempo 200, pad Off are its rules), the engine is tagged with it, and it
   // sits under My genres for this visit.
-  {
+  await (async () => {
     const synthwave = JSON.parse(readFileSync(join(repoRoot, 'src/data/genres/synthwave.json'), 'utf8'));
     const carried = structuredClone(synthwave);
     carried.slug = 'u-carriedtest';
@@ -6369,13 +6580,13 @@ try {
     } catch (err) {
       failures.push(`booting on a link carrying a genre threw: ${err && err.stack ? err.stack : err}`);
     }
-  }
+  })();
 
   // iOS gesture environment (docs/dial-control-plane-plan.md section 10): the
   // surfaces that own a drag must say so in CSS, or Safari reads the drag as a
   // page scroll / back-swipe and cancels the pointer. Style TEXT is asserted
   // because jsdom does not cascade stylesheets from the page source.
-  {
+  await (async () => {
     const pageSource = readFileSync(join(repoRoot, 'src/pages/index.astro'), 'utf8');
     const globalCss = readFileSync(join(repoRoot, 'src/styles/global.css'), 'utf8');
     const ruleBody = (src, selector) => {
@@ -6392,7 +6603,7 @@ try {
     if (!/env\(safe-area-inset-left\)/.test(globalCss)) {
       failures.push('global.css never reads env(safe-area-inset-left) though the viewport is viewport-fit=cover');
     }
-  }
+  })();
 
   // v0.0.249: the Processor span is the DEVICE's (it lives in settings.ui, which
   // no share link or preset carries — a laptop's budget is not a phone's), so
@@ -6402,7 +6613,7 @@ try {
   // connections (D10) than either tier of that span is budgeted for — the only
   // route by which edges reach the engine today, there being no socket UI —
   // and the page must say so in words near the dial.
-  {
+  await (async () => {
     const edges = Array.from({ length: 20 }, (_, i) => ({ source: i % 2 ? 'lfo.1' : 'macro.1', destination: `pad:p${i}` }));
     const payload = Buffer.from(JSON.stringify({ bpm: 72, routing: edges, v: 2 }), 'utf8').toString('base64url');
     const procDom = new JSDOM(html, {
@@ -6509,7 +6720,7 @@ try {
     } catch (err) {
       failures.push(`booting with a stored Processor span threw: ${err && err.stack ? err.stack : err}`);
     }
-  }
+  })();
 
 } catch (err) {
   failures.push(`importing the built page script threw: ${err && err.stack ? err.stack : err}`);
