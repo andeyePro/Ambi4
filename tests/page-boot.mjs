@@ -3705,6 +3705,58 @@ try {
           midiMock.input.onmidimessage({ data: new Uint8Array([0x80, 67, 0]) });
         }
 
+        // Follow my chords: off by default, and while on the notes HELD on
+        // the computer keys and on a MIDI keyboard reach the engine's harmony
+        // as a chord degree. Read at the ENGINE (getChordFollow), not at the
+        // button: a toggle that lights and never feeds the engine is the
+        // failure this block exists for. The key is pinned to C major first,
+        // since a fresh visit draws a random one.
+        {
+          const engineRef = window.__ambi4Engine;
+          const follow = doc.getElementById('play-along-follow');
+          const rootSelect = doc.getElementById('root');
+          const modeSelect = doc.getElementById('mode');
+          if (!follow) {
+            failures.push('Follow my chords: no toggle (#play-along-follow) beside the play-along keys');
+          } else if (typeof engineRef.getChordFollow !== 'function') {
+            failures.push('Follow my chords: the engine has no getChordFollow seam');
+          } else {
+            const stored = () => engineRef.getChordFollow().follow;
+            if (follow.getAttribute('aria-pressed') !== 'false') failures.push('Follow my chords boots pressed — it is off until asked for');
+            if (follow.disabled) failures.push('Follow my chords is disabled with Keys armed');
+            if (!doc.querySelector('#follow-chords-info button')) failures.push('Follow my chords has no ⓘ');
+            if (rootSelect && modeSelect) {
+              rootSelect.value = 'C';
+              rootSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+              modeSelect.value = 'ionian';
+              modeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+            }
+            // Off: held keys leave the harmony alone.
+            for (const k of ['b', 'm', '.']) press(k);
+            if (stored() !== null) failures.push(`Follow my chords OFF, three held keys still set the engine's follow degree (${stored()})`);
+            for (const k of ['b', 'm', '.']) release(k);
+            follow.click();
+            if (follow.getAttribute('aria-pressed') !== 'true') failures.push('clicking Follow my chords did not switch it on');
+            // G4 B4 D5 held: V of C major, degree 4.
+            for (const k of ['b', 'm', '.']) press(k);
+            if (stored() !== 4) failures.push(`holding G B D in C major left the engine's follow degree at ${stored()}, not 4 (V)`);
+            for (const k of ['b', 'm', '.']) release(k);
+            if (stored() !== null) failures.push(`letting go of every key left the follow degree at ${stored()} — the piece must carry on`);
+            // A MIDI keyboard is the same hands: D F A is ii.
+            if (typeof midiMock.input.onmidimessage === 'function') {
+              for (const n of [62, 65, 69]) midiMock.input.onmidimessage({ data: new Uint8Array([0x90, n, 90]) });
+              if (stored() !== 1) failures.push(`holding D F A on MIDI left the follow degree at ${stored()}, not 1 (ii)`);
+              // Switching Follow off while the keys are still down lets go of the harmony.
+              follow.click();
+              if (stored() !== null) failures.push(`switching Follow my chords off with keys held left the follow degree at ${stored()}`);
+              for (const n of [62, 65, 69]) midiMock.input.onmidimessage({ data: new Uint8Array([0x80, n, 0]) });
+            } else {
+              follow.click();
+            }
+            if (follow.getAttribute('aria-pressed') !== 'false') failures.push('clicking Follow my chords again did not switch it off');
+          }
+        }
+
         // Capture: arm, play, write — and Undo becomes the way back. The
         // undoable flag comes from the ENGINE, so it going live is proof the
         // take actually reached a step lane.
@@ -3742,6 +3794,9 @@ try {
         if (readout.textContent !== '') {
           failures.push('a key press still sounded after Play along was switched off');
         }
+        // Follow my chords never runs without the keys.
+        const followAfter = doc.getElementById('play-along-follow');
+        if (followAfter && !followAfter.disabled) failures.push('Follow my chords is still live with Keys switched off');
       }
     }
   }

@@ -1351,3 +1351,23 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 - [ ] Automated: `node tests/arp-additive-smoke.mjs` (10 checks; the
       cell-length-per-downbeat column it prints is the process, measured) and
       page-boot (the Additive dial and Shape reach the engine).
+
+## Follow my chords delta — the held keys choose the harmony
+
+- [ ] Create → Musical typing: "Follow my chords" sits under the keys, greyed
+      while Keys is off. Its ⓘ says what it does in plain words.
+- [ ] Keys on, pick Melody, set the piece to C major, Follow my chords on.
+      Hold b m . (G B D): at the next bar line the pad and bass move to G and
+      stay there while you hold; nothing is cut mid-chord. Hold the same chord
+      upside down (m . t: B D G) and it is still G. Hold a lone note and the band plays the chord built on that note.
+- [ ] Let go of every key: at the next chord change the piece's own
+      progression carries on. Notes outside the key on their own change
+      nothing.
+- [ ] The same with a MIDI keyboard (Chrome) and with the on-screen keys.
+- [ ] Keys off: Follow my chords goes off with it, and turning Keys back on
+      leaves it off.
+- [ ] Automated: `node tests/chord-follow-smoke.mjs` (the mapper over every
+      mode in SCALES, and the engine law: lands at the next boundary, not
+      before; under chord-length-in-beats the whole next bar; letting go
+      carries on) and page-boot (the toggle exists, boots off, and three held
+      keys and three held MIDI notes reach the engine's stored follow degree).

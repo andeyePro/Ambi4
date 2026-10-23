@@ -450,6 +450,19 @@ const VOICES: Record<string, [string, string][]> = {
                per lane on a kit. Velocity is where you strike; every finger is
                its own note. The first touch arms Keys. -->
           <div class="play-along-pads" id="play-along-pads" role="group" aria-label="On-screen keys"></div>
+          <!-- Follow my chords: while on, the notes held on any of the three
+               keyboards choose the piece's next chord. Off by default; only
+               live while Keys is. -->
+          <div class="play-along-follow-row">
+            <button
+              type="button"
+              id="play-along-follow"
+              class="secondary-button"
+              aria-pressed="false"
+              disabled
+            >Follow my chords</button>
+            <span id="follow-chords-info"></span>
+          </div>
           <p class="hint play-along-latency" id="play-along-latency" aria-live="polite">Press Keys to play; the delay from key to ear is measured the moment you do.</p>
           <p id="play-along-note" class="visually-hidden">
             Keys z x c v b n m play one octave and q w e r t y u the next; minus and
@@ -1146,6 +1159,8 @@ const VOICES: Record<string, [string, string][]> = {
     // instant a shared link lands (see § v29 share names).
     import WORDLIST from '../data/wordlist.json';
     import { shareNameFor, wordPoolFrom } from '../scripts/share-name.js';
+    // Follow my chords: pure arithmetic over held notes, no imports of its own.
+    import { followDegree } from '../scripts/chord-follow.js';
 
     const app = document.getElementById('generator-app');
     const unavailable = document.getElementById('generator-unavailable');
@@ -20152,6 +20167,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const playAlongReadout = document.getElementById('play-along-readout');
       const captureButton = document.getElementById('play-along-capture');
       const captureUndoButton = document.getElementById('play-along-undo');
+      const followButton = document.getElementById('play-along-follow');
 
       if (!engineCaps.playAlong) UNAVAILABLE_TRANSPORT.add('playalong');
 
@@ -20182,6 +20198,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // the selected track, and Capture writes the taps into its grid.
       let tapMode = false;
       const playAlongDown = new Map();   // keyboard key → { track, midi }
+      // Follow my chords: on, and the MIDI keys held (the computer keys and
+      // the on-screen keys keep their own maps: playAlongDown, padDown).
+      let followOn = false;
+      const midiDown = new Set();
+      const canFollow = typeof engine.setChordFollow === 'function'
+        && typeof engine.getChordFollow === 'function';
 
       const playAlongTarget = () =>
         (TRACK_IDS.includes(playAlongTrack.value) ? playAlongTrack.value : TRACK_IDS[0]);
@@ -20228,6 +20250,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         captureButton.setAttribute('aria-pressed', String(capture.armed));
         captureButton.disabled = !playAlongOn || !canCapture(playAlongTarget());
         captureUndoButton.disabled = !capture.undoable;
+        if (followButton) {
+          followButton.disabled = !playAlongOn || !canFollow;
+          followButton.setAttribute('aria-pressed', String(followOn && playAlongOn));
+        }
+        followHeldChord();
         const refit = document.getElementById('create-refit');
         if (refit) {
           refit.hidden = !(
@@ -20239,6 +20266,40 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const showPlayed = (text) => {
         playAlongReadout.textContent = text;
       };
+
+      /**
+       * Follow my chords. Every path that starts or stops a note ends in
+       * setPlayAlongUI, which calls this: the notes held right now, on the
+       * computer keys, the on-screen keys and a MIDI keyboard together, name
+       * the degree (src/scripts/chord-follow.js) and the engine lands it at
+       * its next chord boundary. Nothing held — or Keys off, or Follow off,
+       * or a drum kit, whose keys are sounds rather than pitches — clears it,
+       * and the piece's own progression carries on.
+       */
+      function followHeldChord() {
+        if (!canFollow) return;
+        const track = playAlongTarget();
+        const held = [];
+        if (followOn && playAlongOn && !isPercussiveTrack(track)) {
+          for (const { midi } of playAlongDown.values()) held.push(midi);
+          for (const { midi } of padDown.values()) held.push(midi);
+          for (const midi of midiDown) held.push(midi);
+        }
+        let degree = null;
+        if (held.length) {
+          const state = engine.getChordFollow() || {};
+          const scales = engineModule && engineModule.SCALES;
+          const scale = scales && (scales[settings.mode] || null);
+          degree = followDegree(held, {
+            root: settings.root,
+            mode: scale,
+            current: Number.isInteger(state.follow) ? state.follow : state.degree,
+          });
+        }
+        try {
+          if ((engine.getChordFollow() || {}).follow !== degree) engine.setChordFollow(degree);
+        } catch {}
+      }
 
       /**
        * v0.0.107 — the missing half of every capture write: the ENGINE had
@@ -20446,6 +20507,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           attachMidi();
         } else {
           endCapture();
+          // Keys off stands Follow my chords down with them: it never runs
+          // without the keys, and comes back only when asked for.
+          followOn = false;
           releaseAll();
           // Keys off stands the Space drum down with them: tap mode
           // surviving disarmed keys was invisible state that swallowed Space
@@ -20467,9 +20531,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           } catch {}
           playAlongDown.delete(key);
         }
+        midiDown.clear();
         try {
           if (typeof engine.allNotesOff === 'function') engine.allNotesOff();
         } catch {}
+        followHeldChord();
       }
 
       /**
@@ -20603,8 +20669,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const track = playAlongTarget();
         try {
           if (command === 0x90 && velocity > 0) {
-            if (engine.noteOn(track, midi, velocity / 127) === true) showPlayed(noteName(midi));
+            if (engine.noteOn(track, midi, velocity / 127) === true) {
+              showPlayed(noteName(midi));
+              midiDown.add(midi);
+            }
           } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
+            midiDown.delete(midi);
             engine.noteOff(track, midi);
           }
         } catch {}
@@ -20616,6 +20686,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         renderPads();
         setPlayAlongUI();
         playAlongToggle.addEventListener('click', () => setPlayAlong(!playAlongOn));
+        followButton?.addEventListener('click', () => {
+          if (!playAlongOn || !canFollow) return;
+          followOn = !followOn;
+          setPlayAlongUI();
+        });
         playAlongTrack.addEventListener('change', () => {
           // A take belongs to the track it was played on: switching tracks
           // ends it where it stands rather than dragging it across.
@@ -20970,12 +21045,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               'Two doors. START: Blank slate silences and empties everything \u2014 instruments off, grids cleared, no genre, FX zeroed \u2014 so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing); start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. Help me start asks what you want to make and names what that genre\u2019s composers usually start with. Seed voices borrows a genre\u2019s instruments without playing a note. Strip a layer takes ONE layer away \u2014 voices back to stock, chords to one, melodic notes, the drum pattern, or the FX \u2014 and keeps the rest, so any preset or genre can be your starting material. WRITE: choose what to write and only that row opens. Melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). Chords opens the chord editor; once an instrument carries a tune \u2014 typed, sung, imported or drawn \u2014 Fit chords to the tune appears beside it and writes the chord loop that fits, notes on the beat deciding each bar\u2019s chord and notes between passing. Beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, the pitches from your chords. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so once there is a take Re-fit the last take appears and lands the same performance on a new time signature or tempo. MIDI file brings in a phrase composed elsewhere. The panel remembers your last Write choice.'
             );
           }
+          const followInfo = document.getElementById('follow-chords-info');
+          if (followInfo) {
+            infoButton(
+              followInfo,
+              'follow my chords',
+              'Follow my chords lets you choose the harmony with your hands. While it is on, the notes you hold down \u2014 on the computer keys, the on-screen keys or a MIDI keyboard \u2014 pick the chord of the piece\u2019s key that fits them best, and the band moves to it at the next bar line where a chord starts \u2014 never in the middle of a chord. Hold C E G in C major and you get C major; one note on its own gives the chord built on that note; notes that fit no chord leave the current one playing. Let go of every key and the piece carries on with its own chords. It only works while Keys is on, and not on the drum kit.'
+            );
+          }
           const typingInfo = document.getElementById('musical-typing-info');
           if (typingInfo) {
             infoButton(
               typingInfo,
               'musical typing',
-              'Your computer keyboard plays the selected track: z x c v b n m are one octave and q w e r t y u the next, black keys on the rows above, - and = shift octave. A MIDI keyboard plays the same track the moment it is connected \u2014 nothing to set up (Chrome and Edge; iOS Safari has no MIDI). On a touch screen the keys under the row play the same track \u2014 one note per finger, louder the lower you strike (or by pressure, where the screen or pen reports one); on the kit they are one pad per sound. Capture records the rhythm, velocity and note length you play into that track\u2019s step grid \u2014 pitches follow the piece\u2019s own harmony \u2014 and Undo puts the old grid back.'
+              'Your computer keyboard plays the selected track: z x c v b n m are one octave and q w e r t y u the next, black keys on the rows above, - and = shift octave. A MIDI keyboard plays the same track the moment it is connected \u2014 nothing to set up (Chrome and Edge; iOS Safari has no MIDI). On a touch screen the keys under the row play the same track \u2014 one note per finger, louder the lower you strike (or by pressure, where the screen or pen reports one); on the kit they are one pad per sound. Capture records the rhythm, velocity and note length you play into that track\u2019s step grid \u2014 pitches follow the piece\u2019s own harmony \u2014 and Undo puts the old grid back. Follow my chords turns it round: the notes you hold choose the piece\u2019s chords (its own \u24d8 says how).'
             );
           }
         }
@@ -23563,7 +23646,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#play-along',
-          text: 'The orange piano icon — Create — is the app\'s second main door, with two doors of its own. Start: Blank slate empties everything, FX included; Help me start asks what you want to make; Strip a layer takes one layer away. Write: pick Melody, Chords, Beat, Words, Tap a rhythm or MIDI file and only that row opens. Musical typing hands your computer keyboard, or a MIDI one, to a track, with Capture recording what you play. The two ⓘs hold the detail.',
+          text: 'The orange piano icon — Create — is the app\'s second main door, with two doors of its own. Start: Blank slate empties everything, FX included; Help me start asks what you want to make; Strip a layer takes one layer away. Write: pick Melody, Chords, Beat, Words, Tap a rhythm or MIDI file and only that row opens. Musical typing gives a track your keyboard or a MIDI one; Capture records it, Follow my chords lets held notes pick the chords. The ⓘs say more.',
         },
         {
           target: '#front-scope-module',
@@ -24448,6 +24531,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     /* v0.0.240: the touch surface — keys or drum pads, every finger a note. */
+    .play-along-follow-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      margin-top: 0.4rem;
+    }
     .play-along-pads {
       display: flex;
       gap: 2px;

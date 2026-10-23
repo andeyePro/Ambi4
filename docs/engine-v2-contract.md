@@ -1203,6 +1203,44 @@ space, so users sculpt real-world impressions themselves:
     the place).
   - Recipe: `harmony.beats`, "Chord length in beats", a number, named only
     when set.
+- **Follow my chords — `engine.setChordFollow(degree)` / `getChordFollow()`**
+  (runtime, NOT a param: never in `getParams`, a recipe, a preset or a share
+  link, because it is the hands' state, not the piece's).
+  - `degree` is a mode-relative chord degree (0 the tonic), the hook's own
+    numbers. A finite number is rounded and taken modulo the scale at use;
+    `null` or anything else clears it. Returns the stored value.
+    `getChordFollow()` is `{ follow, degree }` — the stored follow (or null)
+    and the chord degree sounding now.
+  - **It lands at the next chord boundary and never sooner.** It is read in
+    exactly one place, `advanceHarmony`, which only runs where a chord starts:
+    the barline that starts a chord span (after a multi-bar span has run its
+    bars), and under `harmony.beats` every chord of the next bar, since that
+    bar's chords are all planned at its barline. A chord already sounding is
+    never cut.
+  - **The hook keeps its own clock underneath.** advanceHarmony advances the
+    loop and draws exactly what it would have; only `chordDegree` is replaced,
+    and the slot's inversion and colour are kept. So clearing the follow
+    carries the progression on from where the loop is NOW, and while a follow
+    is set no randomness is drawn differently (`tests/chord-follow-smoke.mjs`
+    holds both: bars before the landing unchanged, every bar after the release
+    identical to an unfollowed run on the same seed).
+  - **The bass approach** asks `nextChordAhead()`, which answers null while a
+    follow is set: the next chord is whatever the hands hold next, and a
+    leading tone into an unknown chord is a guess.
+  - Null everywhere is the engine as it was; `audio-reference` is unmoved.
+  - **The mapper is page-side and pure**: `src/scripts/chord-follow.js`,
+    `followDegree(heldMidis, { root, mode: SCALES[mode], current })`. Per held
+    pitch class against each degree's chord (scale steps d, d+2, d+4; seventh
+    d+6, as the engine builds them): triad tone +1, seventh +0.6, another
+    note of the mode −0.5, a note off the mode −1; +0.75 when the LOWEST held
+    note is the degree's root. A lone note is the degree it is the root of
+    (held if off the mode). Ties go to `current`, otherwise to the lowest
+    degree. A set whose best score is not above zero, or whose best degree has
+    no triad tone held, returns `current` (null = nothing to follow).
+  - **The page** (Create → Musical typing → Follow my chords, off by default,
+    disabled while Keys is off, ignored on a kit) recomputes on every note on
+    and off from the computer keys, the on-screen keys and a MIDI keyboard
+    together, and clears the follow when nothing is held.
 - Pad breathing: swell phase locks to bar phase (existing sin contour keyed to
   bar clock — already bar-phased; expose padBreath 0-1 depth param).
 - Modes add: ionian, mixolydian, phrygian (scale tables + chord naming).

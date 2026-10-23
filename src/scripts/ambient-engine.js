@@ -5430,6 +5430,10 @@ export function createEngine(initialParams, options = {}) {
   let chordInversion = 0;
   let chordExtension = 0;
   let chordBarsLeft = 0;
+  // Follow my chords (setChordFollow): the degree the listener's held keys
+  // ask for, or null. Runtime only — never a param, so it is never saved,
+  // shared or put in a recipe — and null is the engine as it always was.
+  let chordFollow = null;
   // Chord length in beats (harmony.beats): the bar's chords, one entry per
   // chord in force — { beat, degree, inversion, extension } — or null when the
   // bar has ONE chord, which is every bar unless harmony.beats is set. Read
@@ -7765,6 +7769,27 @@ export function createEngine(initialParams, options = {}) {
     return true;
   }
 
+  /**
+   * Follow my chords — the page's seam for the live chord follower
+   * (src/scripts/chord-follow.js decides the degree from the held keys).
+   * `degree` is a mode-relative chord degree (0 the tonic); it lands at the
+   * NEXT chord boundary — the barline that starts a chord, every chord of
+   * that bar under harmony.beats, since the bar's chords are planned at its
+   * barline — and never sooner. Null, or anything that is not a finite
+   * number, clears it: the hook's own progression resumes at the next
+   * boundary. Returns the stored value.
+   */
+  function setChordFollow(degree) {
+    const num = typeof degree === 'number' ? degree : NaN;
+    chordFollow = Number.isFinite(num) ? Math.round(num) : null;
+    return chordFollow;
+  }
+
+  /** { follow, degree }: the stored follow degree, and the chord sounding. */
+  function getChordFollow() {
+    return { follow: chordFollow, degree: chordDegree };
+  }
+
   /** Every key up at once — the panic button, and what a toggle-off runs. */
   function allNotesOff() {
     const at = ctx ? ctx.currentTime : 0;
@@ -8289,6 +8314,13 @@ export function createEngine(initialParams, options = {}) {
     chordDegree = ((hook.degrees[hookIndex] % n) + n) % n;
     chordInversion = hook.inversions[hookIndex];
     chordExtension = hook.extensions[hookIndex];
+    // Follow my chords: the held keys name the degree; the hook keeps its own
+    // clock underneath (it advanced above, drawing exactly what it would
+    // have), so letting go carries the progression on from where it is now,
+    // not from where the hands took it. Inversion and colour stay the slot's.
+    // Read only here, which is only ever a chord boundary: a follow lands at
+    // the next one and never cuts a chord that is already sounding.
+    if (chordFollow !== null) chordDegree = ((chordFollow % n) + n) % n;
   }
 
   // -- the melody's motif ----------------------------------------------------
@@ -8992,6 +9024,8 @@ export function createEngine(initialParams, options = {}) {
    */
   function nextChordAhead() {
     if (!hook || hookFresh) return null;
+    // Following the hands, the next chord is whatever they hold next: unknown.
+    if (chordFollow !== null) return null;
     const at = hookIndex + 1;
     if (at >= hook.degrees.length) return null;
     const n = scale().length;
@@ -11566,6 +11600,8 @@ export function createEngine(initialParams, options = {}) {
     noteOn,
     noteOff,
     allNotesOff,
+    setChordFollow,
+    getChordFollow,
     armCapture,
     stopCapture,
     undoCapture,
