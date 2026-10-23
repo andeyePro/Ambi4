@@ -5852,6 +5852,55 @@ try {
     }
   }
 
+  // ---- one interaction model: today's controls, audited (v0.0.229-263) -------
+  // The same job reads the same way everywhere. Every Create picker that
+  // names where something is written carries the same visible "onto" (a
+  // hidden label read as decoration, v0.0.194); the typed chords say "per
+  // chord", since a chord can now last beats; each ⓘ is named by the title it
+  // sits beside; and the match's Stop explains itself like its two siblings.
+  {
+    for (const id of ['compose-melody-track', 'compose-beat-track', 'compose-words-track', 'compose-midi-track', 'compose-tune-track', 'create-tap-track']) {
+      const label = doc.querySelector(`label[for="${id}"]`);
+      if (!label || label.classList.contains('visually-hidden') || label.textContent.trim() !== 'onto') {
+        failures.push(`one model: #${id} has no visible "onto" label (${label ? JSON.stringify(label.textContent.trim()) + (label.classList.contains('visually-hidden') ? ', hidden' : '') : 'none'})`);
+      }
+    }
+    const chordsText = doc.getElementById('compose-chords-text');
+    if (!chordsText || !/per chord/.test(chordsText.placeholder) || /per bar/.test(chordsText.placeholder)) {
+      failures.push(`one model: the typed-chords box says ${JSON.stringify(chordsText && chordsText.placeholder)} — a chord can last beats, not only a bar`);
+    }
+    const chordsWrite = doc.getElementById('compose-chords-write');
+    const chordsDesc = chordsWrite && doc.getElementById(chordsWrite.getAttribute('aria-describedby') || '');
+    if (!chordsDesc || /one per bar/.test(chordsDesc.textContent)) {
+      failures.push(`one model: Write it on the chords row describes itself as ${JSON.stringify(chordsDesc && chordsDesc.textContent)}`);
+    }
+    for (const [slot, name] of [['create-info', 'Create'], ['follow-chords-info', 'Follow my chords'], ['musical-typing-info', 'Musical typing']]) {
+      const btn = doc.querySelector(`#${slot} .info-button`);
+      if (!btn || btn.getAttribute('aria-label') !== `About ${name}`) {
+        failures.push(`one model: the ⓘ by ${name} is named ${JSON.stringify(btn && btn.getAttribute('aria-label'))}, not "About ${name}"`);
+      }
+    }
+    const createBox = doc.querySelector('#create-info .info-box');
+    if (!createBox || !/Write it makes them the chord loop/.test(createBox.textContent)) {
+      failures.push('one model: the Create ⓘ still says Chords only opens the chord editor — the typed chords and Write it are missing');
+    }
+    const editor = await openEditor('melody');
+    const more = editor.querySelector('.ve-more');
+    if (more && more.getAttribute('aria-expanded') !== 'true') more.click();
+    await waitUntil(() => editor.querySelector('.ve-sample-stop'));
+    const stop = editor.querySelector('.ve-sample-stop');
+    const stopDesc = stop && doc.getElementById(stop.getAttribute('aria-describedby') || '');
+    if (!stopDesc || !/closest voice/.test(stopDesc.textContent)) {
+      failures.push('one model: Match a sample’s Stop has no description, though Choose a sound file and Record a note beside it do');
+    }
+    for (const [cls, name] of [['.ve-sample-choose', 'Choose a sound file'], ['.ve-sample-record', 'Record a note']]) {
+      const el = editor.querySelector(cls);
+      if (!el || !el.getAttribute('aria-describedby') || !doc.getElementById(el.getAttribute('aria-describedby'))) {
+        failures.push(`one model: ${name} has a tooltip but no accessible description (describe() ran before it had a parent)`);
+      }
+    }
+  }
+
   // ---- v0.0.249 the Processor dial takes a span ------------------------------
   // Untouched it IS the whole Eco–Full span, which is the old Auto; a sideways
   // gesture (here its keyboard form, Shift+Left/Right) narrows the span the
