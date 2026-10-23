@@ -5499,6 +5499,87 @@ try {
     }
   }
 
+  // ---- A tune over the chords (compose entry point two, melody derived) ----
+  // The mirror of Fit chords: from a Blank slate (melody OFF, grids empty),
+  // type a loop, choose the melody, press Write a tune over these chords. At
+  // the ENGINE: the melody is switched on, its stored sequencers are one bar
+  // per chord, every downbeat note is a tone of that bar's chord, and the
+  // line ends on a cadence. A press again is the next seed — another tune.
+  {
+    const engine = window.__ambi4Engine;
+    const panel = doc.getElementById('play-along');
+    const opener = doc.getElementById('play-along-open');
+    const writeSelect = doc.getElementById('create-write');
+    const blankButton = doc.getElementById('create-blank');
+    const tuneButton = doc.getElementById('compose-tune');
+    const tuneTrack = doc.getElementById('compose-tune-track');
+    if (!engine || !panel || !opener || !writeSelect || !blankButton || !tuneButton || !tuneTrack) {
+      failures.push(`tune over chords: missing ${[!tuneButton && '#compose-tune', !tuneTrack && '#compose-tune-track', !engine && 'engine seam'].filter(Boolean).join(', ') || 'the Create panel'}`);
+    } else {
+      const { SCALES, pitchClass } = await import(pathToFileURL(join(repoRoot, 'src/scripts/ambient-engine.js')).href);
+      if (panel.hidden) opener.click();
+      await new Promise((r) => setTimeout(r, 30));
+      blankButton.click();
+      await waitUntil(() => engine.getParams().tracks.melody.state === 'off');
+      writeSelect.value = 'chords';
+      writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const shown = (el) => {
+        for (let n = el; n && n !== panel; n = n.parentElement) if (n.hidden) return false;
+        return true;
+      };
+      if (!shown(tuneButton)) failures.push('tune over chords: Write → Chords does not show Write a tune over these chords');
+      const chordsText = doc.getElementById('compose-chords-text');
+      chordsText.value = 'I iv V I';
+      chordsText.dispatchEvent(new window.Event('input', { bubbles: true }));
+      doc.getElementById('compose-chords-write').click();
+      await waitUntil(() => (engine.getParams().harmony?.seed || []).length === 4);
+      tuneTrack.value = 'melody';
+      tuneTrack.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const seqsOf = (t) => (Array.isArray(t && t.sequencers) && t.sequencers.length ? t.sequencers : (t && t.sequencer ? [t.sequencer] : []));
+      const pitched = () => seqsOf(engine.getParams().tracks.melody).flatMap((q, bar) =>
+        (Array.isArray(q.steps) ? q.steps : []).map((st, slot) => ({ st, slot, bar })).filter(({ st }) => st && st.on && Number.isFinite(st.midi)));
+      if (pitched().length) failures.push('tune over chords: Blank slate left notes on the melody, so the test proves nothing');
+      tuneButton.click();
+      await waitUntil(() => pitched().length > 0, 3000);
+      const p = engine.getParams();
+      const melody = p.tracks.melody;
+      const seqs = seqsOf(melody);
+      const tip = doc.getElementById('guided-tip')?.textContent;
+      if (!pitched().length) {
+        failures.push(`tune over chords: no notes reached the melody's stored sequencers at the engine (tip: ${tip})`);
+      } else {
+        if (melody.state === 'off') failures.push('tune over chords: the melody carries the tune but was left off');
+        if (seqs.length !== 4) failures.push(`tune over chords: a four-chord loop wrote ${seqs.length} bars, not 4`);
+        const scale = SCALES[p.mode] || SCALES.ionian;
+        const rootPc = pitchClass(p.root) ?? 0;
+        const degrees = (p.harmony.seed || []).map((slot) => slot.degree);
+        const pcIdx = (midi) => scale.indexOf((((midi - rootPc) % 12) + 12) % 12);
+        const wrong = [];
+        seqs.forEach((q, bar) => {
+          const head = q.steps && q.steps[0];
+          if (!head || !head.on) { wrong.push(`bar ${bar} has no downbeat`); return; }
+          const d = degrees[bar % degrees.length];
+          const tones = [0, 2, 4].map((k) => (d + k) % scale.length);
+          if (!tones.includes(pcIdx(head.midi))) wrong.push(`bar ${bar} downbeat ${head.midi} not in chord ${d}`);
+        });
+        const offScale = pitched().filter(({ st }) => pcIdx(st.midi) < 0);
+        if (offScale.length) wrong.push(`${offScale.length} notes off the ${p.root} ${p.mode} scale`);
+        const lastNote = pitched().at(-1);
+        if (lastNote && pcIdx(lastNote.st.midi) !== 0) wrong.push(`the loop (ending on I) ends on ${lastNote.st.midi}, not the tonic`);
+        if (wrong.length) failures.push(`tune over chords: ${wrong.join('; ')}`);
+        const first = JSON.stringify(seqs.map((q) => q.steps));
+        tuneButton.click();
+        await waitUntil(() => JSON.stringify(seqsOf(engine.getParams().tracks.melody).map((q) => q.steps)) !== first, 3000);
+        if (JSON.stringify(seqsOf(engine.getParams().tracks.melody).map((q) => q.steps)) === first) {
+          failures.push('tune over chords: pressing again wrote the same tune — the seed should advance');
+        }
+      }
+      writeSelect.value = '';
+      writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      if (!panel.hidden) opener.click();
+    }
+  }
+
   // ---- v0.0.249 the Processor dial takes a span ------------------------------
   // Untouched it IS the whole Eco–Full span, which is the old Auto; a sideways
   // gesture (here its keyboard form, Shift+Left/Right) narrows the span the

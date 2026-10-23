@@ -26,7 +26,7 @@ and the shipped Create door disagree, the door is what he reviewed.
 | Row | Status | Where |
 |---|---|---|
 | Play or type a melody, chords derived | SHIPPED | Write: Melody (any tuned track, v0.0.152), touch keys v0.0.240, Fit chords to the tune v0.0.155 |
-| Play or type a chord sequence, melody derived | PARTLY | Typed chords now in the Chords row itself; Follow my chords (v0.0.250) is the played half. Words sings over the loop; a plain melody-from-chords derivation is not built |
+| Play or type a chord sequence, melody derived | SHIPPED | Typed chords in the Chords row itself; Follow my chords (v0.0.250) is the played half; Words sings over the loop; and Write a tune over these chords (this build) derives a plain melody from whatever loop is set onto any tuned track's grid — pure module src/scripts/tune-from-chords.js, rules pinned in tests/tune-from-chords-smoke.mjs: chord tones on the beats, stepwise passing/neighbour tones between, an arch per four-bar phrase, density from Complexity, a cadence at the end, the track's register, deterministic per loop and seed |
 | Start with a beat, tap a rhythm | SHIPPED | Write: Beat (v0.0.147, any kit v0.0.153), Tap a rhythm (v0.0.87/107). Tap still points at the built-in kit only |
 | Hum / whistle, then sing | OPEN, long-term | Needs the v0.2.x audio-in track |
 | Start with words | SHIPPED | Write: Words, v0.0.148 |
@@ -71,7 +71,7 @@ of these."
 
 | Start with | Enter it by | Derivations offered |
 |---|---|---|
-| Chords (pad) | Type (in the Chords row itself — writing chords switches the pad on; the roman-numeral loop editor, v0.0.68/76, is one press away) · play (Follow my chords, v0.0.250) | Melody suggestion; bass root-following |
+| Chords (pad) | Type (in the Chords row itself — writing chords switches the pad on; the roman-numeral loop editor, v0.0.68/76, is one press away) · play (Follow my chords, v0.0.250) | Melody suggestion — SHIPPED as Write a tune over these chords, onto any tuned track; bass root-following |
 | Melody | Play · type into the step grid (needs the pitch-editable grid from the transparency build) | Chord suggestion — SHIPPED v0.0.155 as Fit chords to the tune, reading any tuned track's grid whatever put the notes there |
 | Beat (percussion) | Step editor · **tap a rhythm — space bar or button** (his "love it") | Bass placement coupling (bass-follows-kick, from the Energy brief) |
 | Bass | Play · type | Kick coupling the other way; chord roots |

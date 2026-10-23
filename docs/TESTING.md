@@ -1239,6 +1239,14 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       the loop plays (Blank slate had the pad off). Write a melody, come back
       to Chords: Fit chords to the tune is now beside it, pointed at the
       track that carries the tune, and it too switches the pad on.
+- [ ] Write → Chords, type I vi IV V, Write it, then Write a tune over these
+      chords onto the melody (after Blank slate, so the melody starts off):
+      the melody switches on and plays a four-bar line — each bar's first
+      note a tone of its chord, steps between, rising to the middle and
+      falling back, the last note held. Press again: a different tune over
+      the same chords. Turn Complexity to Calm and press: fewer notes; to
+      Complex: busier. Onto the bass: the same kind of line, low (E1–G3).
+      Open the melody's grid: every note is a step that drags.
 - [ ] Write → MIDI file onto any instrument after Blank slate: it plays at
       once and starts the piece, like a typed line (no staged wait).
 - [ ] Write → Tap a rhythm, tap a few beats, stop: Re-fit the last take
@@ -1248,7 +1256,11 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 - [ ] Automated: page-boot's Create block (visible-control count at first
       open, Melody shows exactly its row, Strip → Notes at the ENGINE) and
       its Start-with-any-track block (typed chords and Fit chords switch the
-      pad on; an imported file is hand-written and enters at bar 0).
+      pad on; an imported file is hand-written and enters at bar 0), and its
+      tune-over-chords block (the line reaches the melody's stored
+      sequencers at the ENGINE, one bar per chord, chord tones on every
+      downbeat, ending home, the melody switched on, a second press a new
+      tune); `node tests/tune-from-chords-smoke.mjs` pins the derivation.
       Layout unmeasured until `.vibe/measure.sh local overlaps` runs on it,
       at desktop and 390×844.
 

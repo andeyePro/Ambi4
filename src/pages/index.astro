@@ -303,7 +303,9 @@ const VOICES: Record<string, [string, string][]> = {
                handlers are unchanged). WRITE is one choice that opens one
                input row; every row keeps its ids and handlers and is merely
                hidden until chosen. Re-fit and Fit chords show only when
-               there is a take / a tune for them to act on. Instructions stay
+               there is a take / a tune for them to act on; Write a tune over
+               these chords always shows in the Chords row, since a loop (at
+               worst the tonic) is always there to write over. Instructions stay
                in the ⓘ, buttons not paragraphs (his 103). -->
           <div id="create-doors" class="create-doors">
           <div class="create-row" id="create-start-row">
@@ -377,6 +379,11 @@ const VOICES: Record<string, [string, string][]> = {
               <button type="button" id="compose-harmonise" class="secondary-button">Fit chords to the tune</button>
               <label class="visually-hidden" for="compose-harmonise-track">Fit chords to which instrument&rsquo;s tune</label>
               <select id="compose-harmonise-track" class="genre-select create-midi-track"></select>
+            </span>
+            <span id="create-tune-wrap" class="create-harmonise-wrap">
+              <button type="button" id="compose-tune" class="secondary-button">Write a tune over these chords</button>
+              <label class="visually-hidden" for="compose-tune-track">Write the tune onto which instrument</label>
+              <select id="compose-tune-track" class="genre-select create-midi-track"></select>
             </span>
           </div>
           <div class="create-row create-melody-row" data-write="beat" hidden>
@@ -21624,7 +21631,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Two doors. START: Blank slate silences and empties everything \u2014 instruments off, grids cleared, no genre, FX zeroed \u2014 so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing); start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. Help me start asks what you want to make and names what that genre\u2019s composers usually start with. Seed voices borrows a genre\u2019s instruments without playing a note. Strip a layer takes ONE layer away \u2014 voices back to stock, chords to one, melodic notes, the drum pattern, or the FX \u2014 and keeps the rest, so any preset or genre can be your starting material. WRITE: choose what to write and only that row opens. Melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). Chords opens the chord editor; once an instrument carries a tune \u2014 typed, sung, imported or drawn \u2014 Fit chords to the tune appears beside it and writes the chord loop that fits, notes on the beat deciding each bar\u2019s chord and notes between passing. Beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, the pitches from your chords. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so once there is a take Re-fit the last take appears and lands the same performance on a new time signature or tempo. MIDI file brings in a phrase composed elsewhere. The panel remembers your last Write choice.'
+              'Two doors. START: Blank slate silences and empties everything \u2014 instruments off, grids cleared, no genre, FX zeroed \u2014 so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing); start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. Help me start asks what you want to make and names what that genre\u2019s composers usually start with. Seed voices borrows a genre\u2019s instruments without playing a note. Strip a layer takes ONE layer away \u2014 voices back to stock, chords to one, melodic notes, the drum pattern, or the FX \u2014 and keeps the rest, so any preset or genre can be your starting material. WRITE: choose what to write and only that row opens. Melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). Chords opens the chord editor; once an instrument carries a tune \u2014 typed, sung, imported or drawn \u2014 Fit chords to the tune appears beside it and writes the chord loop that fits, notes on the beat deciding each bar\u2019s chord and notes between passing. The other way round, Write a tune over these chords writes a melody over whatever chord loop is set \u2014 typed, edited or a genre\u2019s \u2014 onto the instrument you pick, in its own register: chord tones on the beats, a step at a time between them, rising and falling over each four-bar phrase, ending on the home note when the last chord holds it, as busy as Complexity says. Press it again for another tune over the same chords; every note is an ordinary step you can drag. Beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, the pitches from your chords. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so once there is a take Re-fit the last take appears and lands the same performance on a new time signature or tempo. MIDI file brings in a phrase composed elsewhere. The panel remembers your last Write choice.'
             );
           }
           const followInfo = document.getElementById('follow-chords-info');
@@ -21821,12 +21828,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const kitSequenced = () => SEQ_TRACKS.filter(isKitTrack);
         const beatTrackSelect = document.getElementById('compose-beat-track');
         const harmoniseTrackSelect = document.getElementById('compose-harmonise-track');
+        const tuneTrackSelect = document.getElementById('compose-tune-track');
         function renderMidiTracks() {
           fillTrackPicker(midiTrackSelect, SEQ_TRACKS, 'melody');
           fillTrackPicker(melodyTrackSelect, tunedSequenced(), 'melody');
           fillTrackPicker(wordsTrackSelect, tunedSequenced(), 'melody');
           fillTrackPicker(beatTrackSelect, kitSequenced(), 'percussion');
           fillTrackPicker(harmoniseTrackSelect, tunedSequenced(), 'melody');
+          fillTrackPicker(tuneTrackSelect, tunedSequenced(), 'melody');
         }
         renderMidiTracks();
         if (typeof engine.on === 'function') engine.on('tracks', renderMidiTracks);
@@ -21835,6 +21844,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(wordsTrackSelect, 'Which instrument sings the words — any tuned track, not just the melody.');
         describe(beatTrackSelect, 'Which kit the typed beat is written onto.');
         describe(harmoniseTrackSelect, 'Which instrument’s tune the chords are fitted to.');
+        describe(tuneTrackSelect, 'Which instrument the tune over the chords is written onto — any tuned track, each in its own register.');
 
         /** The track a compose tool is pointed at, defaulting to the melody. */
         const composeTarget = (select) => {
@@ -22342,6 +22352,127 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         harmoniseButton?.addEventListener('click', () => { deriveChordsFromTrack(); });
         describe(harmoniseButton, 'Reads the tune already on the chosen instrument — typed, sung, imported or drawn — and writes the chord loop that fits it. Notes on the beat decide each bar’s chord, notes between the beats are passing notes, and the result is editable in the chord editor.');
+
+        // The mirror of Fit chords: his compose entry point two, "Play or type
+        // a chord sequence, melody derived." Whatever chord loop is stored —
+        // typed in this row, edited in the chord editor, or a genre's — is
+        // read as scale degrees and a pure module (src/scripts/tune-from-chords.js,
+        // its rules pinned in tests/tune-from-chords-smoke.mjs) writes a line
+        // over it: chord tones on the beats, stepwise passing and neighbour
+        // tones between, an arch over each four-bar phrase, density from
+        // Complexity, a cadence at the loop's end, inside the chosen track's
+        // register. It lands as ordinary hand-written steps, so every note is
+        // a step you can drag. Deterministic for a loop and a seed; each press
+        // is the next seed, so pressing again is another tune over the same
+        // chords.
+        const tuneButton = document.getElementById('compose-tune');
+        let tuneModulePromise = null;
+        let tuneSeed = 0;
+        const getTuneModule = () => {
+          if (!tuneModulePromise) {
+            tuneModulePromise = import('../scripts/tune-from-chords.js').catch(() => null);
+          }
+          return tuneModulePromise;
+        };
+        /** The register a written tune lives in, by what the track IS (its voice set). */
+        function tuneRegisterFor(target, rootPc) {
+          const set = voiceSetOf(target);
+          if (set === 'bass') return { low: 28, high: 55 };          // the engine's BASS_RANGE, E1–G3
+          if (set === 'pad') return { low: 48, high: 72 };           // C3–C5, under the tune
+          if (set === 'arp') return { low: 55, high: 84 };           // inside ARP_LOW..ARP_HIGH
+          return { low: 60 + rootPc - 7, high: 60 + rootPc + 14 };   // around the octave-4 root, as the melody sings
+        }
+
+        async function writeTuneOverChords() {
+          const say = (text) => { if (guidedTip) guidedTip.textContent = text; };
+          const mod = await getTuneModule();
+          if (!mod) {
+            say('The tune-writing module did not load — reload the page and try again.');
+            return;
+          }
+          const target = composeTarget(tuneTrackSelect);
+          const label = TRACK_LABELS[target] || target;
+          const scale = (engineModule && engineModule.SCALES && engineModule.SCALES[settings.mode])
+            || [0, 2, 4, 5, 7, 9, 11];
+          const rootPc = engineModule && typeof engineModule.pitchClass === 'function'
+            ? (engineModule.pitchClass(settings.root) ?? 0)
+            : 0;
+          const stored = chordDegreesNow();
+          const chords = stored || [0];
+          const rhythm = engine.getParams().harmony?.rhythm;
+          const barsPerChord = Number.isFinite(rhythm) && rhythm >= 1 ? Math.round(rhythm) : 1;
+          const slotsPerBar = stepsPerBarFor(target);
+          const pulseSlots = pulseStartsFor(target, slotsPerBar);
+          const seed = tuneSeed;
+          tuneSeed += 1;
+          const tune = mod.tuneFromChords({
+            chords,
+            scale,
+            rootPc,
+            barsPerChord,
+            bars: Math.min(mod.MAX_BARS, Math.max(2, chords.length * barsPerChord)),
+            beatsPerBar: pulseSlots.length,
+            slotsPerBar,
+            pulseSlots,
+            density: clamp(rangeMid(settings.complexity), 0, 1),
+            seed,
+            register: tuneRegisterFor(target, rootPc),
+          });
+          if (!tune || !tune.notes.length) {
+            say(`No tune could be written onto ${label} in this scale.`);
+            return;
+          }
+          const blank = () => ({
+            on: false, prob: 1, vmin: 0.6, vmax: 0.8,
+            tie: false, gate: null, group: null, midi: null,
+          });
+          const bars = Array.from({ length: tune.bars }, () => Array.from({ length: 20 }, blank));
+          for (const note of tune.notes) {
+            const steps = bars[note.bar];
+            const strong = note.role === 'chord' || note.role === 'cadence';
+            const head = {
+              ...blank(), on: true, midi: note.midi,
+              vmin: strong ? 0.65 : 0.5, vmax: strong ? 0.85 : 0.65,
+            };
+            steps[note.slot] = head;
+            // A note fills its length, tied the way the typed melody ties a beat.
+            const end = Math.min(note.slot + note.length, slotsPerBar, 20);
+            for (let s = note.slot; s < end - 1; s++) {
+              steps[s].tie = true;
+              steps[s + 1] = { ...head, tie: false };
+            }
+          }
+          const track = settings.tracks[target];
+          const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps, hand: true }));
+          track.sequencers = list;
+          track.sequencer = list[0];
+          if (bars.length > 1) track.sequencerAdvance = 'chain';
+          if (track.state === 'off') track.state = 'on';
+          engine.setParams({
+            tracks: {
+              [target]: {
+                state: track.state,
+                sequencers: structuredClone(list),
+                ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
+              },
+            },
+          });
+          syncTrackStateUI();
+          const editor = document.getElementById(`voice-editor-${target}`);
+          if (editor && !editor.hidden) renderVoiceEditor(target);
+          persistSettings();
+          const numerals = chords.map((d) => (['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][d] || 'I'));
+          const last = tune.notes[tune.notes.length - 1];
+          say(`A tune over ${stored ? numerals.join(' – ') : 'the tonic (no chord loop is set — type the chords first to give it a progression)'}`
+            + ` written onto ${label}: ${tune.notes.length} notes across ${tune.bars} bars`
+            + (tune.bars > 1 ? ' (played in order)' : '')
+            + `, chord tones on the beats, ending on ${pitchName(last.midi)}.`
+            + ' Complexity sets how busy it is. Every note is an ordinary step — drag any of them; press again for another tune.');
+          startAfterWriting();
+        }
+
+        tuneButton?.addEventListener('click', () => { writeTuneOverChords(); });
+        describe(tuneButton, 'Writes a melody over the chord loop onto the chosen instrument: chord tones on the beats, stepwise notes between, an arch over each phrase, a cadence at the end, as busy as Complexity says. Every note is an ordinary step you can drag; press again for another tune over the same chords.');
 
         // v0.0.147 — his 118, in full: "Much better, how do I type percussion?"
         // Until now the answer was "you cannot": typing wrote NOTE NAMES, and a
