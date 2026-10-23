@@ -561,6 +561,8 @@ export function searchFieldsFor(defaults, registry, exposes = () => true, { allo
  * @param {number} [opts.fallbackFreq=220] pitch for an unpitched sample
  * @param {(done: number, budget: number) => void} [opts.onProgress]
  * @param {() => boolean} [opts.cancelled]
+ * @param {number} [opts.goodEnough=0.5] stop once a match is within this
+ *   many dB (after every voice has been heard as shipped); 0 never stops early
  * @param {boolean} [opts.octaves=true] false for a sound with no pitch to be
  *   an octave out from (a drum): each voice is then tried on the note alone
  */
@@ -568,7 +570,21 @@ export async function matchSample(target, opts) {
   const { candidates, render } = opts;
   const budget = Math.max(candidates.length * 6, opts.budget ?? 600);
   const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
-  const cancelled = typeof opts.cancelled === 'function' ? opts.cancelled : () => false;
+  const userCancelled = typeof opts.cancelled === 'function' ? opts.cancelled : () => false;
+  // Good enough is good enough: once every voice has been heard as shipped,
+  // a match within `goodEnough` dB (0.5 by default — 97 % alike) ends the
+  // search, so a phone does not spend its remaining renders polishing a
+  // match nobody could tell from the sample. Stage 1 always completes, so the
+  // ranking of the voices is never cut short.
+  const goodEnough = Number.isFinite(opts.goodEnough) ? opts.goodEnough : 0.5;
+  let bestSoFar = Infinity;
+  let rankingDone = false;
+  let earlyStop = false;
+  const cancelled = () => {
+    if (userCancelled()) return true;
+    if (rankingDone && bestSoFar <= goodEnough) { earlyStop = true; return true; }
+    return false;
+  };
   // The note every candidate plays: the sample's own pitch and length, a
   // hair after zero so no voice starts on the render's first sample. `when`
   // and `midi` are the engine's note shape (engine-v2-contract).
@@ -597,7 +613,9 @@ export async function matchSample(target, opts) {
       ? { ...note, duration: _note.held, freq: note.freq * 2 ** (_note.shift / 12), midi: note.midi + _note.shift }
       : note;
     const out = await render(id, voicePatch, played, renderSeconds);
-    return featureDistance(target, analyseSample(out.samples, out.sampleRate));
+    const d = featureDistance(target, analyseSample(out.samples, out.sampleRate));
+    if (d < bestSoFar) bestSoFar = d;
+    return d;
   };
 
   // One coordinate-descent walk over `fields` of one candidate, coarse steps
@@ -708,13 +726,14 @@ export async function matchSample(target, opts) {
     if (JSON.stringify(fitted) !== JSON.stringify(starts[0])) starts.push(fitted);
     for (const shift of opts.octaves === false ? [0] : [0, 12, -12]) {
       for (const startPatch of starts) {
-        if (cancelled()) break;
+        if (userCancelled()) break;
         const patch = { ...clone(startPatch), _note: { held: note.duration, shift } };
         arms.push({ cand, patch, start: await measure(cand.id, patch) });
       }
     }
   }
   arms.forEach((a) => { a.distance = a.start; });
+  rankingDone = true;
 
   const ordered = (cand) => {
     const fields = cand.fields || [];
@@ -772,7 +791,7 @@ export async function matchSample(target, opts) {
     similarity: similarity(s.distance),
     start: s.start,
   }));
-  if (!best) return { best: null, ranked, renders: used, note };
+  if (!best) return { best: null, ranked, renders: used, note, stoppedEarly: false };
   const { _note: held, ...bestPatch } = best.patch;
   const moves = [];
   for (const f of best.cand.fields || []) {
@@ -797,6 +816,8 @@ export async function matchSample(target, opts) {
     ranked,
     renders: used,
     note,
+    // true when the search ended on goodEnough rather than its budget
+    stoppedEarly: earlyStop && !userCancelled(),
   };
 }
 

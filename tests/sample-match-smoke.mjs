@@ -216,10 +216,21 @@ test('matchSample: a noise sample finds the noise voice; a swell finds the pad',
   assert.equal((await matchSample(swell, { candidates, render, budget: 30 })).best.id, 'pad');
 });
 
+test('matchSample: a near-perfect match stops early, but only after every voice is ranked', async () => {
+  const target = analyseSample(toySynth('pluck', TOY.pluck, { freq: 260, duration: 0.5 }), SR);
+  const quick = await matchSample(target, { candidates, render, budget: 200 });
+  assert.ok(quick.stoppedEarly, 'the voice as shipped IS the sample, so the search should stop');
+  assert.ok(quick.renders < 200, `used ${quick.renders} of 200`);
+  assert.equal(quick.ranked.length, candidates.length, 'every voice still ranked');
+  const full = await matchSample(target, { candidates, render, budget: 60, goodEnough: 0 });
+  assert.equal(full.stoppedEarly, false);
+  assert.equal(full.renders, 60, 'goodEnough 0 spends the whole budget');
+});
+
 test('matchSample: deterministic, and cancellable', async () => {
   const target = analyseSample(toySynth('pluck', TOY.pluck, { freq: 260, duration: 0.5 }), SR);
-  const a = await matchSample(target, { candidates, render, budget: 40 });
-  const b = await matchSample(target, { candidates, render, budget: 40 });
+  const a = await matchSample(target, { candidates, render, budget: 40, goodEnough: 0 });
+  const b = await matchSample(target, { candidates, render, budget: 40, goodEnough: 0 });
   assert.deepEqual(a.best.patch, b.best.patch);
   let n = 0;
   const stopped = await matchSample(target, { candidates, render, budget: 200, onProgress: () => { n += 1; }, cancelled: () => n >= 5 });
