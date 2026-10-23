@@ -324,6 +324,101 @@ test('the page reads every dial\'s hint from the registry, not from a literal of
     `the slider editor passes registryHint on ${sliderCalls} call sites; its source, engine and loop controls all must`);
 });
 
+// --------------------------------------------------------------------------
+// Phase 2c — the voice editors state no fact the registry row already holds.
+// Every registry-backed dial is built from registryDial(path), which reads
+// the row's domain, curve, unit and rangeable (and applies DIAL_DEPARTURES,
+// the named list of places a shipped dial disagrees with its row). A literal
+// bound, curve, tick list or allowRange flag back in either editor is a
+// second source that can drift from the first, which is what 2c removed.
+//
+// What this scans, precisely: the page source from `function
+// buildSliderEditor(` up to `async function renderVoiceEditor(` — the
+// slider fallback editor and the whole knob editor — with the body of
+// `addLogKnob` cut out, because its `min: 0, max: 1` and `clamp(t, 0, 1)` are
+// the log map's normalised axis, not a parameter's domain. It does NOT scan
+// the SCULPT_GROUPS / CALL_GROUPS tables (the test above holds those to "no
+// min/max"; their tick `marks` are per-dial presentation), nor the non-voice
+// dials elsewhere on the page (tempo, level, chance…), which have no row.
+// --------------------------------------------------------------------------
+
+function voiceEditorSource(page) {
+  const start = page.indexOf('function buildSliderEditor(');
+  const end = page.indexOf('async function renderVoiceEditor(');
+  assert.ok(start > 0 && end > start, 'the two voice editors are not where this gate expects them');
+  let body = page.slice(start, end);
+  const logStart = body.indexOf('function addLogKnob(');
+  assert.ok(logStart > 0, 'addLogKnob is not inside buildKnobEditor any more — this gate is cutting the wrong body');
+  const logEnd = body.indexOf('\n        }\n', logStart);
+  assert.ok(logEnd > logStart, 'addLogKnob does not close where this gate expects');
+  body = body.slice(0, logStart) + body.slice(logEnd);
+  return body;
+}
+
+test('phase 2c: neither voice editor hand-writes a domain, curve, tick list or allowRange for a registry field', () => {
+  const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8');
+  const body = voiceEditorSource(page);
+  const forbidden = [
+    [/\b(?:min|max):\s*-?\d/, 'a numeric min/max literal — the bound is the registry row\'s (registryDial)'],
+    [/\bclamp\([^()]*?,\s*-?\d[\d.]*\s*,\s*-?\d[\d.]*\s*\)/, 'a clamp to two literal bounds — clamp to the dial\'s min/max'],
+    [/\ballowRange:(?!\s*dial\.allowRange\b)/, 'an allowRange that is not the row\'s rangeable (dial.allowRange)'],
+    // (A `log: true` chosen BY the dial's own curve — `d.log ? { log: true }` — is the row speaking.)
+    [/\blog:\s*(?:true|false)\b|\bcurve:\s*'/, 'a hand-set curve — the row\'s curve, or a DIAL_DEPARTURES entry', /\.log\s*\?/],
+    [/\bmarks:\s*\[\s*-?\d/, 'a literal tick list — derive the marks from the dial\'s ends'],
+    [/\bfallback:\s*\[/, 'a pre-registry fallback domain'],
+    [/\b(?:patchDomain|regDomain|registryEnum|engineCaps\.patch(?:V19Range|NoiseRange|DetuneBipolar))\b/, 'a retired accessor that carried its own copy of a row fact'],
+  ];
+  const offences = [];
+  for (const line of body.split('\n')) {
+    if (/^\s*(?:\/\/|\*)/.test(line)) continue; // prose may name what it replaced
+    for (const [pattern, why, unless] of forbidden) {
+      if (pattern.test(line) && !(unless && unless.test(line))) offences.push(`${why}:\n       ${line.trim()}`);
+    }
+  }
+  // Multi-line, so scanned over the whole body: a select whose options are a
+  // literal list of numbers (the octave select's '-1', '0', '1' was one).
+  for (const m of body.matchAll(/\boptions:\s*\[\s*\[\s*'-?\d[^\]]*\]/g)) {
+    offences.push(`a literal numeric option list — derive it from the dial's ends:\n       ${m[0].replace(/\s+/g, ' ')}`);
+  }
+  assert.deepEqual(offences, [], `the voice editors restate ${offences.length} registry fact(s):\n     ${offences.join('\n     ')}`);
+  // And the dials really are built from the rows: every literal path handed
+  // to registryDial names a row, or that dial silently vanishes.
+  const paths = [...page.matchAll(/registryDial\('([A-Za-z0-9_.]+)'\)/g)].map((m) => m[1]);
+  assert.ok(paths.length >= 20, `only ${paths.length} registryDial('…') call sites — the editors are not reading the registry`);
+  for (const path of paths) {
+    assert.ok(PARAM_REGISTRY[`patch.${path}`], `registryDial('${path}') names no registry row — that dial would never be drawn`);
+  }
+  assert.ok(/allowRange:\s*row\.rangeable === true/.test(page),
+    'registryDial no longer derives allowRange from the row\'s rangeable');
+});
+
+test('phase 2c: DIAL_DEPARTURES is exactly the known, still-real disagreements', () => {
+  const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8');
+  const start = page.indexOf('const DIAL_DEPARTURES = Object.freeze({');
+  assert.ok(start > 0, 'DIAL_DEPARTURES is not in the page — this gate is watching the wrong name');
+  const end = page.indexOf('\n      });', start);
+  const block = page.slice(start, end);
+  const entries = Object.fromEntries([...block.matchAll(/^\s*'([A-Za-z0-9_.]+)':\s*Object\.freeze\((\{[^}]*\})\)/gm)]
+    .map((m) => [m[1], Function(`return (${m[2]});`)()]));
+  // A new departure is a dial that disagrees with its row on purpose — that
+  // is a ruling to record (and list in docs/dial-control-plane-plan.md), not
+  // a literal to slip in, so the set is pinned.
+  assert.deepEqual(Object.keys(entries).sort(), ['filter.q', 'source.octave'],
+    `DIAL_DEPARTURES lists ${JSON.stringify(Object.keys(entries))}; a change to this set is a ruling, update this gate and the plan with it`);
+  for (const [path, departure] of Object.entries(entries)) {
+    const row = PARAM_REGISTRY[`patch.${path}`];
+    assert.ok(row && row.kind === 'number', `DIAL_DEPARTURES names ${path}, which has no numeric registry row`);
+    // Each must still DEPART — a row that came round to the dial makes the
+    // entry dead weight that hides the agreement.
+    const departs = (departure.min !== undefined && departure.min !== row.domain[0])
+      || (departure.max !== undefined && departure.max !== row.domain[1])
+      || (departure.log !== undefined && departure.log !== (row.curve === 'log'));
+    assert.ok(departs, `DIAL_DEPARTURES['${path}'] ${JSON.stringify(departure)} no longer differs from its row — delete the entry`);
+    if (departure.min !== undefined) assert.ok(departure.min >= row.domain[0] && departure.max <= row.domain[1],
+      `DIAL_DEPARTURES['${path}'] draws past what the sanitiser accepts [${row.domain}]`);
+  }
+});
+
 let failures = 0;
 for (const [name, fn] of tests) {
   try {

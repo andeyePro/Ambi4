@@ -506,8 +506,9 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
    (the registry's own accessor) has no PRODUCTION caller — its one caller is
    `tests/registry-contract.mjs`, which asserts the column against what the
    sanitiser really does, so a `rangeable` that stops being true fails a gate
-   rather than waiting for a phase to adopt it. Every dial still takes
-   `allowRange` as a hand-passed literal. This deletes the boot-time
+   rather than waiting for a phase to adopt it. (At phase 1 every dial still
+   took `allowRange` as a hand-passed literal; phase 2c made the page's
+   `registryDial()` read `rangeable` off the row.) This deletes the boot-time
    capability probes (`probePatchSource`) and states `allowRange` as a
    registry property in principle; making anything actually read it that way
    is later work. No user-visible change.
@@ -544,9 +545,25 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
    currently depends on the dial staying narrower. **Phase 2b SHIPPED
    v0.0.169 (2026-08-14)**: the slider fallback editor's fourteen domain
    literals joined the registry reads through the shared `patchDomain()`
-   both editors now use. Still open for 2c: the full literal→loop collapse
-   (labels/formats/tooltips as registry UI metadata) and `allowRange` as a
-   derived property.
+   both editors now use. **Phase 2c** (v0.0.187/189 looped the Filter,
+   Envelope and Sends dials of both editors over the registry; the rest
+   landed after v0.0.241): every registry-backed dial in BOTH editors is
+   built from `registryDial(path)` — field, ends, curve, unit and
+   `allowRange`, the last now DERIVED from the row's `rangeable` rather than
+   hand-passed (the blanket `engineCaps.patchV19Range`/`patchNoiseRange` and
+   `patchDetuneBipolar`/`DETUNE_MAX` copies are gone, as are `patchDomain()`'s
+   and `registryEnum()`'s pre-registry fallback literals, shape1/shape2's
+   `0, 3` among them). Enumerations (filter type, material) are index dials
+   over the row's value list, so `FILTER_ORDER` went too. Where the shipped
+   dial disagrees with its row the disagreement is NAMED, in
+   `DIAL_DEPARTURES`, rather than restated as a literal: the octave dial's
+   ±1 (row ±2) and Resonance drawn linear (row log) — both open rulings.
+   `tests/registry-contract.mjs` scans both editors for any literal bound,
+   clamp, curve, tick list, option list or allowRange and pins the
+   departures set; `tests/fixtures/editor-dials.json` and
+   `editor-controls-fallback.json` held unchanged across the refactor. What
+   stays per dial is a page fact: label, format, step, tick marks in the
+   sculpt/call tables, the value a patch without the field shows.
 3. **Gesture rebuild (D1, D2, D9).** Base-and-spread drag model, axis lock,
    centre-tap default, muted-grey zeroed state, live-value pointer (reusing the
    `ghostValue` substrate), full-diameter indicator for enumerations. Deletes

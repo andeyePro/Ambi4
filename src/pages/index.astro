@@ -2529,12 +2529,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     // ---- v12/v18 detune dial --------------------------------------------
-    // Bipolar where the engine takes it (a registry fact since phase 2a):
-    // the same 50 cents flat as sharp, with a centre detent so "in tune" is
-    // findable by feel. The 50 is the pre-registry fallback; the boot code
-    // re-points this at the registry row's ceiling the moment the engine
-    // module lands, so the dial and the sanitiser cannot disagree.
-    let DETUNE_MAX = 50;
+    // Bipolar where the registry row's floor is below zero (phase 2c: both
+    // editors read the dial's ends straight off registryDial('source.detune'),
+    // so the dial and the sanitiser cannot disagree), with a centre detent so
+    // "in tune" is findable by feel.
     const DETUNE_DETENT = 1; // cents swallowed either side of zero
 
     function detuneFormat(v, bipolar) {
@@ -2885,22 +2883,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         swing: false,
         patchPitch: false,
         patchNoise: false,
-        patchNoiseRange: false,
         patchSculpt: false,
         patchCall: false,
-        patchV19Range: false,
         patchFold: false,
         // v21: a global reverb-tail length, and the setter the power governor
         // caps it through. Either one alone is enough to drive the dial.
         reverbTail: false,
         setReverbSeconds: typeof engine.setReverbSeconds === 'function',
-        // v21: user-addable percussion lanes, per-step note length, and the
-        // bipolar detune the v12 round had to leave unipolar. All three are
-        // sanitiser probes (below), not version guesses.
+        // v21: user-addable percussion lanes and per-step note length — both
+        // sanitiser probes (below), not version guesses. (The bipolar-detune
+        // cap that sat here is the detune row's own floor since phase 2c.)
         percussionLanes: false,
         stepGate: false,
         stepPitch: false,
-        patchDetuneBipolar: false,
         // v0.0.163: weighted-by-section voice blends (sanitiser probe below).
         voiceBlend: false,
         // v0.0.203: the bass groove rule (sanitiser probe below).
@@ -2993,16 +2988,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         };
         engineCaps.patchPitch = Boolean(registryRow('patch.source.pitch'));
         engineCaps.patchNoise = Boolean(registryRow('patch.source.noise'));
-        engineCaps.patchNoiseRange = Boolean(registryRow('patch.source.noise')?.rangeable);
         engineCaps.patchSculpt = Boolean(registryRow('patch.source.tilt'));
         engineCaps.patchCall = Boolean(registryRow('patch.source.cadence'));
         engineCaps.patchFold = Boolean(registryRow('patch.source.fold'));
-        engineCaps.patchV19Range = Boolean(registryRow('patch.source.tilt')?.rangeable);
-        // Bipolar detune is a registry DOMAIN fact now: the floor is below 0,
-        // and the dial's ceiling is the row's own (phase 2a: one source).
-        const detuneRow = registryRow('patch.source.detune');
-        engineCaps.patchDetuneBipolar = (detuneRow?.domain?.[0] ?? 0) < 0;
-        if (detuneRow && Number.isFinite(detuneRow.domain?.[1])) DETUNE_MAX = detuneRow.domain[1];
+        // Phase 2c: whether a dial may spread (once patchNoiseRange and
+        // patchV19Range here) and bipolar detune (patchDetuneBipolar) are no
+        // longer copied into engineCaps — every dial reads its own row's
+        // rangeable and domain through registryDial().
 
         // v0.0.143: does this engine take null as "drop this patch"? Without it
         // Blank slate and Zero voices can only add, never take away.
@@ -12068,11 +12060,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // v0.0.176: the additive stretch, a signed percentage per partial step.
       const stretchFormat = (v) => `${v > 0 ? '+' : ''}${Math.round(v * 1000) / 10}%`;
 
-      const FILTER_ORDER = ['lowpass', 'highpass', 'bandpass', 'notch'];
-      const FILTER_DIAL_LABELS = ['LP', 'HP', 'BP', 'Notch'];
-      // knob.js marks are numeric tick positions; the shape/type names show
-      // in the knob's value readout via `format`.
-      const SHAPE_MARKS = [0, 1, 2, 3];
+      // Phase 2c: the Type dial's ORDER is the registry row's value list (it
+      // was a literal copy of it); only the short dial names are a page fact.
+      const FILTER_DIAL_LABELS = { lowpass: 'LP', highpass: 'HP', bandpass: 'BP', notch: 'Notch' };
       const shapeFormat = (v) => {
         const r = Math.round(clamp(v, 0, 3));
         if (Math.abs(v - r) < 0.05) return SHAPE_LABELS[r];
@@ -12250,13 +12240,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function overlayRegistryDomains(groups) {
         const table = engineModule && engineModule.PARAM_REGISTRY;
         return groups.map(([heading, specs]) => [heading, specs.flatMap((spec) => {
-          const row = table ? table[`patch.source.${spec.field}`] : null;
-          if (row && row.kind === 'number') {
+          // Phase 2c: the whole registry dial — domain, curve, and whether it
+          // may spread (rangeable, once the blanket engineCaps.patchV19Range).
+          const dial = registryDial(`source.${spec.field}`);
+          if (dial && dial.kind === 'number') {
             return [{
               ...spec,
-              min: row.domain[0],
-              max: row.domain[1],
-              ...(row.curve === 'log' ? { log: true } : {}),
+              dial,
+              min: dial.min,
+              max: dial.max,
+              ...(dial.log ? { log: true } : {}),
             }];
           }
           // v0.0.171: these specs carry no min/max of their own any more —
@@ -12324,17 +12317,58 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /**
-       * Phase 2b (v0.0.169): BOTH editors read each dial's domain off the
-       * registry — one source of truth; the literal pair survives only as
-       * the fallback an engine bundle without a registry would boot on.
-       * Octave stays the documented exception (the dial ships ±1, the
-       * registry ±2 — the voices' own OCTAVES table clamps there).
+       * Phase 2c: where a shipped dial deliberately departs from its registry
+       * row. Each entry is a REAL disagreement between the page and the row,
+       * found by the refactor that made every dial read its row and kept
+       * because that refactor was not allowed to change behaviour — each is
+       * an open ruling, not a design. registryDial() applies them, so no
+       * editor restates a domain or a curve; tests/registry-contract.mjs pins
+       * this exact set, so a new departure is a reviewed act, not a literal.
        */
-      function patchDomain(path, lo, hi) {
+      const DIAL_DEPARTURES = Object.freeze({
+        // v12: the octave dial ships ±1, while the row, the sanitiser and
+        // every voice's OCTAVES table take ±2. No reason for the cap survives
+        // (docs/engine-v2-contract.md states all three bounds).
+        'source.octave': Object.freeze({ min: -1, max: 1 }),
+        // v0.0.192: Resonance has always been drawn LINEAR, though its row
+        // says log (TODO: the q log/linear discrepancy).
+        'filter.q': Object.freeze({ log: false }),
+      });
+
+      /**
+       * Phase 2c: a registry field's DIAL — everything the row knows about
+       * drawing it, from the row and nowhere else: its ends, its curve, its
+       * unit and whether it may spread (`rangeable`, once a literal passed at
+       * every call site). An enumeration's dial is its value index, 0 to
+       * n−1. Both editors spread this into every registry-backed control;
+       * what stays per dial is genuinely a page fact — label, format, step,
+       * marks, the value a patch without the field shows. Phase 2b's
+       * fallback literals (the domain a registry-less engine bundle would
+       * have booted on) are gone: the engine and its registry are one
+       * module, so that bundle cannot exist, and a field with no row is
+       * null here — the dial is not drawn rather than drawn without bounds.
+       */
+      function registryDial(path) {
         const table = engineModule && engineModule.PARAM_REGISTRY;
         const row = table ? table[`patch.${path}`] : null;
-        return row && row.kind === 'number' ? row.domain : [lo, hi];
+        if (!row) return null;
+        if (row.kind === 'enum') {
+          const values = row.domain.slice();
+          return { field: path, kind: 'enum', values, min: 0, max: values.length - 1, log: false, unit: row.unit, allowRange: row.rangeable === true };
+        }
+        const departure = DIAL_DEPARTURES[path] || {};
+        return {
+          field: path,
+          kind: 'number',
+          min: departure.min ?? row.domain[0],
+          max: departure.max ?? row.domain[1],
+          log: departure.log ?? row.curve === 'log',
+          unit: row.unit,
+          allowRange: row.rangeable === true,
+        };
       }
+      /** Whole-step tick marks across a dial's ends (an enumeration's indices). */
+      const integerMarks = (dial) => Array.from({ length: dial.max - dial.min + 1 }, (_, i) => dial.min + i);
 
       /**
        * v0.0.172: what you will hear when you turn this dial, from the same
@@ -12343,12 +12377,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * an engine bundle without a registry, or a row without words, gives
        * '' and describe() then attaches nothing.
        */
-      /** v0.0.177: an enumeration row's legal values, else the literal list. */
-      function registryEnum(path, fallback) {
-        const table = engineModule && engineModule.PARAM_REGISTRY;
-        const row = table ? table[`patch.${path}`] : null;
-        return row && row.kind === 'enum' && Array.isArray(row.domain) ? row.domain.slice() : fallback;
-      }
       const MATERIAL_LABELS = { metal: 'Metal', wood: 'Wood', glass: 'Glass', bell: 'Bell' };
       const materialLabel = (id) => MATERIAL_LABELS[id] || id;
 
@@ -12407,15 +12435,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
           if (osc2Control) describe(osc2Control, 'Adds a second oscillator; Mix balances the two.');
         }
-        if (source && controlsFieldAllowed(sourceSpec, 'mix')) {
-          const [sMixLo, sMixHi] = patchDomain('source.mix', 0, 1);
+        const sMix = registryDial('source.mix');
+        if (source && sMix && controlsFieldAllowed(sourceSpec, 'mix')) {
           const mixControl = veRange(source, 'Mix', {
             hint: registryHint('source.mix'),
-            field: 'source.mix',
-            min: sMixLo,
-            max: sMixHi,
+            field: sMix.field,
+            min: sMix.min,
+            max: sMix.max,
             step: 0.01,
-            value: rangeMid(sanitiseRangeValueIn(patch.source.mix, sMixLo, sMixHi, 0.5)),
+            value: rangeMid(sanitiseRangeValueIn(patch.source.mix, sMix.min, sMix.max, 0.5)),
             onChange: (v) => {
               patch.source.mix = v;
               commit();
@@ -12429,20 +12457,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             syncMixControl();
           }
         }
-        if (source && controlsFieldAllowed(sourceSpec, 'detune')) {
-          const bipolar = engineCaps.patchDetuneBipolar;
-          const detuneMin = bipolar ? -DETUNE_MAX : 0;
+        const sDetune = registryDial('source.detune');
+        if (source && sDetune && controlsFieldAllowed(sourceSpec, 'detune')) {
+          const bipolar = sDetune.min < 0;
           // v0.0.158 (his 135): same honesty as the knob editor — on a pair
           // voice the value is the exact osc1-to-osc2 gap and the control
           // follows the OSC 2 select; on a stack it stays Spread.
           const pairGap = detuneMode === 'pair';
           const detuneControl = veRange(source, pairGap ? 'Detune' : 'Spread', {
             hint: registryHint('source.detune'),
-            field: 'source.detune',
-            min: detuneMin,
-            max: DETUNE_MAX,
+            field: sDetune.field,
+            min: sDetune.min,
+            max: sDetune.max,
             step: 1,
-            value: rangeMid(sanitiseRangeValueIn(patch.source.detune, detuneMin, DETUNE_MAX, 4)),
+            value: rangeMid(sanitiseRangeValueIn(patch.source.detune, sDetune.min, sDetune.max, 4)),
             format: (v) => detuneFormat(v, bipolar),
             onChange: (v) => {
               const n = Math.round(v);
@@ -12466,15 +12494,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const sourceEditable = (field) =>
           controlsFieldAllowed(sourceSpec, field) || controlsFieldAllowed(sourceSpec, 'octave');
 
-        if (source && !pitchInPlaceOfOctave && controlsFieldAllowed(sourceSpec, 'octave')) {
+        const sOctave = registryDial('source.octave');
+        if (source && sOctave && !pitchInPlaceOfOctave && controlsFieldAllowed(sourceSpec, 'octave')) {
           veSelect(source, 'Octave', {
             hint: registryHint('source.octave'),
-            field: 'source.octave',
-            options: [
-              ['-1', '-1'],
-              ['0', '0'],
-              ['1', '+1'],
-            ],
+            field: sOctave.field,
+            // The dial's stops (DIAL_DEPARTURES holds it to ±1), signed.
+            options: integerMarks(sOctave).map((n) => [String(n), n > 0 ? `+${n}` : String(n)]),
             value: String(patch.source.octave),
             onChange: (v) => {
               patch.source.octave = parseInt(v, 10);
@@ -12482,11 +12508,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             },
           });
         }
-        if (source && pitchInPlaceOfOctave && sourceEditable('pitch')) {
-          const [sPtLo, sPtHi] = patchDomain('source.pitch', -24, 24);
+        const sPitch = registryDial('source.pitch');
+        if (source && sPitch && pitchInPlaceOfOctave && sourceEditable('pitch')) {
+          const [sPtLo, sPtHi] = [sPitch.min, sPitch.max];
           veRange(source, 'Pitch', {
             hint: registryHint('source.pitch'),
-            field: 'source.pitch',
+            field: sPitch.field,
             min: sPtLo,
             max: sPtHi,
             step: 1,
@@ -12504,11 +12531,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             },
           });
         }
-        if (source && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
-          const [sNzLo, sNzHi] = patchDomain('source.noise', 0, 1);
+        const sNoise = registryDial('source.noise');
+        if (source && sNoise && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
+          const [sNzLo, sNzHi] = [sNoise.min, sNoise.max];
           veRange(source, 'Noise', {
             hint: registryHint('source.noise'),
-            field: 'source.noise',
+            field: sNoise.field,
             min: sNzLo,
             max: sNzHi,
             step: 0.01,
@@ -12534,12 +12562,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           source &&
           engineCaps.patchFold &&
           controlsFieldAllowed(sourceSpec, 'fold') &&
-          typeof defaults?.source?.fold === 'number'
+          typeof defaults?.source?.fold === 'number' &&
+          registryDial('source.fold')
         ) {
-          const [sFdLo, sFdHi] = patchDomain('source.fold', 0, 1);
+          const sFold = registryDial('source.fold');
+          const [sFdLo, sFdHi] = [sFold.min, sFold.max];
           veRange(source, 'Fold', {
             hint: registryHint('source.fold'),
-            field: 'source.fold',
+            field: sFold.field,
             min: sFdLo,
             max: sFdHi,
             step: 0.01,
@@ -12581,34 +12611,39 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const fmSpecS = controlsSectionSpec(controls, 'fm');
         const fmOnS = defaults && isPlainObject(defaults.fm) && isPlainObject(patch.fm) && controlsSectionVisible(fmSpecS);
         const fmS = fmOnS ? veSection(container, 'FM') : null;
-        if (fmS && controlsFieldAllowed(fmSpecS, 'ratio')) {
-          const [lo, hi] = patchDomain('fm.ratio', 0.25, 16);
+        // Phase 2c: each control's ends and curve are its registry dial's.
+        const sliderCurve = (d) => (d.log ? { log: true } : { step: 0.01 });
+        const fmRatioS = registryDial('fm.ratio');
+        if (fmS && fmRatioS && controlsFieldAllowed(fmSpecS, 'ratio')) {
+          const [lo, hi] = [fmRatioS.min, fmRatioS.max];
           veRange(fmS, 'Ratio', {
             hint: registryHint('fm.ratio'),
-            field: 'fm.ratio',
-            min: lo, max: hi, log: true,
+            field: fmRatioS.field,
+            min: lo, max: hi, ...sliderCurve(fmRatioS),
             value: rangeMid(sanitiseRangeValueIn(patch.fm.ratio, lo, hi, defaults.fm.ratio)),
             format: timesFormat,
             onChange: (v) => { patch.fm.ratio = v; commit(); },
           });
         }
-        if (fmS && controlsFieldAllowed(fmSpecS, 'depth')) {
-          const [lo, hi] = patchDomain('fm.depth', 0, 4);
+        const fmDepthS = registryDial('fm.depth');
+        if (fmS && fmDepthS && controlsFieldAllowed(fmSpecS, 'depth')) {
+          const [lo, hi] = [fmDepthS.min, fmDepthS.max];
           veRange(fmS, 'Depth', {
             hint: registryHint('fm.depth'),
-            field: 'fm.depth',
-            min: lo, max: hi, step: 0.01,
+            field: fmDepthS.field,
+            min: lo, max: hi, ...sliderCurve(fmDepthS),
             value: rangeMid(sanitiseRangeValueIn(patch.fm.depth, lo, hi, defaults.fm.depth)),
             format: timesFormat,
             onChange: (v) => { patch.fm.depth = v; commit(); },
           });
         }
-        if (fmS && controlsFieldAllowed(fmSpecS, 'bite')) {
-          const [lo, hi] = patchDomain('fm.bite', 0.02, 4);
+        const fmBiteS = registryDial('fm.bite');
+        if (fmS && fmBiteS && controlsFieldAllowed(fmSpecS, 'bite')) {
+          const [lo, hi] = [fmBiteS.min, fmBiteS.max];
           veRange(fmS, 'Bite', {
             hint: registryHint('fm.bite'),
-            field: 'fm.bite',
-            min: lo, max: hi, log: true,
+            field: fmBiteS.field,
+            min: lo, max: hi, ...sliderCurve(fmBiteS),
             value: rangeMid(sanitiseRangeValueIn(patch.fm.bite, lo, hi, defaults.fm.bite)),
             format: secFormat,
             onChange: (v) => { patch.fm.bite = v; commit(); },
@@ -12621,13 +12656,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const addS = addOnS ? veSection(container, 'Additive') : null;
         if (addS) {
           for (const key of Object.keys(defaults.additive)) {
-            if (!controlsFieldAllowed(addSpecS, key)) continue;
+            const d = registryDial(`additive.${key}`);
+            if (!d || !controlsFieldAllowed(addSpecS, key)) continue;
             const isStretch = key === 'stretch';
-            const [lo, hi] = patchDomain(`additive.${key}`, isStretch ? -0.1 : 0, isStretch ? 0.1 : 2);
+            const [lo, hi] = [d.min, d.max];
             veRange(addS, isStretch ? 'Stretch' : `P${key.slice(1)}`, {
               hint: registryHint(`additive.${key}`),
-              field: `additive.${key}`,
-              min: lo, max: hi, step: 0.01,
+              field: d.field,
+              min: lo, max: hi, ...sliderCurve(d),
               value: rangeMid(sanitiseRangeValueIn(patch.additive[key], lo, hi, defaults.additive[key])),
               format: isStretch ? stretchFormat : timesFormat,
               onChange: (v) => { patch.additive[key] = v; commit(); },
@@ -12639,33 +12675,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const modalSpecS = controlsSectionSpec(controls, 'modal');
         const modalOnS = defaults && isPlainObject(defaults.modal) && isPlainObject(patch.modal) && controlsSectionVisible(modalSpecS);
         const modalS = modalOnS ? veSection(container, 'Modal') : null;
-        if (modalS && controlsFieldAllowed(modalSpecS, 'material')) {
-          const materials = registryEnum('modal.material', ['metal', 'wood', 'glass', 'bell']);
+        const materialS = registryDial('modal.material');
+        if (modalS && materialS && controlsFieldAllowed(modalSpecS, 'material')) {
           veSelect(modalS, 'Material', {
             hint: registryHint('modal.material'),
-            field: 'modal.material',
-            options: materials.map((m) => [m, materialLabel(m)]),
+            field: materialS.field,
+            options: materialS.values.map((m) => [m, materialLabel(m)]),
             value: patch.modal.material,
             onChange: (v) => { patch.modal.material = v; commit(); },
           });
         }
-        if (modalS && controlsFieldAllowed(modalSpecS, 'hardness')) {
-          const [lo, hi] = patchDomain('modal.hardness', 0, 2);
+        const hardnessS = registryDial('modal.hardness');
+        if (modalS && hardnessS && controlsFieldAllowed(modalSpecS, 'hardness')) {
+          const [lo, hi] = [hardnessS.min, hardnessS.max];
           veRange(modalS, 'Hardness', {
             hint: registryHint('modal.hardness'),
-            field: 'modal.hardness',
-            min: lo, max: hi, step: 0.01,
+            field: hardnessS.field,
+            min: lo, max: hi, ...sliderCurve(hardnessS),
             value: rangeMid(sanitiseRangeValueIn(patch.modal.hardness, lo, hi, defaults.modal.hardness)),
             format: timesFormat,
             onChange: (v) => { patch.modal.hardness = v; commit(); },
           });
         }
-        if (modalS && controlsFieldAllowed(modalSpecS, 'damping')) {
-          const [lo, hi] = patchDomain('modal.damping', 0.25, 4);
+        const dampingS = registryDial('modal.damping');
+        if (modalS && dampingS && controlsFieldAllowed(modalSpecS, 'damping')) {
+          const [lo, hi] = [dampingS.min, dampingS.max];
           veRange(modalS, 'Damping', {
             hint: registryHint('modal.damping'),
-            field: 'modal.damping',
-            min: lo, max: hi, log: true,
+            field: dampingS.field,
+            min: lo, max: hi, ...sliderCurve(dampingS),
             value: rangeMid(sanitiseRangeValueIn(patch.modal.damping, lo, hi, defaults.modal.damping)),
             format: timesFormat,
             onChange: (v) => { patch.modal.damping = v; commit(); },
@@ -12676,29 +12714,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // Sends controls are one loop over the registry, exactly as the knob
         // editor's became in v0.0.187 — domain, curve (log sliders map through
         // the log) and unit (the format) from the row; per control only the
-        // label, the pre-registry fallback domain, the initial value a stored
-        // patch without the field shows, the slider step, and cutoff's
-        // whole-hertz write. Witnessed byte-identical by page-boot's
+        // label, the initial value a stored patch without the field shows,
+        // the slider step, and cutoff's whole-hertz write (phase 2c deleted
+        // the pre-registry fallback domains, and Resonance's linear drawing
+        // moved into DIAL_DEPARTURES). Witnessed byte-identical by page-boot's
         // fallback fixture (tests/fixtures/editor-controls-fallback.json).
         const SLIDER_DIALS = [
           ['filter', 'Filter', filterSpec, [
-            ['cutoff', 'Cutoff', { fallback: [40, 12000], initial: 2000, write: Math.round }],
-            // v0.0.192: Resonance has always been drawn LINEAR, though its row
-            // says log; the loops read the row's curve and turned it log. The
-            // shipped drawing stands until the open row (TODO: the q log/linear
-            // discrepancy) is ruled.
-            ['q', 'Resonance', { fallback: [0.1, 20], initial: 0.7, step: 0.1, curve: 'linear' }],
-            ['envAmount', 'Env amount', { fallback: [0, 1], initial: 0.3 }],
+            ['cutoff', 'Cutoff', { initial: 2000, write: Math.round }],
+            ['q', 'Resonance', { initial: 0.7, step: 0.1 }],
+            ['envAmount', 'Env amount', { initial: 0.3 }],
           ]],
           ['adsr', 'Envelope', adsrSpec, [
-            ['attack', 'Attack', { fallback: [0.001, 8], initial: 0.01 }],
-            ['decay', 'Decay', { fallback: [0.001, 8], initial: 0.2 }],
-            ['sustain', 'Sustain', { fallback: [0, 1], initial: 0.7 }],
-            ['release', 'Release', { fallback: [0.01, 12], initial: 0.5 }],
+            ['attack', 'Attack', { initial: 0.01 }],
+            ['decay', 'Decay', { initial: 0.2 }],
+            ['sustain', 'Sustain', { initial: 0.7 }],
+            ['release', 'Release', { initial: 0.5 }],
           ]],
           ['sends', 'Sends', sendsSpec, [
-            ['reverb', 'Reverb', { fallback: [0, 1], initial: 0.3 }],
-            ['delay', 'Delay', { fallback: [0, 1], initial: 0.15 }],
+            ['reverb', 'Reverb', { initial: 0.3 }],
+            ['delay', 'Delay', { initial: 0.15 }],
           ]],
         ];
         const sliderFormat = (unit) => (unit === 'Hz' ? hzFormat : unit === 's' ? secFormat : undefined);
@@ -12718,19 +12753,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             });
           }
           for (const [key, label, ui] of dials) {
-            if (!controlsFieldAllowed(spec, key)) continue;
             const path = `${section}.${key}`;
-            const [lo, hi] = patchDomain(path, ui.fallback[0], ui.fallback[1]);
-            const reg = engineModule && engineModule.PARAM_REGISTRY ? engineModule.PARAM_REGISTRY[`patch.${path}`] : null;
-            const log = ui.curve ? ui.curve === 'log' : (reg ? reg.curve === 'log' : false);
+            const d = registryDial(path);
+            if (!d || !controlsFieldAllowed(spec, key)) continue;
+            const [lo, hi] = [d.min, d.max];
             veRange(box, label, {
               hint: registryHint(path),
-              field: path,
+              field: d.field,
               min: lo,
               max: hi,
-              ...(log ? { log: true } : { step: ui.step || 0.01 }),
+              ...(d.log ? { log: true } : { step: ui.step || 0.01 }),
               value: rangeMid(sanitiseRangeValueIn(patch[section][key], lo, hi, ui.initial)),
-              ...(sliderFormat(reg ? reg.unit : '') ? { format: sliderFormat(reg.unit) } : {}),
+              ...(sliderFormat(d.unit) ? { format: sliderFormat(d.unit) } : {}),
               onChange: (v) => {
                 patch[section][key] = ui.write ? ui.write(v) : v;
                 commit();
@@ -12754,14 +12788,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * ('filter.cutoff'); it is consumed here, never passed to createKnob.
        */
       function buildKnobEditor(container, patch, commit, knobs, controls, defaults, ghost = null, track = null, detuneMode = null) {
-        // Phase 2a (v0.0.166): a dial's domain is the REGISTRY row the
-        // engine's sanitiser is built from — stated once per dial here, not
-        // three times (min/max, the value clamp, the write clamp). The
-        // literal pair survives only as the fallback an engine bundle
-        // without a registry would boot on. Octave is the one deliberate
-        // exception below: the registry (and sanitiser) accept ±2, the DIAL
-        // ships ±1 because every voice's own OCTAVES table clamps there.
-        const regDomain = patchDomain;
+        // Phase 2c: every registry-backed dial is its registryDial() — field,
+        // ends and whether it may spread come from the row (through
+        // DIAL_DEPARTURES, where the shipped dial and its row disagree), and
+        // `facts` is the one place they are handed to createKnob. No dial
+        // here states a domain, a curve or allowRange of its own;
+        // tests/registry-contract.mjs scans this function to hold that.
+        const facts = (dial) => ({ field: dial.field, min: dial.min, max: dial.max, allowRange: dial.allowRange });
         const sourceSpec = controlsSectionSpec(controls, 'source');
         const filterSpec = controlsSectionSpec(controls, 'filter');
         const adsrSpec = controlsSectionSpec(controls, 'adsr');
@@ -12879,7 +12912,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // carries allowRange/rangeDefault through to createKnob. v12:
         // `defaultLinear` (optional, same domain as `value`) is mapped through
         // the same toLog and passed on as the knob's `defaultValue`.
-        function addLogKnob(row, label, min, max, value, format, onValue, knobOpts, defaultLinear) {
+        // Phase 2c: handed the registry dial, whose ends the log maps over and
+        // whose field and rangeability it carries to createKnob.
+        function addLogKnob(row, label, dial, value, format, onValue, knobOpts, defaultLinear) {
+          const { min, max } = dial;
           const toLog = (v) => valueToLog(clamp(v, min, max), min, max);
           const fromLog = (t) => logToValue(clamp(t, 0, 1), min, max);
           return addKnob(row, {
@@ -12898,27 +12934,29 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ghostMap: (v) => mapRV(v, toLog),
             ...(defaultLinear != null ? { defaultValue: mapRV(defaultLinear, toLog) } : {}),
             ...knobOpts,
+            field: dial.field,
+            allowRange: dial.allowRange,
           });
         }
 
         // -- source --
         const source = controlsSectionVisible(sourceSpec) ? knobSection('Source') : null;
-        if (source && allowed(sourceSpec, 'shape1')) {
-          const [sh1Lo, sh1Hi] = regDomain('source.shape1', 0, 3);
+        const shape1Dial = registryDial('source.shape1');
+        if (source && shape1Dial && allowed(sourceSpec, 'shape1')) {
           addKnob(source, {
             label: 'OSC 1',
-            field: 'source.shape1',
+            ...facts(shape1Dial),
             glyphOnly: true,
             // v0.0.74: the morph spreads. It was always CONTINUOUS — fractional
             // positions between sine, triangle, saw and square have been legal
             // since v5 — so calling it discrete was simply wrong.
             // v0.0.171: and its ends come from the registry row like every
             // other numeric dial. These two morphs were the pair phase 2a's
-            // own summary claimed to have converted and had not.
-            min: sh1Lo,
-            max: sh1Hi,
+            // own summary claimed to have converted and had not; phase 2c
+            // dropped the literal 0–3 they still fell back on, and their
+            // marks are the row's whole steps (one per waveform).
             value: readShape(patch.source, 1) ?? 0,
-            marks: SHAPE_MARKS,
+            marks: integerMarks(shape1Dial),
             markGlyphs: SHAPE_MARK_GLYPHS,
             glyph: shapeGlyph,
             format: shapeFormat,
@@ -12937,7 +12975,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         let syncMixCell = () => {};
 
         // Osc 2's "off" affordance: a toggle beside its dial (shape2 null).
-        if (source && allowed(sourceSpec, 'shape2')) {
+        const shape2Dial = registryDial('source.shape2');
+        if (source && shape2Dial && allowed(sourceSpec, 'shape2')) {
           let lastShape2 = readShape(patch.source, 2);
           osc2Enabled = lastShape2 !== null;
           const shape2Default = readShape(defaults.source, 2);
@@ -12953,18 +12992,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           source.append(osc2Cell);
           describe(osc2Toggle, 'Adds a second oscillator; Mix balances the two.');
 
-          const [sh2Lo, sh2Hi] = regDomain('source.shape2', 0, 3);
           const shape2Knob = addKnob(source, {
             label: 'OSC 2',
             // v0.0.74: the morph spreads. It was always CONTINUOUS — fractional
             // positions between sine, triangle, saw and square have been legal
             // since v5 — so calling it discrete was simply wrong.
-            field: 'source.shape2',
+            ...facts(shape2Dial),
             glyphOnly: true,
-            min: sh2Lo,
-            max: sh2Hi,
             value: lastShape2 ?? 0,
-            marks: SHAPE_MARKS,
+            marks: integerMarks(shape2Dial),
             markGlyphs: SHAPE_MARK_GLYPHS,
             glyph: shapeGlyph,
             format: shapeFormat,
@@ -12974,7 +13010,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // (0) while the cell is reachable at all (i.e. toggled on).
             ...(shape2Default != null ? { defaultValue: shape2Default } : {}),
             onInput: (v) => {
-              lastShape2 = mapRV(v, (x) => clamp(x, sh2Lo, sh2Hi));
+              lastShape2 = mapRV(v, (x) => clamp(x, shape2Dial.min, shape2Dial.max));
               writeShape(patch.source, 2, lastShape2);
               commit();
             },
@@ -13000,16 +13036,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
 
-        if (source && allowed(sourceSpec, 'mix')) {
-          const [mixLo, mixHi] = regDomain('source.mix', 0, 1);
+        const mixDial = registryDial('source.mix');
+        if (source && mixDial && allowed(sourceSpec, 'mix')) {
+          const [mixLo, mixHi] = [mixDial.min, mixDial.max];
           const mixKnob = addKnob(source, {
             label: 'Mix',
-            field: 'source.mix',
-            min: mixLo,
-            max: mixHi,
+            ...facts(mixDial),
             value: sanitiseRangeValueIn(patch.source.mix, mixLo, mixHi, 0.5),
             format: plainFormat,
-            allowRange: true,
             defaultValue: defaults.source.mix,
             onInput: (v) => {
               patch.source.mix = mapRV(v, (x) => clamp(x, mixLo, mixHi));
@@ -13030,11 +13064,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // rather than the version number. Bipolar gets a centre detent: the
         // ±1 ct either side of zero is inaudible, so swallowing it buys a
         // dial you can return to true by feel.
-        if (source && allowed(sourceSpec, 'detune')) {
-          const bipolar = engineCaps.patchDetuneBipolar;
-          const detuneMin = bipolar ? -DETUNE_MAX : 0;
+        const detuneDial = registryDial('source.detune');
+        if (source && detuneDial && allowed(sourceSpec, 'detune')) {
+          const bipolar = detuneDial.min < 0;
           const detent = (x) => {
-            const n = Math.round(clamp(x, detuneMin, DETUNE_MAX));
+            const n = Math.round(clamp(x, detuneDial.min, detuneDial.max));
             return bipolar && Math.abs(n) <= DETUNE_DETENT ? 0 : n;
           };
           // v0.0.143 (his 117): "surely that should only exist when you have
@@ -13051,14 +13085,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const pairGap = detuneMode === 'pair';
           const spreadCell = addKnob(source, {
             label: pairGap ? 'Detune' : 'Spread',
-            field: 'source.detune',
-            min: detuneMin,
-            max: DETUNE_MAX,
+            ...facts(detuneDial),
             step: 1,
-            ...(bipolar ? { marks: [-DETUNE_MAX, 0, DETUNE_MAX] } : {}),
-            value: sanitiseRangeValueIn(patch.source.detune, detuneMin, DETUNE_MAX, 4),
+            ...(bipolar ? { marks: [detuneDial.min, 0, detuneDial.max] } : {}),
+            value: sanitiseRangeValueIn(patch.source.detune, detuneDial.min, detuneDial.max, 4),
             format: (v) => detuneFormat(v, bipolar),
-            allowRange: true,
             defaultValue: defaults.source.detune,
             onInput: (v) => {
               patch.source.detune = mapRV(v, detent);
@@ -13108,41 +13139,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // survives in the code or the plan, so it is documented as what it is
         // rather than justified by a clamp that does not exist. See
         // docs/engine-v2-contract.md, which states all three bounds.
-        if (source && !pitchInPlaceOfOctave && allowed(sourceSpec, 'octave')) {
+        // Phase 2c: the ±1 is DIAL_DEPARTURES['source.octave'] now — one named
+        // disagreement both editors read, rather than three literals here.
+        const octaveDial = registryDial('source.octave');
+        if (source && octaveDial && !pitchInPlaceOfOctave && allowed(sourceSpec, 'octave')) {
           addKnob(source, {
             label: 'Octave',
-            field: 'source.octave',
+            ...facts(octaveDial),
             // v0.0.74: this spreads now. The owner's "either tell me why you
             // won't add variation to all dials, or add it to them all" — and
             // the reason I had given did not survive contact. An oscillator
             // that jumps octave bar by bar is an ordinary synth behaviour;
             // the engine takes a span here and rounds the walk to one of the
             // switch's own stops, so a span never lands between them.
-            min: -1,
-            max: 1,
             step: 1,
-            value: sanitiseRangeValueIn(patch.source.octave, -1, 1, 0),
-            marks: [-1, 0, 1],
+            value: sanitiseRangeValueIn(patch.source.octave, octaveDial.min, octaveDial.max, 0),
+            marks: integerMarks(octaveDial),
             format: (v) => (v > 0 ? `+${Math.round(v)}` : String(Math.round(v))),
             defaultValue: defaults.source.octave,
             onInput: (v) => {
-              patch.source.octave = mapRV(v, (n) => Math.round(clamp(n, -1, 1)));
+              patch.source.octave = mapRV(v, (n) => Math.round(clamp(n, octaveDial.min, octaveDial.max)));
               commit();
             },
           });
         }
 
-        if (source && pitchInPlaceOfOctave && sourceEditable('pitch')) {
+        const pitchDial = registryDial('source.pitch');
+        if (source && pitchDial && pitchInPlaceOfOctave && sourceEditable('pitch')) {
           const semitones = (v) => {
             const n = Math.round(v);
             return n > 0 ? `+${n} st` : `${n} st`;
           };
-          const [ptLo, ptHi] = regDomain('source.pitch', -24, 24);
+          const [ptLo, ptHi] = [pitchDial.min, pitchDial.max];
           addKnob(source, {
             label: 'Pitch',
-            field: 'source.pitch',
-            min: ptLo,
-            max: ptHi,
+            ...facts(pitchDial),
             step: 1,
             // An older stored patch carries the octave switch instead; ×12
             // reads it in the new dial's units so nothing jumps on upgrade.
@@ -13155,7 +13186,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               ptHi,
               0
             ),
-            marks: [-24, -12, 0, 12, 24],
+            // Ends, octaves either way and the centre: the row's ±24 drawn.
+            marks: [ptLo, ptLo / 2, 0, ptHi / 2, ptHi],
             format: semitones,
             defaultValue: defaults.source.pitch ?? (defaults.source.octave || 0) * 12,
             onInput: (v) => {
@@ -13165,17 +13197,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
 
-        if (source && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
-          const [nzLo, nzHi] = regDomain('source.noise', 0, 1);
+        const noiseDial = registryDial('source.noise');
+        if (source && noiseDial && track === 'percussion' && engineCaps.patchNoise && sourceEditable('noise')) {
+          const [nzLo, nzHi] = [noiseDial.min, noiseDial.max];
           addKnob(source, {
             label: 'Noise',
-            field: 'source.noise',
-            min: nzLo,
-            max: nzHi,
+            ...facts(noiseDial),
             value: sanitiseRangeValueIn(patch.source.noise, nzLo, nzHi, defaults.source.noise ?? 0.5),
             format: pctFormat,
             parse: pctParse,
-            allowRange: engineCaps.patchNoiseRange,
             ...(defaults.source.noise != null ? { defaultValue: defaults.source.noise } : {}),
             onInput: (v) => {
               patch.source.noise = mapRV(v, (x) => clamp(x, nzLo, nzHi));
@@ -13194,18 +13224,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           source &&
           engineCaps.patchFold &&
           allowed(sourceSpec, 'fold') &&
-          typeof defaults?.source?.fold === 'number'
+          typeof defaults?.source?.fold === 'number' &&
+          registryDial('source.fold')
         ) {
-          const [fdLo, fdHi] = regDomain('source.fold', 0, 1);
+          const foldDial = registryDial('source.fold');
+          const [fdLo, fdHi] = [foldDial.min, foldDial.max];
           addKnob(source, {
             label: 'Fold',
-            field: 'source.fold',
-            min: fdLo,
-            max: fdHi,
+            ...facts(foldDial),
             value: sanitiseRangeValueIn(patch.source.fold, fdLo, fdHi, defaults.source.fold ?? 0),
             format: pctFormat,
             parse: pctParse,
-            allowRange: true,
             defaultValue: defaults.source.fold ?? 0,
             onInput: (v) => {
               patch.source.fold = mapRV(v, (x) => clamp(x, fdLo, fdHi));
@@ -13228,9 +13257,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               );
               commit();
             };
+            // Phase 2c: field and rangeability are the spec's registry dial
+            // (once one blanket engineCaps.patchV19Range for all sixteen).
             const knobOpts = {
-              allowRange: engineCaps.patchV19Range,
-              field: `source.${spec.field}`,
               ...(spec.step ? { step: spec.step } : {}),
               ...(spec.marks ? { marks: spec.marks } : {}),
             };
@@ -13240,8 +13269,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               ? addLogKnob(
                   row,
                   spec.label,
-                  spec.min,
-                  spec.max,
+                  spec.dial,
                   v19Value(patch, defaults, spec),
                   spec.format,
                   write,
@@ -13250,8 +13278,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 )
               : addKnob(row, {
                   label: spec.label,
-                  min: spec.min,
-                  max: spec.max,
+                  ...facts(spec.dial),
                   value: v19Value(patch, defaults, spec),
                   format: spec.format,
                   defaultValue: fallbackDefault,
@@ -13268,48 +13295,49 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const fmSpec = controlsSectionSpec(controls, 'fm');
         const fmOn = isPlainObject(defaults.fm) && isPlainObject(patch.fm) && controlsSectionVisible(fmSpec);
         const fmRow = fmOn ? knobSection('FM') : null;
-        if (fmRow && allowed(fmSpec, 'ratio')) {
-          const [lo, hi] = regDomain('fm.ratio', 0.25, 16);
-          addLogKnob(
-            fmRow, 'Ratio', lo, hi,
+        // Phase 2c: a dial's curve is its row's — log rows take the log knob.
+        const addRegistryKnob = (row, label, dial, value, format, write, defaultValue) => (dial.log
+          ? addLogKnob(row, label, dial, value, format, write, {}, defaultValue)
+          : addKnob(row, { label, ...facts(dial), value, format, defaultValue, onInput: write }));
+        const fmRatioDial = registryDial('fm.ratio');
+        if (fmRow && fmRatioDial && allowed(fmSpec, 'ratio')) {
+          const [lo, hi] = [fmRatioDial.min, fmRatioDial.max];
+          addRegistryKnob(
+            fmRow, 'Ratio', fmRatioDial,
             sanitiseRangeValueIn(patch.fm.ratio, lo, hi, defaults.fm.ratio),
             timesFormat,
             (v) => {
               patch.fm.ratio = mapRV(v, (x) => clamp(x, lo, hi));
               commit();
             },
-            { allowRange: true, field: 'fm.ratio' },
             defaults.fm.ratio
           );
         }
-        if (fmRow && allowed(fmSpec, 'depth')) {
-          const [lo, hi] = regDomain('fm.depth', 0, 4);
-          addKnob(fmRow, {
-            label: 'Depth',
-            field: 'fm.depth',
-            min: lo,
-            max: hi,
-            value: sanitiseRangeValueIn(patch.fm.depth, lo, hi, defaults.fm.depth),
-            format: timesFormat,
-            allowRange: true,
-            defaultValue: defaults.fm.depth,
-            onInput: (v) => {
+        const fmDepthDial = registryDial('fm.depth');
+        if (fmRow && fmDepthDial && allowed(fmSpec, 'depth')) {
+          const [lo, hi] = [fmDepthDial.min, fmDepthDial.max];
+          addRegistryKnob(
+            fmRow, 'Depth', fmDepthDial,
+            sanitiseRangeValueIn(patch.fm.depth, lo, hi, defaults.fm.depth),
+            timesFormat,
+            (v) => {
               patch.fm.depth = mapRV(v, (x) => clamp(x, lo, hi));
               commit();
             },
-          });
+            defaults.fm.depth
+          );
         }
-        if (fmRow && allowed(fmSpec, 'bite')) {
-          const [lo, hi] = regDomain('fm.bite', 0.02, 4);
-          addLogKnob(
-            fmRow, 'Bite', lo, hi,
+        const fmBiteDial = registryDial('fm.bite');
+        if (fmRow && fmBiteDial && allowed(fmSpec, 'bite')) {
+          const [lo, hi] = [fmBiteDial.min, fmBiteDial.max];
+          addRegistryKnob(
+            fmRow, 'Bite', fmBiteDial,
             sanitiseRangeValueIn(patch.fm.bite, lo, hi, defaults.fm.bite),
             secFormat,
             (v) => {
               patch.fm.bite = mapRV(v, (x) => clamp(x, lo, hi));
               commit();
             },
-            { allowRange: true, field: 'fm.bite' },
             defaults.fm.bite
           );
         }
@@ -13321,23 +13349,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const addRow = addOn ? knobSection('Additive') : null;
         if (addRow) {
           for (const key of Object.keys(defaults.additive)) {
-            if (!allowed(addSpec, key) || !isPlainObject(patch.additive)) continue;
+            const dial = registryDial(`additive.${key}`);
+            if (!dial || !allowed(addSpec, key) || !isPlainObject(patch.additive)) continue;
             const isStretch = key === 'stretch';
-            const [lo, hi] = regDomain(`additive.${key}`, isStretch ? -0.1 : 0, isStretch ? 0.1 : 2);
-            addKnob(addRow, {
-              label: isStretch ? 'Stretch' : `P${key.slice(1)}`,
-              field: `additive.${key}`,
-              min: lo,
-              max: hi,
-              value: sanitiseRangeValueIn(patch.additive[key], lo, hi, defaults.additive[key]),
-              format: isStretch ? stretchFormat : timesFormat,
-              allowRange: true,
-              defaultValue: defaults.additive[key],
-              onInput: (v) => {
+            const [lo, hi] = [dial.min, dial.max];
+            addRegistryKnob(
+              addRow, isStretch ? 'Stretch' : `P${key.slice(1)}`, dial,
+              sanitiseRangeValueIn(patch.additive[key], lo, hi, defaults.additive[key]),
+              isStretch ? stretchFormat : timesFormat,
+              (v) => {
                 patch.additive[key] = mapRV(v, (x) => clamp(x, lo, hi));
                 commit();
               },
-            });
+              defaults.additive[key]
+            );
           }
         }
 
@@ -13346,55 +13371,52 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const modalSpec = controlsSectionSpec(controls, 'modal');
         const modalOn = isPlainObject(defaults.modal) && isPlainObject(patch.modal) && controlsSectionVisible(modalSpec);
         const modalRow = modalOn ? knobSection('Modal') : null;
-        if (modalRow && allowed(modalSpec, 'material')) {
-          const materials = registryEnum('modal.material', ['metal', 'wood', 'glass', 'bell']);
-          const top = materials.length - 1;
+        const materialDial = registryDial('modal.material');
+        if (modalRow && materialDial && allowed(modalSpec, 'material')) {
+          const materials = materialDial.values;
+          const top = materialDial.max;
           addKnob(modalRow, {
             label: 'Material',
-            field: 'modal.material',
-            allowRange: false, // an enumeration — see the Type dial
+            // An enumeration: the dial is the value index, and its row says
+            // it may not spread — see the Type dial.
+            ...facts(materialDial),
             ghostMap: (v) => Math.max(0, materials.indexOf(v)),
-            min: 0,
-            max: top,
             step: 1,
             value: Math.max(0, materials.indexOf(patch.modal.material)),
-            marks: materials.map((_, i) => i),
-            format: (v) => materialLabel(materials[Math.round(clamp(v, 0, top))]),
+            marks: integerMarks(materialDial),
+            format: (v) => materialLabel(materials[Math.round(clamp(v, materialDial.min, top))]),
             defaultValue: Math.max(0, materials.indexOf(defaults.modal.material)),
             onInput: (v) => {
-              patch.modal.material = materials[Math.round(clamp(v, 0, top))];
+              patch.modal.material = materials[Math.round(clamp(v, materialDial.min, top))];
               commit();
             },
           });
         }
-        if (modalRow && allowed(modalSpec, 'hardness')) {
-          const [lo, hi] = regDomain('modal.hardness', 0, 2);
-          addKnob(modalRow, {
-            label: 'Hardness',
-            field: 'modal.hardness',
-            min: lo,
-            max: hi,
-            value: sanitiseRangeValueIn(patch.modal.hardness, lo, hi, defaults.modal.hardness),
-            format: timesFormat,
-            allowRange: true,
-            defaultValue: defaults.modal.hardness,
-            onInput: (v) => {
+        const hardnessDial = registryDial('modal.hardness');
+        if (modalRow && hardnessDial && allowed(modalSpec, 'hardness')) {
+          const [lo, hi] = [hardnessDial.min, hardnessDial.max];
+          addRegistryKnob(
+            modalRow, 'Hardness', hardnessDial,
+            sanitiseRangeValueIn(patch.modal.hardness, lo, hi, defaults.modal.hardness),
+            timesFormat,
+            (v) => {
               patch.modal.hardness = mapRV(v, (x) => clamp(x, lo, hi));
               commit();
             },
-          });
+            defaults.modal.hardness
+          );
         }
-        if (modalRow && allowed(modalSpec, 'damping')) {
-          const [lo, hi] = regDomain('modal.damping', 0.25, 4);
-          addLogKnob(
-            modalRow, 'Damping', lo, hi,
+        const dampingDial = registryDial('modal.damping');
+        if (modalRow && dampingDial && allowed(modalSpec, 'damping')) {
+          const [lo, hi] = [dampingDial.min, dampingDial.max];
+          addRegistryKnob(
+            modalRow, 'Damping', dampingDial,
             sanitiseRangeValueIn(patch.modal.damping, lo, hi, defaults.modal.damping),
             timesFormat,
             (v) => {
               patch.modal.damping = mapRV(v, (x) => clamp(x, lo, hi));
               commit();
             },
-            { allowRange: true, field: 'modal.damping' },
             defaults.modal.damping
           );
         }
@@ -13403,53 +13425,50 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // v0.0.187). Each numeric dial's domain, curve (log → addLogKnob) and
         // unit (→ the format) come from its row, and whether it may spread
         // is the row's `rangeable`, derived rather than hand-passed. What
-        // stays per dial is what is genuinely a page fact: its label, its
-        // pre-registry fallback (the domain an engine bundle without a
-        // registry would boot on), whether it opens as a span by default
-        // (cutoff and the sends, since v7), and cutoff's whole-hertz write.
+        // stays per dial is what is genuinely a page fact: its label, whether
+        // it opens as a span by default (cutoff and the sends, since v7), and
+        // cutoff's whole-hertz write. Phase 2c deleted the pre-registry
+        // fallback domains and moved Resonance's linear drawing into
+        // DIAL_DEPARTURES, so each dial is its registryDial() and nothing else.
         // The Type dial (an enumeration) and the kit's envelope note keep
         // their own code, inside the loop's own section.
         const PATCH_DIALS = [
           ['filter', 'Filter', filterSpec, [
-            ['cutoff', 'Cutoff', { fallback: [40, 12000], initial: 2000, rangeDefault: true, write: Math.round }],
-            // v0.0.192: Resonance has always been drawn LINEAR, though its row
-            // says log; the loops read the row's curve and turned it log. The
-            // shipped drawing stands until the open row (TODO: the q log/linear
-            // discrepancy) is ruled.
-            ['q', 'Resonance', { fallback: [0.1, 20], initial: 0.7, step: 0.1, curve: 'linear' }],
-            ['envAmount', 'Env amount', { fallback: [0, 1], initial: 0.3 }],
+            ['cutoff', 'Cutoff', { initial: 2000, rangeDefault: true, write: Math.round }],
+            ['q', 'Resonance', { initial: 0.7, step: 0.1 }],
+            ['envAmount', 'Env amount', { initial: 0.3 }],
           ]],
           ['adsr', 'Envelope', adsrSpec, [
-            ['attack', 'Attack', { fallback: [0.001, 8], initial: 0.01 }],
-            ['decay', 'Decay', { fallback: [0.001, 8], initial: 0.2 }],
-            ['sustain', 'Sustain', { fallback: [0, 1], initial: 0.7 }],
-            ['release', 'Release', { fallback: [0.01, 12], initial: 0.5 }],
+            ['attack', 'Attack', { initial: 0.01 }],
+            ['decay', 'Decay', { initial: 0.2 }],
+            ['sustain', 'Sustain', { initial: 0.7 }],
+            ['release', 'Release', { initial: 0.5 }],
           ]],
           ['sends', 'Sends', sendsSpec, [
-            ['reverb', 'Reverb', { fallback: [0, 1], initial: 0.3, rangeDefault: true }],
-            ['delay', 'Delay', { fallback: [0, 1], initial: 0.15, rangeDefault: true }],
+            ['reverb', 'Reverb', { initial: 0.3, rangeDefault: true }],
+            ['delay', 'Delay', { initial: 0.15, rangeDefault: true }],
           ]],
         ];
         const formatForUnit = (unit) => (unit === 'Hz' ? hzFormat : unit === 's' ? secFormat : plainFormat);
         for (const [section, heading, spec, dials] of PATCH_DIALS) {
           const row = controlsSectionVisible(spec) ? knobSection(heading) : null;
           if (!row) continue;
-          if (section === 'filter' && allowed(spec, 'type')) {
+          const typeDial = section === 'filter' ? registryDial('filter.type') : null;
+          if (typeDial && allowed(spec, 'type')) {
+          const order = typeDial.values;
           addKnob(row, {
             label: 'Type',
-            field: 'filter.type',
-            allowRange: false, // an enumeration — see the Octave dial above
-            // The dial's domain is the index, the patch stores the name.
-            ghostMap: (v) => Math.max(0, FILTER_ORDER.indexOf(v)),
-            min: 0,
-            max: 3,
+            // An enumeration, so its row says it may not spread. The dial's
+            // domain is the value index, the patch stores the name.
+            ...facts(typeDial),
+            ghostMap: (v) => Math.max(0, order.indexOf(v)),
             step: 1,
-            value: Math.max(0, FILTER_ORDER.indexOf(patch.filter.type)),
-            marks: [0, 1, 2, 3],
-            format: (v) => FILTER_DIAL_LABELS[Math.round(clamp(v, 0, 3))],
-            defaultValue: Math.max(0, FILTER_ORDER.indexOf(defaults.filter.type)),
+            value: Math.max(0, order.indexOf(patch.filter.type)),
+            marks: integerMarks(typeDial),
+            format: (v) => FILTER_DIAL_LABELS[order[Math.round(clamp(v, typeDial.min, typeDial.max))]],
+            defaultValue: Math.max(0, order.indexOf(defaults.filter.type)),
             onInput: (v) => {
-              patch.filter.type = FILTER_ORDER[Math.round(clamp(v, 0, 3))];
+              patch.filter.type = order[Math.round(clamp(v, typeDial.min, typeDial.max))];
               commit();
             },
           });
@@ -13470,27 +13489,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
           }
           for (const [key, label, ui] of dials) {
-            if (!allowed(spec, key)) continue;
             const path = `${section}.${key}`;
-            const [lo, hi] = regDomain(path, ui.fallback[0], ui.fallback[1]);
-            const reg = engineModule && engineModule.PARAM_REGISTRY ? engineModule.PARAM_REGISTRY[`patch.${path}`] : null;
-            const log = ui.curve ? ui.curve === 'log' : (reg ? reg.curve === 'log' : false);
-            const format = formatForUnit(reg ? reg.unit : '');
-            const allowRange = reg ? reg.rangeable !== false : true;
+            const dial = registryDial(path);
+            if (!dial || !allowed(spec, key)) continue;
+            const [lo, hi] = [dial.min, dial.max];
+            const format = formatForUnit(dial.unit);
             const value = sanitiseRangeValueIn(patch[section][key], lo, hi, ui.initial);
             const write = ui.write
               ? (v) => { patch[section][key] = mapRV(v, ui.write); commit(); }
-              : log
+              : dial.log
                 ? (v) => { patch[section][key] = v; commit(); }
                 : (v) => { patch[section][key] = mapRV(v, (x) => clamp(x, lo, hi)); commit(); };
-            const knobOpts = { allowRange, field: path, ...(ui.rangeDefault ? { rangeDefault: true } : {}) };
-            if (log) {
-              addLogKnob(row, label, lo, hi, value, format, write, knobOpts, defaults[section][key]);
+            const knobOpts = ui.rangeDefault ? { rangeDefault: true } : {};
+            if (dial.log) {
+              addLogKnob(row, label, dial, value, format, write, knobOpts, defaults[section][key]);
             } else {
               addKnob(row, {
                 label,
-                min: lo,
-                max: hi,
+                ...facts(dial),
                 ...(ui.step ? { step: ui.step } : {}),
                 value,
                 format,

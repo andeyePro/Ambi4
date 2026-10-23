@@ -210,8 +210,10 @@ Patch = {
   sanitiser is derived from that row, so `-2..2` is what a patch or a link
   can actually carry. Every voice's own `OCTAVES` table (`engine-voices.js`,
   "v12: two octaves either way") also spans `[-2, -1, 0, 1, 2]`. The DIAL is
-  the outlier: it still ships `-1..1` only (`index.astro`, the Octave knob)
-  — a narrower cap than anything that would refuse it downstream.
+  the outlier: it still ships `-1..1` only — a narrower cap than anything
+  that would refuse it downstream. Since phase 2c that cap is one named entry,
+  `DIAL_DEPARTURES['source.octave']` in `index.astro`, which both the Octave
+  knob and the fallback editor's Octave select read.
 - Routing (v0.0.168, phase 5's first slice): `params.routing` — a list of
   `{ source, destination }` edges, ONE slot per destination (the last edge naming a
   destination wins; the newest patch REPLACES the internal randomiser — nothing
