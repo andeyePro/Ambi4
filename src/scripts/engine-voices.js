@@ -3814,12 +3814,35 @@ function callVoice(ctx, destination, note, patch, d, basePeak) {
   // it does not slow down because the note it was handed was a long one.
   const spacing = clamp(CALL_BAR / s.cadence, 0.05, 8);
   const count = clamp(Math.round(span / spacing), 1, CALL_MAX);
-  const peak = level(basePeak, v);
-  let end = t;
+  // AUDIT FIX: the Release dial rings each chirp up to 16x its own length
+  // (below), and with a long release at a cadence of 3 or more the tails
+  // overlap the next chirps' heads, so their peaks added on the bus — 1.215
+  // at velocity 1 and release 12 s, where every voice is held to 1. The
+  // phrase is drawn first (the same draws in the same order, so an unpatched
+  // call is byte-identical), the most chirps that ever sound at once is
+  // counted, and only when that stack at full tilt would pass unity is every
+  // chirp trimmed by the same factor. A trim, never a limiter: nothing moves
+  // while sounding, and a phrase whose chirps stay apart is untouched.
+  const ring = clamp(adsr.release / Math.max(0.05, d.adsr.release), 0.25, 16);
+  const chirps = [];
   for (let i = 0; i < count; i++) {
     const at = Math.max(t, t + i * spacing + s.irregular * between(-0.35, 0.35) * spacing);
     const length = clamp(spacing * 0.55, 0.04, 1.4) * (1 + s.irregular * between(-0.3, 0.3));
     const from = clamp(base * Math.pow(2, s.irregular * between(-2, 2) / 12), 40, 9000);
+    // attack 0.2 + hold 0.3 of the length, then the ringing release.
+    chirps.push({ at, length, from, stop: at + length * 0.5 + length * 0.5 * ring + 0.02 });
+  }
+  let stacked = 1;
+  for (const { at } of chirps) {
+    const sounding = chirps.filter((c) => c.at <= at + 1e-9 && at < c.stop - 1e-9).length;
+    if (sounding > stacked) stacked = sounding;
+  }
+  // The two formants' weights sum to 1 and the patch filter's trim is at most
+  // 1, so a chirp reaches the bus at no more than its own peak.
+  const full = level(basePeak, v);
+  const peak = stacked * full * 3 > 1 ? full / (stacked * full * 3) : full;
+  let end = t;
+  for (const { at, length, from } of chirps) {
     const to = clamp(from * Math.pow(2, s.glide / 12), 30, 12000);
     // The curve is where the sweep is at half time: near the start pitch is a
     // slow lift into a fast one, near the arrival pitch is the other way round.
@@ -3838,7 +3861,7 @@ function callVoice(ctx, destination, note, patch, d, basePeak) {
     // derived from its own length alone, so the adsr the editor shows had
     // no effect on the tail. The ring now scales with the patch's release,
     // anchored to the voice's default so an unpatched call is byte-identical.
-    const ring = clamp(adsr.release / Math.max(0.05, d.adsr.release), 0.25, 16);
+    // (`ring` is computed above the loop, where the stack is counted.)
     const shape = { attack: length * 0.2, hold: length * 0.3, release: length * 0.5 * ring };
     // ×3: the deleted breath layer carried most of the voice's energy (its
     // makeup gain sat it at up to twice the tone), so the bare whistle needs

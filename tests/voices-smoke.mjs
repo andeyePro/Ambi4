@@ -1140,6 +1140,32 @@ test('a resonant patch is quieter, never louder, than a calm one', () => {
   }
 });
 
+test('a long attack and release never stack the call\'s chirps past the bus limit', () => {
+  // Found 2026-10-23: melody.call at velocity 1 with release 12 s reached a
+  // concurrent peak of 1.215 under every filter type at Resonance <= 1 (the
+  // filter is not the cause: its trim is unity there, and only Q > 1 hid it).
+  // The Release dial rings each chirp up to 16x its own length, so at a
+  // cadence of 3 or more successive chirps overlap and their peaks add.
+  for (const track of ['melody', 'texture']) {
+    for (const type of ['lowpass', 'highpass', 'bandpass', 'notch']) {
+      for (const q of [0.1, 0.7, 20]) {
+        for (const cadence of [0.5, 3, 8]) {
+          for (const irregular of [0, 1]) {
+            for (const duration of [1, 12, 30]) {
+              const note = { ...attackNote(track), duration, velocity: 1 };
+              withSeed(7, () => playAndCheck(
+                `${track}.call a8 r12 ${type} q${q} cadence ${cadence} irregular ${irregular} d${duration}`,
+                VOICES[track].call, note,
+                { patch: { source: { cadence, irregular }, filter: { type, q }, adsr: { attack: 8, release: 12 } } },
+              ));
+            }
+          }
+        }
+      }
+    }
+  }
+});
+
 test('an octave patch really moves the pitch', () => {
   for (const track of ['pad', 'bass', 'melody', 'texture', 'arp']) {
     for (const id of Object.keys(EXPECTED[track])) {
