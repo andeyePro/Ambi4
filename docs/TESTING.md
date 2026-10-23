@@ -1019,6 +1019,18 @@ A sound in mind (v0.0.185)
 - [ ] On the kit, every word answers plainly that nothing here is honestly
       that word; there is no Set it up.
 
+Match a sample (v0.0.229)
+- [ ] Under the melody's dials, behind "more", "Match a sample": Choose a sound
+      file…, pick a recording of one note (a plucked string, a bell, a flute).
+      The line says what it heard ("Heard G4") and counts up while it tries
+      the voices; then a voice is on the track with its dials moved and the
+      line names it, how alike it measured, the dials that moved most, and the
+      runner-up. Play: the track sounds like the sample's synth cousin, not
+      the recording — nothing of the file plays. ⌘Z takes it back.
+- [ ] Press Stop part-way: the best so far lands and the line says it stopped
+      early. A silent file says so; a file that is not audio says which
+      formats work. The kit editor has no Match a sample row.
+
 Automated
 - [ ] `npm run build && node tests/all.mjs` — 24 suites, including
       patch-words-smoke (the number law on all 36 voices), sound-finder-smoke

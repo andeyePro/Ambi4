@@ -1,7 +1,7 @@
 {
   "name": "ambi4work",
   "type": "module",
-  "version": "0.0.228",
+  "version": "0.0.229",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",

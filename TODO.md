@@ -30,6 +30,14 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Match a sample — owner brief 2026-10-23 ("takes in a sample and converts it to the closest synth version")
+
+- [x] **Match a sample** — SHIPPED v0.0.229: the voice editor's "more" gains a Choose a sound file… row; the file is measured (pitch, loudness curve, spectral shape) and every voice of the track is rendered offline and searched until one measures closest; the recording is never played or kept. `src/scripts/sample-match.js`, `tests/sample-match-smoke.mjs`, `tests/pending/sample-match-drive.mjs`.
+- [ ] **Record a note from the microphone** as well as choosing a file — the same analysis, fed from `getUserMedia` for three seconds. Needs the permission prompt designed (the app has never asked for one).
+- [ ] **Time it in a real browser** — 600 renders took 3–8 s per match in Node on node-web-audio-api; Chromium on a phone is unmeasured. If it is slow there, cut the budget on Eco (the power governor already knows).
+- [ ] **A kit sample** — the kit editor has no row because a kit is many sounds; a per-sound match (a kick sample sets the kick's tab) is the honest version.
+- [ ] **The browser drive** `tests/pending/sample-match-drive.mjs` passes when its page bodies run in Node against node-web-audio-api (5 cases, 2026-10-23); move it to tests/ when the bridge returns, or when a Node audio harness lands in the repo.
+
 ## Owner reports, 2026-10-03 (evening)
 
 - [x] *(SHIPPED v0.0.209)* **The Create popover is "indecipherably complex"** — rebuilt as two doors, Start and Write…; six controls at first open; layout measured with the popover open at desktop and phone.

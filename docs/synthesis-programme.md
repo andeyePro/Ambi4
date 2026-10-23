@@ -108,7 +108,7 @@ reachable sounds is declined, however famous.
 | **Ring / amplitude modulation** | later, as a Source option | One gain node. Low priority: FM reaches nearly everything ring mod does and is already there. |
 | **PWM, hard sync** | **defer until an AudioWorklet exists** | Web Audio has no oscillator sync at all, and pulse-width modulation needs either a worklet or a stack of PeriodicWaves crossfaded per width. Both join the plucked string on the worklet, with the same disclosure rule. |
 | **Wavetable** (user tables) | **decline** | The continuous morph IS a one-dimensional wavetable, and a spread on OSC 1 already scans it. User-drawn tables add breadth without a sound a person can name. |
-| **Sample-based, concatenative, linear arithmetic** | **decline** | No samples anywhere, by design: nothing to license, nothing to download, nothing that is a recording. The one exception in the future is the person's own microphone (the audio-in track, v0.2.x), which is an input, not a library. |
+| **Sample-based, concatenative, linear arithmetic** | **decline** | No samples anywhere, by design: nothing to license, nothing to download, nothing that is a recording. The one exception in the future is the person's own microphone (the audio-in track, v0.2.x), which is an input, not a library. "Match a sample" (v0.0.229, § 4 item 5) keeps the rule: a recording is MEASURED to set a stock voice's dials, and never played or kept. |
 | **Vector** | decline | Crossfading four sources by a joystick is the blend-by-weight the voice picker already does per section, and the mix dial does per note. |
 | **Scanned, vowel–consonant, Essynth** | decline | No reachable sound a listener would name; research methods. |
 
@@ -193,6 +193,24 @@ Four layers, each usable alone, cheapest first.
    plucky shortens attack-to-peak, sustained raises the RMS at one second,
    moving raises the RMS modulation. A row the render suite cannot prove does
    not ship.
+5. **Match a sample (v0.0.229).** The finder's other half: words describe a
+   sound you have in mind, a recording IS one. Under the finder, "Match a
+   sample" takes one recorded note (`src/scripts/sample-match.js`), measures
+   it — pitch (YIN, corrected by the lowest strong spectral peak so an
+   inharmonic bell is not read an octave low), loudness at thirteen times after
+   the onset, the shape of the spectrum in thirty bands at strike, body and
+   tail — and then RENDERS every voice of the track offline at that pitch, an
+   octave either side, from its shipped envelope and from the measured one,
+   and turns their dials (coordinate steps, then a small evolution strategy)
+   in rounds that drop the weaker half each time, until one measures closest.
+   It is analysis by synthesis, so "closest" is a number in decibels, read out
+   as a percentage. The recording is measured and dropped: nothing is
+   uploaded, kept or played, and what lands is a stock voice with its dials
+   set — the no-samples ruling in § 2 stands. Measured on the shipped voices
+   (a moved-dial note of a stock voice handed back as a "sample"): Bell 95 %,
+   Warm 86 %, Fingered 98 %, Marimba 87 %, Pluck from a one-second file 89 %,
+   each naming its own voice first. A kit is many sounds, not one, so the kit
+   editor has no sample row.
 
 ---
 

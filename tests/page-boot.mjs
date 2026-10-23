@@ -1834,6 +1834,36 @@ try {
       if (!kit.querySelector('.ve-finder-go').hidden) failures.push('the kit offers Set it up with nothing to set up');
     }
 
+    // v0.0.229: Match a sample. A pitched track's editor carries the row — a
+    // Choose button driving a hidden audio file input — and a kit does not (a
+    // kit is many sounds, not one). The harness has no OfflineAudioContext,
+    // which is exactly the browser the row must answer honestly rather than
+    // throw in: hand it a file and the answer says what is missing.
+    {
+      const editor = await openEditor('melody');
+      const more = editor.querySelector('.ve-more');
+      if (more && more.getAttribute('aria-expanded') !== 'true') more.click();
+      await waitUntil(() => editor.querySelector('.ve-sample-match'));
+      const row = editor.querySelector('.ve-sample-match');
+      if (!row) {
+        failures.push('the melody editor has no Match a sample row');
+      } else {
+        const input = row.querySelector('input[type="file"]');
+        const choose = row.querySelector('.ve-sample-choose');
+        if (!input || !/audio/.test(input.accept)) failures.push(`the sample row's file input accepts ${JSON.stringify(input && input.accept)}, not audio`);
+        if (!choose || !/Choose a sound file/.test(choose.textContent)) failures.push('the sample row has no Choose a sound file button');
+        if (input) {
+          Object.defineProperty(input, 'files', { configurable: true, value: [new window.File([new Uint8Array(8)], 'note.wav', { type: 'audio/wav' })] });
+          input.dispatchEvent(new window.Event('change'));
+          const said = await waitUntil(() => /cannot render sound offline/.test(row.querySelector('.ve-sample-answer').textContent));
+          if (!said) failures.push(`with no OfflineAudioContext the sample row said ${JSON.stringify(row.querySelector('.ve-sample-answer').textContent)}`);
+        }
+      }
+      const kit = await openEditor('percussion');
+      await waitUntil(() => kit.querySelector('.ve-finder-word'));
+      if (kit.querySelector('.ve-sample-match')) failures.push('the kit editor offers Match a sample, which has no one sound to match');
+    }
+
     // UI review 2026-10-03, fixes 8, 9, 10 and 12 — the voice editor gets
     // layers. First open shows fewer controls than it did (the words, save
     // row and finder fold behind one "more"; the Off/Auto/On radios go, the

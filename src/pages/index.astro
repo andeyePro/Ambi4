@@ -4986,6 +4986,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const m = await import('../scripts/sound-finder.js');
         if (m && typeof m.findSound === 'function') finderApi = m;
       } catch {}
+      // v0.0.229: Match a sample — one recorded note in, the closest voice
+      // and dial settings on this track out, found by rendering every
+      // candidate offline and measuring it. Pure module; absent, the editor
+      // simply has no sample row.
+      // The last match's line per track, so the editor rebuild that applying
+      // a match causes does not fold its own answer away.
+      const lastSampleMatch = new Map();
+      let sampleMatchApi = null;
+      try {
+        const m = await import('../scripts/sample-match.js');
+        if (m && typeof m.matchSample === 'function') sampleMatchApi = m;
+      } catch {}
 
       // Representative pitch for the static scope trace, per track register.
       const SCOPE_FREQ = { pad: 220, bass: 55, melody: 330, texture: 440, arp: 330, percussion: 220 };
@@ -13556,7 +13568,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           moreBox.hidden = !open;
           moreToggle.textContent = open ? 'less' : 'more';
           moreToggle.setAttribute('aria-expanded', String(open));
-          moreToggle.setAttribute('aria-label', `${TRACK_LABELS[track] || track}: ${open ? 'fold away' : 'show'} the sound in words, Save voice, Hide this voice and the sound finder`);
+          moreToggle.setAttribute('aria-label', `${TRACK_LABELS[track] || track}: ${open ? 'fold away' : 'show'} the sound in words, Save voice, Hide this voice, the sound finder and Match a sample`);
         };
         applyMore(veMoreOpen.has(track) ? veMoreOpen.get(track) : ruleLevel() === 'expert');
         moreToggle.addEventListener('click', () => {
@@ -13748,6 +13760,164 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           finder.append(finderLabel, chips, answer, setUp);
           moreBox.append(finder);
           refreshAnswer();
+        }
+
+        // v0.0.229: "Match a sample" — the sound finder's other half. Words
+        // describe a sound you have in mind; a sample IS one. The file is
+        // decoded and measured here in the browser and then dropped: nothing
+        // is uploaded, nothing is kept, and nothing of the recording plays —
+        // what you get is a stock voice of this track with its dials set, the
+        // app's no-samples rule intact (docs/synthesis-programme.md § 2).
+        if (sampleMatchApi && voiceSetOf(track) !== 'percussion') {
+          const matcher = document.createElement('div');
+          matcher.className = 've-sample-match';
+          const matchLabel = document.createElement('span');
+          matchLabel.className = 'panel-label';
+          matchLabel.textContent = 'Match a sample';
+          const fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.accept = 'audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aif,.aiff';
+          fileInput.className = 'visually-hidden';
+          fileInput.id = `ve-sample-file-${track}`;
+          fileInput.tabIndex = -1;
+          const choose = document.createElement('button');
+          choose.type = 'button';
+          choose.className = 'secondary-button ve-sample-choose';
+          choose.textContent = 'Choose a sound file…';
+          describe(choose, 'Pick a recording of ONE note — a pluck, a pad, a whistle, a bell. The app measures its pitch, how it starts and fades, and its tone, then tries every voice on this track at that pitch and turns their dials until one measures closest. The file never leaves your browser and is not kept; only the dial settings are.');
+          const stop = document.createElement('button');
+          stop.type = 'button';
+          stop.className = 'secondary-button ve-sample-stop';
+          stop.textContent = 'Stop';
+          stop.hidden = true;
+          const matchAnswer = document.createElement('p');
+          matchAnswer.className = 'hint ve-finder-answer ve-sample-answer';
+          matchAnswer.setAttribute('aria-live', 'polite');
+          matchAnswer.textContent = 'One note works best: a few seconds, starting at its start. The closest synth on this track takes its place — the recording itself is never played.';
+          const FIELD_NAMES = {
+            'source.shape1': 'OSC 1', 'source.shape2': 'OSC 2', 'source.mix': 'Mix', 'source.detune': 'Detune', 'source.fold': 'Fold',
+            'filter.cutoff': 'Cutoff', 'filter.q': 'Resonance', 'filter.envAmount': 'Env amount',
+            'adsr.attack': 'Attack', 'adsr.decay': 'Decay', 'adsr.sustain': 'Sustain', 'adsr.release': 'Release',
+            'fm.ratio': 'Ratio', 'fm.depth': 'Depth', 'fm.bite': 'Bite',
+            'additive.stretch': 'Stretch', 'modal.material': 'Material', 'modal.hardness': 'Hardness', 'modal.damping': 'Damping',
+          };
+          const nameOf = (field) => FIELD_NAMES[field] || (/^additive\.p(\d)$/.test(field) ? `P${field.slice(-1)}` : field.split('.')[1]);
+          let running = null;
+          const fieldExposed = (voice, field) => {
+            const entry = voicesTable && voicesTable[voiceSetOf(track)] && voicesTable[voiceSetOf(track)][voice];
+            if (!entry) return false;
+            const [section, key] = field.split('.');
+            const spec = entry.controls ? entry.controls[section] : undefined;
+            if (spec === false) return false;
+            if (Array.isArray(spec) && !spec.includes(key)) return false;
+            return !!(entry.defaults && entry.defaults[section] && key in entry.defaults[section]);
+          };
+          const renderOffline = async (voiceId, patch, note, seconds) => {
+            const SR = 24000;
+            const ctx = new OfflineAudioContext(1, Math.round(SR * (seconds || sampleMatchApi.MAX_SECONDS)), SR);
+            sampleMatchApi.withSeededRandom(() => voicesTable[voiceSetOf(track)][voiceId].play(ctx, ctx.destination, note, patch));
+            const buffer = await ctx.startRendering();
+            return { samples: buffer.getChannelData(0), sampleRate: SR };
+          };
+          stop.addEventListener('click', () => { if (running) running.cancelled = true; });
+          choose.addEventListener('click', () => fileInput.click());
+          fileInput.addEventListener('change', async () => {
+            const file = fileInput.files && fileInput.files[0];
+            fileInput.value = '';
+            if (!file || running) return;
+            if (typeof OfflineAudioContext !== 'function') {
+              matchAnswer.textContent = 'This browser cannot render sound offline, which the match needs. A current Chrome, Firefox or Safari can.';
+              return;
+            }
+            await getVoicesTable();
+            const registry = engineModule && engineModule.PARAM_REGISTRY;
+            const set = voicesTable && voicesTable[voiceSetOf(track)];
+            if (!set || !registry) {
+              matchAnswer.textContent = 'The voices have not loaded yet — try again in a moment.';
+              return;
+            }
+            const job = { cancelled: false };
+            running = job;
+            choose.disabled = true;
+            stop.hidden = false;
+            try {
+              matchAnswer.textContent = `Listening to ${file.name}…`;
+              const bytes = await file.arrayBuffer();
+              const decoder = new OfflineAudioContext(1, 1, 44100);
+              const decoded = await decoder.decodeAudioData(bytes);
+              const channels = [];
+              for (let c = 0; c < decoded.numberOfChannels; c++) channels.push(decoded.getChannelData(c));
+              const target = sampleMatchApi.analyseSample(sampleMatchApi.mixDown(channels), decoded.sampleRate);
+              if (!target) {
+                matchAnswer.textContent = 'That file is silent — nothing to match.';
+                return;
+              }
+              const hidden = new Set(hiddenPrefs.voices || []);
+              const candidates = Object.entries(set)
+                .filter(([id]) => !hidden.has(stockVoiceKey(voiceSetOf(track), id)) || id === voiceId)
+                .map(([id, entry]) => ({
+                  id,
+                  label: voiceLabel(track, id),
+                  defaults: structuredClone(entry.defaults),
+                  fields: sampleMatchApi.searchFieldsFor(entry.defaults, registry, (field) => fieldExposed(id, field)),
+                }));
+              const heard = target.pitched && target.note ? `${target.note.name} (${Math.round(target.freq)} Hz)` : 'an unpitched sound';
+              const result = await sampleMatchApi.matchSample(target, {
+                candidates,
+                render: renderOffline,
+                budget: 600,
+                fallbackFreq: SCOPE_FREQ[voiceSetOf(track)] || 220,
+                cancelled: () => job.cancelled,
+                onProgress: (done, total) => {
+                  matchAnswer.textContent = `Heard ${heard}. Trying the voices… ${Math.min(100, Math.round((100 * done) / total))}%`;
+                },
+              });
+              if (!result.best) {
+                matchAnswer.textContent = sampleMatchApi.describeMatch(target, result, nameOf);
+                return;
+              }
+              // Apply exactly as the picker and the finder do: the voice
+              // first, then the dials on its resolved patch.
+              const best = result.best;
+              const select = document.getElementById(`track-voice-${track}`);
+              if (select && select.value !== best.id) {
+                revealStockVoice(track, best.id);
+                select.value = best.id;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+              const live = resolveTrackPatch(track, best.id);
+              for (const f of candidates.find((c) => c.id === best.id).fields) {
+                const [section, key] = f.field.split('.');
+                const value = best.patch[section][key];
+                if (section === 'source' && (key === 'shape1' || key === 'shape2')) writeShape(live.source, key === 'shape1' ? 1 : 2, value);
+                else {
+                  if (!isPlainObject(live[section])) live[section] = {};
+                  live[section][key] = value;
+                }
+              }
+              if (!settings.patches[track]) settings.patches[track] = {};
+              settings.patches[track][best.id] = live;
+              sendPatch(track, best.id, live);
+              persistSettings();
+              refreshVoiceSelect(track);
+              const line = `${sampleMatchApi.describeMatch(target, result, nameOf)}${job.cancelled ? ' (stopped early — the best so far)' : ''} ⌘Z takes it back.`;
+              lastSampleMatch.set(track, line);
+              renderVoiceEditor(track);
+              sayUnderDials(line);
+            } catch (error) {
+              matchAnswer.textContent = 'That file could not be read as audio. WAV, MP3, OGG, FLAC and M4A all work in most browsers.';
+            } finally {
+              if (running === job) running = null;
+              choose.disabled = false;
+              stop.hidden = true;
+            }
+          });
+          if (lastSampleMatch.has(track)) matchAnswer.textContent = lastSampleMatch.get(track);
+          const matchButtons = document.createElement('div');
+          matchButtons.className = 've-finder-words';
+          matchButtons.append(choose, stop);
+          matcher.append(matchLabel, fileInput, matchButtons, matchAnswer);
+          moreBox.append(matcher);
         }
 
         function renderWords() {
@@ -23292,7 +23462,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       margin: 0 0 12px;
     }
 
-    .ve-finder > .panel-label {
+    /* v0.0.229: Match a sample sits under the finder, in its style. */
+    .ve-sample-match {
+      margin: 0 0 12px;
+    }
+
+    .ve-finder > .panel-label,
+    .ve-sample-match > .panel-label {
       display: block;
       margin-bottom: 6px;
     }
