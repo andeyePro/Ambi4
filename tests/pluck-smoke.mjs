@@ -318,6 +318,45 @@ test('the worklet source registers a processor that plays the kernel from the ex
   for (let i = stopFrame; i < got.length; i++) assert.equal(got[i], 0, `frame ${i}: sound after stop`);
 });
 
+// Review suspicion, 2026-10-23 evening: the pulse processor takes a { stop }
+// message on its port (a legato glide holds the note, a cancel ends it
+// sooner); the plucked string's could not move its stop at all, so an early
+// cancel relied on the envelope already being silent. Same contract now.
+test('the worklet processor moves its stop when a { stop } message arrives, as the pulse one does', () => {
+  const registered = {};
+  class AudioWorkletProcessor { constructor() { this.port = { onmessage: null, postMessage() {} }; } }
+  const scope = { currentTime: 0, sampleRate: SR };
+  // eslint-disable-next-line no-new-func
+  const run = new Function('AudioWorkletProcessor', 'registerProcessor', 'scope', `
+    with (scope) { ${pluckWorkletSource()} }
+  `);
+  run(AudioWorkletProcessor, (name, cls) => { registered[name] = cls; }, scope);
+  const Processor = registered[PLUCK_PROCESSOR];
+  const options = { freq: 440, damping: 0.4, brightness: 0.5, position: 0.18, velocity: 0.8, seed: 5 };
+  const node = new Processor({ processorOptions: { ...options, start: 0, stop: 1 } });
+  assert.equal(typeof node.port.onmessage, 'function', 'the processor listens to no { stop } message');
+  const cutFrame = 128 * 10 + 33;
+  node.port.onmessage({ data: { stop: cutFrame / SR } });
+  node.port.onmessage({ data: { stop: Number.NaN } }); // junk is ignored
+  const got = [];
+  let alive = true;
+  for (let block = 0; block < 14; block++) {
+    scope.currentTime = (block * 128) / SR;
+    const outputs = [[new Float32Array(128)]];
+    alive = node.process([[]], outputs);
+    got.push(...outputs[0][0]);
+  }
+  assert.equal(alive, false, 'process() still alive after the moved stop');
+  assert.ok(got.slice(0, cutFrame).some((v) => v !== 0), 'nothing sounded before the moved stop');
+  for (let i = cutFrame; i < got.length; i++) assert.equal(got[i], 0, `frame ${i}: sound after the moved stop`);
+  // ...and later, as a legato hold would.
+  const held = new Processor({ processorOptions: { ...options, start: 0, stop: 0.01 } });
+  held.port.onmessage({ data: { stop: 1 } });
+  scope.currentTime = 0.5;
+  const outputs = [[new Float32Array(128)]];
+  assert.equal(held.process([[]], outputs), true, 'a stop moved later did not keep the string alive');
+});
+
 let failures = 0;
 for (const [name, fn] of tests) {
   try {

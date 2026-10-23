@@ -14,9 +14,14 @@
  * every PCM reader expects, so 0 stays exactly 0.
  *
  * The writer converts each chunk to bytes as it arrives, so a ten-minute take
- * is held as 16-bit (11.5 MB a minute at 48 kHz stereo), never as Float32,
- * and finish() returns the header plus those chunks as `parts` for a Blob —
- * no second whole-file copy.
+ * is held as 16-bit (11.5 MB a minute at 48 kHz stereo), never as Float32.
+ * The bytes go into one fixed segment (1 MiB); given a Blob constructor, each
+ * full segment is SEALED into a Blob and the segment reused, so finish()'s
+ * `parts` are the header and those Blobs, and the page's new Blob(parts)
+ * composes Blobs rather than copying the whole file a second time. Measured in
+ * Node for a ten-minute 48 kHz take (review, 2026-10-23 evening): 245 MB peak
+ * with the chunks held as arrays, 129 MB sealed (the file itself is 115). Without a Blob constructor
+ * (the tests' encodeWav) the segments themselves are the parts.
  */
 
 export const WAV_HEADER_BYTES = 44;
@@ -93,13 +98,36 @@ export function interleaveInt16(channels, frames = Infinity) {
  * An incremental writer. push(channels) takes one chunk of planar Float32
  * channels and answers how many frames it kept (fewer once `maxFrames` is
  * reached); finish() answers { parts, byteLength, frames, seconds } — the
- * header is written last, when the length is known.
+ * header is written last, when the length is known. `Blob`, when given, seals
+ * each full `segmentBytes` of the file into a Blob (see the top of the file).
  */
-export function createWavWriter({ sampleRate, channelCount, maxFrames = Infinity }) {
+export function createWavWriter({ sampleRate, channelCount, maxFrames = Infinity, Blob: BlobCtor = null, segmentBytes = 1 << 20 }) {
   checkFormat(sampleRate, channelCount);
-  const capFrames = Math.min(maxFrames, Math.floor(MAX_DATA_BYTES / (channelCount * BYTES_PER_SAMPLE)));
-  const chunks = [];
+  const frameBytes = channelCount * BYTES_PER_SAMPLE;
+  const capFrames = Math.min(maxFrames, Math.floor(MAX_DATA_BYTES / frameBytes));
+  const segFrames = Math.max(1, Math.floor(segmentBytes / frameBytes));
+  const sealed = [];
+  let seg = null;
+  let view = null;
+  let segAt = 0; // frames in the open segment
   let frames = 0;
+  const open = () => {
+    seg = new Uint8Array(segFrames * frameBytes);
+    view = new DataView(seg.buffer);
+    segAt = 0;
+  };
+  const seal = () => {
+    if (!seg || segAt === 0) return;
+    const bytes = seg.subarray(0, segAt * frameBytes);
+    if (BlobCtor) {
+      // The Blob copies the bytes, so the segment is reused, not reallocated.
+      sealed.push(new BlobCtor([bytes]));
+      segAt = 0;
+    } else {
+      sealed.push(bytes);
+      seg = null;
+    }
+  };
   return {
     get frames() { return frames; },
     get seconds() { return frames / sampleRate; },
@@ -111,20 +139,26 @@ export function createWavWriter({ sampleRate, channelCount, maxFrames = Infinity
       }
       const room = capFrames - frames;
       if (room <= 0) return 0;
-      const bytes = interleaveInt16(channels, room);
-      const kept = bytes.length / (channelCount * BYTES_PER_SAMPLE);
-      if (kept > 0) {
-        chunks.push(bytes);
-        frames += kept;
+      const n = Math.min(room, ...channels.map((c) => c.length));
+      for (let i = 0; i < n; i++) {
+        if (!seg) open();
+        let offset = segAt * frameBytes;
+        for (let c = 0; c < channelCount; c++) {
+          view.setInt16(offset, floatToInt16(channels[c][i]), true);
+          offset += BYTES_PER_SAMPLE;
+        }
+        segAt += 1;
+        if (segAt === segFrames) seal();
       }
-      return kept;
+      frames += n;
+      return n;
     },
     finish() {
+      seal();
       const header = wavHeader({ sampleRate, channelCount, frames });
-      const parts = [header, ...chunks];
       return {
-        parts,
-        byteLength: WAV_HEADER_BYTES + frames * channelCount * BYTES_PER_SAMPLE,
+        parts: [header, ...sealed],
+        byteLength: WAV_HEADER_BYTES + frames * frameBytes,
         frames,
         seconds: frames / sampleRate,
       };

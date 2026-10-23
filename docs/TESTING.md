@@ -1258,6 +1258,9 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       the same chords. Turn Complexity to Calm and press: fewer notes; to
       Complex: busier. Onto the bass: the same kind of line, low (E1–G3).
       Open the melody's grid: every note is a step that drags.
+      Chord length 4 bars, then press again: it becomes 2 bars (eight bars of
+      tune, four chords) and the tip says so; the same from Auto (to 1 bar)
+      and One per section.
 - [ ] Write → MIDI file onto any instrument after Blank slate: it plays at
       once and starts the piece, like a typed line (no staged wait).
 - [ ] Write → Tap a rhythm, tap a few beats, stop: Re-fit the last take
@@ -1470,10 +1473,16 @@ ruling). To see it: `localStorage.setItem('ambi4:dev','1')`, then refresh.
       is ten seconds shorter than the wall clock and has no gap of silence.
 - [ ] Stop (or let Finish end the piece) while saving: the take saves by
       itself.
+- [ ] Pause during a take, then press Stop and save while still paused: the
+      file ends exactly where the pause began (nothing cut from the end). A
+      ten-minute take: the tab's memory (Task Manager) rises by about the
+      file's size, 115 MB, not twice that.
 - [ ] Network tab during the whole thing: no request.
 - [ ] Automated: `node tests/wav-export-smoke.mjs` (header field by field,
       byte length, ±1 and beyond-range clamp, round trip, the tap's cap and
-      mono-to-stereo) and page-boot (the button exists, is hidden pre-launch,
+      mono-to-stereo, the writer sealing Blobs a segment at a time, and the
+      worklet's real source keeping every frame of a take stopped while
+      suspended) and page-boot (the button exists, is hidden pre-launch,
       and in a browser with nothing to tap says "neither AudioWorklet nor
       ScriptProcessor" rather than throwing). That a real AudioWorklet hands
       over the same samples is the manual pass above: nothing in Node or jsdom

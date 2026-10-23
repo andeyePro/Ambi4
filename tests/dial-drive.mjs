@@ -49,6 +49,19 @@ const dialAt = (page, label, scope = '') =>
     };
   }, [label, scope]);
 
+// UI review fix 18: Advanced folds its sections behind a "more" — Reprise,
+// Swing and Reverb tail sit behind the Sound one. A drag on a folded dial
+// lands on nothing (dialAt skips hidden dials and returns null), which read
+// as "refuses to spread" on v0.0.266. Press the REAL "more" first; the page
+// names it (window.__ambi4FoldMore — the same seam chordlength-drive uses).
+const openFoldFor = async (page, selector) => {
+  const more = await page.evaluate((s) => (typeof window.__ambi4FoldMore === 'function' ? window.__ambi4FoldMore(s) : null), selector);
+  if (more) {
+    await page.click(more);
+    await page.waitForTimeout(150);
+  }
+};
+
 const advancedLabels = (page) =>
   page.evaluate(() => [...document.querySelectorAll('#panel-advanced .knob')]
     .map((k) => k.getAttribute('aria-label')));
@@ -65,6 +78,7 @@ export default async function drive(page) {
 
   /** Drag `label` by (dx, dy) in steps, so the axis lock is actually exercised. */
   async function dragDial(label, dx, dy, scope = '') {
+    if (scope) await openFoldFor(page, `${scope} .knob[aria-label="${label}"]`);
     const d = await dialAt(page, label, scope);
     if (!d) return null;
     await page.mouse.move(d.x, d.y);

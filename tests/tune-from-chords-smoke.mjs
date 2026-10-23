@@ -12,7 +12,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { tuneFromChords, chordTones } from '../src/scripts/tune-from-chords.js';
+import { tuneFromChords, chordTones, chordBarsForTune } from '../src/scripts/tune-from-chords.js';
 
 const IONIAN = [0, 2, 4, 5, 7, 9, 11];
 const AEOLIAN = [0, 2, 3, 5, 7, 8, 10];
@@ -43,6 +43,28 @@ for (const [scale, rootPc] of [[IONIAN, 0], [AEOLIAN, 9], [IONIAN, 7], [PENTA, 2
     }
   }
 }
+
+test('chord length for a tune: a length no fixed tune can follow becomes one it can', () => {
+  // Auto draws 1 or 2 bars a chord as it plays; a section is any length.
+  assert.equal(chordBarsForTune(4, 'auto'), 1);
+  assert.equal(chordBarsForTune(4, 'section'), 2);
+  assert.equal(chordBarsForTune(8, 'section'), 1);
+  assert.equal(chordBarsForTune(1, 'section'), 8);
+  // A pass longer than eight bars is shortened to the longest that fits.
+  assert.equal(chordBarsForTune(4, 4), 2);
+  assert.equal(chordBarsForTune(3, 3), 2);
+  assert.equal(chordBarsForTune(8, 16), 1);
+  // A length that fits is left alone, a string from a select included.
+  assert.equal(chordBarsForTune(4, 2), 2);
+  assert.equal(chordBarsForTune(2, '4'), 4);
+  assert.equal(chordBarsForTune(1, 8), 8);
+  for (let count = 1; count <= 8; count++) {
+    for (const rhythm of ['auto', 'section', ...Array.from({ length: 16 }, (_, i) => i + 1)]) {
+      const per = chordBarsForTune(count, rhythm);
+      assert.ok(Number.isInteger(per) && per >= 1 && count * per <= 8, `${count} chords at ${rhythm}: ${per}`);
+    }
+  }
+});
 
 test('every note on a beat is a tone of the chord in force', () => {
   for (const c of CASES) {

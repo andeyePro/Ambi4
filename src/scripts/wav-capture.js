@@ -21,33 +21,27 @@ import { createWavWriter } from './wav-export.js';
 export const WAV_CHANNELS = 2;
 const CHUNK_FRAMES = 4096;
 
+// Every render quantum is posted as it is rendered, nothing held back: a
+// context suspended by a pause never answers a flush, so anything a worklet
+// buffered (it held up to CHUNK_FRAMES, 85 ms at 48 kHz) was lost from a take
+// stopped while paused (review, 2026-10-23 evening). 375 small messages a
+// second at 48 kHz; the writer packs them into its segments as they land.
 const WORKLET_SOURCE = `
 class Ambi4WavTap extends AudioWorkletProcessor {
   constructor() {
     super();
     this.on = true;
-    this.reset();
     this.port.onmessage = (e) => {
-      if (e.data === 'flush') { this.flush(); this.port.postMessage({ flushed: true }); }
-      else if (e.data === 'stop') { this.flush(); this.on = false; this.port.postMessage({ flushed: true }); }
+      if (e.data === 'flush') this.port.postMessage({ flushed: true });
+      else if (e.data === 'stop') { this.on = false; this.port.postMessage({ flushed: true }); }
     };
-  }
-  reset() { this.buf = [new Float32Array(${CHUNK_FRAMES}), new Float32Array(${CHUNK_FRAMES})]; this.n = 0; }
-  flush() {
-    if (this.n > 0) {
-      const out = this.buf.map((b) => b.slice(0, this.n));
-      this.port.postMessage({ chunk: out }, out.map((b) => b.buffer));
-    }
-    this.reset();
   }
   process(inputs) {
     if (!this.on) return false;
     const input = inputs[0];
     if (input && input.length) {
-      const len = input[0].length;
-      if (this.n + len > ${CHUNK_FRAMES}) this.flush();
-      for (let c = 0; c < 2; c++) this.buf[c].set(input[Math.min(c, input.length - 1)], this.n);
-      this.n += len;
+      const out = [input[0].slice(), input[Math.min(1, input.length - 1)].slice()];
+      this.port.postMessage({ chunk: out }, out.map((b) => b.buffer));
     }
     return true;
   }
@@ -118,6 +112,7 @@ export async function startWavCapture(node, { maxSeconds = 600, onProgress, onFu
   const sampleRate = Math.round(ctx.sampleRate);
   const writer = createWavWriter({
     sampleRate, channelCount: WAV_CHANNELS, maxFrames: Math.floor(maxSeconds * sampleRate),
+    Blob: typeof g.Blob === 'function' ? g.Blob : null,
   });
   let fullSent = false;
   let stopped = false;

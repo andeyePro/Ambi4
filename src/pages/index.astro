@@ -2374,8 +2374,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       s.harmony = isPlainObject(s.harmony) ? s.harmony : {};
       s.harmony.rhythm = CHORD_LENGTHS.includes(s.harmony.rhythm) ? s.harmony.rhythm : 'auto';
       // v0.0.241: chord length in beats — sparse, a whole number of beats.
+      // Only a number or a numeric string counts, as in the engine's own
+      // harmonyBeats: Number(true) is 1 and Number([2]) is 2, so a stored
+      // `true` became a one-beat chord length (review, 2026-10-23 evening).
       {
-        const beats = Number(s.harmony.beats);
+        const raw = s.harmony.beats;
+        const beats = typeof raw === 'number' || (typeof raw === 'string' && raw.trim()) ? Number(raw) : NaN;
         if (Number.isInteger(beats) && beats >= 1 && beats <= 8) s.harmony.beats = beats;
         else delete s.harmony.beats;
       }
@@ -7437,7 +7441,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         hookRuleHandle = handle;
         mountedRules.add(handle, handle.el);
         // Chance: Auto (follows Repetition) at the left detent, then Hold, then up to always.
-        const chanceHint = 'Chance: how likely the chord loop is to move at each When. Hold keeps the voicing for good \u2014 no chord changes, nothing comes back. At the left detent (Auto) it follows Repetition, as it always has.';
+        const chanceHint = 'Chance: how likely the chord loop is to move at each When. Hold keeps the voicing for good \u2014 no chord changes, nothing comes back. At the left detent (Auto) it follows Repetition, as it always has. It holds one value rather than a range: it is already a chance, rolled afresh each time.';
         if (knobApi) {
           const cell = document.createElement('div');
           cell.className = 'vary-knob';
@@ -7451,7 +7455,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               value: hookRawFromChance(rule ? rule.chance : null),
               marks: [0],
               format: hookChanceFormat,
+              // Single-valued on purpose (docs/engine-v2-contract.md, the
+              // chord loop as voiced): Chance is ALREADY a probability, rolled
+              // afresh at every When, so a span would be a chance of a chance;
+              // and its left end is two NAMED positions (Auto, Hold) a span
+              // could not straddle. It says so rather than refusing in silence.
               allowRange: false,
+              onRangeRefused: () =>
+                sayUnderDials(
+                  'Loop chance holds one value \u2014 it is already a chance, rolled afresh at every When, ' +
+                    'so the loop varies on its own. Drag it up or down to set how often the loop moves.',
+                  undefined,
+                  { hold: true }
+                ),
               defaultValue: 0,
               onInput: (v) => commitHookChance(v),
             });
@@ -22694,6 +22710,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (set === 'bass') return { low: 28, high: 55 };          // the engine's BASS_RANGE, E1–G3
           if (set === 'pad') return { low: 48, high: 72 };           // C3–C5, under the tune
           if (set === 'arp') return { low: 55, high: 84 };           // inside ARP_LOW..ARP_HIGH
+          if (set === 'texture') return { low: 79, high: 100 };      // the texture's own high band
           return { low: 60 + rootPc - 7, high: 60 + rootPc + 14 };   // around the octave-4 root, as the melody sings
         }
 
@@ -22715,7 +22732,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const chords = stored || [0];
           const harmonyNow = engine.getParams().harmony || {};
           const rhythm = harmonyNow.rhythm;
-          const barsPerChord = Number.isFinite(rhythm) && rhythm >= 1 ? Math.round(rhythm) : 1;
+          const beatsSet = Number.isInteger(harmonyNow.beats) && harmonyNow.beats >= 1;
+          // A written tune is a chain of at most eight bars repeating on its
+          // own, so it follows the loop only when the loop's pass is a fixed
+          // bar count it fits a whole number of times. Auto (one or two bars a
+          // chord, drawn as it plays), One per section, and a pass longer than
+          // eight bars cannot be followed — the chord length is set to one
+          // that can, and the tip says so (review, 2026-10-23 evening).
+          const barsPerChord = beatsSet ? 1 : mod.chordBarsForTune(chords.length, rhythm);
+          let lengthNote = '';
+          if (!beatsSet && barsPerChord !== rhythm) {
+            const was = rhythm === 'auto' ? 'Auto' : rhythm === 'section' ? 'One per section'
+              : `${rhythm} bar${rhythm === 1 ? '' : 's'}`;
+            settings.harmony.rhythm = barsPerChord;
+            engine.setParams({ harmony: { rhythm: barsPerChord } });
+            if (engineCaps.harmonyRhythm && chordLengthSelect) chordLengthSelect.value = chordLengthValue();
+            lengthNote = ` Chord length was ${was}, which a written tune cannot follow, so it is now ${barsPerChord} bar${barsPerChord === 1 ? '' : 's'} — set it back and the tune drifts off the chords.`;
+          }
           const slotsPerBar = stepsPerBarFor(target);
           const pulseSlots = pulseStartsFor(target, slotsPerBar);
           // Chord length in BEATS: the engine's hook advances inside the bar
@@ -22797,12 +22830,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             + ` written onto ${label}: ${tune.notes.length} notes across ${tune.bars} bars`
             + (tune.bars > 1 ? ' (played in order)' : '')
             + `, chord tones on the beats, ending on ${pitchName(last.midi)}.`
-            + ' Complexity sets how busy it is. Every note is an ordinary step — drag any of them; press again for another tune.');
+            + ' Complexity sets how busy it is. Every note is an ordinary step — drag any of them; press again for another tune.'
+            + lengthNote);
           startAfterWriting();
         }
 
         tuneButton?.addEventListener('click', () => { writeTuneOverChords(); });
-        describe(tuneButton, 'Writes a melody over the chord loop onto the chosen instrument: chord tones on the beats, stepwise notes between, an arch over each phrase, a cadence at the end, as busy as Complexity says. Every note is an ordinary step you can drag; press again for another tune over the same chords.');
+        describe(tuneButton, 'Writes a melody over the chord loop onto the chosen instrument: chord tones on the beats, stepwise notes between, an arch over each phrase, a cadence at the end, as busy as Complexity says. Every note is an ordinary step you can drag; press again for another tune over the same chords. A written tune is at most eight bars, so a chord length it cannot follow — Auto, One per section, or a loop longer than eight bars — is set to one it can, and the tip says so.');
 
         // v0.0.147 — his 118, in full: "Much better, how do I type percussion?"
         // Until now the answer was "you cannot": typing wrote NOTE NAMES, and a

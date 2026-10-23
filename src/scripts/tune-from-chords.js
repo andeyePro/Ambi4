@@ -64,6 +64,30 @@ function hashSeed(parts) {
 export const PHRASE_BARS = 4;
 export const MAX_BARS = 8;
 
+/**
+ * The fixed bars-a-chord a written tune can follow, for a chord loop of
+ * `chordCount` chords under the stored Chord length `rhythm` (harmony.rhythm).
+ * A written tune is a chain of at most MAX_BARS bars that repeats on its own,
+ * so it stays on the chords only when the loop's pass (chords x bars a chord)
+ * is a fixed number of bars it can be a whole number of. Three lengths cannot:
+ *   - 'auto' draws one OR two bars a chord as it plays — it becomes 1, the
+ *     length the writer has always assumed and one Auto itself plays;
+ *   - 'section' holds a chord for a whole structure block, of whatever length
+ *     — it becomes the longest whole bar count whose pass fits MAX_BARS;
+ *   - a fixed length whose pass is longer than MAX_BARS (four chords at four
+ *     bars is sixteen) — it is shortened to the longest one that fits.
+ * Any other length comes back as it is. The caller sets what this returns as
+ * the chord length when it differs, and says so.
+ */
+export function chordBarsForTune(chordCount, rhythm, maxBars = MAX_BARS) {
+  const count = Math.max(1, Math.round(Number(chordCount) || 1));
+  const fit = Math.max(1, Math.floor(maxBars / count));
+  if (rhythm === 'section') return fit;
+  const bars = typeof rhythm === 'number' ? rhythm : Number(rhythm);
+  if (rhythm === 'auto' || rhythm === null || rhythm === undefined || rhythm === '' || !Number.isFinite(bars) || bars < 1) return 1;
+  return Math.min(Math.round(bars), fit);
+}
+
 /** Triad tones on a degree, as scale indices mod the scale's length. */
 export function chordTones(degree, scaleLength) {
   return [0, 2, 4].map((step) => (((degree + step) % scaleLength) + scaleLength) % scaleLength);

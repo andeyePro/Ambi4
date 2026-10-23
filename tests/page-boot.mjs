@@ -1313,6 +1313,34 @@ try {
     }
   }
 
+  // The contract's single-valued numeric dials SAY why a spread gesture does
+  // nothing (CLAUDE.md: never refuse in silence). Loop chance refused
+  // silently until the v0.0.266 browser sweep named it; this holds the line
+  // without the Mac, through the keyboard spread (Shift+Arrow), which reaches
+  // the same onRangeRefused as the pointer drag.
+  {
+    const line = doc.getElementById('dial-confirm');
+    const want = [['Loop chance', /already a chance/], ['Drive', /pump the tone/]];
+    for (const [label, words] of want) {
+      const knobs = [...doc.querySelectorAll('.knob')].filter((k) => k.getAttribute('aria-label') === label);
+      if (!knobs.length) {
+        failures.push(`single-valued dials: no ${label} dial to test`);
+        continue;
+      }
+      for (const knob of knobs) {
+        if (line) line.textContent = '';
+        knob.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+        const said = line ? line.textContent : '';
+        if (!words.test(said)) {
+          failures.push(`${label} (${knob.closest('[id]')?.id || '?'}) refuses a spread in silence: the line under the dials read ${JSON.stringify(said)}`);
+        }
+        if (knob.getAttribute('aria-valuetext')?.includes('drifting')) failures.push(`${label} opened a span it should refuse`);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    if (line) line.textContent = '';
+  }
+
   // v0.0.219 — UI review fixes 15, 16, 17.
   // 16: the scope legend solos on Alt/Option-click and on a press-and-hold,
   // not only a double-click. The legend is drawn from the page's
@@ -5941,6 +5969,88 @@ try {
           lengthSelect.value = lengthWas;
           lengthSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
         }
+        // Review suspicion, 2026-10-23 evening: the writer assumed a bar a
+        // chord whatever Chord length said, and capped the tune at eight bars.
+        // Under Auto (the hook draws one OR two bars a chord) and One per
+        // section (a chord per structure block) no written tune can follow the
+        // loop, and a loop of four chords at four bars is sixteen bars, which
+        // an eight-bar tune repeating halfway through cannot follow either. So
+        // after writing, the ENGINE's chord length must be a fixed bar count
+        // whose pass the tune's length is a whole number of, and every bar's
+        // downbeat a tone of the chord the engine plays in that bar.
+        const followsLoop = async (lengthValue, why) => {
+          if (!lengthSelect || !lengthSelect.querySelector(`option[value="${lengthValue}"]`)) {
+            failures.push(`tune over chords (${why}): no "${lengthValue}" chord length to test with`);
+            return;
+          }
+          lengthSelect.value = lengthValue;
+          lengthSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+          await waitUntil(() => String(engine.getParams().harmony?.rhythm) === lengthValue);
+          const before = JSON.stringify(seqsOf(engine.getParams().tracks.melody).map((q) => q.steps));
+          tuneButton.click();
+          await waitUntil(() => JSON.stringify(seqsOf(engine.getParams().tracks.melody).map((q) => q.steps)) !== before, 3000);
+          const params = engine.getParams();
+          const rhythm = params.harmony?.rhythm;
+          const got = seqsOf(params.tracks.melody);
+          const bad = [];
+          if (!Number.isInteger(rhythm)) {
+            bad.push(`chord length is still ${JSON.stringify(rhythm)}, which no fixed tune can follow`);
+          } else {
+            const pass = degrees.length * rhythm;
+            if (got.length % pass !== 0) bad.push(`the tune is ${got.length} bars over a ${pass}-bar chord pass, so it repeats out of step`);
+            if (lengthSelect.value !== String(rhythm)) bad.push(`the Chord length menu shows ${lengthSelect.value} while the engine plays ${rhythm}`);
+            got.forEach((q, bar) => {
+              const st = q.steps && q.steps[0];
+              const d = degrees[Math.floor(bar / rhythm) % degrees.length];
+              const tones = [0, 2, 4].map((k) => (d + k) % scale.length);
+              if (!st || !st.on || !Number.isFinite(st.midi)) bad.push(`bar ${bar} downbeat is silent`);
+              else if (!tones.includes(pcIdx(st.midi))) bad.push(`bar ${bar} downbeat ${st.midi} is not a tone of chord ${d}`);
+            });
+          }
+          const tipNow = doc.getElementById('guided-tip')?.textContent || '';
+          if (lengthValue !== String(rhythm) && !/chord length/i.test(tipNow)) bad.push(`the chord length changed and the tip does not say so (${tipNow})`);
+          if (bad.length) failures.push(`tune over chords (${why}): ${bad.join('; ')}`);
+        };
+        await followsLoop('auto', 'Chord length Auto');
+        await followsLoop('section', 'One per section');
+        await followsLoop('4', 'four chords at four bars, a sixteen-bar loop');
+        if (lengthSelect) {
+          lengthSelect.value = lengthWas;
+          lengthSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+        }
+        // The same suspicion's third case: a tune written onto a track that
+        // SOUNDS as the texture (a user track on the texture voice set) took
+        // the melody's register around middle C, not the texture's high band
+        // (79-100, where the engine sings every texture note it chooses).
+        {
+          let texId = null;
+          try {
+            texId = engine.addTrack({ label: 'Tune texture', family: 'melodic', voiceSet: 'texture' })?.id ?? null;
+          } catch (error) {
+            failures.push(`tune onto a texture: addTrack refused a texture-voiced track (${error && error.message})`);
+          }
+          await new Promise((r) => setTimeout(r, 30));
+          if (texId) {
+            if (![...tuneTrack.options].some((o) => o.value === texId)) {
+              failures.push('tune onto a texture: the texture-voiced track is not offered in the tune picker');
+            } else {
+              tuneTrack.value = texId;
+              tuneTrack.dispatchEvent(new window.Event('change', { bubbles: true }));
+              tuneButton.click();
+              const texPitched = () => seqsOf(engine.getParams().tracks[texId]).flatMap((q) =>
+                (Array.isArray(q.steps) ? q.steps : []).filter((st) => st && st.on && Number.isFinite(st.midi)).map((st) => st.midi));
+              await waitUntil(() => texPitched().length > 0, 3000);
+              const midis = texPitched();
+              if (!midis.length) failures.push('tune onto a texture: nothing was written');
+              else if (Math.min(...midis) < 79 || Math.max(...midis) > 100) {
+                failures.push(`tune onto a texture: notes span ${Math.min(...midis)}-${Math.max(...midis)}, outside the texture's 79-100 band`);
+              }
+            }
+            try { engine.removeTrack(texId); } catch {}
+            tuneTrack.value = 'melody';
+            tuneTrack.dispatchEvent(new window.Event('change', { bubbles: true }));
+          }
+        }
       }
       writeSelect.value = '';
       writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -6350,6 +6460,12 @@ try {
     }
     for (const store of new Set([reloadWindow.localStorage, globalThis.localStorage])) {
       if (store && typeof store.setItem === 'function') store.setItem('ambi4:voices', JSON.stringify([storedVoice]));
+      // Review suspicion, 2026-10-23 evening: a stored harmony.beats of `true`
+      // went through Number(true) === 1 in the page's normaliser and became a
+      // one-beat chord length. A kept preset carries one here.
+      if (store && typeof store.setItem === 'function') {
+        store.setItem('ambi4:presets', JSON.stringify([{ name: 'Beats true', params: { harmony: { rhythm: 2, beats: true } } }]));
+      }
     }
     try {
       await import(`${pathToFileURL(bundlePath).href}?reload-voice`);
@@ -6416,6 +6532,25 @@ try {
               );
             }
           }
+        }
+      }
+      if (booted) {
+        const reloadDoc = reloadWindow.document;
+        const presetSelect = reloadDoc.getElementById('preset-load');
+        const option = presetSelect && [...presetSelect.options].find((o) => o.textContent.trim() === 'Beats true');
+        if (!option) {
+          failures.push(`a kept preset is not listed after a reload (${JSON.stringify(presetSelect && [...presetSelect.options].map((o) => o.textContent))})`);
+        } else {
+          presetSelect.value = option.value;
+          presetSelect.dispatchEvent(new reloadWindow.Event('change', { bubbles: true }));
+          const harmony = await waitUntil(() => reloadWindow.__ambi4Engine.getParams().harmony.rhythm === 2)
+            && reloadWindow.__ambi4Engine.getParams().harmony;
+          if (!harmony) failures.push('loading a kept preset did not reach the engine (chord length 2 bars)');
+          else if ('beats' in harmony) {
+            failures.push(`a kept preset's harmony.beats of true became a chord length of ${JSON.stringify(harmony.beats)} beat(s), not dropped`);
+          }
+          const lengthSelect = reloadDoc.getElementById('chordLength');
+          if (lengthSelect && lengthSelect.value !== '2') failures.push(`after harmony.beats true the Chord length menu shows ${lengthSelect.value}, not 2 bars`);
         }
       }
     } catch (err) {

@@ -4311,7 +4311,20 @@ function workletString(ctx, rig, dest, { t, stop, f, v, s }) {
   }
   life.offset.value = 0;
   rig.adopt(node);
-  rig.track(life, t);
+  // Every stop the rig schedules reaches the processor too, as the pulse
+  // oscillator's does, so a cancel ends the string itself, not only its
+  // envelope (review, 2026-10-23 evening).
+  const port = node.port && typeof node.port.postMessage === 'function' ? node.port : null;
+  rig.track({
+    start: (when) => life.start(when),
+    stop(when) {
+      life.stop(when);
+      if (port) port.postMessage({ stop: when });
+    },
+    get onended() { return life.onended; },
+    set onended(fn) { life.onended = fn; },
+    disconnect: () => life.disconnect(),
+  }, t);
   life.connect(node);
   // The kernel leaves every pluck at a peak of 0.62 and never passes ±0.95
   // (pluck-smoke's bounded grid). This makeup brings its RMS near the

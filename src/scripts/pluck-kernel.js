@@ -226,10 +226,12 @@ export function createPluckString(options) {
  *
  * One processor per note. processorOptions: { freq, damping, brightness,
  * position, velocity, seed, start, stop } — `start` and `stop` in context
- * seconds. Silent before `start` (the pluck lands on the exact sample), the
- * string after it, silent again from `stop`, and `process` returns false once
- * `stop` has passed so the node can be collected. The voice's own envelope
- * owns onset and release, so this never has to fade.
+ * seconds; a { stop } message on the port moves the stop (the voice sends one
+ * with every stop its rig schedules, as the pulse oscillator's does). Silent
+ * before `start` (the pluck lands on the exact sample), the string after it,
+ * silent again from `stop`, and `process` returns false once `stop` has passed
+ * so the node can be collected. The voice's own envelope owns onset and
+ * release, so this never has to fade.
  */
 export function definePluckProcessor(factory) {
   /* global AudioWorkletProcessor, registerProcessor, currentTime, sampleRate */
@@ -241,6 +243,14 @@ export function definePluckProcessor(factory) {
       this.start = typeof o.start === 'number' ? o.start : 0;
       this.stop = typeof o.stop === 'number' ? o.stop : Infinity;
       this.string = null;
+      // The voice moves `stop` after construction — a cancel ends the note
+      // sooner, a held note later — by posting { stop } here.
+      if (this.port) {
+        this.port.onmessage = (event) => {
+          const data = event && event.data;
+          if (data && typeof data.stop === 'number' && data.stop === data.stop) this.stop = data.stop;
+        };
+      }
     }
 
     process(inputs, outputs) {

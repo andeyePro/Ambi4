@@ -275,6 +275,90 @@ test('the worklet tap: a second take in the same context still uses the worklet,
   assert.equal(urls.size, 0, 'no Blob URL outlives its load');
 });
 
+// Review suspicion, 2026-10-23 evening: a ten-minute take peaked at ~245 MB
+// (measured in Node) while the file was built — the 115 MB of 16-bit chunks the
+// writer held, and the Blob the page built from them, a second copy. Given a
+// Blob constructor the writer seals its bytes into Blobs a segment at a time,
+// so the page's new Blob(parts) composes Blobs rather than copying arrays, and
+// no more than one segment of bytes is ever held in JS.
+test('given a Blob, the writer holds at most one segment of bytes and its file is byte-identical', async () => {
+  const sampleRate = 8000;
+  const seconds = 60;
+  const writer = createWavWriter({ sampleRate, channelCount: 2, Blob });
+  const plain = createWavWriter({ sampleRate, channelCount: 2 });
+  let k = 0;
+  for (let at = 0; at < sampleRate * seconds; at += 128) {
+    const l = new Float32Array(128).map(() => Math.sin((k += 1) / 7) * 0.8);
+    const r = l.map((x) => -x / 2);
+    writer.push([l, r]);
+    plain.push([l, r]);
+  }
+  const done = writer.finish();
+  const typedBytes = done.parts.slice(1).filter((p) => !(p instanceof Blob)).reduce((n, p) => n + p.byteLength, 0);
+  assert.ok(typedBytes <= 1 << 20, `the writer still holds ${typedBytes} bytes as arrays (a whole file is ${done.byteLength})`);
+  assert.ok(done.parts.length < 64, `${done.parts.length} parts for a ${seconds}-second take`);
+  const fromBlobs = new Uint8Array(await new Blob(done.parts).arrayBuffer());
+  const reference = plain.finish();
+  const joined = new Uint8Array(reference.byteLength);
+  let o = 0;
+  for (const p of reference.parts) { joined.set(p, o); o += p.length; }
+  assert.equal(fromBlobs.length, done.byteLength);
+  assert.deepEqual(fromBlobs, joined, 'the sealed file is the plain file, byte for byte');
+});
+
+// Review suspicion, 2026-10-23 evening: the worklet held up to 4096 frames
+// (85 ms at 48 kHz) before posting them, and a context suspended by a pause
+// never answers the stop's flush — so a take stopped while paused lost its
+// last partial chunk. The worklet's REAL source is run here, against a port
+// that stops answering once the context is suspended.
+test('the worklet tap: a take stopped while the context is suspended keeps every frame rendered', async () => {
+  const { g, urls } = workletWorld();
+  const { ctx, node } = fakeContext({ sampleRate: 48000 });
+  let processor = null;
+  ctx.audioWorklet = {
+    async addModule(url) {
+      const text = urls.get(url);
+      class AudioWorkletProcessor {}
+      const registerProcessor = (name, Cls) => { ctx.processorClass = Cls; };
+      new Function('AudioWorkletProcessor', 'registerProcessor', text)(AudioWorkletProcessor, registerProcessor);
+    },
+  };
+  g.AudioWorkletNode = class {
+    constructor() {
+      const nodeSelf = this;
+      this.connections = [];
+      // main side of the port: what the processor posts arrives here.
+      this.port = {
+        onmessage: null,
+        postMessage(msg) {
+          // A suspended context's worklet does not answer.
+          if (ctx.state !== 'running') return;
+          queueMicrotask(() => processor.port.onmessage?.({ data: msg }));
+        },
+      };
+      class Port { postMessage(data) { queueMicrotask(() => nodeSelf.port.onmessage?.({ data })); } }
+      const Cls = ctx.processorClass;
+      // The processor's constructor reads this.port, which the base provides.
+      Cls.prototype.port = undefined;
+      Object.defineProperty(Cls.prototype, 'port', { configurable: true, writable: true, value: new Port() });
+      processor = new Cls();
+    }
+    connect(n) { this.connections.push(n); }
+    disconnect() { this.connections = []; }
+  };
+  const cap = await startWavCapture(node, { g });
+  assert.equal(cap.mode, 'worklet');
+  const quanta = 40; // 5120 frames: one full 4096 chunk and 1024 left over
+  for (let q = 0; q < quanta; q++) {
+    const block = new Float32Array(128).fill(0.25);
+    processor.process([[block, block]]);
+  }
+  await new Promise((r) => setTimeout(r, 0));
+  ctx.state = 'suspended';
+  const done = await cap.stop();
+  assert.equal(done.frames, quanta * 128, `stopped while suspended: ${done.frames} of ${quanta * 128} frames kept`);
+});
+
 let failures = 0;
 for (const [name, fn] of tests) {
   try {

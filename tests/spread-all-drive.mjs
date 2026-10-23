@@ -31,6 +31,22 @@ const ENUM_DIALS = new Set(['Type', 'Processor']);
  */
 const CIRCULAR_DIALS = new Set(['Drift rate']);
 
+/**
+ * Numeric dials the CONTRACT pins single-valued, each of which must SAY so
+ * under the dials when the sideways gesture reaches it (CLAUDE.md: a control
+ * that cannot do what it advertises says so rather than refusing in silence).
+ * The value is a word the refusal line must contain. Both reached v0.0.266's
+ * sweep as "refuses the gesture" because this list did not exist yet.
+ *
+ *   Drive       — docs/engine-v2-contract.md § Drive: registry rows
+ *                 master.drive / track.drive are rangeable:false; a drive that
+ *                 wandered bar to bar would pump the tone.
+ *   Loop chance — docs/engine-v2-contract.md § The chord loop as voiced:
+ *                 harmony.hookRule.chance is already a probability rolled at
+ *                 every When, and its left end is two named positions.
+ */
+const SINGLE_VALUED = new Map([['Drive', /pump the tone/], ['Loop chance', /already a chance/]]);
+
 const visibleDials = (page, scope) =>
   page.evaluate((sel) => {
     const vis = (el) => {
@@ -166,13 +182,23 @@ export default async function drive(page) {
   const refused = [];
   const spreadable = [];
   for (const label of labels) {
-    if (ENUM_DIALS.has(label) || CIRCULAR_DIALS.has(label)) continue;
+    if (ENUM_DIALS.has(label) || CIRCULAR_DIALS.has(label) || SINGLE_VALUED.has(label)) continue;
     const after = await dragSideways(label, '#panel-advanced');
     if (spread(after)) spreadable.push(label);
     else refused.push(label);
   }
   check('no numeric dial refuses the gesture', refused, []);
   results.push({ name: 'dials proven spreadable', ok: true, got: spreadable.length, want: '(informational)' });
+
+  // The contract's single-valued dials refuse — and say why, in words.
+  for (const [label, words] of SINGLE_VALUED) {
+    if (!labels.includes(label)) continue;
+    await page.evaluate(() => { const el = document.getElementById('dial-confirm'); if (el) el.textContent = ''; });
+    const after = await dragSideways(label, '#panel-advanced');
+    check(`${label} stays single-valued`, spread(after), (v) => v === false);
+    const said = await page.evaluate(() => document.getElementById('dial-confirm')?.textContent?.trim() || '');
+    check(`${label} says why it will not spread`, said, (v) => words.test(v));
+  }
 
   // The enums refuse, and refusing is the POINT — if one started accepting, the
   // engine would be storing a span it has no way to resolve to a filter type.

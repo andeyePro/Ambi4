@@ -3322,6 +3322,14 @@ tests.push(['pluck worklet: the first note falls back, the next plays the string
     // ...at full velocity: the amp scales with velocity squared.
     const ceiling = (0.95 * makeup.gain.max * amp.gain.max) / (stringNote.velocity ** 2);
     assert.ok(ceiling <= 0.25, `the string can reach the bus at ${ceiling.toFixed(3)}`);
+    // Every stop the rig scheduled reached the processor too, as the pulse
+    // one's does (review, 2026-10-23 evening) — and a cancel brings it forward.
+    const lastStop = node.posted[node.posted.length - 1];
+    assert.ok(lastStop && Math.abs(lastStop.stop - life.stoppedAt) < 1e-9, `the processor's stop ${lastStop && lastStop.stop} is not the source's ${life.stoppedAt}`);
+    ctx.currentTime = stringNote.when + 0.05;
+    handle.cancel();
+    const cut = node.posted[node.posted.length - 1].stop;
+    assert.ok(cut < o.stop && cut <= ctx.currentTime + 0.2, `the cancel did not bring the processor's stop forward (${cut}, was ${o.stop})`);
     // Teardown: ending the lifetime source disconnects the worklet node too.
     for (const source of startedSources) source.onended();
     assert.ok(node.disconnected > 0, 'the worklet node outlived its note');

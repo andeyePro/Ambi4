@@ -12,10 +12,11 @@
  * proves the two cannot drift: a hand-kept copy of an engine list is exactly
  * how a control comes to offer a value the engine then silently drops.
  *
- * BEATS are absent and stay absent until the harmony frame is sub-bar —
- * harmony advances once per bar and every instrument plans a whole bar against
- * one chord, so a sub-bar chord is a scheduler change, not a list entry. The
- * tooltip says so rather than leaving the omission to be discovered.
+ * BEATS: v0.0.241 made the harmony frame sub-bar (`harmony.beats`, a field
+ * of its own beside `harmony.rhythm`), and the page lists 1, 2 and 3 beats
+ * after the bar counts as `beats:<n>` options. They are asserted BY VALUE
+ * below — a bare count went stale the day they landed (got 21 want 18) and
+ * would equally have passed a list that swapped a bar count for a beat.
  */
 
 // UI review fix 18: Advanced folds its sections (Sound / Music / Presets) behind
@@ -40,7 +41,12 @@ export default async function drive(page) {
   await page.click('#tab-advanced'); await page.waitForTimeout(400);
   await openFoldFor(page, '#chordLength');
   const opts = await page.evaluate(() => [...document.querySelectorAll('#chordLength option')].map(o => [o.value, o.textContent]));
-  check('the list offers every whole bar count plus the two named options', opts.length, 18);
+  // Auto, One per section, 1..16 bars (HARMONY_RHYTHMS), then 1..3 beats.
+  const want = ['auto', 'section', ...Array.from({ length: 16 }, (_, i) => String(i + 1)), 'beats:1', 'beats:2', 'beats:3'];
+  check('the list offers the two named options, every whole bar count, then 1-3 beats, in that order',
+    opts.map((o) => o[0]), want);
+  check('the beat options are labelled in beats',
+    opts.filter((o) => o[0].startsWith('beats:')).map((o) => o[1]), ['1 beat', '2 beats', '3 beats']);
   check('and includes the ones the old whitelist could not reach',
     opts.map(o=>o[0]).filter(v=>['3','5','6','12'].includes(v)), ['3','5','6','12']);
   check('One per section is offered', opts.find(o=>o[0]==='section')?.[1], 'One per section');
@@ -52,6 +58,14 @@ export default async function drive(page) {
   await page.waitForTimeout(300);
   check('and so does one per section',
     await page.evaluate(()=>window.__ambi4Engine.getParams().harmony.rhythm), 'section');
+  await page.selectOption('#chordLength', 'beats:2');
+  await page.waitForTimeout(300);
+  check('a two-beat chord reaches the engine as harmony.beats',
+    await page.evaluate(()=>window.__ambi4Engine.getParams().harmony.beats), 2);
+  await page.selectOption('#chordLength', '4');
+  await page.waitForTimeout(300);
+  check('and picking a bar count clears it again',
+    await page.evaluate(()=>{ const h = window.__ambi4Engine.getParams().harmony; return [h.rhythm, h.beats ?? null]; }), [4, null]);
   const failed = results.filter(r=>!r.ok);
   if (failed.length) throw new Error('chordlen: '+failed.map(r=>`${r.name}: got ${JSON.stringify(r.got)} want ${JSON.stringify(r.want)}`).join(' | '));
   return { passed: results.length };

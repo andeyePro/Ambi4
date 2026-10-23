@@ -38,12 +38,10 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] **A kit sample** — SHIPPED v0.0.234: on the kit, Match a sample matches the OPEN TAB's sound (Low, Mid, High or a lane of yours) and sets that sound's own dials on the current kit, tuning included; the other sounds are untouched; on Common it asks for a tab. (My 2026-10-23 note that the engine honours only a sound's envelope was wrong: `patchFor(track, lane)` merges the lane's whole override; only the envelope rides separately, as `kindAdsr`.) Measured on the shipped kits: Soft's Low 47 → 80 %, Hand's High 47 → 89 %. Not built: matching across kits — another kit changes every sound, so it stays the voice picker's job.
 - [ ] **The browser drive** `tests/pending/sample-match-drive.mjs` passes when its page bodies run in Node against node-web-audio-api (5 cases, 2026-10-23); move it to tests/ when the bridge returns, or when a Node audio harness lands in the repo.
 
-## Review suspicions, 2026-10-23 evening (unconfirmed — test before fixing)
+## Review suspicions, 2026-10-23 evening
 
-- [ ] A written tune (v0.0.261) can drift from the chord loop when Chord length is Auto or One per section (the writer assumes a bar per chord), when the loop is longer than eight bars (the tune caps at eight), and when written onto Texture (it uses the melody's register, not texture's high band).
-- [ ] Save as WAV: a ten-minute take peaks at ~230 MB while the file is built; stopping while the context is suspended loses up to ~85 ms at the end.
-- [ ] The plucked string's processor cannot move its stop time (the pulse one can); today nothing extends a pluck note, but an early cancel relies on the envelope already being silent.
-- [ ] A stored `harmony.beats: true` normalises to 1 beat rather than being dropped.
+- [x] All four confirmed and fixed in v0.0.268 (tune vs chord length, WAV peak memory, pluck stop time, harmony.beats true).
+- [ ] Four more dials refuse a sideways drag without saying why (Drift rate, the rule Chance dial, the arp range dials, intensity) — in progress.
 
 ## Test hygiene found 2026-10-23
 

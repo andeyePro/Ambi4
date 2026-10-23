@@ -2903,7 +2903,10 @@ opens a per-chord editor — inversion and colour per chord, Keep what is
 playing, The loop's own — and a colour edited there is written into the typed
 loop's numeral too, so the cards, the text field and the engine agree; a
 typed or widened chord rewrites a set voicing's colour; Chance is a knob, Auto
-at the left detent then Hold then 5 % steps; When is each time round /
+at the left detent then Hold then 5 % steps, and NOT rangeable — it is
+already a probability rolled afresh at every When (a span would be a chance of
+a chance) and its left end is two named positions; a sideways drag says so
+under the dials rather than refusing in silence; When is each time round /
 section / piece; Pool… opens an editor with Add what is playing, Add the
 Now, weights, ▲▼, Remove and by weight / in turn. A rule back at Auto, each
 time round, with an empty pool is dropped, so Auto is the pre-rule law
