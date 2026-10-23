@@ -61,6 +61,27 @@ function hasWorklet(ctx, g) {
     && typeof g.Blob === 'function' && g.URL && typeof g.URL.createObjectURL === 'function');
 }
 
+/**
+ * The tap's module, loaded ONCE per context: a second
+ * registerProcessor('ambi4-wav-tap') in the same AudioWorkletGlobalScope throws
+ * NotSupportedError, which rejects that addModule — so loading it per take
+ * sent every take after the first to the ScriptProcessor. A WeakMap, so a
+ * closed context takes its entry with it; the Blob URL is revoked as soon as
+ * the load settles, since a loaded module no longer needs it.
+ */
+const TAP_MODULES = new WeakMap();
+function loadTapModule(ctx, g) {
+  let loading = TAP_MODULES.get(ctx);
+  if (!loading) {
+    const url = g.URL.createObjectURL(new g.Blob([WORKLET_SOURCE], { type: 'text/javascript' }));
+    loading = Promise.resolve()
+      .then(() => ctx.audioWorklet.addModule(url))
+      .finally(() => { try { g.URL.revokeObjectURL(url); } catch { /* best effort */ } });
+    TAP_MODULES.set(ctx, loading);
+  }
+  return loading;
+}
+
 function hasScriptProcessor(ctx) {
   return !!(ctx && typeof ctx.createScriptProcessor === 'function');
 }
@@ -116,11 +137,9 @@ export async function startWavCapture(node, { maxSeconds = 600, onProgress, onFu
 
   let tap = null;
   let mode = null;
-  let url = null;
   if (hasWorklet(ctx, g)) {
     try {
-      url = g.URL.createObjectURL(new g.Blob([WORKLET_SOURCE], { type: 'text/javascript' }));
-      await ctx.audioWorklet.addModule(url);
+      await loadTapModule(ctx, g);
       tap = new g.AudioWorkletNode(ctx, 'ambi4-wav-tap', {
         numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
         channelCount: WAV_CHANNELS, channelCountMode: 'explicit', channelInterpretation: 'speakers',
@@ -172,7 +191,6 @@ export async function startWavCapture(node, { maxSeconds = 600, onProgress, onFu
       try { tap.disconnect(); } catch { /* same */ }
       try { mute.disconnect(); } catch { /* same */ }
       if (mode === 'script-processor') tap.onaudioprocess = null;
-      if (url) { try { g.URL.revokeObjectURL(url); } catch { /* best effort */ } }
       return writer.finish();
     })();
     return finished;

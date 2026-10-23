@@ -4309,6 +4309,27 @@ try {
             if (plain.g !== undefined) failures.push('a plain link carries a genre it has no reason to');
           }
         }
+        // Review fix: a link carrying the Sync lead (v0.0.259) was stamped
+        // schema 1, and a v0.0.254-258 build, which knows schema 3, swapped
+        // the unknown voice for the melody's default in silence. It is
+        // stamped 4, the first number those builds do not know.
+        {
+          const voiceSelect = doc.getElementById('track-voice-melody');
+          const was = voiceSelect ? voiceSelect.value : null;
+          if (!voiceSelect || !voiceSelect.querySelector('option[value="sync"]')) {
+            failures.push('the melody voice select offers no Sync lead to stamp a link with');
+          } else {
+            voiceSelect.value = 'sync';
+            voiceSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+            clipboard.text = '';
+            shareButton.click();
+            await waitUntil(() => clipboard.text.includes('#'));
+            const synced = decodeCopiedLink();
+            if (!synced || synced.v !== 4) failures.push(`a link carrying the Sync lead is stamped schema ${JSON.stringify(synced && synced.v)}, not 4 — a v0.0.254-258 build would drop the voice without a word`);
+            voiceSelect.value = was;
+            voiceSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+          }
+        }
         // Deterministic: the same settings, shared again, is the same name.
         clipboard.text = '';
         shareButton.click();
@@ -5718,6 +5739,39 @@ try {
         await waitUntil(() => JSON.stringify(seqsOf(engine.getParams().tracks.melody).map((q) => q.steps)) !== first, 3000);
         if (JSON.stringify(seqsOf(engine.getParams().tracks.melody).map((q) => q.steps)) === first) {
           failures.push('tune over chords: pressing again wrote the same tune — the seed should advance');
+        }
+        // Review fix: under Chord length in BEATS (2 beats in 4/4 is two
+        // chords a bar) the writer read one chord per bar — beat 3's note was
+        // a tone of the chord that had already gone, and "I iv V I" wrote four
+        // bars over a loop the engine plays in two. Asserted at the ENGINE.
+        const lengthSelect = doc.getElementById('chordLength');
+        const lengthWas = lengthSelect ? lengthSelect.value : null;
+        if (!lengthSelect || !lengthSelect.querySelector('option[value="beats:2"]')) {
+          failures.push('tune over chords: no "2 beats" chord length to test the beats case with');
+        } else if (p.timeSignature !== '4/4') {
+          failures.push(`tune over chords: the beats check assumes 4/4, the Blank slate is ${p.timeSignature}`);
+        } else {
+          lengthSelect.value = 'beats:2';
+          lengthSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+          await waitUntil(() => engine.getParams().harmony?.beats === 2);
+          const before = JSON.stringify(seqsOf(engine.getParams().tracks.melody).map((q) => q.steps));
+          tuneButton.click();
+          await waitUntil(() => JSON.stringify(seqsOf(engine.getParams().tracks.melody).map((q) => q.steps)) !== before, 3000);
+          const beatSeqs = seqsOf(engine.getParams().tracks.melody);
+          const beatWrong = [];
+          if (beatSeqs.length !== 2) beatWrong.push(`a four-chord loop at two chords a bar wrote ${beatSeqs.length} bars, not 2`);
+          beatSeqs.forEach((q, bar) => {
+            [0, 8].forEach((slot, half) => {
+              const st = q.steps && q.steps[slot];
+              const d = degrees[(bar * 2 + half) % degrees.length];
+              const tones = [0, 2, 4].map((k) => (d + k) % scale.length);
+              if (!st || !st.on || !Number.isFinite(st.midi)) beatWrong.push(`bar ${bar} slot ${slot} is silent`);
+              else if (!tones.includes(pcIdx(st.midi))) beatWrong.push(`bar ${bar} slot ${slot} plays ${st.midi}, not a tone of chord ${d}`);
+            });
+          });
+          if (beatWrong.length) failures.push(`tune over chords (2 beats a chord): ${beatWrong.join('; ')}`);
+          lengthSelect.value = lengthWas;
+          lengthSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
         }
       }
       writeSelect.value = '';

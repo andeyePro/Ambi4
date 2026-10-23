@@ -94,6 +94,13 @@ function archAt(t) {
  * @param slotsPerBar  Grid slots per bar (default beatsPerBar × 4).
  * @param pulseSlots   Slot where each beat starts (default evenly spaced).
  * @param barsPerChord How many bars each chord lasts (harmony.rhythm), default 1.
+ * @param chordStarts  Chord length in BEATS (harmony.beats): the slots, within
+ *                     every bar, where a chord starts (0 first). The loop then
+ *                     advances once per entry, bar after bar, exactly as the
+ *                     engine's hook does, barsPerChord is ignored, and every
+ *                     chord change carries a beat note, as a downbeat does.
+ *                     The default bar count is then the bars it takes for the
+ *                     loop to come round to a downbeat again.
  * @param density      0..1 — the piece's Complexity.
  * @param seed         Any integer; a different seed is a different tune.
  * @param register     { low, high } MIDI bounds, at least an octave apart.
@@ -110,6 +117,7 @@ export function tuneFromChords({
   slotsPerBar,
   pulseSlots,
   barsPerChord = 1,
+  chordStarts,
   density = 0.5,
   seed = 0,
   register = { low: 55, high: 79 },
@@ -126,14 +134,31 @@ export function tuneFromChords({
     ? [...new Set(pulseSlots.map((s) => Math.round(s)).filter((s) => s >= 0 && s < slots))].sort((a, b) => a - b)
     : Array.from({ length: beats }, (_, i) => Math.round((i * slots) / beats));
   if (pulses[0] !== 0) pulses = [0, ...pulses];
-  const barCount = Math.max(1, Math.min(MAX_BARS, Math.round(Number(bars) || loop.length * per)));
+  // Chord length in beats: the chord starts inside every bar, 0 first.
+  let starts = null;
+  if (Array.isArray(chordStarts) && chordStarts.length) {
+    starts = [...new Set([0, ...chordStarts.map((s) => Math.round(s)).filter((s) => s >= 0 && s < slots)])]
+      .sort((a, b) => a - b);
+    // A chord change is a strong beat: it gets a pulse if the metre has none there.
+    pulses = [...new Set([...pulses, ...starts])].sort((a, b) => a - b);
+  }
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const period = starts ? loop.length / gcd(loop.length, starts.length) : loop.length * per;
+  const barCount = Math.max(1, Math.min(MAX_BARS, Math.round(Number(bars) || period)));
   const dens = Math.max(0, Math.min(1, Number(density) || 0));
   const low = Math.round(Number(register?.low));
   const high = Math.round(Number(register?.high));
   if (!Number.isFinite(low) || !Number.isFinite(high) || high - low < 12) return null;
 
-  const rng = mulberry32(hashSeed([loop, scale, rootPc, barCount, slots, pulses, per, Math.round(seed) || 0]));
-  const chordAt = (bar) => loop[Math.floor(bar / per) % loop.length];
+  const rng = mulberry32(hashSeed([loop, scale, rootPc, barCount, slots, pulses, per, Math.round(seed) || 0,
+    ...(starts ? [starts] : [])]));
+  const chordAt = (bar, slot = 0) => {
+    if (!starts) return loop[Math.floor(bar / per) % loop.length];
+    let seg = 0;
+    while (seg + 1 < starts.length && starts[seg + 1] <= slot) seg += 1;
+    return loop[(bar * starts.length + seg) % loop.length];
+  };
+  const chordChange = (slot) => Boolean(starts && starts.includes(slot));
 
   // Every scale index whose pitch lies in the register, low to high.
   const inRegister = [];
@@ -150,7 +175,9 @@ export function tuneFromChords({
   const onsets = []; // { bar, slot, strong }
   for (let bar = 0; bar < barCount; bar++) {
     const last = bar === barCount - 1;
-    const cadenceAt = pulses.length >= 2 ? pulses[Math.floor(pulses.length / 2)] : 0;
+    // Under chord length in beats the cadence is the loop's last chord itself.
+    const cadenceAt = starts && starts.length > 1 ? starts[starts.length - 1]
+      : pulses.length >= 2 ? pulses[Math.floor(pulses.length / 2)] : 0;
     for (let p = 0; p < pulses.length; p++) {
       const start = pulses[p];
       const end = p + 1 < pulses.length ? pulses[p + 1] : slots;
@@ -158,7 +185,8 @@ export function tuneFromChords({
       const halfDraw = rng();
       const quarterDraws = [rng(), rng()];
       if (last && start > cadenceAt) continue; // the cadence holds to the end
-      const strong = start === 0 || (last && start === cadenceAt) || beatDraw < 0.35 + 0.65 * dens;
+      const strong = start === 0 || (last && start === cadenceAt) || chordChange(start)
+        || beatDraw < 0.35 + 0.65 * dens;
       if (strong) onsets.push({ bar, slot: start, strong: true });
       if (last && start === cadenceAt) continue;
       // Between this beat and the next: passing tones.
@@ -189,7 +217,7 @@ export function tuneFromChords({
   const finalStrong = onsets.reduce((k, o, i) => (o.strong ? i : k), -1);
   onsets.forEach((o, i) => {
     if (!o.strong) return;
-    const degree = chordAt(o.bar);
+    const degree = chordAt(o.bar, o.slot);
     let pcs = chordTones(degree, n);
     const isCadence = i === finalStrong;
     if (isCadence) {

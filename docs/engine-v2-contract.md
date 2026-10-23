@@ -3309,7 +3309,10 @@ no download.
   without one clears the last piece's.
 - **Share links** carry it like any track/master setting; a link carrying a
   Drive is stamped schema 3, so a pre-249 build says it came from a newer
-  build rather than playing it clean in silence.
+  build rather than playing it clean in silence. (The plucked string takes 3
+  too; the Pulse bass, the Sync lead, a Vowel filter and a texture grid take
+  4, since a v0.0.254-261 build reads a schema-3 link as its own and would
+  drop them without a word.)
 - **Recipe.** `drive` ("Master drive") and `tracks.<id>.drive` ("<Track>
   drive"), numbers, named only when non-zero.
 - Gated by `tests/saturation-smoke.mjs` (7 checks, 6 red on the v0.0.248

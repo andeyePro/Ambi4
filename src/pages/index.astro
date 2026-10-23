@@ -2719,7 +2719,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      */
     // v0.0.254: 3 — a link carrying a Drive (master or any track). A pre-249
     // build would play it clean and say nothing; the stamp makes it say so.
-    const SHARE_SCHEMA_LATEST = 3;
+    const SHARE_SCHEMA_DRIVEN = 3;
+    // 4 — a link carrying what a v0.0.254-261 build reads past in silence: the
+    // Pulse bass or Sync lead (v0.0.259; an older sanitiser swaps an unknown
+    // voice for the track's default), a Vowel filter (v0.0.257; the patch's
+    // type falls back to a biquad) or a texture grid (v0.0.262; the texture
+    // drifts instead). Those builds read a schema-3 link as their own, so
+    // only a new number makes them say the link is newer than they are.
+    const SHARE_SCHEMA_LATEST = 4;
     /** The stamp the v0.0.171 keys (and a carried genre, v0.0.181) take. */
     const SHARE_SCHEMA_ROUTED = 2;
     const SHARE_VERSION_KEY = 'v';
@@ -2753,7 +2760,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const driven = (typeof params.drive === 'number' && params.drive > 0)
         || (isPlainObject(params.tracks) && Object.values(params.tracks)
           .some((t) => isPlainObject(t) && typeof t.drive === 'number' && t.drive > 0));
-      if (driven) return SHARE_SCHEMA_LATEST;
+      const tracks = isPlainObject(params.tracks) ? params.tracks : {};
+      const NEWER_VOICES = { bass: ['pulse'], melody: ['sync'] };
+      const voiced = Object.entries(NEWER_VOICES).some(([id, ids]) => isPlainObject(tracks[id])
+        && (ids.includes(tracks[id].voice)
+          || (isPlainObject(tracks[id].voiceWeights) && ids.some((v) => Number(tracks[id].voiceWeights[v]) > 0))));
+      const vowelled = isPlainObject(params.patches) && Object.values(params.patches).some((bank) => isPlainObject(bank)
+        && Object.values(bank).some((patch) => isPlainObject(patch) && isPlainObject(patch.filter) && patch.filter.type === 'vowel'));
+      const textureGrid = isPlainObject(tracks.texture) && ((Array.isArray(tracks.texture.sequencers) && tracks.texture.sequencers.length > 0)
+        || isPlainObject(tracks.texture.sequencer));
+      if (voiced || vowelled || textureGrid) return SHARE_SCHEMA_LATEST;
+      // The plucked string (v0.0.251) predates schema 3, so 3 announces it to
+      // every build that cannot play it.
+      const plucked = ['melody', 'arp'].some((id) => isPlainObject(tracks[id]) && (tracks[id].voice === 'string'
+        || (isPlainObject(tracks[id].voiceWeights) && Number(tracks[id].voiceWeights.string) > 0)));
+      if (driven || plucked) return SHARE_SCHEMA_DRIVEN;
       return routed || sampled || lfoSet || macroSet || essenceRuled ? SHARE_SCHEMA_ROUTED : SHARE_SCHEMA;
     }
 
@@ -22543,10 +22564,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             : 0;
           const stored = chordDegreesNow();
           const chords = stored || [0];
-          const rhythm = engine.getParams().harmony?.rhythm;
+          const harmonyNow = engine.getParams().harmony || {};
+          const rhythm = harmonyNow.rhythm;
           const barsPerChord = Number.isFinite(rhythm) && rhythm >= 1 ? Math.round(rhythm) : 1;
           const slotsPerBar = stepsPerBarFor(target);
           const pulseSlots = pulseStartsFor(target, slotsPerBar);
+          // Chord length in BEATS: the engine's hook advances inside the bar
+          // (at beats 0, b, 2b, ... — the barline restarts it), so the writer
+          // is told where each chord starts or it writes one chord per bar
+          // over a loop that changes chord mid-bar.
+          const beatsLength = Number.isInteger(harmonyNow.beats) && harmonyNow.beats >= 1 ? harmonyNow.beats : null;
+          const barBeats = beatsLength && engineModule && typeof engineModule.beatsPerBar === 'function'
+            ? engineModule.beatsPerBar(settings.timeSignature) : null;
+          const chordStarts = [];
+          if (beatsLength && barBeats > 0) {
+            for (let beat = 0; beat < barBeats - 1e-6; beat += beatsLength) {
+              chordStarts.push(Math.round((beat * slotsPerBar) / barBeats));
+            }
+          }
           const seed = tuneSeed;
           tuneSeed += 1;
           const tune = mod.tuneFromChords({
@@ -22554,7 +22589,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             scale,
             rootPc,
             barsPerChord,
-            bars: Math.min(mod.MAX_BARS, Math.max(2, chords.length * barsPerChord)),
+            ...(chordStarts.length ? { chordStarts } : {
+              bars: Math.min(mod.MAX_BARS, Math.max(2, chords.length * barsPerChord)),
+            }),
             beatsPerBar: pulseSlots.length,
             slotsPerBar,
             pulseSlots,

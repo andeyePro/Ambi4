@@ -220,6 +220,61 @@ test('the ScriptProcessor tap: mono in makes stereo out, the cap fires once, sto
   assert.equal(back.channels[1][300], floatToInt16(0.25) / 32768);
 });
 
+// Review fix (v0.0.251-263): every capture added the tap's module again, and
+// a second registerProcessor('ambi4-wav-tap') in the same AudioWorkletGlobalScope
+// throws NotSupportedError (Web Audio spec), which rejects that addModule — so
+// every take after the first in a session silently fell back to the
+// deprecated main-thread ScriptProcessor. The mock holds the spec's rule.
+function workletWorld() {
+  const urls = new Map();
+  let made = 0;
+  const g = {
+    Blob: class { constructor(parts) { this.text = parts.join(''); } },
+    URL: {
+      createObjectURL(blob) { made += 1; const url = `blob:${made}`; urls.set(url, blob.text); return url; },
+      revokeObjectURL(url) { urls.delete(url); },
+    },
+    AudioWorkletNode: class {
+      constructor(ctx, name) {
+        if (!ctx.registered.has(name)) throw new Error(`no processor ${name}`);
+        this.connections = [];
+        const node = this;
+        this.port = {
+          onmessage: null,
+          postMessage(msg) { if (msg === 'stop') queueMicrotask(() => node.port.onmessage?.({ data: { flushed: true } })); },
+        };
+      }
+      connect(n) { this.connections.push(n); }
+      disconnect() { this.connections = []; }
+    },
+  };
+  return { g, urls };
+}
+
+test('the worklet tap: a second take in the same context still uses the worklet, and no Blob URL is kept', async () => {
+  const { g, urls } = workletWorld();
+  const { ctx, node } = fakeContext({ sampleRate: 1000 });
+  ctx.registered = new Set();
+  let adds = 0;
+  ctx.audioWorklet = {
+    async addModule(url) {
+      adds += 1;
+      const text = urls.get(url);
+      if (text === undefined) throw new Error('AbortError: the module URL was revoked');
+      const name = /registerProcessor\('([^']+)'/.exec(text)[1];
+      if (ctx.registered.has(name)) throw new Error(`NotSupportedError: ${name} is already registered`);
+      ctx.registered.add(name);
+    },
+  };
+  for (let take = 1; take <= 3; take++) {
+    const cap = await startWavCapture(node, { g });
+    assert.equal(cap.mode, 'worklet', `take ${take} fell back to ${cap.mode}`);
+    await cap.stop();
+  }
+  assert.equal(adds, 1, 'the module is added once per context');
+  assert.equal(urls.size, 0, 'no Blob URL outlives its load');
+});
+
 let failures = 0;
 for (const [name, fn] of tests) {
   try {

@@ -168,6 +168,45 @@ test('bars per chord stretches the loop; bars are capped at eight', () => {
   assert.equal(tuneFromChords({ chords: [0, 1, 2, 3, 4, 5, 6, 0], barsPerChord: 4, scale: IONIAN, register: MELODY }).bars, 8);
 });
 
+// Review fix (v0.0.251-263): under Chord length in BEATS the engine's hook
+// advances inside the bar (2 beats in 4/4 is two chords a bar), and the writer
+// used to read one chord per bar — so beat 3's note was a tone of the chord
+// that had already gone, and a four-chord loop wrote four bars over a loop
+// the engine plays in two.
+test('chord length in beats: each beat note fits the chord in force inside the bar', () => {
+  for (const [starts, chords, wantBars] of [
+    [[0, 8], [0, 5, 3, 4], 2], [[0, 8], [0, 3, 4], 3], [[0, 12], [5, 3, 0], 3], [[0, 4, 8, 12], [0, 3, 4, 0], 1],
+  ]) {
+    for (const density of [0, 0.5, 1]) {
+      for (const seed of [0, 1, 7]) {
+        const got = tuneFromChords({ chords, scale: IONIAN, rootPc: 0, pulseSlots: [0, 4, 8, 12], slotsPerBar: 16,
+          chordStarts: starts, density, seed, register: MELODY });
+        assert.equal(got.bars, wantBars, `${JSON.stringify(chords)} at ${JSON.stringify(starts)}: ${got.bars} bars`);
+        const inForce = (bar, slot) => {
+          let seg = 0;
+          while (seg + 1 < starts.length && starts[seg + 1] <= slot) seg += 1;
+          return chords[(bar * starts.length + seg) % chords.length];
+        };
+        for (const note of got.notes) {
+          if (![0, 4, 8, 12].includes(note.slot)) continue;
+          const degree = inForce(note.bar, note.slot);
+          assert.ok(chordTones(degree, 7).includes(pcIndex(note.midi, IONIAN, 0)),
+            `bar ${note.bar} slot ${note.slot} midi ${note.midi} is not in chord ${degree} (${JSON.stringify(chords)} at ${JSON.stringify(starts)})`);
+        }
+        // Every chord change carries a note, as every downbeat does.
+        for (let bar = 0; bar < got.bars; bar++) {
+          for (const slot of starts) {
+            assert.ok(got.notes.some((n) => n.bar === bar && n.slot === slot), `no note at bar ${bar} slot ${slot}`);
+          }
+        }
+        const last = got.notes.at(-1);
+        assert.equal(last.role, 'cadence');
+        assert.equal(last.slot, starts.at(-1), 'the cadence lands on the loop\'s last chord');
+      }
+    }
+  }
+});
+
 test('inputs it cannot honour return null rather than a wrong tune', () => {
   assert.equal(tuneFromChords({ chords: [0], scale: [], register: MELODY }), null);
   assert.equal(tuneFromChords({ chords: [0], scale: IONIAN, register: { low: 60, high: 66 } }), null);
