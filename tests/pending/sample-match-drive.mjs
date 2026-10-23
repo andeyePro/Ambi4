@@ -41,6 +41,36 @@ const PROBE = async (voicesUrl, matchUrl, engineUrl) => {
     { set: 'melody', id: 'pluck', moves: { 'filter.envAmount': 0.4 }, freq: 293.66, cut: 1 },
   ];
   const rows = [];
+  // v0.0.234: one sound of a kit, matched on its own tab. The page plays a
+  // lane as the engine does — the sound's own envelope in kindAdsr over the
+  // kit-wide adsr — and searches only that sound's dials, tuning included.
+  for (const k of [
+    { id: 'soft', kind: 'low', over: { source: { pitch: -5 }, filter: { cutoff: 700 }, adsr: { decay: 0.6 } } },
+    { id: 'hand', kind: 'high', over: { filter: { cutoff: 5000 }, adsr: { decay: 0.12 } } },
+  ]) {
+    const d = VOICES.percussion[k.id].defaults;
+    const common = JSON.parse(JSON.stringify(d));
+    delete common.perKind;
+    const baseline = JSON.parse(JSON.stringify(common));
+    Object.assign(baseline.adsr, d.perKind[k.kind].adsr);
+    const asPlayed = (patch) => {
+      const { adsr = {}, ...rest } = patch;
+      const kindAdsr = {};
+      for (const [f, v] of Object.entries(adsr)) if (v !== baseline.adsr[f]) kindAdsr[f] = v;
+      return { ...rest, adsr: common.adsr, kindAdsr };
+    };
+    const truth = JSON.parse(JSON.stringify(baseline));
+    for (const [sec, fields] of Object.entries(k.over)) Object.assign(truth[sec], fields);
+    const note = { when: 0.1, freq: 110, midi: 45, velocity: 0.8, duration: 0.2, kind: k.kind };
+    const sample = await renderAt(48000, 'percussion', k.id, asPlayed(truth), note);
+    const target = M.analyseSample(sample.samples, sample.sampleRate);
+    const result = await M.matchSample(target, {
+      candidates: [{ id: k.id, label: k.id, defaults: baseline, fields: M.searchFieldsFor(baseline, PARAM_REGISTRY, (f) => exposes('percussion', k.id, f), { allow: ['source.pitch'] }) }],
+      budget: 300, octaves: false,
+      render: (id, p, n, seconds) => renderAt(24000, 'percussion', id, asPlayed(p), { ...n, kind: k.kind }, seconds),
+    });
+    rows.push({ case: `percussion/${k.id}:${k.kind}`, best: result.best.id, want: k.id, similarity: result.best.similarity, start: M.similarity(result.best.start), self: false, ranked: '', line: M.describeMatch(target, result) });
+  }
   for (const c of CASES) {
     const patch = JSON.parse(JSON.stringify(VOICES[c.set][c.id].defaults));
     for (const [field, value] of Object.entries(c.moves)) {

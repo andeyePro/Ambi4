@@ -526,14 +526,16 @@ export function fromPosition(pos, row) {
  * Which registry rows a voice's search may turn. `exposes(field)` is the
  * editor's own test (does this voice show that dial?), `registry` the
  * PARAM_REGISTRY. Numbers only, plus enums with few values (a modal material).
+ * `allow` lifts a NEVER_SEARCHED field back in: a drum's tuning is part of
+ * the sound being matched, where a pitched voice's octave is not.
  */
-export function searchFieldsFor(defaults, registry, exposes = () => true) {
+export function searchFieldsFor(defaults, registry, exposes = () => true, { allow = [] } = {}) {
   const fields = [];
   for (const [path, row] of Object.entries(registry || {})) {
     if (!path.startsWith('patch.')) continue;
     const field = path.slice('patch.'.length);
     if (field.split('.').length !== 2) continue;
-    if (NEVER_SEARCHED.includes(field)) continue;
+    if (NEVER_SEARCHED.includes(field) && !allow.includes(field)) continue;
     const current = getPath(defaults, field);
     if (current === undefined || current === null) continue;
     if (!exposes(field)) continue;
@@ -559,6 +561,8 @@ export function searchFieldsFor(defaults, registry, exposes = () => true) {
  * @param {number} [opts.fallbackFreq=220] pitch for an unpitched sample
  * @param {(done: number, budget: number) => void} [opts.onProgress]
  * @param {() => boolean} [opts.cancelled]
+ * @param {boolean} [opts.octaves=true] false for a sound with no pitch to be
+ *   an octave out from (a drum): each voice is then tried on the note alone
  */
 export async function matchSample(target, opts) {
   const { candidates, render } = opts;
@@ -702,7 +706,7 @@ export async function matchSample(target, opts) {
     const starts = [clone(cand.defaults)];
     const fitted = measuredEnv(cand);
     if (JSON.stringify(fitted) !== JSON.stringify(starts[0])) starts.push(fitted);
-    for (const shift of [0, 12, -12]) {
+    for (const shift of opts.octaves === false ? [0] : [0, 12, -12]) {
       for (const startPatch of starts) {
         if (cancelled()) break;
         const patch = { ...clone(startPatch), _note: { held: note.duration, shift } };

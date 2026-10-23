@@ -181,6 +181,17 @@ test('searchFieldsFor: real voices — the dials they show, never the room or th
   assert.ok(none.every((f) => f.field.startsWith('adsr.')), 'exposes() narrows the search');
 });
 
+test('a drum keeps its tuning in the search when allowed; octaves can be switched off', async () => {
+  const soft = VOICES.percussion.soft;
+  const plain = searchFieldsFor(soft.defaults, PARAM_REGISTRY).map((f) => f.field);
+  const kit = searchFieldsFor(soft.defaults, PARAM_REGISTRY, () => true, { allow: ['source.pitch'] }).map((f) => f.field);
+  assert.ok(!plain.includes('source.pitch') && kit.includes('source.pitch'), kit.join(','));
+  const target = analyseSample(toySynth('pluck', TOY.pluck, { freq: 200, duration: 0.3 }), SR);
+  const seen = new Set();
+  await matchSample(target, { candidates, budget: 30, octaves: false, render: async (id, p, note) => { seen.add(note.freq); return render(id, p, note); } });
+  assert.deepEqual([...seen], [target.freq], 'every render on the note itself');
+});
+
 test('matchSample: picks the voice that made the sample, and walks its dials towards it', async () => {
   const truth = { adsr: { attack: 0.003, decay: 0.22, sustain: 0, release: 0.3 }, filter: { cutoff: 3200 } };
   const target = analyseSample(toySynth('pluck', truth, { freq: 330, duration: 0.4 }), SR);

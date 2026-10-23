@@ -14015,7 +14015,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // is uploaded, nothing is kept, and nothing of the recording plays —
         // what you get is a stock voice of this track with its dials set, the
         // app's no-samples rule intact (docs/synthesis-programme.md § 2).
-        if (sampleMatchApi && voiceSetOf(track) !== 'percussion') {
+        // v0.0.234: on the kit it matches ONE sound — the open tab's (Low,
+        // Mid, High, or a lane of your own) — and sets that sound's own dials
+        // on this kit, exactly as turning them on its tab would; the other
+        // sounds are untouched. On Common it says which tab to open. A user
+        // percussive track has no tabs, so it has no row.
+        const kitMatch = voiceSetOf(track) === 'percussion';
+        if (sampleMatchApi && (!kitMatch || kitCapable)) {
           const matcher = document.createElement('div');
           matcher.className = 've-sample-match';
           const matchLabel = document.createElement('span');
@@ -14046,9 +14052,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const matchAnswer = document.createElement('p');
           matchAnswer.className = 'hint ve-finder-answer ve-sample-answer';
           matchAnswer.setAttribute('aria-live', 'polite');
-          matchAnswer.textContent = 'One note works best: a few seconds, starting at its start. The closest synth on this track takes its place — the recording itself is never played.';
+          matchAnswer.textContent = kitMatch
+            ? 'Open a sound\'s tab above (Low, Mid, High…), then give it one hit of a drum: that sound\'s own dials move to match it. The recording itself is never played.'
+            : 'One note works best: a few seconds, starting at its start. The closest synth on this track takes its place — the recording itself is never played.';
           const FIELD_NAMES = {
-            'source.shape1': 'OSC 1', 'source.shape2': 'OSC 2', 'source.mix': 'Mix', 'source.detune': 'Detune', 'source.fold': 'Fold',
+            'source.shape1': 'OSC 1', 'source.shape2': 'OSC 2', 'source.pitch': 'Pitch', 'source.noise': 'Noise', 'source.mix': 'Mix', 'source.detune': 'Detune', 'source.fold': 'Fold',
             'filter.cutoff': 'Cutoff', 'filter.q': 'Resonance', 'filter.envAmount': 'Env amount',
             'adsr.attack': 'Attack', 'adsr.decay': 'Decay', 'adsr.sustain': 'Sustain', 'adsr.release': 'Release',
             'fm.ratio': 'Ratio', 'fm.depth': 'Depth', 'fm.bite': 'Bite',
@@ -14065,10 +14073,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (Array.isArray(spec) && !spec.includes(key)) return false;
             return !!(entry.defaults && entry.defaults[section] && key in entry.defaults[section]);
           };
+          // A kit sound is played the way the engine plays a lane: its own
+          // envelope changes ride in kindAdsr over the kit-wide adsr (the
+          // v0.0.159 provenance rule), and the note names the drum.
+          let kitJob = null;
+          const asPlayed = (patch, note) => {
+            if (!kitJob) return [patch, note];
+            const { adsr = {}, ...rest } = patch;
+            const kindAdsr = {};
+            for (const [k, v] of Object.entries(adsr)) if (v !== kitJob.baseline.adsr?.[k]) kindAdsr[k] = v;
+            return [{ ...rest, adsr: kitJob.commonAdsr, kindAdsr }, { ...note, kind: kitJob.kind }];
+          };
           const renderOffline = async (voiceId, patch, note, seconds) => {
             const SR = 24000;
             const ctx = new OfflineAudioContext(1, Math.round(SR * (seconds || sampleMatchApi.MAX_SECONDS)), SR);
-            sampleMatchApi.withSeededRandom(() => voicesTable[voiceSetOf(track)][voiceId].play(ctx, ctx.destination, note, patch));
+            const [playPatch, playNote] = asPlayed(patch, note);
+            sampleMatchApi.withSeededRandom(() => voicesTable[voiceSetOf(track)][voiceId].play(ctx, ctx.destination, playNote, playPatch));
             const buffer = await ctx.startRendering();
             return { samples: buffer.getChannelData(0), sampleRate: SR };
           };
@@ -14078,6 +14098,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // and hands over its encoded bytes; the decoder does the rest.
           const matchFrom = async (source) => {
             if (!source || running) return;
+            if (kitMatch && !kitKind) {
+              matchAnswer.textContent = 'Pick a sound\'s tab first — Low, Mid, High or one of yours — so the match knows which drum this is.';
+              return;
+            }
             if (typeof OfflineAudioContext !== 'function') {
               matchAnswer.textContent = 'This browser cannot render sound offline, which the match needs. A current Chrome, Firefox or Safari can.';
               return;
@@ -14107,7 +14131,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 return;
               }
               const hidden = new Set(hiddenPrefs.voices || []);
-              const candidates = Object.entries(set)
+              const lane = kitMatch ? laneListFor(track, settings.tracks[track]).find((l) => l.key === kitKind) : null;
+              const tabLabel = lane ? lane.label || kitKind : '';
+              if (kitMatch) {
+                const baseline = kindBaseline(kitKind);
+                delete baseline.perKind;
+                kitJob = { kind: lane && lane.kind ? lane.kind : 'mid', baseline, commonAdsr: structuredClone(commonPatch().adsr || {}) };
+              } else {
+                kitJob = null;
+              }
+              const candidates = kitMatch
+                ? [{
+                  id: voiceId,
+                  label: `${voiceLabel(track, voiceId)} · ${tabLabel}`,
+                  defaults: structuredClone(kitJob.baseline),
+                  fields: sampleMatchApi.searchFieldsFor(kitJob.baseline, registry, (field) => fieldExposed(voiceId, field), { allow: ['source.pitch'] }),
+                }]
+                : Object.entries(set)
                 .filter(([id]) => !hidden.has(stockVoiceKey(voiceSetOf(track), id)) || id === voiceId)
                 .map(([id, entry]) => ({
                   id,
@@ -14119,7 +14159,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               const result = await sampleMatchApi.matchSample(target, {
                 candidates,
                 render: renderOffline,
-                budget: 600,
+                budget: kitMatch ? 300 : 600,
+                octaves: !kitMatch,
                 fallbackFreq: SCOPE_FREQ[voiceSetOf(track)] || 220,
                 cancelled: () => job.cancelled,
                 onProgress: (done, total) => {
@@ -14130,9 +14171,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 matchAnswer.textContent = sampleMatchApi.describeMatch(target, result, nameOf);
                 return;
               }
+              const best = result.best;
+              if (kitMatch) {
+                // The sound's own dials, exactly as turning them on its tab:
+                // set them on the tab's view and commit, which keeps only
+                // what differs from the sound as published.
+                for (const f of candidates[0].fields) {
+                  const [section, key] = f.field.split('.');
+                  if (!isPlainObject(editView[section])) editView[section] = {};
+                  editView[section][key] = best.patch[section][key];
+                }
+                commit();
+                const line = `${sampleMatchApi.describeMatch(target, result, nameOf)}${job.cancelled ? ' (stopped early — the best so far)' : ''} Only ${tabLabel} changed. ⌘Z takes it back.`;
+                lastSampleMatch.set(track, line);
+                renderVoiceEditor(track, { kind: kitKind });
+                sayUnderDials(line);
+                return;
+              }
               // Apply exactly as the picker and the finder do: the voice
               // first, then the dials on its resolved patch.
-              const best = result.best;
               const select = document.getElementById(`track-voice-${track}`);
               if (select && select.value !== best.id) {
                 revealStockVoice(track, best.id);

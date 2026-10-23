@@ -1053,7 +1053,11 @@ Match a sample (v0.0.229)
       the recording — nothing of the file plays. ⌘Z takes it back.
 - [ ] Press Stop part-way: the best so far lands and the line says it stopped
       early. A silent file says so; a file that is not audio says which
-      formats work. The kit editor has no Match a sample row.
+      formats work.
+- [ ] (v0.0.234) The kit: behind "more", Match a sample on the Common tab asks
+      for a sound's tab. Open Low, choose a kick sample: Low's own dials move
+      (Pitch, Noise, the filter, its envelope) and the line ends "Only Low
+      changed"; Mid and High sound as before.
 - [ ] (v0.0.230) Record a note: the browser asks for the microphone; allow it,
       play or sing one note, and the take is matched like a file (the button
       reads Stop recording while it listens and stops itself after four

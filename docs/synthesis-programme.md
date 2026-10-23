@@ -195,7 +195,8 @@ Four layers, each usable alone, cheapest first.
    not ship.
 5. **Match a sample (v0.0.229).** The finder's other half: words describe a
    sound you have in mind, a recording IS one. Under the finder, "Match a
-   sample" takes one recorded note (`src/scripts/sample-match.js`), measures
+   sample" takes one recorded note — a file, or (v0.0.230) a take from the
+   microphone (`src/scripts/sample-match.js`) — measures
    it — pitch (YIN, corrected by the lowest strong spectral peak so an
    inharmonic bell is not read an octave low), loudness at thirteen times after
    the onset, the shape of the spectrum in thirty bands at strike, body and
@@ -209,8 +210,9 @@ Four layers, each usable alone, cheapest first.
    set — the no-samples ruling in § 2 stands. Measured on the shipped voices
    (a moved-dial note of a stock voice handed back as a "sample"): Bell 95 %,
    Warm 86 %, Fingered 98 %, Marimba 87 %, Pluck from a one-second file 89 %,
-   each naming its own voice first. A kit is many sounds, not one, so the kit
-   editor has no sample row.
+   each naming its own voice first. A kit is many sounds, so on the kit the
+   match is for the sound whose tab is open (v0.0.234): that sound's own dials
+   on the playing kit, tuning included (Soft's Low 80 %, Hand's High 89 %).
 
 ---
 

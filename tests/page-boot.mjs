@@ -1870,9 +1870,39 @@ try {
           if (record.getAttribute('aria-pressed') !== 'false') failures.push('Record a note was left pressed with nothing recording');
         }
       }
+      // v0.0.234: the kit matches ONE sound — the open tab's. On Common it
+      // asks for a tab rather than guessing which drum a sample is.
       const kit = await openEditor('percussion');
-      await waitUntil(() => kit.querySelector('.ve-finder-word'));
-      if (kit.querySelector('.ve-sample-match')) failures.push('the kit editor offers Match a sample, which has no one sound to match');
+      const kitMore = kit.querySelector('.ve-more');
+      if (kitMore && kitMore.getAttribute('aria-expanded') !== 'true') kitMore.click();
+      await waitUntil(() => kit.querySelector('.ve-sample-match'));
+      const kitRow = kit.querySelector('.ve-sample-match');
+      if (!kitRow) {
+        failures.push('the kit editor has no Match a sample row');
+      } else {
+        const hand = async () => {
+          const input = kitRow.querySelector('input[type="file"]');
+          Object.defineProperty(input, 'files', { configurable: true, value: [new window.File([new Uint8Array(8)], 'kick.wav', { type: 'audio/wav' })] });
+          input.dispatchEvent(new window.Event('change'));
+        };
+        const commonTab = kit.querySelector('input[name="kit-kind-percussion"][value="common"]');
+        if (commonTab && !commonTab.checked) { commonTab.checked = true; commonTab.dispatchEvent(new window.Event('change')); }
+        await hand();
+        if (!await waitUntil(() => /Pick a sound's tab first/.test(kitRow.querySelector('.ve-sample-answer').textContent))) {
+          failures.push(`the kit's sample row on Common said ${JSON.stringify(kitRow.querySelector('.ve-sample-answer').textContent)}`);
+        }
+        const lowTab = kit.querySelector('input[name="kit-kind-percussion"][value="low"]');
+        if (!lowTab) {
+          failures.push('the kit editor has no Low tab to match a sound on');
+        } else {
+          lowTab.checked = true;
+          lowTab.dispatchEvent(new window.Event('change'));
+          await hand();
+          if (!await waitUntil(() => /cannot render sound offline/.test(kitRow.querySelector('.ve-sample-answer').textContent))) {
+            failures.push(`on the Low tab the kit's sample row said ${JSON.stringify(kitRow.querySelector('.ve-sample-answer').textContent)}`);
+          }
+        }
+      }
     }
 
     // UI review 2026-10-03, fixes 8, 9, 10 and 12 — the voice editor gets
