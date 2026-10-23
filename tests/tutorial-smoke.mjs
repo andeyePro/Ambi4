@@ -515,6 +515,12 @@ async function main() {
     const html = readFileSync(indexHtml, 'utf8');
     assert.deepEqual(validateRuleChapters(chapters, html), []);
     assert.ok(chapters.some((c) => c.id === 'hold-voice'), 'the "Hold the melody\'s voice" chapter is missing');
+    const own = chapters.find((c) => c.id === 'own-sound');
+    assert.ok(own, 'the "Make a sound of your own" chapter is missing');
+    assert.ok(own.steps.length >= 4 && own.steps.length <= 6, `"Make a sound of your own" has ${own.steps.length} steps, expected four to six`);
+    for (const word of ['A sound in mind', 'Match a sample', 'Record a note', 'Vowel', 'Drive']) {
+      assert.ok(own.steps.some((st) => st.text.includes(word)), `"Make a sound of your own" never names ${word}`);
+    }
     checks += 1;
     const mutate = (label, fn, expected) => {
       const broken = structuredClone(chapters);

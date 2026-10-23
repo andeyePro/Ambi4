@@ -1153,6 +1153,7 @@ const VOICES: Record<string, [string, string][]> = {
     <p id="tutorial-step-text" class="tutorial-step-text"></p>
     <div class="tutorial-chapters">
       <button type="button" id="tutorial-chapter-hold" class="secondary-button">Chapter: hold the melody's voice</button>
+      <button type="button" id="tutorial-chapter-sound" class="secondary-button">Chapter: make a sound of your own</button>
     </div>
     <div class="tutorial-nav">
       <button type="button" id="tutorial-prev" class="secondary-button">Back</button>
@@ -14681,6 +14682,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
           finder.append(finderLabel, chips, answer, setUp);
           moreBox.append(finder);
+          refreshRuleChapterHighlight();
           refreshAnswer();
         }
 
@@ -14996,6 +14998,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           matchButtons.append(choose, record, stop);
           matcher.append(matchLabel, fileInput, matchButtons, matchAnswer);
           moreBox.append(matcher);
+          refreshRuleChapterHighlight();
         }
 
         function renderWords() {
@@ -24582,7 +24585,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         },
         {
           target: '#play-along',
-          text: 'The orange piano icon — Create — is the app\'s second main door, with two doors of its own. Start: Blank slate empties everything, FX included; Help me start asks what you want to make; Strip a layer takes one layer away. Write: pick Melody, Chords, Beat, Words, Tap a rhythm or MIDI file and only that row opens. Musical typing gives a track your keyboard or a MIDI one; Capture records it, Follow my chords lets held notes pick the chords. The ⓘs say more.',
+          text: 'The orange piano icon — Create — is the app\'s second main door, with two doors of its own. Start: Blank slate, Help me start, Strip a layer. Write: Melody, Chords, Beat, Words, Tap a rhythm or MIDI file; Write a tune over these chords sets a melody on yours. Musical typing gives a track your keyboard, touch keys or MIDI; Capture records it; Follow my chords lets held notes pick chords. The ⓘs say more.',
         },
         {
           target: '#front-scope-module',
@@ -24783,6 +24786,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             },
           ],
         },
+        {
+          id: 'own-sound',
+          button: 'tutorial-chapter-sound',
+          label: 'Make a sound of your own',
+          voice: 'keys',
+          track: 'melody',
+          steps: [
+            {
+              target: '#voice-editor-melody .ve-finder',
+              text: 'Melody is on Keys, and its more fold is open. A sound in mind? turns words into a voice. Press a word, say bright or soft; the line below names the voice it would try and the dials it would move. Set it up puts that voice on the track and moves those dials a third of the way. Listen for the change; Undo takes it back.',
+            },
+            {
+              target: '#voice-editor-melody .ve-sample-match',
+              text: 'Match a sample starts from a sound you already have. Choose a sound file, or press Record a note and sing or play one note; it stops after four seconds, or when you press again. The app measures the note and sets this track to the closest stock voice. The recording is never kept or played, and a file is never uploaded.',
+            },
+            {
+              target: '#voice-editor-melody .ve-header .ve-engine',
+              text: 'The engine chip names how this voice makes its sound, and the dials below show that engine\'s section. Pick another voice in the track\'s voice list to meet the others: FM (Bell), Additive (Organ stab), Plucked string, Pulse (Sync lead), and Modal on the Texture\'s Chimes. Each brings its own section of dials. Press the chip for a short lesson.',
+            },
+            {
+              target: '#voice-editor-melody .patch-controls .knob-cell[data-field="filter.type"]',
+              text: 'Type chooses what the filter lets through. Drag it to the last stop, Vowel. Cutoff gives way to a Vowel dial that moves through u, o, a, e and i, shaping the sound like a mouth. Play something and drag Vowel slowly; listen for the voice-like colour changing. Resonance sharpens each vowel.',
+            },
+            {
+              target: '#voice-editor-melody [data-track-field="drive"]',
+              text: 'Drive adds tape-style warmth to this track alone. At the left it is off. A little way in the notes take a gentle glow; at the right they are thick and saturated. Drag it up slowly and listen for the sound growing fuller, then rougher. Back at zero it is off again, and the change fades in and out rather than clicking.',
+            },
+          ],
+        },
       ];
 
       /** The chapter an editor's chip opens, by the engine and the sections the voice publishes. */
@@ -24927,6 +24959,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         document.getElementById('voice-blend-editor')?.remove();
         activateTab('advanced');
+        // A chapter may name the voice its steps are on (the sound tools chapter
+        // needs one with an engine chip, a filter Type and Drive): put it on the
+        // track first, exactly as the voice picker would.
+        if (chapter.voice) {
+          const voiceSelect = document.getElementById(`track-voice-${chapter.track}`);
+          if (voiceSelect && voiceSelect.value !== chapter.voice && [...voiceSelect.options].some((o) => o.value === chapter.voice)) {
+            voiceSelect.value = chapter.voice;
+            voiceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
         openTrackEditor(chapter.track);
         lesson = { track: chapter.track, chapter, step: 0 };
         settings.ui.tutorialOpen = true;

@@ -2032,6 +2032,37 @@ try {
       }
     }
 
+    // The rule chapter "Make a sound of your own": its button sets the scene
+    // (Melody on Keys, its editor open), and every step's target resolves to
+    // exactly ONE element inside that editor and is highlighted when reached.
+    {
+      const chapter = readRuleChapters().find((c) => c.id === 'own-sound');
+      if (!chapter) failures.push('RULE_CHAPTERS has no own-sound chapter');
+      else {
+        doc.getElementById('tutorial-toggle').click();
+        const button = doc.getElementById(chapter.button);
+        if (!button || button.hidden) failures.push('the tour panel does not offer the "Make a sound of your own" chapter');
+        else {
+          button.click();
+          const title = doc.getElementById('tutorial-title');
+          const inside = (step) => step.target.replace('#voice-editor-melody ', '');
+          const ready = await waitUntil(() => title.textContent === chapter.label
+            && doc.getElementById('track-voice-melody').value === chapter.voice
+            && doc.querySelector(chapter.steps[3].target));
+          if (!ready) failures.push(`the own-sound chapter did not open on ${chapter.voice} (title ${JSON.stringify(title.textContent)}, voice ${doc.getElementById('track-voice-melody').value})`);
+          const editor = doc.getElementById('voice-editor-melody');
+          for (const [i, step] of chapter.steps.entries()) {
+            const found = editor ? editor.querySelectorAll(inside(step)).length : 0;
+            if (found !== 1) failures.push(`own-sound step ${i + 1}: ${step.target} matches ${found} elements in the melody editor`);
+            else if (!await waitUntil(() => editor.querySelector(inside(step)).classList.contains('tutorial-highlight'))) failures.push(`own-sound step ${i + 1}: its target is not highlighted`);
+            if (i < chapter.steps.length - 1) doc.getElementById('tutorial-next').click();
+          }
+          doc.getElementById('tutorial-close').click();
+          if (doc.querySelector('.tutorial-highlight')) failures.push('closing the own-sound chapter left a control highlighted');
+        }
+      }
+    }
+
     // v0.0.185 — unit 16: the finder. On the melody, press "bright" and
     // "glassy": the answer names Bell (FM) and two moves; Set it up puts Bell
     // on the track at the ENGINE with its FM depth moved up from the default.
