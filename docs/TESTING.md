@@ -1019,6 +1019,18 @@ A sound in mind (v0.0.185)
 - [ ] On the kit, every word answers plainly that nothing here is honestly
       that word; there is no Set it up.
 
+Pins and saved layouts (v0.0.233, UI review fix 19's second half)
+- [ ] Right-click any dial (Advanced, a voice editor): a one-item menu, Pin to
+      Simple. On Simple a Pinned strip appears with a live copy: turn the copy
+      and the original's readout follows, and the reverse. P on a focused dial
+      pins and unpins it. Unpin the last copy: the strip goes.
+- [ ] On a phone, press and hold a dial for the same menu; the page's own
+      long-press callout does not appear.
+- [ ] Pin a voice editor's dial, close the editor: its pin shows dimmed and
+      pressing it opens the editor.
+- [ ] Save a layout under a name (pins, tab, open editor), change the pins,
+      pick the layout from the strip's picker: it comes back. Forget removes it.
+
 Advanced in three sections (v0.0.232, UI review fix 18)
 - [ ] Open Advanced on a fresh visit: three headings, Sound, Music and
       Presets, each showing its essentials with one "more" beside it. Press a

@@ -4618,6 +4618,113 @@ try {
     }
   }
 
+  // ---- Pro layer: pins and saved layouts -------------------------------
+  // Any dial can be pinned (P on the focused dial, or its right-click menu);
+  // the pin is a second VIEW of one setting in a Pinned strip on Simple.
+  // Asserted at the ENGINE and on the original dial's own readout, both ways
+  // round, then unpin from the copy, then a saved layout recalled over
+  // different pins. Nothing pinned, no strip.
+  {
+    const engine = window.__ambi4Engine;
+    const settle = () => new Promise((r) => setTimeout(r, 30));
+    const press = (k, target) => {
+      const event = new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event;
+    };
+    const strip = doc.getElementById('pinned-strip');
+    const original = doc.querySelector('#repetition-dial .knob');
+    const readout = (knob) => knob?.querySelector('.knob-value')?.textContent;
+    const mirrors = () => [...doc.querySelectorAll('#pinned-row .knob')];
+    if (!engine || !strip || !original) {
+      failures.push(`pins: ${!engine ? 'no engine seam' : !strip ? 'no Pinned strip (#pinned-strip)' : 'no Reprise dial (#repetition-dial .knob)'}`);
+    } else {
+      doc.getElementById('tab-advanced')?.click();
+      if (!strip.hidden) failures.push('pins: the Pinned strip shows with nothing pinned and no layout saved');
+      // Pin by keyboard.
+      original.focus();
+      press('p', original);
+      await settle();
+      let copy = mirrors()[0];
+      if (strip.hidden || mirrors().length !== 1) {
+        failures.push(`pins: P on the focused Reprise dial did not put one copy in the Pinned strip (strip hidden ${strip.hidden}, ${mirrors().length} copies)`);
+      } else {
+        if (!/Reprise/.test(copy.textContent)) failures.push(`pins: the pinned copy is not labelled Reprise (${JSON.stringify(copy.textContent)})`);
+        // The copy moves the engine and the original.
+        const before = engine.getParams().repetition;
+        for (let i = 0; i < 5; i++) press('ArrowDown', copy);
+        await settle();
+        const after = engine.getParams().repetition;
+        if (!(after < before)) failures.push(`pins: moving the pinned copy did not move the engine's repetition (${before} -> ${after})`);
+        if (readout(original) !== readout(copy)) failures.push(`pins: the original Reprise dial reads ${readout(original)} after the pinned copy moved to ${readout(copy)}`);
+        // And the original moves the copy.
+        for (let i = 0; i < 3; i++) press('ArrowUp', original);
+        await settle();
+        if (readout(original) !== readout(copy)) failures.push(`pins: the pinned copy reads ${readout(copy)} after the original moved to ${readout(original)}`);
+        if (engine.getParams().repetition <= after) failures.push('pins: moving the original after pinning did not reach the engine');
+        // Unpin from the copy.
+        copy.focus();
+        press('p', copy);
+        await settle();
+        if (mirrors().length) failures.push('pins: P on the pinned copy did not unpin it');
+        if (!strip.hidden) failures.push('pins: the strip stays shown after the last pin went');
+        if (window.__ambi4Layout?.pins?.length) failures.push(`pins: the stored pins still hold ${JSON.stringify(window.__ambi4Layout.pins)}`);
+      }
+      // Pin by the dial's menu.
+      original.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+      const item = doc.querySelector('#pin-menu .pin-menu-item');
+      if (!item || item.textContent !== 'Pin to Simple') {
+        failures.push(`pins: right-click on a dial did not offer Pin to Simple (${item ? JSON.stringify(item.textContent) : 'no menu'})`);
+      } else {
+        item.click();
+        await settle();
+        if (mirrors().length !== 1) failures.push('pins: Pin to Simple from the menu did not pin the dial');
+      }
+      // Saved layouts: save {Reprise, Advanced tab}; change the pins and the
+      // tab; recall restores both.
+      const other = [...doc.querySelectorAll('#panel-advanced .knob')].find((k) => k.__pinRecord && k !== original && !k.closest('#repetition-dial'));
+      doc.getElementById('pinned-more')?.click();
+      const name = doc.getElementById('layout-name');
+      const select = doc.getElementById('layout-select');
+      if (!other || !name || !select) {
+        failures.push(`pins: ${!other ? 'no second Advanced dial to pin' : 'no layout name field or picker'}`);
+      } else {
+        name.value = 'Mix';
+        doc.getElementById('layout-save')?.click();
+        await settle();
+        const savedKeys = JSON.stringify((window.__ambi4Layout?.saved?.Mix?.pins || []).map((pin) => pin.key));
+        mirrors()[0]?.focus();
+        press('p', doc.activeElement);
+        other.focus();
+        press('p', other);
+        await settle();
+        doc.getElementById('tab-simple')?.click();
+        const changedKeys = JSON.stringify((window.__ambi4Layout?.pins || []).map((pin) => pin.key));
+        if (changedKeys === savedKeys) failures.push('pins: changing the pins after saving a layout left them as saved — the recall test would prove nothing');
+        select.value = 'Mix';
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        await settle();
+        const recalled = JSON.stringify((window.__ambi4Layout?.pins || []).map((pin) => pin.key));
+        if (recalled !== savedKeys) failures.push(`pins: recalling layout Mix gave pins ${recalled}, saved ${savedKeys}`);
+        if (mirrors().length !== 1 || !/Reprise/.test(mirrors()[0].textContent)) failures.push('pins: after recalling Mix the strip does not show the one Reprise copy');
+        if (doc.getElementById('panel-advanced').hidden) failures.push('pins: recalling Mix did not bring back its Advanced tab');
+        // The recalled copy is live, not a picture.
+        const was = engine.getParams().repetition;
+        press('ArrowDown', mirrors()[0]);
+        await settle();
+        if (!(engine.getParams().repetition < was)) failures.push('pins: the recalled Reprise copy does not reach the engine');
+        // Clean up: no pins, no layouts, Simple tab.
+        doc.getElementById('layout-forget')?.click();
+        mirrors()[0]?.focus();
+        press('p', doc.activeElement);
+        await settle();
+        if (Object.keys(window.__ambi4Layout?.saved || {}).length) failures.push('pins: Forget did not remove the layout');
+        if (!strip.hidden) failures.push('pins: the strip stays shown with no pins and no layouts');
+      }
+      doc.getElementById('tab-simple')?.click();
+    }
+  }
+
   // ---- The Create rebuild: two doors (his "indecipherably complex") ------
   // The progressive rule, counted: at first open the Create part of the panel
   // shows the Start row and the Write picker and NOTHING else; choosing Melody

@@ -759,6 +759,25 @@ const VOICES: Record<string, [string, string][]> = {
         <p class="dial-confirm" id="dial-confirm" aria-live="polite"></p>
       </div>
 
+      <!-- Pro layer: pins and saved layouts. Any dial, right-click (hold on
+           touch, P on the keyboard) then Pin to Simple; its copy lands here, a
+           second view of the same setting. Hidden while nothing is pinned
+           and no layout is saved, so the basic surface is unchanged. -->
+      <div class="module-panel pinned-strip" id="pinned-strip" hidden>
+        <div class="pinned-head">
+          <span class="panel-label">Pinned</span>
+          <button type="button" id="pinned-more" class="link-button pinned-more" aria-expanded="false" aria-controls="pinned-layouts">layouts</button>
+        </div>
+        <div id="pinned-row" class="pinned-row"></div>
+        <div id="pinned-layouts" class="pinned-layouts" hidden>
+          <select id="layout-select" aria-label="Recall a saved layout"></select>
+          <input type="text" id="layout-name" maxlength="30" placeholder="Name this layout" aria-label="A name for this layout" />
+          <button type="button" id="layout-save" class="secondary-button">Save layout</button>
+          <button type="button" id="layout-forget" class="secondary-button" hidden>Forget</button>
+          <p class="hint">A layout keeps your pins, the tab and the open editor, on this device.</p>
+        </div>
+      </div>
+
       <div class="module-panel factory-presets" id="factory-presets">
         <span class="panel-label">Factory presets</span>
         <div id="factory-preset-row" class="factory-preset-row"></div>
@@ -4981,8 +5000,133 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       let ruleApi = null;
       try {
       const m = await import('../scripts/knob.js');
-        if (m && typeof m.createKnob === 'function') knobApi = m;
+        if (m && typeof m.createKnob === 'function') {
+          // Pins (the pro layer): every dial built through knobApi is
+          // registered, so any of them can be pinned to Simple. The Pinned
+          // strip's own copies use the raw constructor and are never
+          // registered — a pin of a pin would be a third view of nothing new.
+          const rawCreateKnob = m.createKnob;
+          knobApi = { ...m, rawCreateKnob, createKnob: (container, opts) => pinnableKnob(rawCreateKnob, container, opts) };
+        }
       } catch {}
+
+      // ---- Pins: the registry (the UI is wired with the keybindings) ------
+      // ONE setting, TWO views: a pinned copy commits through the original
+      // dial's own onInput (so the engine and every other view hear it the
+      // same way), then sets the original silently; the original echoes into
+      // its pinned copies the same way. Declared here, before any dial is
+      // built, because the first dials are built long before the strip.
+      const pinRecords = new Set();
+      /** pin key -> Set of mirror handles in the strip. */
+      const pinMirrors = new Map();
+      /** Set once the strip is wired: { menu(rec|null, key, event), changed() }. */
+      let pinUi = null;
+      function pinnableKnob(raw, container, opts) {
+        const o = opts || {};
+        const rec = { opts: o, input: o.onInput, value: o.value, handle: null, rawSet: null };
+        const handle = raw(container, {
+          ...o,
+          onInput: (v) => {
+            rec.value = v;
+            if (typeof rec.input === 'function') rec.input(v);
+            pinEcho(rec, v, null);
+          },
+        });
+        if (!handle || !handle.el) return handle;
+        rec.handle = handle;
+        rec.rawSet = typeof handle.set === 'function' ? handle.set.bind(handle) : () => {};
+        handle.set = (v) => {
+          rec.rawSet(v);
+          rec.value = v;
+          pinEcho(rec, v, null);
+        };
+        const destroy = typeof handle.destroy === 'function' ? handle.destroy.bind(handle) : () => {};
+        handle.destroy = () => {
+          pinRecords.delete(rec);
+          destroy();
+          pinUi?.changed();
+        };
+        handle.el.__pinRecord = rec;
+        handle.el.addEventListener('contextmenu', (event) => {
+          if (!pinUi) return;
+          event.preventDefault();
+          pinUi.menu(rec, null, event);
+        });
+        pinLongPress(handle.el, (event) => pinUi?.menu(rec, null, event));
+        pinRecords.add(rec);
+        pinUi?.changed();
+        return handle;
+      }
+      /**
+       * A dial's pin key: the nearest id above it, its label, and which of the
+       * same-labelled dials under that id it is. Computed from the DOM when
+       * asked, because a dial is built before it is attached.
+       */
+      function pinKeyOf(rec) {
+        const el = rec && rec.handle && rec.handle.el;
+        if (!el || !el.isConnected) return null;
+        const label = String(rec.opts.label || '');
+        const anchor = el.parentElement ? el.parentElement.closest('[id]') : null;
+        const peers = anchor
+          ? [...anchor.querySelectorAll('.knob')].filter((k) => k.__pinRecord && String(k.__pinRecord.opts.label || '') === label)
+          : [el];
+        return `${anchor ? anchor.id : ''}|${label}|${Math.max(0, peers.indexOf(el))}`;
+      }
+      function pinEcho(rec, v, except) {
+        if (!pinMirrors.size) return;
+        const mirrors = pinMirrors.get(pinKeyOf(rec));
+        if (!mirrors) return;
+        for (const mirror of mirrors) {
+          if (mirror === except) continue;
+          try {
+            mirror.set(v);
+          } catch {}
+        }
+      }
+      /** The live dial a key names, or null when it is not built right now. */
+      function pinLive(key) {
+        for (const rec of pinRecords) {
+          if (rec.handle && rec.handle.el.isConnected && pinKeyOf(rec) === key) return rec;
+        }
+        return null;
+      }
+      /**
+       * Touch has no right-click: a press held still for half a second opens
+       * the same menu. The dial's own press is cancelled first, so the hold
+       * can never land as a tap on the centre (which zeroes the dial).
+       */
+      function pinLongPress(el, open) {
+        let timer = null;
+        let x = 0;
+        let y = 0;
+        const clear = () => {
+          if (timer !== null) clearTimeout(timer);
+          timer = null;
+        };
+        el.addEventListener('pointerdown', (event) => {
+          clear();
+          if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+          x = event.clientX;
+          y = event.clientY;
+          const id = event.pointerId;
+          timer = setTimeout(() => {
+            timer = null;
+            try {
+              const Ctor = window.PointerEvent || window.Event;
+              const cancel = new Ctor('pointercancel', { bubbles: true, pointerId: id });
+              el.dispatchEvent(cancel);
+            } catch {}
+            open({ clientX: x, clientY: y });
+          }, 550);
+        });
+        el.addEventListener('pointermove', (event) => {
+          if (timer !== null && Math.hypot(event.clientX - x, event.clientY - y) > 8) clear();
+        });
+        el.addEventListener('pointerup', clear);
+        el.addEventListener('pointercancel', (event) => {
+          if (event.isTrusted) clear();
+        });
+      }
       try {
       const m = await import('../scripts/rule-control.js');
         if (m && typeof m.createRule === 'function') ruleApi = m;
@@ -22171,6 +22315,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         row('S  A', 'Simple / Advanced tab');
         row('⌘Z  ⇧⌘Z', 'Undo / redo anything');
         row('Backspace', 'A focused dial back to its default');
+        row('P', 'Pin a focused dial to Simple, or unpin it');
         row('?', 'This sheet');
         const note = document.createElement('p');
         note.className = 'hint';
@@ -22223,11 +22368,337 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           activateTab('advanced');
         } else if (key === '?') {
           openShortcutSheet();
+        } else if ((key === 'p' || key === 'P') && pinToggleFocused()) {
+          // handled: a focused dial was pinned or unpinned
         } else {
           return;
         }
         event.preventDefault();
       });
+
+      // ---- Pro layer: pins and saved layouts ------------------------------
+      // The other half of his rule after the keys. A pin is a second VIEW of
+      // a dial's one setting: the copy in the Pinned strip commits through
+      // the original's own onInput (engine, settings, sibling views all hear
+      // it exactly as a drag on the original), then sets the original
+      // silently; the original echoes back the same way (registry above,
+      // beside the knob.js import). A pin is stored by key -- the dial's
+      // nearest id, its label, and its place among same-labelled dials there
+      // -- so it survives a reload and an editor closing: a dial that is not
+      // built right now (its voice editor shut) shows as a dormant pin that
+      // opens its editor when pressed, rather than a copy bound to nothing.
+      // Per device, through prefs like the favourites.
+      const PIN_CAP = 12;
+      const LAYOUT_CAP = 12;
+      const layoutPrefs = { pins: [], saved: {} };
+      try {
+        const stored = prefs.get('layout');
+        if (isPlainObject(stored)) {
+          const cleanPins = (list) =>
+            (Array.isArray(list) ? list : [])
+              .filter((pin) => isPlainObject(pin) && typeof pin.key === 'string')
+              .slice(0, PIN_CAP)
+              .map((pin) => ({ key: pin.key, label: String(pin.label || '').slice(0, 60) }));
+          layoutPrefs.pins = cleanPins(stored.pins);
+          if (isPlainObject(stored.saved)) {
+            for (const [name, layout] of Object.entries(stored.saved).slice(0, LAYOUT_CAP)) {
+              if (!isPlainObject(layout)) continue;
+              layoutPrefs.saved[String(name).slice(0, 30)] = {
+                pins: cleanPins(layout.pins),
+                tab: typeof layout.tab === 'string' ? layout.tab : 'simple',
+                editor: typeof layout.editor === 'string' ? layout.editor : null,
+              };
+            }
+          }
+        }
+      } catch {}
+      const pinStrip = document.getElementById('pinned-strip');
+      const pinRow = document.getElementById('pinned-row');
+      const pinMore = document.getElementById('pinned-more');
+      const pinLayouts = document.getElementById('pinned-layouts');
+      const layoutSelect = document.getElementById('layout-select');
+      const layoutName = document.getElementById('layout-name');
+      const layoutSave = document.getElementById('layout-save');
+      const layoutForget = document.getElementById('layout-forget');
+      let layoutShown = '';
+      /** key -> the record its mirror is bound to (null: dormant), as last drawn. */
+      let pinBound = new Map();
+
+      function savePins() {
+        persistKey('layout', layoutPrefs);
+      }
+      /** What a pin is called: the dial's label, with its track when it has one. */
+      function pinCaption(rec) {
+        const label = String(rec.opts.label || 'Dial');
+        const editor = rec.handle.el.closest('[id^="voice-editor-"], .track-row[data-track]');
+        const track = editor
+          ? (editor.dataset.track || editor.id.slice('voice-editor-'.length))
+          : null;
+        const name = track ? (TRACK_LABELS[track] || track) : null;
+        return name ? `${name} ${label}` : label;
+      }
+      function isPinned(key) {
+        return layoutPrefs.pins.some((pin) => pin.key === key);
+      }
+      function pinDial(rec) {
+        const key = pinKeyOf(rec);
+        if (!key || isPinned(key)) return false;
+        if (layoutPrefs.pins.length >= PIN_CAP) {
+          sayUnderDials(`${PIN_CAP} pins is the most the strip holds \u2014 unpin one to make room.`);
+          return false;
+        }
+        layoutPrefs.pins.push({ key, label: pinCaption(rec) });
+        savePins();
+        renderPins(true);
+        sayUnderDials(`${pinCaption(rec)} pinned to Simple`, 1800);
+        return true;
+      }
+      function unpinKey(key) {
+        const before = layoutPrefs.pins.length;
+        layoutPrefs.pins = layoutPrefs.pins.filter((pin) => pin.key !== key);
+        if (layoutPrefs.pins.length === before) return false;
+        savePins();
+        renderPins(true);
+        return true;
+      }
+      /** P on the keyboard: pin the focused dial, or unpin it (from either view). */
+      function pinToggleFocused() {
+        const active = document.activeElement;
+        const knob = active && typeof active.closest === 'function' ? active.closest('.knob') : null;
+        if (!knob) return false;
+        if (knob.__pinMirrorKey) return unpinKey(knob.__pinMirrorKey);
+        const rec = knob.__pinRecord;
+        if (!rec) return false;
+        const key = pinKeyOf(rec);
+        return key && isPinned(key) ? unpinKey(key) : pinDial(rec);
+      }
+
+      function dropMirrors() {
+        for (const set of pinMirrors.values()) {
+          for (const mirror of set) {
+            try {
+              mirror.destroy();
+            } catch {}
+          }
+        }
+        pinMirrors.clear();
+      }
+      /**
+       * Draw the strip. Skipped when every pin is still bound to the same
+       * dial it was last drawn against -- a rebuild mid-drag would drop the
+       * pointer -- unless `force`.
+       */
+      function renderPins(force = false) {
+        if (!pinStrip || !pinRow) return;
+        const live = new Map(layoutPrefs.pins.map((pin) => [pin.key, pinLive(pin.key)]));
+        const same = !force && live.size === pinBound.size && [...live].every(([key, rec]) => pinBound.get(key) === rec);
+        if (!same) {
+          dropMirrors();
+          pinRow.innerHTML = '';
+          for (const pin of layoutPrefs.pins) {
+            const rec = live.get(pin.key);
+            const cell = document.createElement('div');
+            cell.className = 'knob-cell pinned-cell';
+            cell.dataset.pin = pin.key;
+            pinRow.append(cell);
+            if (rec && knobApi && knobApi.rawCreateKnob) {
+              const { id: _id, ghostValue: _ghost, onInput: _input, ...opts } = rec.opts;
+              let mirror = null;
+              mirror = knobApi.rawCreateKnob(cell, {
+                ...opts,
+                label: pin.label,
+                value: rec.value,
+                onInput: (v) => {
+                  // Through whichever dial owns the key NOW (an editor may have rebuilt).
+                  const owner = pinLive(pin.key) || rec;
+                  owner.value = v;
+                  if (typeof owner.input === 'function') owner.input(v);
+                  try {
+                    owner.rawSet(v);
+                  } catch {}
+                  pinEcho(owner, v, mirror);
+                },
+              });
+              if (!mirror || !mirror.el) continue;
+              mirror.el.__pinMirrorKey = pin.key;
+              mirror.el.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                pinMenu(null, pin.key, event);
+              });
+              pinLongPress(mirror.el, (event) => pinMenu(null, pin.key, event));
+              describe(mirror.el, `A second view of ${pin.label}: moving either moves both. Right-click (hold on touch) or P to unpin.`);
+              if (!pinMirrors.has(pin.key)) pinMirrors.set(pin.key, new Set());
+              pinMirrors.get(pin.key).add(mirror);
+            } else {
+              // Dormant: the dial is not built right now. Say so, and offer the way to it.
+              const open = document.createElement('button');
+              open.type = 'button';
+              open.className = 'secondary-button pinned-dormant';
+              open.textContent = pin.label;
+              describe(open, `${pin.label} lives in a voice editor that is closed. Press to open it; the pin comes alive while it is open. Right-click (hold on touch) to unpin.`);
+              open.addEventListener('click', () => pinReveal(pin.key));
+              open.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                pinMenu(null, pin.key, event);
+              });
+              cell.append(open);
+            }
+          }
+          pinBound = live;
+        }
+        const hasLayouts = Object.keys(layoutPrefs.saved).length > 0;
+        pinStrip.hidden = !layoutPrefs.pins.length && !hasLayouts;
+        pinRow.hidden = !layoutPrefs.pins.length;
+        renderLayoutPicker();
+      }
+      /** Open whatever holds a dormant pin's dial: today, a voice editor. */
+      function pinReveal(key) {
+        const anchor = key.split('|')[0];
+        const editor = anchor.match(/^voice-editor-(.+)$/);
+        if (editor) {
+          openTrackEditor(editor[1]);
+          renderPins();
+        }
+      }
+
+      let pinMenuEl = null;
+      function closePinMenu() {
+        if (!pinMenuEl) return;
+        pinMenuEl.remove();
+        pinMenuEl = null;
+      }
+      /** The dial's menu: one item, Pin to Simple or Unpin. */
+      function pinMenu(rec, mirrorKey, event) {
+        closePinMenu();
+        const key = mirrorKey || pinKeyOf(rec);
+        if (!key) return;
+        const pinned = isPinned(key);
+        const menu = document.createElement('div');
+        menu.className = 'module-panel pin-menu';
+        menu.id = 'pin-menu';
+        menu.setAttribute('role', 'menu');
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'secondary-button pin-menu-item';
+        item.setAttribute('role', 'menuitem');
+        item.textContent = pinned ? 'Unpin from Simple' : 'Pin to Simple';
+        item.addEventListener('click', () => {
+          closePinMenu();
+          if (pinned) unpinKey(key);
+          else if (rec) pinDial(rec);
+        });
+        menu.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            closePinMenu();
+          }
+        });
+        menu.append(item);
+        const x = Number(event && event.clientX) || 0;
+        const y = Number(event && event.clientY) || 0;
+        menu.style.left = `${Math.max(8, Math.min(x, (window.innerWidth || 320) - 180))}px`;
+        menu.style.top = `${Math.max(8, y)}px`;
+        document.body.append(menu);
+        pinMenuEl = menu;
+        item.focus?.();
+      }
+      document.addEventListener('pointerdown', (event) => {
+        if (pinMenuEl && !pinMenuEl.contains(event.target)) closePinMenu();
+      }, true);
+
+      // ---- saved layouts --------------------------------------------------
+      function currentLayout() {
+        const open = TRACK_IDS.find((id) => {
+          const editor = document.getElementById(`voice-editor-${id}`);
+          return editor && !editor.hidden;
+        });
+        return {
+          pins: layoutPrefs.pins.map((pin) => ({ ...pin })),
+          tab: settings.ui.activeTab || 'simple',
+          editor: open || null,
+        };
+      }
+      function recallLayout(name) {
+        const layout = layoutPrefs.saved[name];
+        if (!layout) return false;
+        if (layout.editor) openTrackEditor(layout.editor);
+        else for (const id of TRACK_IDS) closeTrackEditor(id);
+        layoutPrefs.pins = layout.pins.map((pin) => ({ ...pin }));
+        savePins();
+        activateTab(layout.tab);
+        layoutShown = name;
+        renderPins(true);
+        sayUnderDials(`Layout ${name}`, 1600);
+        return true;
+      }
+      function renderLayoutPicker() {
+        if (!layoutSelect) return;
+        const names = Object.keys(layoutPrefs.saved);
+        if (!names.includes(layoutShown)) layoutShown = '';
+        layoutSelect.innerHTML = '';
+        const head = document.createElement('option');
+        head.value = '';
+        head.textContent = names.length ? 'Recall a layout\u2026' : 'No saved layouts';
+        layoutSelect.append(head);
+        for (const name of names) {
+          const option = document.createElement('option');
+          option.value = name;
+          option.textContent = name;
+          layoutSelect.append(option);
+        }
+        layoutSelect.value = layoutShown;
+        layoutSelect.disabled = !names.length;
+        if (layoutForget) layoutForget.hidden = !layoutShown;
+      }
+      pinMore?.addEventListener('click', () => {
+        pinLayouts.hidden = !pinLayouts.hidden;
+        pinMore.setAttribute('aria-expanded', String(!pinLayouts.hidden));
+        renderLayoutPicker();
+      });
+      layoutSelect?.addEventListener('change', () => {
+        if (layoutSelect.value) recallLayout(layoutSelect.value);
+      });
+      layoutSave?.addEventListener('click', () => {
+        const name = String(layoutName.value || '').trim().replace(/\s+/g, ' ').slice(0, 30);
+        if (!name) {
+          sayUnderDials('Give the layout a name first.');
+          return;
+        }
+        if (!(name in layoutPrefs.saved) && Object.keys(layoutPrefs.saved).length >= LAYOUT_CAP) {
+          sayUnderDials(`This device holds ${LAYOUT_CAP} layouts already \u2014 forget one to make room.`);
+          return;
+        }
+        layoutPrefs.saved[name] = currentLayout();
+        layoutShown = name;
+        layoutName.value = '';
+        savePins();
+        renderPins();
+        sayUnderDials(`Layout ${name} saved`, 1600);
+      });
+      layoutForget?.addEventListener('click', () => {
+        if (!layoutShown) return;
+        delete layoutPrefs.saved[layoutShown];
+        layoutShown = '';
+        savePins();
+        renderPins();
+      });
+
+      // A dial built or destroyed anywhere may wake or put to sleep a pin.
+      let pinRenderQueued = false;
+      pinUi = {
+        menu: pinMenu,
+        changed() {
+          if (pinRenderQueued || !layoutPrefs.pins.length) return;
+          pinRenderQueued = true;
+          setTimeout(() => {
+            pinRenderQueued = false;
+            renderPins();
+          }, 0);
+        },
+      };
+      renderPins(true);
+      // Test seam, like window.__ambi4Engine: the pins and layouts as stored.
+      window.__ambi4Layout = layoutPrefs;
 
       // Advanced keeps its way in: the gallery itself lives on Simple now
       // (v16), so this jumps tabs and puts the focus on the first card.
@@ -22656,7 +23127,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#panel-simple .sliders-module',
-          text: 'These dials are the whole instrument for most people. Drag up and down for the value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type one. Double-click restores the default, and the pointer thickens while a dial is still following your drag. Change at zero means hold: the generator loops exactly what it is playing. Nearly every dial in the app takes a range the same way.',
+          text: 'These dials are the whole instrument for most people. Drag up and down for the value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type one. Double-click restores the default, and the pointer thickens while a dial is still following your drag. Change at zero means hold: the generator loops exactly what it is playing. Most dials take a range the same way. Right-click a dial (hold on touch, or P) to pin it here.',
         },
         {
           tab: 'simple',
@@ -25095,6 +25566,49 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       overflow: auto;
     }
 
+    /* Pro layer: the Pinned strip, its layouts picker, and the dial menu. */
+    .pinned-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .pinned-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+    }
+    .pinned-row > .pinned-cell {
+      width: auto;
+      flex: 0 0 auto;
+    }
+    .pinned-dormant {
+      opacity: 0.7;
+      font-size: 0.8rem;
+    }
+    .pinned-layouts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 8px;
+      align-items: center;
+      margin-top: 8px;
+    }
+    .pinned-layouts .hint {
+      flex-basis: 100%;
+      margin: 0;
+    }
+    .pinned-layouts input[type='text'] {
+      min-width: 0;
+      flex: 1 1 140px;
+    }
+    .pin-menu {
+      position: fixed;
+      z-index: 60;
+      padding: 6px;
+    }
+    .knob {
+      -webkit-touch-callout: none;
+    }
     /* ui-review fix 19: the shortcut sheet — key column, action column. */
     .shortcut-list {
       display: grid;
