@@ -167,6 +167,11 @@ was not meant to move it and does, that is a regression.
 - **Assert the ENGINE's stored value, not just the readout.** A control drawing
   a value the engine never received is the failure mode he has hit twice, and a
   DOM-only test passes on it.
+- **page-boot's second boots take the globals with them.** Each one points
+  `document`/`window`/`localStorage` at its own jsdom and never hands them
+  back, so the MAIN page's handlers then act on the other page: a click on
+  Edit "does nothing", with no error. A main-page check placed after them
+  calls `adoptGlobals(window)` first (the late-Edit probe does).
 - `window.__ambi4Engine` is a deliberate test seam, not a leak — documented at
   its definition. Use it.
 

@@ -42,7 +42,8 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 - [x] All four confirmed and fixed in v0.0.268 (tune vs chord length, WAV peak memory, pluck stop time, harmony.beats true).
 - [x] Seven dials that refused or mis-took a spread now say why (v0.0.269); page-boot sweeps every spreadable dial against the engine.
-- [ ] Late in page-boot an editor's Edit button stopped opening, no error (seen while building v0.0.269) — under investigation.
+- [x] Late in page-boot an editor's Edit button stopped opening — the harness, fixed v0.0.270.
+- [ ] Reverb tail: Full and Med cap it at 4 s while the dial runs to 6 s and the engine comment says Full restores 6 s; a Cinematic 5 s tail is cut even on Full — under investigation.
 
 ## Test hygiene found 2026-10-23
 

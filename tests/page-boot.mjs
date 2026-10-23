@@ -462,13 +462,26 @@ const passthrough = [
   'Event', 'CustomEvent', 'MouseEvent', 'KeyboardEvent', 'PointerEvent',
   'CSS', 'DOMParser', 'Image', 'Blob', 'URL', 'AudioContext',
 ];
-for (const key of passthrough) {
-  // Node 21+ ships getter-only globals (navigator); plain assignment throws.
-  if (window[key] !== undefined) {
-    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: window[key] });
+/**
+ * Point the bundle's globals at `win`. Every bundle imported here reads
+ * `document`, `window`, `localStorage`... off THIS realm at the moment it
+ * runs, so the last window adopted is the one EVERY bundle sees — the main
+ * page's own listeners included. The second boots near the end each adopt
+ * their own window and never hand it back, so after them a click on the
+ * main page runs its handler against the last second boot's document: Edit
+ * "stops opening" (it opens that page's editor) with no error. A main-page
+ * section placed after them must adopt `window` again first (2026-10-23).
+ */
+function adoptGlobals(win) {
+  for (const key of passthrough) {
+    // Node 21+ ships getter-only globals (navigator); plain assignment throws.
+    if (win[key] !== undefined) {
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: win[key] });
+    }
   }
+  globalThis.self = win;
 }
-globalThis.self = window;
+adoptGlobals(window);
 
 const consoleErrors = [];
 const realConsoleError = console.error;
@@ -986,6 +999,17 @@ try {
       failures.push('range sweep: no engine seam to check the spreadable dials against');
       return;
     }
+    // Two things outside the dial decide where its spread lands, and both
+    // made this sweep red about half the time on Reverb tail (2026-10-23):
+    // the RANDOM genre draw sets the tail (Synthwave 2.8 s, Cinematic 5 s),
+    // and the power governor caps the tail the engine is sent (Low 2 s, Full
+    // 4 s; jsdom's Auto sits at Low). A 2.8 s tail spread to 2-3.6 s reached
+    // the engine as {min:2, max:2} — the governor's documented clip, not a
+    // dial dropping its range. So the sweep pins the Processor to Full and
+    // starts every dial from its own default (Backspace), not from the draw.
+    const gov = window.__ambi4Governor;
+    const priorTier = gov && typeof gov.getTier === 'function' ? gov.getTier() : null;
+    if (priorTier) gov.setTier('full');
     const seen = new Set();
     let drew = 0;
     async function sweepVisible() {
@@ -994,6 +1018,12 @@ try {
         if (!next) return;
         seen.add(next.key);
         const { knob, where, label } = next;
+        knob.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+        await sleep(140);
+        if (!knob.isConnected) continue;
+        // The Processor dial is swept too, and its Backspace is Auto: pin
+        // Full again for every other dial, whatever came before it.
+        if (priorTier && where !== 'processor-dial') gov.setTier('full');
         const before = engine.getParams();
         spreadKeys(knob);
         if (!drewSpan(knob)) {
@@ -1007,7 +1037,7 @@ try {
             return changed.some(([, v]) => holdsSpan(v));
           }, 500);
           const spanned = changed.filter(([, v]) => holdsSpan(v));
-          if (LOG) console.log(`range sweep: ${next.key} -> ${spanned.map(([p]) => p).join(', ') || JSON.stringify(changed).slice(0, 200)}`);
+          if (LOG) console.log(`range sweep: ${next.key} -> ${spanned.map(([p]) => p).join(', ') || JSON.stringify(changed).slice(0, 200)} [tier ${window.__ambi4Governor?.getAuto?.()}, ${knob.getAttribute('aria-valuetext')}]`);
           if (!spanned.length) {
             failures.push(`${label} (${where}) draws a range the engine never receives: after a spread the engine changed ${changed.length ? JSON.stringify(changed).slice(0, 200) : 'nothing'}`);
           }
@@ -1035,6 +1065,7 @@ try {
       }
       await sweepVisible();
     }
+    if (priorTier) gov.setTier(priorTier);
     if (LOG) console.log(`range sweep: ${seen.size} spreadable dials, ${drew} drew a span`);
     if (drew < 100) failures.push(`range sweep: only ${drew} of ${seen.size} spreadable dials drew a span under Shift+ArrowRight — the sweep lost its dials`);
     for (const must of ['Groove chance', 'Motif chance', 'Volume', 'Tempo']) {
@@ -7049,6 +7080,41 @@ try {
       }
     } catch (err) {
       failures.push(`booting with a stored Processor span threw: ${err && err.stack ? err.stack : err}`);
+    }
+  })();
+
+  // ---- 2026-10-23: Edit still opens every editor, late in a long session --
+  // Reported: late in this run, clicking a track's Edit stopped opening its
+  // editor, with no error. It was the harness, not the page: the second boots
+  // above leave the bundle's globals on THEIR window (see adoptGlobals), so
+  // the main page's Edit handler opened the other page's editor. Runs LAST,
+  // after every section, as a person's long session of edits: the main
+  // window adopted back, each track's Edit, clicked, must show
+  // #voice-editor-<track> WITH its dials, and a second click must close it.
+  // Without the adoptGlobals line it is red for five of six tracks.
+  await (async () => {
+    adoptGlobals(window);
+    for (const track of REGISTRY_IDS) {
+      const toggle = doc.getElementById(`voice-edit-toggle-${track}`);
+      if (!toggle) { failures.push(`late Edit: no Edit button for ${track}`); continue; }
+      let editor = doc.getElementById(`voice-editor-${track}`);
+      if (editor && !editor.hidden) {
+        toggle.click();
+        await waitUntil(() => doc.getElementById(`voice-editor-${track}`)?.hidden, 1000);
+      }
+      toggle.click();
+      const open = await waitUntil(() => {
+        const el = doc.getElementById(`voice-editor-${track}`);
+        return Boolean(el && !el.hidden && el.querySelector('.knob'));
+      }, 2000);
+      editor = doc.getElementById(`voice-editor-${track}`);
+      if (!open) {
+        failures.push(`late Edit: clicking ${track}'s Edit did not open its editor (editor ${editor ? (editor.hidden ? 'hidden' : 'shown') : 'missing'}, ${editor ? editor.querySelectorAll('.knob').length : 0} dials, aria-expanded ${toggle.getAttribute('aria-expanded')}, toggle ${toggle.isConnected ? 'connected' : 'detached'}${toggle.disabled ? ', disabled' : ''})`);
+        continue;
+      }
+      toggle.click();
+      const closed = await waitUntil(() => doc.getElementById(`voice-editor-${track}`)?.hidden, 2000);
+      if (!closed) failures.push(`late Edit: a second click on ${track}'s Edit did not close its editor`);
     }
   })();
 
