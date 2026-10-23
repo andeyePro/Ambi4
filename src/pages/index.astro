@@ -14672,6 +14672,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               matchAnswer.textContent = 'Pick a sound\'s tab first — Low, Mid, High or one of yours — so the match knows which drum this is.';
               return;
             }
+            // The sound this match is FOR. The search runs for seconds, and
+            // the tabs stay live: read at the end, kitKind is whatever tab is
+            // open then, and the Low match landed on High (or on Common).
+            const matchKind = kitKind;
             if (typeof OfflineAudioContext !== 'function') {
               matchAnswer.textContent = 'This browser cannot render sound offline, which the match needs. A current Chrome, Firefox or Safari can.';
               return;
@@ -14746,6 +14750,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 // The sound's own dials, exactly as turning them on its tab:
                 // set them on the tab's view and commit, which keeps only
                 // what differs from the sound as published.
+                //
+                // On the patch as it is NOW, for the sound it was started on:
+                // the editor may have been rebuilt meanwhile (its `patch` is
+                // then a stale copy, and committing it would undo whatever
+                // was changed since), or another tab opened.
+                if (openEditors.get(track) !== ed) {
+                  const now = resolveTrackPatch(track, voiceId);
+                  for (const key of Object.keys(patch)) delete patch[key];
+                  Object.assign(patch, now);
+                }
+                kitKind = matchKind;
+                opts.kind = matchKind;
+                editView = deepMerge(structuredClone(kindBaseline(kitKind)), kindOverride(kitKind));
                 for (const f of candidates[0].fields) {
                   const [section, key] = f.field.split('.');
                   if (!isPlainObject(editView[section])) editView[section] = {};
@@ -14807,20 +14824,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // it always does; the stream is closed the moment the take ends,
           // and the take is matched and dropped like a file.
           let take = null;
+          let asking = false;
           const stopTake = () => { if (take && take.recorder.state === 'recording') take.recorder.stop(); };
           record.addEventListener('click', async () => {
             if (take) { stopTake(); return; }
-            if (running) return;
+            // A second press while the browser is still asking for the
+            // microphone opened a second stream; the first recorder's take
+            // was then overwritten, so neither Stop nor the four-second cap
+            // could reach it and the microphone stayed open.
+            if (running || asking) return;
             if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || typeof MediaRecorder !== 'function') {
               matchAnswer.textContent = 'This browser cannot record from a microphone here. Choose a sound file instead.';
               return;
             }
             let stream;
+            asking = true;
             try {
               stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
             } catch {
               matchAnswer.textContent = 'No microphone — the browser was refused it, or there is none. Choose a sound file instead.';
               return;
+            } finally {
+              asking = false;
             }
             const chunks = [];
             const recorder = new MediaRecorder(stream);

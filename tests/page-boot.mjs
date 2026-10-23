@@ -2152,6 +2152,147 @@ try {
       }
     }
 
+    // Review of v0.0.229–251: the two races in Match a sample, each proved
+    // red on the code before its fix. Both need what this harness otherwise
+    // lacks (an offline context, a microphone), so each is installed here and
+    // taken away again afterwards.
+    //
+    // (1) A kit match is for the sound whose tab it started on. The search
+    // runs for seconds and the tabs stay live; it read the OPEN tab when it
+    // finished, so a Low match landed on High (or on Common, the whole kit).
+    {
+      class OfflineStub extends StubAudioContext {
+        constructor(channels, length, sampleRate) { super(); this.length = length; this.sampleRate = sampleRate; }
+        async decodeAudioData() {
+          const sr = 24000;
+          const data = new Float32Array(sr);
+          for (let i = 0; i < sr; i++) data[i] = Math.sin((2 * Math.PI * 110 * i) / sr) * Math.exp((-6 * i) / sr);
+          return { numberOfChannels: 1, sampleRate: sr, getChannelData: () => data };
+        }
+        async startRendering() {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          const data = new Float32Array(this.length);
+          return { getChannelData: () => data };
+        }
+      }
+      globalThis.OfflineAudioContext = OfflineStub;
+      window.OfflineAudioContext = OfflineStub;
+      try {
+        const engine = window.__ambi4Engine;
+        const voicesModule = await import(pathToFileURL(join(repoRoot, 'src/scripts/engine-voices.js')).href);
+        const kitVoice = () => engine.getParams().tracks.percussion.voice;
+        // What each sound PLAYS: its published envelope under its override.
+        const sounds = () => {
+          const per = structuredClone(((engine.getParams().patches?.percussion || {})[kitVoice()] || {}).perKind || {});
+          const published = (voicesModule.VOICES.percussion[kitVoice()].defaults || {}).perKind || {};
+          const out = {};
+          for (const kind of new Set([...Object.keys(per), ...Object.keys(published)])) {
+            const merged = structuredClone(published[kind] || {});
+            for (const [section, fields] of Object.entries(per[kind] || {})) merged[section] = { ...(merged[section] || {}), ...fields };
+            out[kind] = JSON.stringify(Object.keys(merged).sort().map((s) => [s, Object.keys(merged[s]).sort().map((k) => [k, merged[s][k]])]));
+          }
+          return out;
+        };
+        // The kit-wide dials as they sound: the voice's defaults under what
+        // is stored. (Any commit stores the whole resolved patch where there
+        // was a sparse one, so the stored objects alone are not comparable.)
+        const common = () => {
+          const out = structuredClone(voicesModule.VOICES.percussion[kitVoice()].defaults || {});
+          const stored = (engine.getParams().patches?.percussion || {})[kitVoice()] || {};
+          for (const [section, fields] of Object.entries(stored)) {
+            if (section === 'perKind') continue;
+            out[section] = fields && typeof fields === 'object' && !Array.isArray(fields) ? { ...(out[section] || {}), ...fields } : fields;
+          }
+          delete out.perKind;
+          return out;
+        };
+        const commonMoved = (was, now) => Object.entries(was).flatMap(([section, fields]) => (
+          fields && typeof fields === 'object' && !Array.isArray(fields)
+            ? Object.keys(fields).filter((key) => JSON.stringify(fields[key]) !== JSON.stringify((now[section] || {})[key])).map((key) => `${section}.${key}`)
+            : JSON.stringify(fields) !== JSON.stringify(now[section]) ? [section] : []));
+        for (const elsewhere of ['high', 'common']) {
+          const kit = await openEditor('percussion');
+          const pick = (value) => {
+            const tab = doc.querySelector(`#voice-editor-percussion input[name="kit-kind-percussion"][value="${value}"]`);
+            tab.checked = true;
+            tab.dispatchEvent(new window.Event('change'));
+          };
+          pick('low');
+          const before = sounds();
+          const commonBefore = common();
+          const input = kit.querySelector('.ve-sample-match input[type="file"]');
+          Object.defineProperty(input, 'files', { configurable: true, value: [new window.File([new Uint8Array(8)], 'kick.wav', { type: 'audio/wav' })] });
+          input.dispatchEvent(new window.Event('change'));
+          const answer = () => (doc.querySelector('#voice-editor-percussion .ve-sample-answer') || {}).textContent || '';
+          if (!await waitUntil(() => /Trying the voices/.test(answer()), 4000)) {
+            failures.push(`a kit match never started searching: ${JSON.stringify(answer())}`);
+            continue;
+          }
+          pick(elsewhere);
+          if (!await waitUntil(() => /alike|Nothing on this track/.test(answer()), 60000)) {
+            failures.push(`a kit match never finished: ${JSON.stringify(answer())}`);
+            continue;
+          }
+          const after = sounds();
+          const moved = Object.keys({ ...before, ...after }).filter((kind) => kind !== 'low' && before[kind] !== after[kind]);
+          if (moved.length) failures.push(`a Low match, with the ${elsewhere} tab opened while it ran, changed ${moved.join(', ')}`);
+          const commonChanged = commonMoved(commonBefore, common());
+          if (commonChanged.length) failures.push(`a Low match, with the ${elsewhere} tab opened while it ran, changed the whole kit's ${commonChanged.join(', ')}`);
+        }
+      } finally {
+        window.OfflineAudioContext = undefined;
+        delete globalThis.OfflineAudioContext;
+      }
+    }
+
+    // (2) A second press of Record a note while the browser is still asking
+    // for the microphone opened a second stream and orphaned the first:
+    // neither Stop nor the four-second cap could reach it, so it listened on.
+    {
+      const streams = [];
+      const hadDevices = Object.getOwnPropertyDescriptor(window.navigator, 'mediaDevices');
+      const hadRecorder = [globalThis.MediaRecorder, window.MediaRecorder];
+      Object.defineProperty(window.navigator, 'mediaDevices', { configurable: true, value: {
+        getUserMedia: () => new Promise((resolve) => setTimeout(() => {
+          const track = { live: true, stop() { this.live = false; } };
+          streams.push(track);
+          resolve({ getTracks: () => [track] });
+        }, 200)),
+      } });
+      class RecorderStub {
+        constructor() { this.state = 'inactive'; this.listeners = {}; this.mimeType = 'audio/webm'; }
+        addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+        start() { this.state = 'recording'; }
+        stop() {
+          if (this.state !== 'recording') return;
+          this.state = 'inactive';
+          setTimeout(() => (this.listeners.stop || []).forEach((fn) => fn({})), 0);
+        }
+      }
+      globalThis.MediaRecorder = RecorderStub;
+      window.MediaRecorder = RecorderStub;
+      try {
+        const editor = await openEditor('melody');
+        const more = editor.querySelector('.ve-more');
+        if (more && more.getAttribute('aria-expanded') !== 'true') more.click();
+        await waitUntil(() => editor.querySelector('.ve-sample-record'));
+        const record = editor.querySelector('.ve-sample-record');
+        record.click();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        record.click();
+        await waitUntil(() => streams.length >= 1 && record.getAttribute('aria-pressed') === 'true', 3000);
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        record.click(); // Stop recording
+        await new Promise((resolve) => setTimeout(resolve, 4500)); // past the four-second cap
+        const live = streams.filter((track) => track.live).length;
+        if (live) failures.push(`two presses of Record a note during the permission prompt left ${live} of ${streams.length} microphone streams listening after Stop`);
+      } finally {
+        delete window.navigator.mediaDevices;
+        if (hadDevices) Object.defineProperty(window.navigator, 'mediaDevices', hadDevices);
+        [globalThis.MediaRecorder, window.MediaRecorder] = hadRecorder;
+      }
+    }
+
     // UI review 2026-10-03, fixes 8, 9, 10 and 12 — the voice editor gets
     // layers. First open shows fewer controls than it did (the words, save
     // row and finder fold behind one "more"; the Off/Auto/On radios go, the
