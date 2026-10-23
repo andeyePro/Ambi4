@@ -7430,7 +7430,48 @@ export function createEngine(initialParams, options = {}) {
       event.cell = note.cell;
       event.cellLength = note.cellLength;
     }
+    // v0.0.239: what the note IS against the chord under it — the telemetry
+    // "see how notes are selected from the chord" needs (TODO). Pitched
+    // tracks only; a drum has no pitch to relate.
+    // A kit is the track that owns lanes (trackShape's `percussive`).
+    const kit = params.tracks[track] && Array.isArray(params.tracks[track].lanes);
+    if (!kit && Number.isFinite(full.midi)) Object.assign(event, noteRole(full.midi));
     emit('note', event);
+  }
+
+  /**
+   * v0.0.239: a pitched note's role against the chord sounding when it was
+   * planned. `role` is the chord tone it is (root, third, fifth, sixth,
+   * seventh, ninth, eleventh), or `passing` for a scale tone outside the
+   * chord, or `outside` for a note off the scale; `interval` is its distance
+   * above the chord's root in semitones (0-11). Pure: it reads the harmony
+   * frame and draws nothing, so no piece moves. The chord is the full stack
+   * the frame names (every extension), not the pad's voicing of it, so a
+   * ninth the pad leaves out still counts as a chord tone.
+   */
+  const ROLE_BY_INTERVAL = Object.freeze({
+    0: 'root', 1: 'ninth', 2: 'ninth', 3: 'third', 4: 'third', 5: 'eleventh',
+    6: 'fifth', 7: 'fifth', 8: 'fifth', 9: 'sixth', 10: 'seventh', 11: 'seventh',
+  });
+  let roleFrame = null;
+  function noteRole(midi) {
+    const key = `${chordDegree}|${params.mode}|${params.root}|${chordInversion}|${chordExtension}|${colour().toFixed(3)}`;
+    if (!roleFrame || roleFrame.key !== key) {
+      const root = ((scaleDegreeToMidi(chordDegree, scale(), pitchClass(params.root), 3) % 12) + 12) % 12;
+      const keyPc = pitchClass(params.root);
+      roleFrame = {
+        key,
+        root,
+        chord: new Set(chordMidis(3, 7).map((m) => ((m % 12) + 12) % 12)),
+        scale: new Set(scale().map((step) => (step + keyPc) % 12)),
+      };
+    }
+    const pc = ((Math.round(midi) % 12) + 12) % 12;
+    const interval = (pc - roleFrame.root + 12) % 12;
+    const role = roleFrame.chord.has(pc)
+      ? ROLE_BY_INTERVAL[interval]
+      : roleFrame.scale.has(pc) ? 'passing' : 'outside';
+    return { role, interval };
   }
 
   // -- v28 live play-along ----------------------------------------------------

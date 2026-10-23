@@ -249,6 +249,12 @@ Patch = {
   lying control. Supplying the map replaces it; absent inherits. Shaped drifts
   (rise/fall/swell/cycle/step) gate their phase counters the same way. The tiny
   sampling dial (D4) is the UI half, pending the phase-3 gesture ruling.
+- Note roles (v0.0.239): every pitched 'note' event carries `role` — `root`,
+  `third`, `fifth`, `sixth`, `seventh`, `ninth`, `eleventh` for a chord tone of
+  the harmony frame's full stack, `passing` for a scale tone outside it, `outside`
+  for a note off the scale — and `interval`, its semitones above the chord's root
+  (0-11). Drum notes (a lane-owning track) carry neither. Telemetry only: it reads
+  the frame and draws nothing.
 - Step rule (v0.0.231, the fourth-bay item's engine half): `params.stepRule` — a
   sparse map keyed like the walks saying what value a `step` (sample-and-hold)
   drift takes each time it fires: `walk` (a random step either way from the held

@@ -11215,6 +11215,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
          * a melody out of an implementation detail.
          */
         const chosenPitch = new Map(); // laneKey -> Map(step -> Set of midi)
+        // v0.0.239: what each of those notes is against the chord under it,
+        // as the engine reported it (laneKey -> Map("step:midi" -> role)).
+        const chosenRole = new Map();
+        const ROLE_WORDS = {
+          root: 'the chord\u2019s root', third: 'its third', fifth: 'its fifth', sixth: 'its sixth',
+          seventh: 'its seventh', ninth: 'its ninth', eleventh: 'its eleventh',
+          passing: 'a passing note', outside: 'outside the scale',
+        };
+        const namedNote = (key, step, midi) => {
+          const role = chosenRole.get(key)?.get(`${step}:${midi}`);
+          return role && ROLE_WORDS[role] ? `${pitchName(midi)} (${ROLE_WORDS[role]})` : pitchName(midi);
+        };
         const tunedGrid = !isPercussiveTrack(track);
         // The window the ticks are drawn in. It only ever widens while an
         // editor is open: a range that re-fitted itself every bar would move
@@ -11234,10 +11246,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         /** The app's notes on one step, named, or null if it chose none. */
         function chosenNotesAt(lane, i) {
           if (!tunedGrid) return null;
-          const perStep = chosenPitch.get(lane?.key ?? '') || chosenPitch.get(null) || null;
+          const key = chosenPitch.has(lane?.key ?? '') ? (lane?.key ?? '') : null;
+          const perStep = chosenPitch.get(key) || null;
           const notes = perStep ? perStep.get(i) : null;
           if (!notes || !notes.size) return null;
-          return [...notes].sort((a, b) => a - b).map(pitchName).join(', ');
+          return [...notes].sort((a, b) => a - b).map((midi) => namedNote(key, i, midi)).join(', ');
         }
 
         function paintPitch() {
@@ -11262,7 +11275,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 mark.style.bottom = `${clamp(at, 0, 1) * 100}%`;
                 return mark;
               }));
-              ref.cell.title = sorted.map(pitchName).join(' ');
+              const roleKey = chosenPitch.has(key ?? '') ? (key ?? '') : null;
+              ref.cell.title = sorted.map((midi) => namedNote(roleKey, i, midi)).join(' · ');
               // Re-label rather than wait for the next updateCell: the notes
               // arrive from the engine, not from an edit, so nothing else
               // would touch this cell.
@@ -11298,10 +11312,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
 
         /** One scheduled note, in this grid's coordinates. */
-        function noteChosen(step, laneKey, bar, midi) {
+        function noteChosen(step, laneKey, bar, midi, role = null) {
           if (bar !== chosenBar) {
             chosen.clear();
             chosenPitch.clear();
+            chosenRole.clear();
             chosenBar = bar;
           }
           const key = laneKey ?? '';
@@ -11312,6 +11327,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const perStep = chosenPitch.get(key);
             if (!perStep.has(step)) perStep.set(step, new Set());
             perStep.get(step).add(midi);
+            if (typeof role === 'string') {
+              if (!chosenRole.has(key)) chosenRole.set(key, new Map());
+              chosenRole.get(key).set(`${step}:${midi}`, role);
+            }
             if (midi < pitchLo) pitchLo = midi;
             if (midi > pitchHi) pitchHi = midi;
           }
@@ -11323,6 +11342,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (!chosen.size && !chosenPitch.size) return;
           chosen.clear();
           chosenPitch.clear();
+          chosenRole.clear();
           chosenBar = -1;
           // The window is NOT reset with the notes: it is what makes two bars
           // comparable, and re-fitting it on every stop would redraw the same
@@ -20425,7 +20445,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const within = ((event.time - lastBarTime) % barSeconds + barSeconds) % barSeconds;
           const step = Math.round((within / barSeconds) * n) % n;
           try {
-            ed.seq.noteChosen(step, event.lane ?? null, lastBarIndex + Math.max(0, bar), event.midi);
+            ed.seq.noteChosen(step, event.lane ?? null, lastBarIndex + Math.max(0, bar), event.midi, event.role ?? null);
           } catch {}
         });
       }
