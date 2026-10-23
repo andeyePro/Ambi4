@@ -219,6 +219,11 @@
   padding: 0;
 }
 
+html {
+  /* iOS gesture spec: no horizontal rubber-band / history overscroll. */
+  overscroll-behavior-x: none;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -234,7 +239,9 @@ main,
 .site-footer {
   max-width: 720px;
   margin: 0 auto;
-  padding: 0 16px;
+  /* viewport-fit=cover: keep content out of the notch / home-indicator edge
+     in landscape; 16px is the floor and is also the back-swipe inset. */
+  padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
 }
 
 .site-header {

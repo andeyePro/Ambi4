@@ -657,3 +657,88 @@ None outstanding. Envelope ownership is settled (D6, per voice). The remaining
 judgement call is the registry's path naming and the graph's serialisation
 format, which are permanent once shared links exist — see section 8 and the
 review recommendation.
+
+## 10. The iOS gesture environment
+
+A dial takes vertical drag = value, horizontal drag = spread (axis locks after
+`LOCK_PX` = 6 px of travel), hub tap = zero, double-tap/double-click = default
+(v0.0.60 reversed the single-tap reset: a tap does nothing but zero the hub).
+iOS Safari gives the page none of that for free; this section is the policy that
+makes the gesture survive a fingertip. Audited against the code on v0.0.240+.
+
+### 10.1 Edge back-swipe
+
+Safari's back/forward swipe starts from a touch within roughly 20 px of the left
+or right screen edge and is recognised by the system BEFORE the page sees it.
+No web API cancels it: `touch-action`, `overscroll-behavior` and
+`preventDefault()` do not stop the edge gesture itself (they do stop the
+in-page scroll/rubber-band that would otherwise follow). So the policy is
+two-layered:
+
+- **Inside a dial: the page must never be the thing that moves.** `knob.js`
+  sets `touch-action: none` on every knob root, `setPointerCapture` on
+  pointerdown and `preventDefault()` on pointerdown/pointermove, so a horizontal
+  spread drag is delivered to the dial and not read as a pan. Current: as
+  specified.
+- **Near the edge: do not put a target there.** Spread drags START on a dial, and
+  a dial whose face begins inside the 20 px band would hand Safari the gesture.
+  Rule: every interactive surface keeps at least 16 px of gutter
+  (`.site-header, main, .site-footer` already pad `0 16px`), and in landscape
+  `max(16px, env(safe-area-inset-left/right))` because the viewport is
+  `viewport-fit=cover`. A drag that STARTS inside the page and travels out to the
+  edge is safe: pointer capture keeps it with the dial. Current: the 16 px floor
+  existed; the safe-area term was missing (fixed).
+- `html { overscroll-behavior-x: none }` removes the horizontal rubber-band /
+  history overscroll in browsers that honour it. Honest limit: it does not
+  disable iOS's edge swipe. Current: was missing (fixed).
+- Fullscreen stage already has `overscroll-behavior: contain`.
+
+### 10.2 touch-action per surface
+
+`touch-action` is evaluated at pointerdown against the target and its ancestors
+(the effective value is the intersection), so a drag-owning child inside a
+scrolling panel is fine, but the choice cannot be changed mid-gesture.
+
+| Surface | Policy | Why |
+|---|---|---|
+| Dials (`.knob` root, set by knob.js; also `.knob-cell`, `.vary-knob`, `.simple-dial` under `pointer: coarse`) | `none` | Owns both axes; any browser-handled pan or zoom would end the gesture in `pointercancel`. The cells repeat it so a press a pixel outside the face is not stolen. |
+| Step grid cells `.seq-cell` | `none` (was unstated: fixed) | Owns a pointer drag (`cell` pointerdown/pointermove handlers measure travel from the press); without it Safari pans the page and cancels the pointer. `preventDefault()` on pointerdown does NOT prevent a pan. Lane grips and `.seq-band-top` already had `none`. Cost: a finger that starts on a cell cannot scroll the page; scroll from the lane label, the gutter, or the spaces between rows. |
+| On-screen keys `.play-along-pads` | `none` | Multi-touch: every finger is a note, so no finger may become a pan or a pinch. Descendant pads inherit the intersection. Also `user-select: none` and, on pads, `-webkit-touch-callout: none`. Current: as specified. |
+| Scrolling panels, popovers, text, readouts | default (`auto`) | The page must scroll; nothing there is a drag target. Dial readouts are inputs and keep their own selection behaviour. |
+
+### 10.3 Centre tap versus double-tap zoom
+
+The viewport meta is `width=device-width, initial-scale=1, viewport-fit=cover`
+(no `user-scalable=no`, deliberately: pinch-zoom stays available for
+accessibility). iOS Safari's double-tap-zoom is suppressed per element by
+`touch-action: none` or `manipulation`; on a dial it is `none`, so the second
+tap of the pair is delivered as a `dblclick` (knob.js `dblclick` -> reset to
+default) rather than zooming, and there is no 300 ms click delay. The single
+tap on the hub zeroes immediately on pointerup (travel <= `TAP_SLOP_PX` = 6),
+so a double-tap is zero THEN default, which is an idempotent, harmless order.
+Surfaces that are not dials never get a double-tap meaning, so they stay
+`auto`/`manipulation` and zoom normally. Current: as specified.
+
+### 10.4 Long-press
+
+Held dials open the pin menu (`pinLongPress` in index.astro, v0.0.233): 550 ms
+still (movement over 8 px cancels), touch and pen only. It first dispatches a
+`pointercancel` to the dial so the hold can never land as a hub tap, then opens
+the menu. To stop iOS racing it with its own callout/selection:
+
+- `.knob { -webkit-touch-callout: none }` and `user-select: none` on the root
+  (current: present), so no link/image callout or text-selection loupe appears.
+- `contextmenu` is handled (`preventDefault` + open pin menu) for mouse
+  right-click; on iOS the `touch-action: none` hold does not fire it, hence the
+  timer.
+- The 550 ms hold is deliberately longer than the 6 px axis lock and a normal
+  tap so a slow drag start is a drag, not a pin.
+- Pads and step cells: `-webkit-touch-callout: none` and `user-select: none`
+  (cells fixed here), because a held key or cell must never raise a callout.
+
+### 10.5 Not covered
+
+Real-device behaviour (Safari edge-swipe distance, loupe suppression) cannot be
+measured from the container; jsdom tests assert the declared properties
+(`tests/page-boot.mjs`, `tests/knob-gesture.mjs`) and a device check on the
+Mac test bridge or phone is the only judge.

@@ -5329,6 +5329,29 @@ try {
     }
   }
 
+  // iOS gesture environment (docs/dial-control-plane-plan.md section 10): the
+  // surfaces that own a drag must say so in CSS, or Safari reads the drag as a
+  // page scroll / back-swipe and cancels the pointer. Style TEXT is asserted
+  // because jsdom does not cascade stylesheets from the page source.
+  {
+    const pageSource = readFileSync(join(repoRoot, 'src/pages/index.astro'), 'utf8');
+    const globalCss = readFileSync(join(repoRoot, 'src/styles/global.css'), 'utf8');
+    const ruleBody = (src, selector) => {
+      const m = new RegExp('(?:^|\\n)\\s*' + selector.replace(/[.]/g, '\\.') + '\\s*\\{([^}]*)\\}').exec(src);
+      return m ? m[1] : '';
+    };
+    const cell = ruleBody(pageSource, '.seq-cell');
+    for (const decl of [/touch-action:\s*none/, /user-select:\s*none/, /-webkit-touch-callout:\s*none/]) {
+      if (!decl.test(cell)) failures.push(`.seq-cell owns a vertical drag but lacks ${decl} (iOS gesture spec)`);
+    }
+    if (!/overscroll-behavior-x:\s*none/.test(ruleBody(globalCss, 'html'))) {
+      failures.push('global.css html rule lacks overscroll-behavior-x: none (iOS gesture spec)');
+    }
+    if (!/env\(safe-area-inset-left\)/.test(globalCss)) {
+      failures.push('global.css never reads env(safe-area-inset-left) though the viewport is viewport-fit=cover');
+    }
+  }
+
 } catch (err) {
   failures.push(`importing the built page script threw: ${err && err.stack ? err.stack : err}`);
 }

@@ -27505,6 +27505,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       border-radius: 4px;
       cursor: pointer;
       overflow: hidden;
+      /* iOS gesture spec (dial-control-plane-plan s10): a cell owns a vertical
+         drag, so it must say so or Safari pans the page and cancels it. */
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
     }
 
     .seq-cell-beat {
