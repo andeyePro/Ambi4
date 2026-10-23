@@ -6993,7 +6993,8 @@ export function createEngine(initialParams, options = {}) {
    * The tail actually built: what the user asked for, capped by whatever the
    * power governor's tier allows. The two COMPOSE rather than override — an eco
    * tier shortens a 6 s hall to 1 s, and going back to full restores the 6 s
-   * without the user touching the dial.
+   * without the user touching the dial (Full's budget is 6 s, the top of
+   * REVERB_TAIL_RANGE; Med caps at 4 s — power.js holds the table).
    */
   function effectiveReverbSeconds() {
     return clamp(Math.min(params.reverbTail, reverbBudget),

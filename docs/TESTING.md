@@ -668,8 +668,10 @@ Reverb tail (Advanced) — only if this build's engine ships it
       Cathedral). Turn it up while playing: the tail lengthens within a second
       or two, without a click or a gap.
 - [ ] Set it long, then set Processor to Eco: the tail shortens (the tier caps
-      it). Set Processor back to Full: your full length comes back — the dial
-      never moved, because the cap is applied on the way to the engine only.
+      it). Set Processor back to Full: your full length comes back, all the
+      way to 6 s — the dial never moved, because the cap is applied on the way
+      to the engine only. Med caps it at 4 s, Low at 2 s, Eco at 1 s, and the
+      dial's hint says so.
 - [ ] If this build's engine has no reverb-tail hook, the dial is simply absent.
       Same for the Fold dial (oscillator voices) and the per-track Drift rate
       dial — absent until the engine accepts them. Not a bug.
@@ -1082,6 +1084,18 @@ Key-to-ear delay (v0.0.238)
 - [ ] Rest the mouse on any ⓘ: its box opens; move away: it closes. Click
       the ⓘ: it stays open after the mouse leaves; click again or Esc: it
       closes. On a phone a tap opens and a second tap closes.
+
+ⓘ in the tutorial panel (wide screens)
+- [ ] In a window wider than 1100px, with the "?" tour closed, click the ⓘ
+      beside Processor: its text opens in the panel docked on the right,
+      under "About the Processor", with a × Close — not under the ⓘ. Click
+      the tracks ⓘ: the panel now shows that one instead. Esc or × closes it
+      and focus is back on the ⓘ. Hover still peeks inline.
+- [ ] Open the "?" tour, then click any ⓘ: the box opens inline under the ⓘ
+      and the tour's step is untouched. With an ⓘ docked, "?" opens the tour
+      in its place.
+- [ ] Narrow the window to 1100px or less: every ⓘ opens inline, as before.
+      page-boot holds all of this with a stubbed viewport (1400px / 900px).
 
 Pins and saved layouts (v0.0.233, UI review fix 19's second half)
 - [ ] Right-click any dial (Advanced, a voice editor): a one-item menu, Pin to

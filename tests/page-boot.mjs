@@ -1753,6 +1753,97 @@ try {
       /^(Every share link has its own|Submitting opens our contact form|Save genre keeps|The rules this genre draws)/.test(p.textContent.trim()));
     if (leftovers.length) failures.push(`help in one form: ${leftovers.length} explanatory paragraph(s) still on the page: "${leftovers[0].textContent.trim().slice(0, 40)}"`);
   })();
+  // 15b: on a wide screen an ⓘ opens in the tutorial panel (TODO: "ⓘ content
+  // opens in the tutorial area right of the main UI where space permits").
+  // jsdom has no matchMedia, so the viewport is stubbed: a query for
+  // (max-width: Npx) answers against a pretend width, exactly as the CSS that
+  // docks #tutorial-panel above 1100px would. The SAME box node must move —
+  // a copy would be the v0.0.267 duplicate-editor leak again.
+  await (async () => {
+    const realMatchMedia = window.matchMedia;
+    const realWidth = window.innerWidth;
+    const pretend = (width) => {
+      window.innerWidth = width;
+      window.matchMedia = (query) => {
+        const max = /max-width:\s*([\d.]+)px/.exec(query);
+        const min = /min-width:\s*([\d.]+)px/.exec(query);
+        const matches = max ? width <= Number(max[1]) : min ? width >= Number(min[1]) : false;
+        return { matches, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} };
+      };
+    };
+    try {
+      const panel = doc.getElementById('tutorial-panel');
+      const slotOf = (id) => doc.getElementById(id);
+      const partsOf = (id) => {
+        const slot = slotOf(id);
+        const wrap = slot && slot.querySelector('.info-anchor');
+        return { wrap, btn: wrap && wrap.querySelector('button.info-button'), box: wrap && wrap.querySelector('.info-box') };
+      };
+      const a = partsOf('processor-info');
+      const b = partsOf('tracks-info');
+      if (!a.btn || !a.box || !b.btn || !b.box) {
+        failures.push('ⓘ in the panel: the Processor or tracks ⓘ is missing');
+        return;
+      }
+      if (!panel.hidden) doc.getElementById('tutorial-close').click();
+
+      pretend(1400);
+      a.btn.click();
+      const inPanel = panel.contains(a.box) && !a.box.hidden && !panel.hidden;
+      if (!inPanel) failures.push('ⓘ in the panel: at 1400px the Processor ⓘ did not put its box in #tutorial-panel');
+      if (a.btn.getAttribute('aria-expanded') !== 'true') failures.push('ⓘ in the panel: the docked ⓘ is not aria-expanded');
+      const controlled = doc.getElementById(a.btn.getAttribute('aria-controls') || '');
+      if (!controlled || controlled.hidden || !controlled.contains(a.box)) failures.push(`ⓘ in the panel: aria-controls (${a.btn.getAttribute('aria-controls')}) does not point at what is shown`);
+      const heading = doc.getElementById('tutorial-info-title');
+      if (!heading || !/processor/i.test(heading.textContent)) failures.push(`ⓘ in the panel: the panel heading does not name the control (${heading && heading.textContent})`);
+      if (doc.querySelectorAll(`#${a.box.id}`).length !== 1 || a.wrap.querySelector('.info-box')) failures.push('ⓘ in the panel: the box was copied, not moved');
+      if (!doc.getElementById('tutorial-info-close')) failures.push('ⓘ in the panel: the panel has no Close for the box');
+
+      // Another ⓘ replaces it, and the first goes home.
+      b.btn.click();
+      if (!panel.contains(b.box) || b.box.hidden) failures.push('ⓘ in the panel: a second ⓘ did not replace the first in the panel');
+      if (panel.contains(a.box) || a.box.parentElement !== a.wrap || !a.box.hidden || a.btn.getAttribute('aria-expanded') !== 'false') failures.push('ⓘ in the panel: the replaced box did not go back, closed, beside its ⓘ');
+      if (a.btn.getAttribute('aria-controls') !== a.box.id) failures.push('ⓘ in the panel: the replaced ⓘ\'s aria-controls did not come back to its box');
+
+      // Esc (from inside the panel) restores it inline and focus to the ⓘ.
+      doc.getElementById('tutorial-info-close').focus();
+      doc.getElementById('tutorial-info-close').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      if (panel.contains(b.box) || b.box.parentElement !== b.wrap || !b.box.hidden) failures.push('ⓘ in the panel: Esc did not put the box back inline');
+      if (!panel.hidden) failures.push('ⓘ in the panel: Esc left the panel open');
+      if (doc.activeElement !== b.btn) failures.push('ⓘ in the panel: Esc did not return focus to the ⓘ');
+      if (b.btn.getAttribute('aria-controls') !== b.box.id || b.btn.getAttribute('aria-expanded') !== 'false') failures.push('ⓘ in the panel: after Esc aria-controls/aria-expanded are wrong');
+
+      // Close button does the same.
+      a.btn.click();
+      doc.getElementById('tutorial-info-close').click();
+      if (a.box.parentElement !== a.wrap || !a.box.hidden || !panel.hidden) failures.push('ⓘ in the panel: Close did not put the box back');
+
+      // While the tour runs, an ⓘ stays inline and the tour is untouched.
+      doc.getElementById('tutorial-toggle').click();
+      const tourText = doc.getElementById('tutorial-step-text').textContent;
+      a.btn.click();
+      if (panel.contains(a.box) || a.box.hidden) failures.push('ⓘ in the panel: with the tour open, the ⓘ did not open inline');
+      if (panel.hidden || panel.classList.contains('info-mode') || doc.getElementById('tutorial-step-text').textContent !== tourText) failures.push('ⓘ in the panel: an ⓘ press disturbed the running tour');
+      a.btn.click();
+      doc.getElementById('tutorial-close').click();
+
+      // "?" over a docked box opens the tour and sends the box home.
+      a.btn.click();
+      doc.getElementById('tutorial-toggle').click();
+      if (a.box.parentElement !== a.wrap || panel.hidden || panel.classList.contains('info-mode') || doc.getElementById('tutorial-title').textContent !== 'Guided tour') failures.push('ⓘ in the panel: "?" over a docked box did not give the panel back to the tour');
+      doc.getElementById('tutorial-close').click();
+
+      // Narrow: inline, as before.
+      pretend(900);
+      a.btn.click();
+      if (panel.contains(a.box) || a.box.parentElement !== a.wrap || a.box.hidden || !panel.hidden) failures.push('ⓘ in the panel: at 900px the ⓘ did not stay inline');
+      if (a.btn.getAttribute('aria-controls') !== a.box.id) failures.push('ⓘ in the panel: at 900px aria-controls does not point at the inline box');
+      a.btn.click();
+    } finally {
+      window.matchMedia = realMatchMedia;
+      window.innerWidth = realWidth;
+    }
+  })();
   // 17: "Rules show" is mirrored in each voice editor head — one setting.
   await (async () => {
     const padEd = await openEditor('pad');

@@ -768,6 +768,27 @@ test('D10: the same edges go over budget when the governor steps the tier down u
 });
 
 // --------------------------------------------------------------------------
+// Reverb budget against the Reverb tail dial's range.
+// --------------------------------------------------------------------------
+
+test('Full lets the Reverb tail dial reach its whole range; only Eco, Low and Med cap it', async () => {
+  // v0.0.21 widened the tail to 0.5-6 s and promised that raising the tier
+  // to Full "restores the 6 s", but Full kept the 4 s it had carried since
+  // v14, when the impulse response was a fixed 4 s. A Cinematic 5 s tail was
+  // being cut at 4 s on the top tier.
+  const { REVERB_TAIL_RANGE } = await import('../src/scripts/ambient-engine.js');
+  const top = REVERB_TAIL_RANGE[1];
+  assert.ok(power.TIER_BUDGETS.full.reverbSeconds >= top,
+    `Full caps the tail at ${power.TIER_BUDGETS.full.reverbSeconds} s; the dial runs to ${top} s`);
+  for (const tier of ['eco', 'low', 'med']) {
+    assert.ok(power.TIER_BUDGETS[tier].reverbSeconds < top, `${tier} should cap the tail`);
+  }
+  // The Reverb tail dial's hint names the capping tiers and their caps; this
+  // is the list it is written from, so a change here must change the hint.
+  assert.deepEqual(['eco', 'low', 'med'].map((t) => power.TIER_BUDGETS[t].reverbSeconds), [1, 2, 4]);
+});
+
+// --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
 

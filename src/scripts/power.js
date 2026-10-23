@@ -14,7 +14,7 @@
  *   eco    8         15         false         1              0.5                  4
  *   low    14        24         true          2              0.75                 8
  *   med    22        30         true          4              1                    16
- *   full   Infinity  30         true          4              1                    32
+ *   full   Infinity  30         true          6              1                    32
  *
  * - maxNotes: engine.setPowerBudget({maxNotes}) — the only field the
  *   engine itself currently consumes (voice-steal oldest/quietest).
@@ -30,10 +30,14 @@
  *   numbers are a forward budget, NOT a measurement: today an edge costs a
  *   little arithmetic once a bar; the plan expects a node per connection
  *   once sources run at audio rate, and that is what the budget is sized for.
- * - reverbSeconds: budget field only. The engine has no reverb-length hook
- *   yet (v9 addendum flags this); the governor exposes the number anyway
- *   so a page/engine that grows one later needs no governor change —
- *   consumers must feature-detect before calling into the engine with it.
+ * - reverbSeconds: the tier's ceiling on the reverb tail, which the engine
+ *   takes through setPowerBudget / setReverbSeconds and applies as
+ *   min(the user's Reverb tail, this). Full is 6 s, the top of the engine's
+ *   REVERB_TAIL_RANGE, so Full gives the dial its whole range; it was
+ *   4 s before, a leftover of v14's fixed 4 s impulse response that
+ *   v0.0.21's 0.5-6 s tail never updated. Eco/Low/Med cap at 1/2/4 s, and
+ *   the Reverb tail dial's hint names those numbers — change them together.
+ *   Consumers must still feature-detect before calling into the engine.
  *
  * ---------------------------------------------------------------------
  * 'auto' heuristic:
@@ -97,7 +101,7 @@ export const TIER_BUDGETS = Object.freeze({
   eco: Object.freeze({ maxNotes: 8, visualFps: 15, scopeEnabled: false, reverbSeconds: 1, textureDensityScale: 0.5, maxConnections: 4 }),
   low: Object.freeze({ maxNotes: 14, visualFps: 24, scopeEnabled: true, reverbSeconds: 2, textureDensityScale: 0.75, maxConnections: 8 }),
   med: Object.freeze({ maxNotes: 22, visualFps: 30, scopeEnabled: true, reverbSeconds: 4, textureDensityScale: 1, maxConnections: 16 }),
-  full: Object.freeze({ maxNotes: Infinity, visualFps: 30, scopeEnabled: true, reverbSeconds: 4, textureDensityScale: 1, maxConnections: 32 }),
+  full: Object.freeze({ maxNotes: Infinity, visualFps: 30, scopeEnabled: true, reverbSeconds: 6, textureDensityScale: 1, maxConnections: 32 }),
 });
 
 /**

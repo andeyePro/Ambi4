@@ -739,7 +739,7 @@ play(); RangeValue walk: w∈[0,1], ±0.15/bar, effective = min+(max-min)·w.
   underrun proxy (ctx.outputLatency drift / currentTime stalls), hardwareConcurrency,
   deviceMemory, battery discharging. Governor outputs a budget the engine + visuals
   honour: max simultaneous notes (voice-steal oldest/quietest), reverb IR length
-  (4s/2s/1s/off), texture+arp density scale, visual fps cap, scope on/off.
+  (full 6 s, the Reverb tail dial's whole range; med 4 s; low 2 s; eco 1 s), texture+arp density scale, visual fps cap, scope on/off.
 - Engine: engine.setPowerBudget(budget) + per-track live stats API
   engine.getStats() → {perTrack: {activeNotes, nodesEstimate, notesPerMin}, total}
   for the UI's per-track cost meters.

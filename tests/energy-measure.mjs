@@ -6,7 +6,8 @@
  * docs-private/psychologist-consult-2026-07-28.md, run against the same
  * minimal AudioContext mock the other engine suites use:
  *
- *   D1  monotonicity and step size across the Energy sweep
+ *   D1  monotonicity and step size across the Energy sweep — and tempo NOT
+ *       moving with it (v0.0.71: Energy does not touch tempo)
  *   D2  time to first audible difference, per dial
  *   D3  edit-versus-drift ratio
  *   D4  loudness across the Volume dial's travel
@@ -16,6 +17,17 @@
  * whole point (C7) is that the Energy→complexity knot table is "the right
  * shape, the exact knots are worth tuning against measurement" — and a test
  * that only says FAIL gives you nothing to tune with.
+ *
+ * ── The mapping under test ──────────────────────────────────────────────
+ *
+ * The Energy knot table is IMPORTED from src/scripts/energy-map.js, the same
+ * module index.astro imports — the suite has no copy of its own. Until
+ * 2026-10-23 it did, and that copy was the pre-v0.0.71 mapping: old knots
+ * (0.10…0.95) and Energy still driving a 42–124 bpm log law, so D1 asserted a
+ * tempo rise and D2 timed a tempo edit that the shipped dial no longer makes.
+ * E0 below reads index.astro's source (no page boot) and fails if the page
+ * stops importing the module, grows a private table again, or has the Energy
+ * dial write a tempo.
  *
  * ── Strictness ────────────────────────────────────────────────────────────
  *
@@ -185,6 +197,12 @@ class MockAudioContext {
 globalThis.AudioContext = MockAudioContext;
 
 const STRICT = process.env.ENERGY_MEASURE_STRICT === '1';
+const { readFileSync } = await import('node:fs');
+const {
+  ENERGY_DEFAULT,
+  ENERGY_COMPLEXITY_KNOTS,
+  complexityFromEnergy,
+} = await import('../src/scripts/energy-map.js');
 const engineModule = await import('../src/scripts/ambient-engine.js');
 const {
   autoActiveTracks,
@@ -206,42 +224,22 @@ const test = (name, fn) => tests.push([name, fn]);
 const seededRng = (seed) => () => ((seed = (seed * 48271) % 2147483647) / 2147483647);
 
 // --------------------------------------------------------------------------
-// The dial maps, replicated.
+// The dial maps.
 //
-// SOURCE OF TRUTH: src/pages/index.astro — `bpmFromEnergy` /
-// `ENERGY_COMPLEXITY_KNOTS` / `complexityFromEnergy` (~L3054–3085) and
-// `volumeFromT` (~L4085). The ENGINE knows nothing about Energy or about dial
-// travel: it is handed a bpm, a complexity and a volume. So the maps live in
-// the page and are copied here rather than imported — index.astro is an Astro
-// component, not a module this suite can load. If the page's numbers move,
-// these must move with them or the suite is measuring a mapping nobody ships.
+// Energy → complexity is IMPORTED (src/scripts/energy-map.js, the module the
+// page imports), so the suite measures the shipped table by construction.
+// Energy does not touch tempo (v0.0.71): every run here plays at the piece's
+// own tempo, PIECE_BPM, the page's shipped default, and D1/D2 assert that the
+// Energy edit leaves it alone.
+//
+// The Volume taper below is still a copy of index.astro's volumeParamFromDial
+// — if that moves, this must move with it.
 // --------------------------------------------------------------------------
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-const ENERGY_BPM_LOW = 42;
-const ENERGY_BPM_HIGH = 124;
-
-/** Energy → bpm. Log law over a bounded sweep: 42 at 0, 72 at 0.5, 124 at 1. */
-function bpmFromEnergy(e) {
-  return ENERGY_BPM_LOW * Math.pow(ENERGY_BPM_HIGH / ENERGY_BPM_LOW, clamp(e, 0, 1));
-}
-
-/** The consult's C7 knot table — the thing D1 and D3 exist to tune. */
-const ENERGY_COMPLEXITY_KNOTS = [
-  [0.0, 0.10], [0.2, 0.32], [0.35, 0.42], [0.55, 0.58], [0.8, 0.78], [1.0, 0.95],
-];
-
-/** Energy → complexity, piecewise-linear through the knots above. */
-function complexityFromEnergy(e) {
-  const x = clamp(e, 0, 1);
-  for (let i = 1; i < ENERGY_COMPLEXITY_KNOTS.length; i++) {
-    const [x1, y1] = ENERGY_COMPLEXITY_KNOTS[i - 1];
-    const [x2, y2] = ENERGY_COMPLEXITY_KNOTS[i];
-    if (x <= x2) return y1 + ((x - x1) / (x2 - x1)) * (y2 - y1);
-  }
-  return ENERGY_COMPLEXITY_KNOTS[ENERGY_COMPLEXITY_KNOTS.length - 1][1];
-}
+/** The piece's tempo. Energy never moves it; it is a property of the piece. */
+const PIECE_BPM = 60;
 
 /** Volume dial travel → params.volume (C2's perceptual taper). */
 // v0.0.58: a two-segment fader law, dB linear in dial travel, replacing the
@@ -262,10 +260,11 @@ function volumeFromT(t) {
   return clamp(Math.pow(10, db / 20), 0, 1);
 }
 
-/** Engine params for one Energy position. Nothing else about the piece moves. */
+/** Engine params for one Energy position. Nothing else about the piece moves —
+ * tempo included: Energy writes complexity only, exactly as the page's dial. */
 function paramsAtEnergy(e) {
   return {
-    bpm: bpmFromEnergy(e),
+    bpm: PIECE_BPM,
     speed: 1,
     complexity: complexityFromEnergy(e),
     structure: 'auto',
@@ -281,10 +280,35 @@ const ENERGY_POINTS = [0, 0.25, 0.5, 0.75, 1];
 const SEED = 20260728;
 
 // --------------------------------------------------------------------------
+// E0 — the page uses the shared table (static source read, no page boot)
+// --------------------------------------------------------------------------
+
+test('E0: index.astro maps Energy through src/scripts/energy-map.js, and the dial sends no tempo', () => {
+  const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8');
+  const code = page.replace(/\/\/[^\n]*/g, '');   // line comments out: they mention tempo freely
+  assert.match(code, /import\s*\{[^}]*\bcomplexityFromEnergy\b[^}]*\}\s*from\s*'\.\.\/scripts\/energy-map\.js'/,
+    'index.astro no longer imports complexityFromEnergy from ../scripts/energy-map.js');
+  assert.doesNotMatch(code, /\bENERGY_COMPLEXITY_KNOTS\s*=/,
+    'index.astro defines its own ENERGY_COMPLEXITY_KNOTS again — the suite would measure the module, not the page');
+  assert.doesNotMatch(code, /function\s+complexityFromEnergy\b|const\s+complexityFromEnergy\b/,
+    'index.astro defines its own complexityFromEnergy again');
+  // The Energy dial's change handler: from its build call to its describeDial.
+  const from = code.search(/energyDial\s*=\s*buildSimpleDial\(\s*'energy-dial'/);
+  const to = code.indexOf('describeDial(', from);
+  assert.ok(from >= 0 && to > from, "could not find the Energy dial's build call in index.astro");
+  const handler = code.slice(from, to);
+  assert.match(handler, /complexityFromEnergy/, 'the Energy dial no longer maps through complexityFromEnergy');
+  assert.doesNotMatch(handler, /\bbpm\b|setBpm|commitTempo/,
+    'the Energy dial handler writes tempo — v0.0.71 says Energy does not move tempo');
+  report(`E0  knots (from energy-map.js): ${ENERGY_COMPLEXITY_KNOTS.map(([x, y]) => `[${x}, ${y}]`).join(' ')}`
+    + `   default ${ENERGY_DEFAULT} → complexity ${complexityFromEnergy(ENERGY_DEFAULT).toFixed(2)}`);
+});
+
+// --------------------------------------------------------------------------
 // D1 — monotonicity and step size across the sweep
 // --------------------------------------------------------------------------
 
-test('D1: every quantity rises with Energy, and the track ladder stays a prefix',
+test('D1: density rises with Energy, tempo does not move, and the track ladder stays a prefix',
   () => hiddenTab(async () => {
     const rows = [];
     for (const e of ENERGY_POINTS) {
@@ -326,15 +350,24 @@ test('D1: every quantity rises with Energy, and the track ladder stays a prefix'
     for (let i = 1; i < rows.length; i++) {
       const prev = rows[i - 1];
       const row = rows[i];
-      assert.ok(row.bpmMeasured > prev.bpmMeasured,
-        `bpm fell from Energy ${prev.energy} to ${row.energy}: `
-        + `${prev.bpmMeasured.toFixed(1)} → ${row.bpmMeasured.toFixed(1)}`);
+      assert.ok(row.complexity > prev.complexity,
+        `complexity did not rise from Energy ${prev.energy} to ${row.energy}: `
+        + `${prev.complexity.toFixed(3)} → ${row.complexity.toFixed(3)}`);
       assert.ok(row.notesPerBar >= prev.notesPerBar,
         `notes/bar fell from Energy ${prev.energy} to ${row.energy}: `
         + `${prev.notesPerBar.toFixed(2)} → ${row.notesPerBar.toFixed(2)}`);
       assert.ok(row.sounded.length >= prev.sounded.length,
         `active tracks fell from Energy ${prev.energy} to ${row.energy}: `
         + `${prev.sounded.length} (${prev.sounded}) → ${row.sounded.length} (${row.sounded})`);
+    }
+
+    // v0.0.71: Energy does not move tempo. The measured bpm must hold at the
+    // piece's own tempo at every point of the sweep (0.5% allows for float
+    // accumulation on the barline times).
+    for (const row of rows) {
+      assert.ok(Math.abs(row.bpmMeasured - PIECE_BPM) / PIECE_BPM < 0.005,
+        `tempo moved with Energy: ${row.bpmMeasured.toFixed(2)} bpm at Energy ${row.energy}, `
+        + `the piece is ${PIECE_BPM} — Energy must not touch tempo (v0.0.71)`);
     }
 
     // A prefix ladder: what sounds is always the first N of TRACK_ORDER, and
@@ -415,24 +448,14 @@ async function measureEnergy(energy) {
 // --------------------------------------------------------------------------
 
 test('D2: a dial move reaches the scheduled stream inside its latency budget', async () => {
-  const base = 0.35;   // the shipped Energy default — 61 bpm, complexity 0.42
-  const moved = 0.60;  // one quartile up
-  const bar = (60 / bpmFromEnergy(base)) * beatsPerBar('4/4');
+  const base = ENERGY_DEFAULT;   // the shipped Energy default — complexity 0.42
+  const moved = 0.60;            // one quartile up
+  const bar = (60 / PIECE_BPM) * beatsPerBar('4/4');
 
   // All three are measured BEFORE anything is asserted. A dial that blows its
   // budget must not stop the other two being measured — the point of the suite
   // is the numbers, and an early throw would print only one of them.
   const verdicts = [];
-
-  // -- Energy, the tempo half. Budget 1.5 s. ----------------------------
-  const tempo = await firstDifference({ bpm: bpmFromEnergy(moved) });
-  verdicts.push({
-    dial: `Energy (tempo ${bpmFromEnergy(base).toFixed(1)} → ${bpmFromEnergy(moved).toFixed(1)} bpm)`,
-    measured: `${tempo.delay.toFixed(3)} s`,
-    budget: `1.50 s (one beat = ${(60 / bpmFromEnergy(base)).toFixed(2)} s)`,
-    ok: tempo.delay <= 1.5,
-    detail: `${tempo.before} → ${tempo.after}`,
-  });
 
   // -- Energy, the complexity half. Budget 1 bar. -----------------------
   // The consult files density, layer add/remove and plan redraw together in
@@ -443,7 +466,7 @@ test('D2: a dial move reaches the scheduled stream inside its latency budget', a
   // at the next bar's first note is inside budget even though more than one
   // bar of wall clock has passed since the finger moved. Both numbers are
   // printed, and on this engine the verdict is the same either way.
-  const plan = await firstDifference({ complexity: complexityFromEnergy(moved) });
+  const plan = await firstDifference({ complexity: complexityFromEnergy(moved) }, base);
   verdicts.push({
     dial: `Energy (complexity ${complexityFromEnergy(base).toFixed(2)} → ${complexityFromEnergy(moved).toFixed(2)})`,
     measured: `${plan.bars.toFixed(2)} bars past the barline it followed (${plan.delay.toFixed(3)} s)`,
@@ -470,17 +493,31 @@ test('D2: a dial move reaches the scheduled stream inside its latency budget', a
     detail: 'scheduled post-compressor gain ramp, not rendered loudness',
   });
 
+  // -- Energy, the tempo half: there is none (v0.0.71). ---------------
+  // Before v0.0.71 this timed a tempo edit against a 1.5 s budget. Today's
+  // contract is that the Energy edit (complexity only, as the dial sends it)
+  // leaves the tempo where it was: every bar after the edit must be as long
+  // as the bars before it.
+  const tempoHeld = plan.barSpans.length > 0
+    && plan.barSpans.every((span) => Math.abs(span - plan.bar) / plan.bar < 0.005);
+
   report('D2  time to first AUDIBLY differing scheduled event (sub-JND wobble ignored)');
   for (const v of verdicts) {
     report(`     ${v.ok ? 'ok  ' : 'OVER'}  ${v.dial}: ${v.measured}   (budget ${v.budget})`);
     report(`             ${v.detail}`);
   }
+  report(`     ${tempoHeld ? 'ok  ' : 'MOVED'}  Energy (tempo): none — bar ${plan.bar.toFixed(3)} s before the edit, `
+    + `${plan.barSpans.map((x) => x.toFixed(3)).join('/')} s after (contract: Energy does not move tempo)`);
+
+  assert.ok(tempoHeld,
+    `the Energy edit moved the tempo: bar ${plan.bar.toFixed(3)} s before, `
+    + `${plan.barSpans.map((x) => x.toFixed(3)).join('/')} s after — Energy must not touch tempo (v0.0.71)`);
 
   const over = verdicts.filter((v) => !v.ok);
   // KNOWN SHORT (2026-07-28): Energy's complexity half misses its budget —
   // the edit reaches the generator on time but the next bar replays a frozen
   // plan, so nothing audible lands for ~2 bars. Asserted only under strict
-  // until the frozen-plan follow-up lands; tempo and volume always assert.
+  // until the frozen-plan follow-up lands; volume and the tempo hold always assert.
   const hardOver = STRICT ? over : over.filter((v) => !v.dial.startsWith('Energy (complexity'));
   for (const v of over.filter((x) => !hardOver.includes(x))) {
     report(`     KNOWN SHORT (unasserted): ${v.dial} took ${v.measured}, budget ${v.budget}`);
@@ -551,7 +588,7 @@ async function volumeSettleTime(energy, volume) {
  * the first scheduled event that differs from the untouched run of the same
  * seed. Both runs are driven for the same number of BARS.
  */
-async function firstDifference(edit, baseEnergy = 0.35) {
+async function firstDifference(edit, baseEnergy = ENERGY_DEFAULT) {
   const BARS = 7;
   const capture = async (applyAt) => {
     const engine = createEngine(paramsAtEnergy(baseEnergy), { rng: seededRng(SEED) });
@@ -572,10 +609,16 @@ async function firstDifference(edit, baseEnergy = 0.35) {
     const got = await advanceUntil(() => log.bars.length >= BARS, 200, SLOW);
     engine.stop();
     assert.ok(got, `only ${log.bars.length} bars before the budget ran out`);
+    // Bar lengths from the edit's barline on — what D2's tempo-hold check reads.
+    const editIndex = applyAt ? log.bars.findIndex((b) => b.time === editedAt) : -1;
+    const barSpans = editIndex >= 0
+      ? log.bars.slice(editIndex + 1).map((b, i) => b.time - log.bars[editIndex + i].time)
+      : [];
     return {
       when,
       editedAt,
       bar: log.bars.length > 1 ? log.bars[1].time - log.bars[0].time : NaN,
+      barSpans,
       notes: log.notes,
     };
   };
@@ -585,6 +628,8 @@ async function firstDifference(edit, baseEnergy = 0.35) {
 
   const limit = Math.min(treatment.notes.length, control.notes.length);
   const at = (i) => ({
+    bar: treatment.bar,
+    barSpans: treatment.barSpans,
     delay: treatment.notes[i].time - treatment.when,
     bars: (treatment.notes[i].time - treatment.editedAt) / treatment.bar,
     before: describe(control.notes[i]),
@@ -646,7 +691,7 @@ const describe = (n) => `${n.track} midi ${n.midi} at ${n.time.toFixed(3)} s `
 
 test('D3: one quartile of Energy moves the piece more than the piece moves itself',
   () => hiddenTab(async () => {
-    const before = 0.35;
+    const before = ENERGY_DEFAULT;
     const after = 0.60;
     const DRIFT_BARS = 16;   // the untouched stretch
     const EDIT_BARS = 8;     // measured after the edit has landed
@@ -663,10 +708,8 @@ test('D3: one quartile of Energy moves the piece more than the piece moves itsel
     const drift = perBar(log, driftFrom, driftTo);
 
     const editBar = log.bars.length - 1;
-    engine.setParams({
-      bpm: bpmFromEnergy(after),
-      complexity: complexityFromEnergy(after),
-    });
+    // What the dial sends: complexity only (v0.0.71 — no tempo).
+    engine.setParams({ complexity: complexityFromEnergy(after) });
 
     const editFrom = editBar + SETTLE_BARS;
     const editTo = editFrom + EDIT_BARS;
@@ -678,7 +721,8 @@ test('D3: one quartile of Energy moves the piece more than the piece moves itsel
     const notes = ratio(drift.notes, edited.notes);
     const tracks = ratio(drift.tracks, edited.tracks);
 
-    report(`D3  edit-versus-drift, Energy ${before} → ${after} `
+    report(`D3  edit-versus-drift, Energy ${before} → ${after} (complexity `
+      + `${complexityFromEnergy(before).toFixed(2)} → ${complexityFromEnergy(after).toFixed(2)}, tempo held) `
       + `(${DRIFT_BARS} untouched bars vs ${EDIT_BARS} after the edit)`);
     report('     quantity      drift mean   drift sd   after mean   change   change/sd');
     for (const [label, r] of [['notes/bar', notes], ['tracks/bar', tracks]]) {
@@ -763,7 +807,7 @@ function ratio(driftSeries, afterSeries) {
 // --------------------------------------------------------------------------
 
 test('D4: the Volume dial spans its travel in even, audible dB steps', async () => {
-  const engine = createEngine(paramsAtEnergy(0.35), { rng: seededRng(SEED) });
+  const engine = createEngine(paramsAtEnergy(ENERGY_DEFAULT), { rng: seededRng(SEED) });
   await engine.start();
   const ctx = liveContexts.at(-1);
   const output = outputGain(ctx);

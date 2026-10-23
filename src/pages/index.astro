@@ -1150,6 +1150,16 @@ const VOICES: Record<string, [string, string][]> = {
       <span class="panel-label" id="tutorial-title">Guided tour</span>
       <button type="button" id="tutorial-close" class="round-button" aria-label="Close the guided tour">&times;</button>
     </div>
+    <!-- ⓘ on a wide screen: the box an ⓘ opens is MOVED in here (and back
+         beside its ⓘ on close) — one node, never a copy. Shown only while the
+         tour is not running; the panel's tour parts hide while it is. -->
+    <div id="tutorial-info" class="tutorial-info" hidden>
+      <div class="tutorial-head">
+        <span class="panel-label" id="tutorial-info-title"></span>
+        <button type="button" id="tutorial-info-close" class="round-button" aria-label="Close this explanation">&times;</button>
+      </div>
+      <div id="tutorial-info-slot"></div>
+    </div>
     <p id="tutorial-step-text" class="tutorial-step-text"></p>
     <div class="tutorial-chapters">
       <button type="button" id="tutorial-chapter-hold" class="secondary-button">Chapter: hold the melody's voice</button>
@@ -1204,6 +1214,13 @@ const VOICES: Record<string, [string, string][]> = {
     // Follow my chords: pure arithmetic over held notes, no imports of its own.
     import { followDegree } from '../scripts/chord-follow.js';
     import { whyWords } from '../scripts/note-words.js';
+    // The Energy dial's knot table: one copy, shared with tests/energy-measure.mjs
+    // so the suite measures the mapping that ships (it had a stale private copy).
+    import {
+      ENERGY_DEFAULT,
+      complexityFromEnergy,
+      energyFromComplexity as energyFromComplexityScalar,
+    } from '../scripts/energy-map.js';
 
     const app = document.getElementById('generator-app');
     const unavailable = document.getElementById('generator-unavailable');
@@ -4308,53 +4325,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // changes.
       // v0.0.71: ENERGY_BPM_LOW/HIGH and bpmFromEnergy are gone with the
       // tempo coupling. Energy drives complexity and nothing else.
-      const ENERGY_DEFAULT = 0.35;
-      // v0.0.71: Energy no longer touches tempo.
-      //
-      // Owner: "Personally I don't think Tempo and Energy should be conflated.
-      // [...] in most modern western genres you don't want to vary the tempo,
-      // but you definitely do want to vary the energy." That is right, and it
-      // is the stronger reading of what the dial is FOR: energy is how much is
-      // going on, and tempo is a property of the piece you chose.
-      //
-      // Tempo was doing most of the work, though, so removing it without
-      // widening what remains would leave a dial that barely does anything.
-      // The knots now span 0.04 to 1.00 rather than 0.10 to 0.95, and the
-      // lower half is steeper — the structure thresholds and the auto-track
-      // ladder are what Energy has left, and it has to cross more of them.
-      //
-      // This CHANGES THE SHIPPED SOUND at any Energy setting away from the
-      // default, which is why the frozen audio reference is regenerated in the
-      // same commit rather than being worked around.
-      const ENERGY_COMPLEXITY_KNOTS = [
-        [0.0, 0.04], [0.2, 0.28], [0.35, 0.42], [0.55, 0.62], [0.8, 0.85], [1.0, 1.0],
-      ];
-      function complexityFromEnergy(e) {
-        const x = clamp(e, 0, 1);
-        for (let i = 1; i < ENERGY_COMPLEXITY_KNOTS.length; i++) {
-          const [x1, y1] = ENERGY_COMPLEXITY_KNOTS[i - 1];
-          const [x2, y2] = ENERGY_COMPLEXITY_KNOTS[i];
-          if (x <= x2) return y1 + ((x - x1) / (x2 - x1)) * (y2 - y1);
-        }
-        return ENERGY_COMPLEXITY_KNOTS[ENERGY_COMPLEXITY_KNOTS.length - 1][1];
-      }
+      // v0.0.71: Energy no longer touches tempo — it drives complexity and
+      // nothing else. The owner's reasoning, the widened knots and the rest
+      // of the history live with the table in src/scripts/energy-map.js,
+      // which this page and tests/energy-measure.mjs both import (see the
+      // import at the top of this script).
 
       /**
        * The inverse, so the Energy dial can read back from the thing it now
        * drives. Before v0.0.71 it read back from TEMPO, which is exactly the
        * conflation the owner objected to — and would have left the dial
-       * jumping whenever the Advanced tempo dial moved.
+       * jumping whenever the Advanced tempo dial moved. A span reads back
+       * from its midpoint.
        */
       function energyFromComplexity(c) {
-        const y = clamp(rangeMid(c), 0, 1);
-        const knots = ENERGY_COMPLEXITY_KNOTS;
-        if (y <= knots[0][1]) return knots[0][0];
-        for (let i = 1; i < knots.length; i++) {
-          const [x1, y1] = knots[i - 1];
-          const [x2, y2] = knots[i];
-          if (y <= y2) return y2 === y1 ? x1 : x1 + ((y - y1) / (y2 - y1)) * (x2 - x1);
-        }
-        return knots[knots.length - 1][0];
+        return energyFromComplexityScalar(rangeMid(c));
       }
 
       /** Trailing debounce for structural commits — dragging a dial across its
@@ -5610,6 +5595,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return { refresh };
       }
 
+      /**
+       * The ⓘ box in the tutorial panel (TODO: "ⓘ content opens in the
+       * tutorial area right of the main UI where space permits"). Wide is the
+       * exact complement of the CSS that collapses #tutorial-panel to a static
+       * block (max-width: 1100px), so the box only docks where the panel docks.
+       * No matchMedia (jsdom) reads as narrow: inline, as before.
+       */
+      const infoDock = { owner: null, wired: false };
+      function infoDockWide() {
+        try {
+          return typeof window.matchMedia === 'function' && !window.matchMedia('(max-width: 1100px)').matches;
+        } catch {
+          return false;
+        }
+      }
+      /** The tour (or a lesson) is showing in the panel: leave it alone. */
+      function infoDockTourShowing() {
+        const panel = document.getElementById('tutorial-panel');
+        return Boolean(panel && !panel.hidden && !panel.classList.contains('info-mode'));
+      }
+      /** Put the docked box back beside its ⓘ. True when one was docked. */
+      function releaseInfoDock(returnFocus) {
+        const owner = infoDock.owner;
+        if (!owner) return false;
+        owner.release(returnFocus);
+        return true;
+      }
+      function wireInfoDock() {
+        if (infoDock.wired) return;
+        infoDock.wired = true;
+        document.getElementById('tutorial-info-close')?.addEventListener('click', () => releaseInfoDock(true));
+        // Esc inside the docked box is handled by the panel's own keydown
+        // listener (it releases the box before it would close the tour).
+      }
+
       /** A small ⓘ button that toggles a dismissable info box under it. */
       let infoBoxSerial = 0;
       function infoButton(container, title, body) {
@@ -5645,13 +5665,70 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         wrap.addEventListener('pointerleave', (event) => {
           if (isMouse(event) && !pinned) show(false);
         });
+        // On a wide screen a click opens the box in the tutorial panel
+        // instead of under the ⓘ: the SAME node is moved there, and moved
+        // back on close. aria-controls follows it to the panel and back.
+        const handle = {
+          release(returnFocus) {
+            if (infoDock.owner !== handle) return;
+            infoDock.owner = null;
+            const panel = document.getElementById('tutorial-panel');
+            const section = document.getElementById('tutorial-info');
+            box.classList.remove('info-box-docked');
+            // A ⓘ whose editor has gone takes its box with it, not into a
+            // detached wrap kept alive by nothing but this handle.
+            if (wrap.isConnected) wrap.append(box);
+            else box.remove();
+            pinned = false;
+            show(false);
+            btn.setAttribute('aria-controls', box.id);
+            if (section) section.hidden = true;
+            if (panel) {
+              panel.classList.remove('info-mode');
+              panel.setAttribute('aria-labelledby', 'tutorial-title');
+              panel.hidden = true;
+            }
+            if (returnFocus && btn.isConnected) btn.focus();
+          },
+        };
+        const dock = () => {
+          const panel = document.getElementById('tutorial-panel');
+          const section = document.getElementById('tutorial-info');
+          const slot = document.getElementById('tutorial-info-slot');
+          const heading = document.getElementById('tutorial-info-title');
+          if (!panel || !section || !slot || !heading) return false;
+          wireInfoDock();
+          if (infoDock.owner && infoDock.owner !== handle) infoDock.owner.release(false);
+          heading.textContent = `About ${title}`;
+          box.classList.add('info-box-docked');
+          slot.append(box);
+          section.hidden = false;
+          panel.classList.add('info-mode');
+          panel.setAttribute('aria-labelledby', 'tutorial-info-title');
+          panel.hidden = false;
+          infoDock.owner = handle;
+          pinned = true;
+          show(true);
+          btn.setAttribute('aria-controls', 'tutorial-panel');
+          return true;
+        };
         btn.addEventListener('click', () => {
+          if (infoDock.owner === handle) {
+            handle.release(false);
+            return;
+          }
+          if (infoDockWide() && !infoDockTourShowing() && dock()) return;
           pinned = !pinned;
           show(pinned);
         });
         // v0.0.207: Esc closes the box whether focus is in it or on its ⓘ.
         wrap.addEventListener('keydown', (event) => {
-          if (event.key !== 'Escape' || box.hidden) return;
+          if (event.key !== 'Escape') return;
+          if (infoDock.owner === handle) {
+            handle.release(true);
+            return;
+          }
+          if (box.hidden) return;
           pinned = false;
           show(false);
           btn.focus();
@@ -6208,7 +6285,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           'Lively',
           'Calm',
           null,
-          'One dial for how much is going on: it moves Tempo and Complexity together — watch them follow on Advanced. Moving it also lets the engine choose the structure and tracks again, so hand-set track switches return to Auto.',
+          'One dial for how much is going on: it moves Complexity — watch it follow on Advanced. Tempo is its own dial. Moving it also lets the engine choose the structure and tracks again, so hand-set track switches return to Auto.',
           'Vary the energy'
         )
       );
@@ -6569,7 +6646,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(
           reverbTailDial.el,
           dialHint('Cathedral', 'Room', null,
-            'How long the reverb rings on. Eco and Low processor settings shorten it whatever this says.',
+            'How long the reverb rings on. The Processor caps it below Full whatever this says: Med at 4 s, Low at 2 s, Eco at 1 s.',
             'Vary the tail')
         );
         applyReverbTail();
@@ -25265,6 +25342,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           sayUnderDials(`This voice has no ${chapter.label.split(' ')[0]} dials to show the lesson on.`);
           return false;
         }
+        releaseInfoDock(false);
         lesson = { track, chapter, step: 0 };
         settings.ui.tutorialOpen = true;
         tutorialPanel.hidden = false;
@@ -25299,6 +25377,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
         }
         openTrackEditor(chapter.track);
+        releaseInfoDock(false);
         lesson = { track: chapter.track, chapter, step: 0 };
         settings.ui.tutorialOpen = true;
         tutorialPanel.hidden = false;
@@ -25313,6 +25392,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       function setTutorialOpen(open) {
         // v0.0.184: closing, or opening the tour by its own button, ends a lesson.
+        // A docked ⓘ box goes back beside its ⓘ: the tour owns the panel.
+        releaseInfoDock(false);
         lesson = null;
         settings.ui.tutorialOpen = open;
         tutorialPanel.hidden = !open;
@@ -25322,7 +25403,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         persistSettings();
       }
 
-      tutorialToggle.addEventListener('click', () => setTutorialOpen(tutorialPanel.hidden));
+      // A docked ⓘ box is not the tour: "?" opens the tour over it.
+      tutorialToggle.addEventListener('click', () => setTutorialOpen(tutorialPanel.hidden || tutorialPanel.classList.contains('info-mode')));
       document.getElementById('tutorial-close').addEventListener('click', () => {
         setTutorialOpen(false);
         tutorialToggle.focus();
@@ -25341,6 +25423,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       });
       tutorialPanel.addEventListener('keydown', (event) => {
         if (event.key !== 'Escape') return;
+        // Esc in a docked ⓘ box closes the box and hands focus to its ⓘ.
+        if (releaseInfoDock(true)) return;
         setTutorialOpen(false);
         tutorialToggle.focus();
       });
@@ -29297,6 +29381,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       width: 280px;
       max-height: calc(100vh - 128px);
       overflow-y: auto;
+    }
+
+    /* A docked ⓘ box: the panel shows it alone, the tour's parts hidden. */
+    .tutorial-panel.info-mode > :not(#tutorial-info) {
+      display: none !important;
+    }
+
+    .info-box.info-box-docked {
+      position: static;
+      width: auto;
+      max-width: none;
+      padding: 0;
+      background: none;
+      border: 0;
+      box-shadow: none;
     }
 
     .tutorial-head {
