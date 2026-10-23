@@ -1032,6 +1032,20 @@ The plucked string (AudioWorklet)
 - [ ] The same voice on the Arp. No stock genre or preset ever lands on it,
       even with the voice wander up.
 
+Pulse width and hard sync (AudioWorklet)
+- [ ] Bass → voice → Pulse bass. Width from left to right: thin and nasal,
+      hollow and square in the middle, thin again at the right. No zipper,
+      no click at any note's start or end, and a slurred line glides.
+- [ ] Melody → voice → Sync lead. Sync ratio from 1 (a plain saw) upward: the
+      pitch stays the note while a bright, vocal peak climbs through it. Slave
+      Pulse: hollower, and now Width changes it; on Saw, Width does nothing
+      (its hint says so). A phrase up to C7 stays clean, no whistling aliases.
+- [ ] The first note after Play may sound slightly different (the
+      subtractive stand-in plays while the worklet loads). On a browser with
+      no AudioWorklet every note is the stand-in and nothing errors.
+- [ ] No stock genre or preset ever lands on either, even with the voice
+      wander up.
+
 A sound in mind (v0.0.185)
 - [ ] Under any tuned track's dials, behind "more", "A sound in mind?": press "bright" and
       "glassy" on the melody — the answer reads "Try Bell (FM): …" with two

@@ -52,8 +52,8 @@ test('every stock voice gets a sentence, and every number in it is a patch value
       voices += 1;
     }
   }
-  // 36, plus the two plucked strings.
-  assert.equal(voices, 38, `${voices} voices described, not 38`);
+  // 36, plus the two plucked strings, plus Pulse bass and Sync lead.
+  assert.equal(voices, 40, `${voices} voices described, not 40`);
 });
 
 test('the engine class opens the sentence in its own words', () => {
@@ -108,6 +108,26 @@ test('a plucked string is a string, not a struck object, and names its three dia
     const text = describeVoice(track, 'string', patch);
     assert.match(text, /^A modelled plucked string, damped 80%, brightness \d+%, plucked 10–30% along\./);
     assert.doesNotMatch(text, /modal|struck-object/);
+    const allowed = printableNumbers(patch);
+    for (const n of printed(text)) assert.ok(allowed.has(n), `${n} is not a patch value: ${text}`);
+  }
+});
+
+test('a pulse names its width, and a synced voice its slave and ratio — and Width only on a pulse slave', () => {
+  const bass = deepClone(VOICES.bass.pulse.defaults);
+  bass.pulse.width = 0.12;
+  const b = describeVoice('bass', 'pulse', bass);
+  assert.match(b, /^A pulse 12% wide/);
+  const lead = deepClone(VOICES.melody.sync.defaults);
+  lead.pulse.ratio = { min: 2, max: 3.5 };
+  const saw = describeVoice('melody', 'sync', lead);
+  assert.match(saw, /^A saw hard-synced to the note, running 2–3\.5× as fast/);
+  assert.doesNotMatch(saw, /wide/, 'a saw slave has no width to name');
+  lead.pulse.slave = 'pulse';
+  lead.pulse.width = 0.3;
+  const pulse = describeVoice('melody', 'sync', lead);
+  assert.match(pulse, /^A pulse hard-synced to the note, running 2–3\.5× as fast, 30% wide/);
+  for (const [patch, text] of [[bass, b], [lead, pulse]]) {
     const allowed = printableNumbers(patch);
     for (const n of printed(text)) assert.ok(allowed.has(n), `${n} is not a patch value: ${text}`);
   }

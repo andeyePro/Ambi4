@@ -17,10 +17,11 @@
  *   - a patch can change the sound but never the level guarantees: nothing a
  *     patch sets adds gain, and resonance is paid for with a matching trim
  *
- * Pure module: two imports — pluck-kernel.js (the plucked string's DSP) and
- * vowel-formants.js (the Vowel filter's formant table), both pure — and
- * nothing touches an AudioContext until a voice is
- * played, so importing this outside a browser is safe.
+ * Pure module: three imports — pluck-kernel.js and pulse-kernel.js (the
+ * plucked string's and the pulse/sync oscillator's DSP) and vowel-formants.js
+ * (the Vowel filter's formant table), all pure — and nothing touches an
+ * AudioContext until a voice is played, so importing this outside a browser
+ * is safe.
  *
  * Layout:
  *   1. constants + pure helpers
@@ -36,6 +37,7 @@
 
 import { pluckWorkletSource, PLUCK_PROCESSOR, pluckT60 } from './pluck-kernel.js';
 import { VOWEL_HOME, vowelBank } from './vowel-formants.js';
+import { pulseWorkletSource, PULSE_PROCESSOR } from './pulse-kernel.js';
 
 // ---------------------------------------------------------------------------
 // 1. Constants and pure helpers
@@ -461,6 +463,9 @@ function createRig(ctx, destination, note) {
   let held = null;
   // Parallel layer envelopes registered through holdAlso() — see there.
   const alsoHeld = [];
+  // Pitch params that are not an oscillator's `frequency` — the worklet
+  // oscillator's own a-rate `frequency` — registered through retune().
+  const pitchParams = [];
 
   const out = ctx.createGain();
   out.gain.value = 1;
@@ -559,6 +564,17 @@ function createRig(ctx, destination, note) {
       node.start(start);
       sources.push({ node, start, stop: null, base: 0, pitched: false });
       return keep(node);
+    },
+
+    /**
+     * Register a pitch AudioParam the rig did not build — the pulse/sync
+     * worklet's a-rate `frequency`, which has no source entry of its own (the
+     * node has no start or stop) — so a legato glide slides it with the
+     * oscillators. `base` is the frequency it was set to.
+     */
+    retune(param, base) {
+      if (param && typeof param.setTargetAtTime === 'function' && base > 0) pitchParams.push({ param, base });
+      return param;
     },
 
     /** Declare an oscillator a control signal: a glide must not retune it. */
@@ -663,6 +679,10 @@ function createRig(ctx, destination, note) {
       if (!source.pitched) continue;
       source.node.frequency.setTargetAtTime(Math.max(source.base * ratio, 0.01), at, constant);
       source.base *= ratio;
+    }
+    for (const pitch of pitchParams) {
+      pitch.param.setTargetAtTime(Math.max(pitch.base * ratio, 0.01), at, constant);
+      pitch.base *= ratio;
     }
     held.freq = freq;
 
@@ -1171,6 +1191,31 @@ const struck = (defaults) => defaults.modal !== undefined;
  */
 const plucked = (defaults) => defaults.pluck !== undefined;
 
+/**
+ * True for a voice that publishes the Pulse & sync section (a band-limited
+ * pulse, or a hard-synced pair, on an AudioWorklet oscillator —
+ * docs/synthesis-programme.md § 2). Only Pulse bass and Sync lead do.
+ */
+const pulsed = (defaults) => defaults.pulse !== undefined;
+
+/** The slave shapes a Sync lead can play; the registry's enumeration. */
+const SYNC_SLAVES = ['saw', 'pulse'];
+
+/**
+ * The section's dials, patch over defaults, clamped to the registry — and
+ * only the fields the voice publishes: Pulse bass has a width and nothing to
+ * sync, so a stray ratio on its patch is not carried.
+ */
+const pulseOf = (patch, d) => {
+  const asked = part(patch, 'pulse');
+  const own = d.pulse;
+  return {
+    ...('width' in own ? { width: inRange(asked.width, 0.05, 0.95, own.width) } : {}),
+    ...('ratio' in own ? { ratio: inRange(asked.ratio, 1, 8, own.ratio) } : {}),
+    ...('slave' in own ? { slave: oneOf(asked.slave, SYNC_SLAVES, own.slave) } : {}),
+  };
+};
+
 /** The string's three dials, patch over defaults, clamped to the registry. */
 const pluckOf = (patch, d) => {
   const asked = part(patch, 'pluck');
@@ -1396,6 +1441,8 @@ function patchFor(defaults, patch, kind = null) {
     ...(struck(d) ? { modal: modalOf(patch, d) } : {}),
     // The Plucked-string section, on the two voices that publish it.
     ...(plucked(d) ? { pluck: pluckOf(patch, d) } : {}),
+    // The Pulse & sync section, on Pulse bass and Sync lead.
+    ...(pulsed(d) ? { pulse: pulseOf(patch, d) } : {}),
     // AUDIT FIX (voices cluster): the voice's OWN published values, so a
     // patch can be applied RELATIVE to what the voice authored rather than
     // replacing it. A kit publishes ONE adsr and ONE filter but plays three
@@ -1812,6 +1859,19 @@ const DEFAULTS = {
       adsr: { attack: 0.012, decay: 0.9, sustain: 0, release: 0.05 },
       sends: { reverb: 0.12, delay: 0.03 },
     },
+    // A band-limited pulse on an AudioWorklet oscillator, with its Width on a
+    // dial (docs/synthesis-programme.md § 2). Opt-in: no genre or preset
+    // names it, and the voice wander never lands on it (see `optIn` on its
+    // VOICES entry). The width defaults off-square, where a pulse has the
+    // even harmonics a square lacks — the reason to reach for one. The
+    // cutoff is the saw bass's law, f × 6 at its 65 Hz fallback pitch.
+    pulse: {
+      source: { osc1: 'square', osc2: null, shape1: 3, shape2: null, mix: 0, detune: 0, octave: 0 },
+      filter: { type: 'lowpass', cutoff: 390, q: 1.6, envAmount: 1 },
+      adsr: { attack: 0.008, decay: 0.01, sustain: 1, release: 0.3 },
+      sends: { reverb: 0.08, delay: 0.05 },
+      pulse: { width: 0.3 },
+    },
   },
   melody: {
     pluck: {
@@ -1907,6 +1967,17 @@ const DEFAULTS = {
       adsr: { attack: 0.003, decay: 0.01, sustain: 1, release: 0.4 },
       sends: { reverb: 0.35, delay: 0.25 },
       pluck: { damping: 0.4, brightness: 0.5, position: 0.18 },
+    },
+    // A hard-synced pair on an AudioWorklet oscillator: a saw (or pulse)
+    // slave reset by a master at the note, its own pitch Sync ratio × the
+    // note. Opt-in, like the string. The ratio defaults between harmonics,
+    // where sync's vocal, tearing peak is; the lowpass after it sits open.
+    sync: {
+      source: { osc1: 'sawtooth', osc2: null, shape1: 2, shape2: null, mix: 0, detune: 0, octave: 0 },
+      filter: { type: 'lowpass', cutoff: 6000, q: 0.7, envAmount: 0 },
+      adsr: { attack: 0.006, decay: 0.3, sustain: 0.7, release: 0.3 },
+      sends: { reverb: 0.3, delay: 0.25 },
+      pulse: { ratio: 2.5, slave: 'saw', width: 0.5 },
     },
   },
   texture: {
@@ -2196,6 +2267,9 @@ const CONTROLS = {
       source: ['shape1', 'octave', 'fold'], filter: true, adsr: true, sends: true,
     },
     upright: { source: true, filter: true, adsr: true, sends: true },
+    // One worklet oscillator: no second oscillator to blend or detune, and no
+    // morph (its shape is the pulse); octave is its source control.
+    pulse: { source: ['octave'], pulse: true, filter: true, adsr: true, sends: true },
   },
   melody: {
     pluck: { source: true, filter: true, adsr: true, sends: true },
@@ -2213,6 +2287,10 @@ const CONTROLS = {
     // its only source control, the Pluck section is its voice, and the patch
     // filter sits after the string (type, cutoff, Q — it does not move).
     string: { source: ['octave'], pluck: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    // The sync pair is one source; Ratio, Slave and Width are its section.
+    // The filter sits still (envAmount 0 published), so its envelope dial is
+    // left off rather than shown doing nothing.
+    sync: { source: ['octave'], pulse: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   texture: {
     sparkle: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
@@ -2328,6 +2406,9 @@ const ENGINE_TYPES = {
     // Sine and triangle under a lowpass, struck rather than held; the thump is
     // a 30 ms burst, the same garnish line pluck's string tick sits on.
     upright: 'subtractive',
+    // One band-limited pulse (a worklet oscillator) under a falling lowpass:
+    // a new oscillator shape, the same subtractive voice.
+    pulse: 'subtractive',
   },
   melody: {
     // Two saws under a resonant cutoff dropping a decade in a quarter second.
@@ -2362,6 +2443,9 @@ const ENGINE_TYPES = {
     // back to a subtractive stack (see stringVoice); the class names the model
     // the voice IS, and the fallback is a stand-in for it, not its identity.
     string: 'physical',
+    // A hard-synced oscillator pair through a lowpass: sync is an oscillator
+    // technique, and what follows it is the subtractive filter and envelope.
+    sync: 'subtractive',
   },
   texture: {
     // Two or three sine carriers, each with a ratio-7.1 modulator.
@@ -4108,24 +4192,30 @@ function arpMuted(ctx, destination, note, patch) {
 // ---------------------------------------------------------------------------
 
 /**
- * Per AudioContext: the worklet module's load, started once and cached.
- * `state` is 'loading' until addModule settles, then 'ready' or 'failed'.
- * A WeakMap, so a closed context takes its entry with it.
+ * Per AudioContext: each worklet module's load, started once and cached —
+ * a Map from the module's name ('pluck', 'pulse') to its entry. `state` is
+ * 'loading' until addModule settles, then 'ready' or 'failed'. A WeakMap, so
+ * a closed context takes its entries with it.
  */
-const PLUCK_WORKLETS = new WeakMap();
+const WORKLETS = new WeakMap();
 
 /** The worklet string's makeup into the envelope — see workletString. */
 const STRING_MAKEUP = 1.55;
 
-/** One Blob URL for the module, built from the kernel's own source text. */
-let pluckModuleUrl = null;
+/**
+ * One Blob URL per module, each built from its kernel's own source text: the
+ * plucked string's and the pulse/sync oscillator's are separate modules, so a
+ * piece that never plays one never loads it.
+ */
+const WORKLET_SOURCES = { pluck: pluckWorkletSource, pulse: pulseWorkletSource };
+const workletUrls = {};
 
-function pluckWorkletUrl() {
-  if (pluckModuleUrl) return pluckModuleUrl;
+function workletUrl(name) {
+  if (workletUrls[name]) return workletUrls[name];
   if (typeof Blob !== 'function' || typeof URL === 'undefined'
     || typeof URL.createObjectURL !== 'function') return null;
-  pluckModuleUrl = URL.createObjectURL(new Blob([pluckWorkletSource()], { type: 'text/javascript' }));
-  return pluckModuleUrl;
+  workletUrls[name] = URL.createObjectURL(new Blob([WORKLET_SOURCES[name]()], { type: 'text/javascript' }));
+  return workletUrls[name];
 }
 
 /**
@@ -4142,19 +4232,30 @@ function pluckWorkletUrl() {
  * engine-voices.js stays importable by the Node suites with no bundler.
  */
 export function preparePluckString(ctx) {
-  const entry = pluckEntry(ctx);
+  const entry = workletEntry(ctx, 'pluck');
   return entry ? entry.promise : Promise.resolve(false);
 }
 
-function pluckEntry(ctx) {
+/** The same for the pulse/sync oscillator (Pulse bass, Sync lead). */
+export function preparePulseOscillator(ctx) {
+  const entry = workletEntry(ctx, 'pulse');
+  return entry ? entry.promise : Promise.resolve(false);
+}
+
+function workletEntry(ctx, name) {
   if (!ctx || typeof ctx !== 'object') return null;
-  let entry = PLUCK_WORKLETS.get(ctx);
+  let modules = WORKLETS.get(ctx);
+  if (!modules) {
+    modules = new Map();
+    WORKLETS.set(ctx, modules);
+  }
+  let entry = modules.get(name);
   if (entry) return entry;
   entry = { state: 'failed', promise: Promise.resolve(false) };
   try {
     const worklet = ctx.audioWorklet;
     const url = worklet && typeof worklet.addModule === 'function'
-      && typeof AudioWorkletNode === 'function' ? pluckWorkletUrl() : null;
+      && typeof AudioWorkletNode === 'function' ? workletUrl(name) : null;
     if (url) {
       entry.state = 'loading';
       entry.promise = Promise.resolve()
@@ -4165,9 +4266,11 @@ function pluckEntry(ctx) {
   } catch {
     entry.state = 'failed';
   }
-  PLUCK_WORKLETS.set(ctx, entry);
+  modules.set(name, entry);
   return entry;
 }
+
+const pluckEntry = (ctx) => workletEntry(ctx, 'pluck');
 
 const pluckReady = (ctx) => {
   const entry = pluckEntry(ctx);
@@ -4314,6 +4417,199 @@ function melodyString(ctx, destination, note, patch) {
 /** The arp's plucked string, at the muted comp's level. */
 function arpString(ctx, destination, note, patch) {
   return stringVoice(ctx, destination, note, patch, DEFAULTS.arp.string, PEAK.arp * 0.8);
+}
+
+// ---------------------------------------------------------------------------
+// 4c-ter. Pulse width and hard sync — an AudioWorklet oscillator
+// ---------------------------------------------------------------------------
+
+/**
+ * The worklet oscillator's makeup into the envelope. The kernel's 50 % pulse
+ * is ±0.5 and its narrowest (5 %) peaks at 0.95, never past 1
+ * (pwm-sync-smoke's bounded grid); 1.25 puts a square near the fallback's
+ * level while the worst case stays under the house ceiling:
+ * 0.95 × 1.25 × the bass's 0.204 envelope peak = 0.242. The sync lead's saw
+ * slave sits within ±0.625, so it takes 1.6 into the melody's 0.153:
+ * 1 × 1.6 × 0.153 = 0.245 at the very worst (a 5 % pulse slave).
+ */
+const PULSE_MAKEUP = { pulse: 1.25, sync: 1.6 };
+
+/**
+ * The morph-dial shape nearest a pulse of this width, for the fallback: the
+ * square at 50 %, leaning back toward the saw as the pulse narrows or widens
+ * (a 5 % pulse has every harmonic, as a saw does; a square only the odd
+ * ones). 3 at 50 %, 2.1 at 5 % or 95 % — a PeriodicWave from shapeWave().
+ */
+const pulseShape = (width) => 3 - Math.abs(2 * width - 1);
+
+/**
+ * The oscillator itself, in the worklet: one AudioWorkletNode per note
+ * (processor `ambi4-pulse-osc`), its a-rate `frequency`, `width` and `ratio`
+ * set from the dials through parameterData, its frequency registered with the
+ * rig so a legato glide slides it. An AudioWorkletNode has no start or stop,
+ * so a zero-offset ConstantSource is the rig's source for the note; the
+ * source the rig is handed WRAPS it, so every stop the rig schedules — the
+ * note's end, a glide that holds the note longer, a cancel that ends it
+ * sooner — also reaches the processor through its port. Returns false, and
+ * builds nothing that outlives the note, when the node cannot be made.
+ */
+function workletPulse(ctx, rig, dest, { t, stop, f, mode, slave, width, ratio }) {
+  let node;
+  let life;
+  try {
+    node = new AudioWorkletNode(ctx, PULSE_PROCESSOR, {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      parameterData: { frequency: f, width, ratio },
+      processorOptions: { mode, slave, start: t, stop },
+    });
+    life = ctx.createConstantSource();
+  } catch {
+    if (node && typeof node.disconnect === 'function') node.disconnect();
+    return false;
+  }
+  life.offset.value = 0;
+  rig.adopt(node);
+  const port = node.port && typeof node.port.postMessage === 'function' ? node.port : null;
+  const lifetime = {
+    start: (when) => life.start(when),
+    stop(when) {
+      life.stop(when);
+      if (port) port.postMessage({ stop: when });
+    },
+    get onended() { return life.onended; },
+    set onended(fn) { life.onended = fn; },
+    disconnect: () => life.disconnect(),
+  };
+  rig.track(lifetime, t);
+  life.connect(node);
+  const params = node.parameters;
+  rig.retune(params && typeof params.get === 'function' ? params.get('frequency') : null, f);
+  const makeup = rig.gain(PULSE_MAKEUP[mode] || 1);
+  node.connect(makeup);
+  makeup.connect(dest);
+  return true;
+}
+
+/**
+ * The FALLBACK, for a context with no AudioWorklet (an old browser, the Node
+ * suites' mocks, an addModule that failed) and for the first note on a context
+ * whose worklet is still loading. The nearest honest subtractive sound, under
+ * the same envelope and filter:
+ *
+ *   pulse  the morph dial's shape nearest that width (pulseShape): the
+ *          square at 50 %, saw-leaning toward either end. It cannot be a
+ *          true 20 % pulse — no OscillatorNode can — but Width still moves it
+ *          the way the real pulse's spectrum moves.
+ *   sync   the slave's own shape (a saw, or the pulse's nearest shape) at the
+ *          note, through a +6 dB peak at note × ratio: hard sync's tone is a
+ *          resonant-sounding peak at the slave's pitch, and a peaking filter
+ *          is the nearest a plain oscillator gets to one. Not a sync — the
+ *          tearing sweep a moving ratio makes needs the real thing.
+ */
+function fallbackPulse(rig, dest, { t, f, mode, slave, width, ratio }) {
+  const shape = slave === 'saw' ? 2 : pulseShape(width);
+  const osc = rig.osc(shape, f, t);
+  if (mode !== 'sync') {
+    const gain = rig.gain(0.6);
+    osc.connect(gain);
+    gain.connect(dest);
+    return;
+  }
+  const trim = rig.gain(0.5);
+  const formant = rig.filter('peaking', clamp(f * ratio, 40, 16000), 1.4);
+  formant.gain.value = 6;
+  osc.connect(trim);
+  trim.connect(formant);
+  formant.connect(dest);
+}
+
+/**
+ * Worklet when ready, the fallback otherwise — and first sight of a fresh
+ * context starts the module loading, so the next note plays the real thing.
+ * `s` is the patch's (or the defaults') Pulse & sync section.
+ */
+function pulseSource(ctx, rig, dest, { t, stop, f, mode, s }) {
+  const slave = mode === 'sync' ? s.slave : 'pulse';
+  const width = Number.isFinite(s.width) ? s.width : 0.5;
+  const ratio = mode === 'sync' && Number.isFinite(s.ratio) ? s.ratio : 1;
+  const entry = workletEntry(ctx, 'pulse');
+  const ready = Boolean(entry && entry.state === 'ready');
+  if (ready && workletPulse(ctx, rig, dest, { t, stop, f, mode, slave, width, ratio })) return;
+  fallbackPulse(rig, dest, { t, f, mode, slave, width, ratio });
+}
+
+/**
+ * Pulse bass: one band-limited pulse (src/scripts/pulse-kernel.js, run in an
+ * AudioWorklet) under the saw bass's falling lowpass. Width is the voice:
+ * off-square it has the even harmonics a square lacks — hollow at 50 %,
+ * reedy and nasal toward either end. Mono legato slides it, the worklet's
+ * frequency param and the fallback's oscillator alike.
+ */
+function bassPulse(ctx, destination, note, patch) {
+  const d = DEFAULTS.bass.pulse;
+  const p = patchFor(d, patch);
+  const f = shifted(p, freqOf(note, 65));
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 2);
+  const s = p ? p.pulse : d.pulse;
+
+  const amp = rig.gain(SILENCE);
+  const { node: lowpass, out: filtered } = mainFilter(rig, p, { type: 'lowpass', freq: f * 6, q: 1.6 });
+  amp.connect(lowpass);
+  filtered.connect(rig.out);
+
+  const at = cutoffAt(p, f * 6);
+  lowpass.frequency.setValueAtTime(at(clamp(f * (5 + 9 * v), 160, 2600)), t);
+  lowpass.frequency.exponentialRampToValueAtTime(at(Math.max(f * 2.4, 85)), t + 0.3);
+
+  const attack = p ? p.adsr.attack : d.adsr.attack;
+  const release = p ? p.adsr.release : d.adsr.release;
+  const hold = Math.max(0.08, dur - attack);
+  const peak = level(PEAK.bass * 0.85, v);
+  const end = sustainEnv(amp.gain, t, { attack, hold, release, peak }, p);
+  pulseSource(ctx, rig, amp, { t, stop: end + 0.05, f, mode: 'pulse', s });
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release, end, p });
+}
+
+/**
+ * Sync lead: a hard-synced pair (src/scripts/pulse-kernel.js, in an
+ * AudioWorklet). A master at the note resets a saw — or a pulse, at Width —
+ * running Sync ratio × faster, so the pitch stays the note while the ratio
+ * moves a bright, vocal peak through its harmonics. A wide-open lowpass and
+ * the published ADSR (its decay and sustain included, patched or not) after
+ * it; mono legato slides it.
+ */
+function melodySync(ctx, destination, note, patch) {
+  const d = DEFAULTS.melody.sync;
+  const p = patchFor(d, patch);
+  const f = shifted(p, freqOf(note, 440));
+  const slurred = takeOver(ctx, note, f);
+  if (slurred) return slurred;
+
+  const rig = createRig(ctx, destination, note);
+  const t = timeOf(ctx, note);
+  const v = velOf(note);
+  const dur = durOf(note, 1);
+  const s = p ? p.pulse : d.pulse;
+  // The published envelope IS the unpatched one, decay and sustain included.
+  const shape = p || { adsr: d.adsr };
+
+  const amp = rig.gain(SILENCE);
+  const { node: filter, out: filtered } = mainFilter(rig, p, { type: 'lowpass', freq: 6000, q: 0.7 });
+  amp.connect(filter);
+  filtered.connect(rig.out);
+
+  const peak = level(PEAK.melody * 0.85, v);
+  const end = adsrEnv(amp.gain, t, { hold: dur, peak }, shape.adsr);
+  pulseSource(ctx, rig, amp, { t, stop: end + 0.05, f, mode: 'sync', s });
+  return finishSustained(rig, { amp: amp.gain, freq: f, peak, release: shape.adsr.release, end, p: shape });
 }
 
 // ---------------------------------------------------------------------------
@@ -4624,6 +4920,16 @@ export const VOICES = {
       defaults: DEFAULTS.bass.upright,
       controls: CONTROLS.bass.upright,
     },
+    pulse: {
+      label: 'Pulse bass',
+      play: bassPulse,
+      engineType: ENGINE_TYPES.bass.pulse,
+      defaults: DEFAULTS.bass.pulse,
+      controls: CONTROLS.bass.pulse,
+      // Opt-in: the engine's voice wander never draws it (no stock genre
+      // or preset names it either), so every shipped piece sounds as it did.
+      optIn: true,
+    },
   },
   melody: {
     pluck: {
@@ -4697,6 +5003,15 @@ export const VOICES = {
       controls: CONTROLS.melody.string,
       // Opt-in: the engine's voice wander never draws it (no stock genre
       // or preset names it either), so every shipped piece sounds as it did.
+      optIn: true,
+    },
+    sync: {
+      label: 'Sync lead',
+      play: melodySync,
+      engineType: ENGINE_TYPES.melody.sync,
+      defaults: DEFAULTS.melody.sync,
+      controls: CONTROLS.melody.sync,
+      // Opt-in, as above.
       optIn: true,
     },
   },
@@ -4894,11 +5209,11 @@ const CATEGORIES = {
   pad: { warm: 'synth', glass: 'synth', strings: 'strings', choir: 'voice', polysaw: 'synth' },
   bass: {
     sub: 'synth', round: 'synth', breath: 'synth', fingered: 'plucked', sawbass: 'synth',
-    acid: 'synth', upright: 'plucked',
+    acid: 'synth', upright: 'plucked', pulse: 'synth',
   },
   melody: {
     pluck: 'synth', bell: 'mallets', flute: 'wind', keys: 'keys', call: 'nature', tines: 'keys',
-    nylon: 'plucked', tape: 'keys', stab: 'keys', string: 'plucked',
+    nylon: 'plucked', tape: 'keys', stab: 'keys', string: 'plucked', sync: 'synth',
   },
   texture: {
     sparkle: 'synth', grains: 'noise', chimes: 'mallets', wash: 'noise', colour: 'noise',

@@ -1775,6 +1775,46 @@ try {
       }
     }
 
+    // Pulse & sync: Sync lead shows Sync ratio, Slave and Width; Pulse bass
+    // shows Width alone; every dial carries its registry hint; the voice
+    // picked after them grows none of it.
+    for (const [track, voice, want, back] of [
+      ['melody', 'sync', ['pulse.ratio', 'pulse.slave', 'pulse.width'], 'pluck'],
+      ['bass', 'pulse', ['pulse.width'], 'sub'],
+    ]) {
+      const select = doc.getElementById(`track-voice-${track}`);
+      const cells = () => doc.querySelectorAll(`#voice-editor-${track} .patch-controls .knob-cell[data-field^="pulse."]`);
+      const pick = async (id) => {
+        select.value = id;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        await openEditor(track);
+        await waitUntil(() => doc.querySelectorAll(`#voice-editor-${track} .patch-controls .knob-cell`).length > 0);
+      };
+      if (!select || !Array.from(select.options).some((o) => o.value === voice)) {
+        failures.push(`the ${track} picker does not offer ${voice}`);
+        continue;
+      }
+      const was = select.value;
+      await pick(voice);
+      if (!(await waitUntil(() => cells().length === want.length))) {
+        failures.push(`${track}.${voice}'s editor shows ${cells().length} pulse dials, expected ${want.join(', ')}`);
+      } else {
+        const fields = Array.from(cells()).map((c) => c.dataset.field);
+        if (JSON.stringify(fields) !== JSON.stringify(want)) failures.push(`${track}.${voice}: pulse dials ${fields.join(', ')}, expected ${want.join(', ')}`);
+        for (const cell of cells()) {
+          const row = registry[`patch.${cell.dataset.field}`];
+          const knob = cell.querySelector('.knob');
+          const descId = knob && knob.getAttribute('aria-describedby');
+          const desc = descId ? doc.getElementById(descId) : null;
+          if (!row || !desc || desc.textContent !== row.hint) failures.push(`${cell.dataset.field}: the pulse dial does not carry its registry hint`);
+        }
+      }
+      await pick(back);
+      await new Promise((r) => setTimeout(r, 50));
+      if (cells().length) failures.push(`${track}.${back} grew pulse dials — the disclosure rule is broken`);
+      await pick(was || back);
+    }
+
     // v0.0.182 — unit 8: My voices. Pin the pad on Warm, move Cutoff through
     // the real typed readout, save it under a name; the picker gains a My
     // voices entry that is selected; picking Glass then picking the saved

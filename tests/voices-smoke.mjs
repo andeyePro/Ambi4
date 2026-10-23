@@ -266,8 +266,10 @@ function audibleGains(destination) {
  * Play one note and assert every structural guarantee the contract makes.
  * Returns the timing/level measurements so individual tests can go further.
  */
-function playAndCheck(label, voice, note, { cancelAfter = false, patch } = {}) {
-  const ctx = new MockAudioContext();
+function playAndCheck(label, voice, note, { cancelAfter = false, patch, ctx: given } = {}) {
+  // A caller may hand in a context — one whose worklet module has already
+  // loaded, so the house rules are checked on the worklet branch too.
+  const ctx = given || new MockAudioContext();
   const destination = makeNode('gain');   // stands in for the engine's track bus
   created = [];
   startedSources = [];
@@ -406,11 +408,12 @@ const EXPECTED = {
   bass: {
     sub: 'Sub', round: 'Round', breath: 'Breath',
     fingered: 'Fingered', sawbass: 'Saw bass', acid: 'Squelch', upright: 'Upright',
+    pulse: 'Pulse bass',
   },
   melody: {
     pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call',
     tines: 'Tines', nylon: 'Nylon guitar', tape: 'Worn keys', stab: 'Organ stab',
-    string: 'Plucked string',
+    string: 'Plucked string', sync: 'Sync lead',
   },
   texture: {
     sparkle: 'Sparkle', grains: 'Grains', chimes: 'Chimes', wash: 'Wash',
@@ -800,7 +803,7 @@ test('every voice publishes a complete, in-range default patch', () => {
       // v0.0.159: a kit also publishes each sound's own envelope in perKind.
       // v0.0.175: an FM voice also publishes its `fm` section (unit 4).
       // v0.0.176: an additive voice publishes its drawbars the same way.
-      const groups = Object.keys(defaults).filter((k) => !['perKind', 'fm', 'additive', 'modal', 'pluck'].includes(k)).sort();
+      const groups = Object.keys(defaults).filter((k) => !['perKind', 'fm', 'additive', 'modal', 'pluck', 'pulse'].includes(k)).sort();
       assert.deepEqual(groups, ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
       if (defaults.modal !== undefined) {
@@ -941,12 +944,15 @@ const V2_ATTACK = {
   bass: {
     sub: 0.12, round: 0.05, breath: 0.18,
     fingered: 0.008, sawbass: 0.012, acid: 0.006, upright: 0.012,
+    // No v2 past: the pulse bass's envelope is its published one.
+    pulse: 0.008,
   },
   melody: {
     pluck: 0.006, bell: 0.005, flute: 0.09, keys: 0.004, call: 0.006,
     tines: 0.005, nylon: 0.005, tape: 0.006, stab: 0.006,
     // No v2 past: the plucked string's own envelope is its published one.
     string: 0.003,
+    sync: 0.006,
   },
   // v19: the three new voices have no v2 past to keep, so their unpatched
   // envelope IS their published default — which is what these numbers say.
@@ -1223,6 +1229,8 @@ test('an inapplicable source field never silences a voice', () => {
     ['melody', 'tines'], ['melody', 'stab'], ['percussion', 'dust'],
     // The plucked string: no oscillator stack, in either branch.
     ['melody', 'string'], ['arp', 'string'],
+    // One worklet oscillator (or its one-oscillator fallback): octave only.
+    ['bass', 'pulse'], ['melody', 'sync'],
   ];
   for (const [track, id] of ignoring) {
     const note = attackNote(track);
@@ -1711,8 +1719,10 @@ test('controls: schema shape, and every applicable field exists in defaults', ()
       assert.ok(controls && typeof controls === 'object', `${where}: missing`);
       // v0.0.175: an FM voice also declares `fm: true`, and only an FM voice —
       // the section a voice exposes is the section it publishes.
-      assert.deepEqual(Object.keys(controls).filter((k) => !['fm', 'additive', 'modal', 'pluck'].includes(k)).sort(), ['adsr', 'filter', 'sends', 'source'],
+      assert.deepEqual(Object.keys(controls).filter((k) => !['fm', 'additive', 'modal', 'pluck', 'pulse'].includes(k)).sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      assert.equal('pulse' in controls, defaults.pulse !== undefined,
+        `${where}: pulse control declared ${'pulse' in controls} but defaults publish ${defaults.pulse !== undefined}`);
       assert.equal('pluck' in controls, defaults.pluck !== undefined,
         `${where}: pluck control declared ${'pluck' in controls} but defaults publish ${defaults.pluck !== undefined}`);
       assert.equal('modal' in controls, defaults.modal !== undefined,
@@ -2792,8 +2802,9 @@ test('v18: every voice declares an engineType from the contract\'s six classes',
     }
   }
   // 21 at v18, plus v19's colour, cloud and the two readings of call, plus
-  // v27's eleven signature voices, plus the two plucked strings.
-  assert.equal(declared, 38, `${declared} voices carry an engineType, not 38`);
+  // v27's eleven signature voices, plus the two plucked strings, plus Pulse
+  // bass and Sync lead.
+  assert.equal(declared, 40, `${declared} voices carry an engineType, not 40`);
 });
 
 // --------------------------------------------------------------------------
@@ -3169,6 +3180,7 @@ for (const [id, entry] of Object.entries(STARTING_PATCHES)) {
 // --------------------------------------------------------------------------
 
 const STRINGS = [['melody', 'string'], ['arp', 'string']];
+const PULSES = [['bass', 'pulse'], ['melody', 'sync']];
 const stringNote = { midi: 69, freq: null, kind: null, duration: 1, when: 0.5, velocity: 0.8, pan: 0 };
 const pluckPatch = (track, id, pluck) => ({
   ...VOICES[track][id].defaults, pluck: { ...VOICES[track][id].defaults.pluck, ...pluck },
@@ -3178,8 +3190,10 @@ test('pluck: only the two plucked strings publish the section, and they are opt-
   for (const [track, bank] of Object.entries(VOICES)) {
     for (const [id, voice] of Object.entries(bank)) {
       const isString = STRINGS.some(([t, i]) => t === track && i === id);
+      const isPulse = PULSES.some(([t, i]) => t === track && i === id);
       assert.equal(voice.defaults.pluck !== undefined, isString, `${track}.${id}: pluck section`);
-      assert.equal(voice.optIn === true, isString, `${track}.${id}: optIn`);
+      // The worklet voices, and only they, are opt-in.
+      assert.equal(voice.optIn === true, isString || isPulse, `${track}.${id}: optIn`);
       if (voice.optIn !== undefined) assert.equal(voice.optIn, true, `${track}.${id}: optIn is true or absent`);
     }
   }
@@ -3238,6 +3252,15 @@ async function withWorklet(fn, { fail = false } = {}) {
       const node = makeNode('worklet');
       node.processor = name;
       node.options = options;
+      // The a-rate params a processor declares, seeded from parameterData,
+      // and a port that records what is posted to it.
+      const params = new Map();
+      for (const [key, value] of Object.entries((options && options.parameterData) || {})) {
+        params.set(key, makeParam(`worklet.${key}`, value));
+      }
+      node.parameters = { get: (key) => params.get(key) };
+      node.posted = [];
+      node.port = { postMessage: (message) => node.posted.push(message) };
       workletInstances.push(node);
       return node;
     }
@@ -3316,6 +3339,179 @@ tests.push(['pluck worklet: an addModule that fails leaves the fallback, and nev
     VOICES.arp.string.play(ctx, destination, stringNote);
     assert.equal(instances().length, 0, 'a failed module still built a worklet node');
     assert.ok(created.some((n) => n.kind === 'oscillator'), 'the failed module left the note silent');
+  }, { fail: true });
+}]);
+
+// --------------------------------------------------------------------------
+// Pulse width and hard sync (a worklet oscillator). The kernel's own laws —
+// duty, DC, aliasing, the reset, bounds — are tests/pwm-sync-smoke.mjs; these
+// are the voices' wiring, on both branches.
+// --------------------------------------------------------------------------
+
+const pulseNote = (track) => ({
+  midi: track === 'bass' ? 40 : 69, freq: null, kind: null, duration: 1, when: 0.5, velocity: 1, pan: 0,
+});
+const pulsePatch = (track, id, pulse) => ({
+  ...VOICES[track][id].defaults, pulse: { ...VOICES[track][id].defaults.pulse, ...pulse },
+});
+
+test('pulse: only Pulse bass and Sync lead publish the section, with exactly their own fields', () => {
+  for (const [track, bank] of Object.entries(VOICES)) {
+    for (const [id, voice] of Object.entries(bank)) {
+      const isPulse = PULSES.some(([t, i]) => t === track && i === id);
+      assert.equal(voice.defaults.pulse !== undefined, isPulse, `${track}.${id}: pulse section`);
+    }
+  }
+  assert.deepEqual(Object.keys(VOICES.bass.pulse.defaults.pulse), ['width'], 'Pulse bass has a width and nothing to sync');
+  assert.deepEqual(Object.keys(VOICES.melody.sync.defaults.pulse).sort(), ['ratio', 'slave', 'width']);
+  for (const [track, id] of PULSES) {
+    assert.equal(VOICES[track][id].controls.pulse, true, `${track}.${id}: the whole section applies`);
+    assert.equal(VOICES[track][id].engineType, 'subtractive', `${track}.${id}: engine class`);
+    assert.equal(VOICES[track][id].category, 'synth', `${track}.${id}: category`);
+  }
+});
+
+test('pulse fallback (no AudioWorklet): every dial moves the stand-in, and Width on a saw slave honestly does not', () => {
+  const sig = (track, id, pulse) => renderSignature(withSeed(5, () => playAndCheck(`${track}.${id} ${JSON.stringify(pulse)}`,
+    VOICES[track][id], pulseNote(track), { patch: pulsePatch(track, id, pulse) })));
+  // Pulse bass: Width picks the morph shape nearest the pulse.
+  const bass = withSeed(5, () => playAndCheck('bass.pulse base', VOICES.bass.pulse, pulseNote('bass'), { patch: VOICES.bass.pulse.defaults }));
+  assert.ok(!bass.graph.some((n) => n.kind === 'worklet'), 'built a worklet node with no AudioWorklet');
+  const osc = bass.graph.find((n) => n.kind === 'oscillator');
+  assert.ok(osc && osc.periodicWave, 'the fallback pulse is not a morphed shape');
+  assert.notEqual(sig('bass', 'pulse', { width: 0.05 }), sig('bass', 'pulse', {}), 'Width moved nothing on the fallback');
+  // A 50 % pulse is the square itself: the morph's integer stop, the browser's own type.
+  const square = withSeed(5, () => playAndCheck('square', VOICES.bass.pulse, pulseNote('bass'), { patch: pulsePatch('bass', 'pulse', { width: 0.5 }) }));
+  assert.equal(square.graph.find((n) => n.kind === 'oscillator').type, 'square', 'a 50 % pulse does not fall back to the square');
+  // Sync lead: Ratio moves the peak, Slave the shape, Width only on a pulse slave.
+  const base = sig('melody', 'sync', {});
+  assert.notEqual(sig('melody', 'sync', { ratio: 6 }), base, 'Ratio moved nothing on the fallback');
+  const ratioRun = withSeed(5, () => playAndCheck('ratio', VOICES.melody.sync, pulseNote('melody'), { patch: pulsePatch('melody', 'sync', { ratio: 6 }) }));
+  const peak = ratioRun.graph.find((n) => n.kind === 'biquad' && n.type === 'peaking');
+  assert.ok(peak && Math.abs(peak.frequency.max - 440 * 6) < 1e-6, `the stand-in's peak is not at note × ratio (${peak && peak.frequency.max})`);
+  assert.notEqual(sig('melody', 'sync', { slave: 'pulse' }), base, 'Slave moved nothing on the fallback');
+  assert.notEqual(sig('melody', 'sync', { slave: 'pulse', width: 0.1 }), sig('melody', 'sync', { slave: 'pulse' }), 'Width on a pulse slave moved nothing');
+  assert.equal(sig('melody', 'sync', { width: 0.1 }), base, 'Width moved a saw slave — its hint says it does nothing there');
+});
+
+tests.push(['pulse worklet: the first note falls back, the next plays the oscillator with the dials as its params', async () => {
+  await withWorklet(async ({ modules, instances, reset }) => {
+    for (const [track, id] of PULSES) {
+      const voice = VOICES[track][id];
+      const ctx = new MockAudioContext();
+      reset();
+      created = [];
+      startedSources = [];
+      automation.length = 0;
+      const destination = makeNode('gain');
+      const dial = track === 'bass' ? { width: 0.2 } : { ratio: 3.3, slave: 'pulse', width: 0.4 };
+      const before = modules.length;
+      voice.play(ctx, destination, pulseNote(track), pulsePatch(track, id, dial));
+      assert.equal(instances().length, 0, `${id}: the first note did not wait for the module`);
+      assert.ok(created.some((n) => n.kind === 'oscillator'), `${id}: the first note played nothing`);
+      await new Promise((r) => setTimeout(r, 0));
+      assert.equal(modules.length, before + 1, `${id}: addModule was not asked for exactly once`);
+      reset();
+      created = [];
+      startedSources = [];
+      voice.play(ctx, destination, pulseNote(track), pulsePatch(track, id, dial));
+      assert.equal(modules.length, before + 1, `${id}: the module was loaded twice on one context`);
+      const [node] = instances();
+      assert.ok(node, `${id}: the ready worklet built no oscillator`);
+      assert.equal(node.processor, 'ambi4-pulse-osc');
+      const f = 440 * Math.pow(2, (pulseNote(track).midi - 69) / 12);
+      const data = node.options.parameterData;
+      assert.ok(Math.abs(data.frequency - f) < 1e-9, `${id}: frequency ${data.frequency}`);
+      const o = node.options.processorOptions;
+      if (track === 'bass') {
+        assert.equal(o.mode, 'pulse');
+        assert.equal(data.width, 0.2);
+        assert.equal(data.ratio, 1, 'a free pulse is not at ratio 1');
+      } else {
+        assert.equal(o.mode, 'sync');
+        assert.equal(o.slave, 'pulse');
+        assert.equal(data.width, 0.4);
+        assert.equal(data.ratio, 3.3);
+      }
+      assert.equal(o.start, pulseNote(track).when, `${id}: the oscillator does not start at the note`);
+      assert.ok(!created.some((n) => n.kind === 'oscillator'), `${id}: the worklet note also built the fallback`);
+      const life = created.find((n) => n.kind === 'constantSource');
+      assert.ok(life && life.startedAt === pulseNote(track).when, `${id}: no lifetime source at the note`);
+      // Every stop the rig scheduled reached the processor too.
+      const last = node.posted[node.posted.length - 1];
+      assert.ok(last && Math.abs(last.stop - life.stoppedAt) < 1e-9, `${id}: the processor's stop ${last && last.stop} is not the source's ${life.stoppedAt}`);
+      // The envelope still guards the onset, and the kernel's bound (1, per
+      // pwm-sync-smoke) times the makeup and the envelope stays in the house.
+      const makeup = node.outputs[0];
+      const amp = makeup.outputs[0];
+      assert.ok(amp.gain.min > 0 && amp.gain.min <= 2e-4, `${id}: the amp starts at ${amp.gain.min}, not the floor`);
+      const ceiling = 1 * makeup.gain.max * amp.gain.max;
+      assert.ok(ceiling <= 0.26, `${id}: the oscillator can reach the bus at ${ceiling.toFixed(3)}`);
+      for (const source of startedSources) source.onended();
+      assert.ok(node.disconnected > 0, `${id}: the worklet node outlived its note`);
+    }
+  });
+}]);
+
+tests.push(['pulse worklet: every house rule holds on the worklet branch, at every edge', async () => {
+  await withWorklet(async () => {
+    const { preparePulseOscillator } = await import('../src/scripts/engine-voices.js');
+    for (const [track, id] of PULSES) {
+      for (const note of notesFor(track)) {
+        const ctx = new MockAudioContext();
+        await preparePulseOscillator(ctx);
+        const run = playAndCheck(`${track}.${id} worklet ${note.midi}/${note.velocity}`, VOICES[track][id], note, { ctx, cancelAfter: note.velocity === 1 });
+        assert.ok(run.graph.some((n) => n.kind === 'worklet'), `${track}.${id}: a ready context did not play the worklet`);
+      }
+    }
+  });
+}]);
+
+tests.push(['pulse worklet: a legato note slides the oscillator\'s frequency and holds its processor alive; a cancel ends it', async () => {
+  await withWorklet(async ({ instances }) => {
+    const { preparePulseOscillator } = await import('../src/scripts/engine-voices.js');
+    for (const [track, id] of PULSES) {
+      const voice = VOICES[track][id];
+      const ctx = new MockAudioContext();
+      await preparePulseOscillator(ctx);
+      const destination = makeNode('gain');
+      const first = { ...pulseNote(track), duration: 0.5 };
+      const handle = voice.play(ctx, destination, first);
+      const node = instances()[instances().length - 1];
+      const stopBefore = node.posted[node.posted.length - 1].stop;
+      const f1 = 440 * Math.pow(2, (first.midi - 69) / 12);
+      const f2 = f1 * Math.pow(2, 5 / 12);
+      const next = voice.play(ctx, destination, {
+        ...first, midi: first.midi + 5, when: 0.8, duration: 1, legatoFrom: { handle, glide: 0.06, freq: f2 },
+      });
+      assert.ok(next && next.legato, `${id}: the second note was not taken over`);
+      assert.equal(instances()[instances().length - 1], node, `${id}: a legato note built a second oscillator`);
+      const frequency = node.parameters.get('frequency');
+      const target = automation.filter((e) => e.paramId === frequency.paramId && e.kind === 'target');
+      assert.ok(target.length && Math.abs(target[target.length - 1].value - f2) < 1e-6,
+        `${id}: the glide did not slide the worklet's frequency to ${f2}`);
+      const held = node.posted[node.posted.length - 1].stop;
+      assert.ok(held > stopBefore + 0.5, `${id}: the processor's stop stayed at ${stopBefore} under a held legato note (now ${held})`);
+      ctx.currentTime = 0.9;
+      next.cancel();
+      const cut = node.posted[node.posted.length - 1].stop;
+      assert.ok(cut < held && cut <= 0.9 + 0.2, `${id}: the cancel did not bring the processor's stop forward (${cut})`);
+    }
+  });
+}]);
+
+tests.push(['pulse worklet: an addModule that fails leaves the fallback, and never throws', async () => {
+  await withWorklet(async ({ instances }) => {
+    for (const [track, id] of PULSES) {
+      const ctx = new MockAudioContext();
+      const destination = makeNode('gain');
+      VOICES[track][id].play(ctx, destination, pulseNote(track));
+      await new Promise((r) => setTimeout(r, 0));
+      created = [];
+      VOICES[track][id].play(ctx, destination, pulseNote(track));
+      assert.equal(instances().length, 0, `${id}: a failed module still built a worklet node`);
+      assert.ok(created.some((n) => n.kind === 'oscillator'), `${id}: the failed module left the note silent`);
+    }
   }, { fail: true });
 }]);
 

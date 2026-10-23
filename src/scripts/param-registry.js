@@ -65,6 +65,8 @@ export const FILTER_TYPE_DIALS = Object.freeze({
 });
 // v0.0.177: the overtone tables a modal voice can ring with (unit 6).
 const MATERIALS = Object.freeze(['metal', 'wood', 'glass', 'bell']);
+// The Pulse & sync section's slave shapes (engine-voices.js SYNC_SLAVES).
+const SYNC_SLAVES = Object.freeze(['saw', 'pulse']);
 
 /**
  * D7's reserved wire vocabulary, verbatim from the plan (2026-08-12). These
@@ -207,6 +209,16 @@ export const PARAM_REGISTRY = Object.freeze({
   'patch.pluck.damping': number(0, 1, { hint: 'How long the string rings: free and long at the left, muted at the right as if a palm rests on it.' }),
   'patch.pluck.brightness': number(0, 1, { hint: 'The tone of the string: dark and soft like a thumb at the left, bright and twangy like a pick at the right.' }),
   'patch.pluck.position': number(0.05, 0.5, { hint: 'Where the string is plucked: near the bridge at the left is thin and nasal, the middle at the right is round and hollow.' }),
+  // The Pulse & sync section (docs/synthesis-programme.md § 2, the "PWM,
+  // hard sync" row): a band-limited oscillator on an AudioWorklet
+  // (src/scripts/pulse-kernel.js). Read only by a voice whose defaults
+  // publish `pulse`, and only the fields it publishes: Pulse bass has Width,
+  // Sync lead has Ratio, Slave and Width (which shapes it only on a pulse
+  // slave, as its hint says). Ratio is the slave's frequency over the note,
+  // three octaves on a log dial.
+  'patch.pulse.width': number(0.05, 0.95, { hint: 'How wide the pulse is: thin and nasal near either end, hollow and square in the middle. On a synced saw it does nothing.' }),
+  'patch.pulse.ratio': number(1, 8, { curve: 'log', hint: 'The synced pitch over the note: 1 is a plain tone, higher drags a bright, vocal peak up through the harmonics.' }),
+  'patch.pulse.slave': enumeration(SYNC_SLAVES, { hint: 'The shape of the synced oscillator: a saw is buzzy and bright, a pulse is hollower and follows Width.' }),
   'patch.sends.reverb': number(0, 1, { hint: 'How much of this voice goes to the shared reverb: dry and close at the left, in a hall at the right.' }),
   'patch.sends.delay': number(0, 1, { hint: 'How much of this voice goes to the shared echo: none at the left, repeating in time at the right.' }),
   // v0.0.254 — opt-in saturation (TODO.md "saturation on track and master").

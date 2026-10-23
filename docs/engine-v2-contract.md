@@ -2482,6 +2482,82 @@ Contract:
   sits after the envelope (type, cutoff, Q; published open at 12 kHz); the
   string's tone is Brightness, inside the loop, where a filter cannot reach.
 
+## The Pulse & sync section and its worklet oscillator
+
+Module ownership: **`src/scripts/pulse-kernel.js`** (pure:
+`createPulseOscillator`, `definePulseProcessor`, `pulseWorkletSource`,
+`PULSE_PROCESSOR`), **the registry** (`patch.pulse.width` 0.05–0.95,
+`.ratio` 1–8 log, `.slave` enum `saw` | `pulse`), **the voice library**
+(`pulsed()`, `pulseOf`, `pulseSource`, `workletPulse`, `fallbackPulse`,
+`bassPulse`, `melodySync`, `preparePulseOscillator`, the rig's `retune`),
+both editors (the Pulse & sync section), and `patch-words.js`; gated by
+`tests/pwm-sync-smoke.mjs`, `tests/voices-smoke.mjs` and
+`tests/patch-words-smoke.mjs`.
+
+Contract:
+
+- A voice publishes the section by carrying `pulse` in its defaults, and
+  publishes only the fields it reads: **Pulse bass** (`bass.pulse`) carries
+  `{ width: 0.3 }`; **Sync lead** (`melody.sync`) carries
+  `{ ratio: 2.5, slave: 'saw', width: 0.5 }`. `pulseOf` carries no field the
+  voice did not publish, so a stray ratio on a Pulse bass patch is dropped.
+  Both are `engineType: 'subtractive'` (a new oscillator shape, then the
+  subtractive filter and envelope), category `synth`, and `optIn: true`
+  exactly as the plucked string is: no genre, preset or starting patch names
+  them and the voice wander never draws them.
+- **The kernel.** One master phase `m` at the note; the sounding slave's
+  phase is `s = frac(m · ratio)`, so it runs `ratio` times faster and returns
+  to zero exactly when the master wraps — hard sync with the reset on the
+  master's period by construction. Mode `pulse` is ratio 1 (a free pulse,
+  always a pulse); mode `sync` reads the ratio and plays a saw (`2s − 1`) or a
+  pulse (`+1` while `s < width`). Every jump — the saw's wrap, the pulse's two
+  edges, the sync reset at whatever height the slave had reached — is an
+  event with a height and a sub-sample time, smoothed by a two-sample
+  PolyBLEP (`+h/2·τ²` on the sample before, `−h/2·(1−τ)²` on the one after),
+  so the output runs ONE SAMPLE late. The mean over one master period is known
+  in closed form from the width and ratio (pulse: `(⌊r⌋(2w−1) + 2·min(fr,w) −
+  fr)/r`; saw: `(fr² − fr)/r`, `fr = frac(r)`) and subtracted every sample.
+  Output is half the centred wave: a 50 % pulse is ±0.5, a saw slave within
+  ±0.625, a 5 % pulse peaks at 0.95, nothing passes 1. The master and the
+  slave (note × ratio) are each capped at a quarter of the sample rate — a
+  large ratio on a high note is capped, never aliased — and the width is kept
+  at least one slave step from either end. No randomness: the same dials are
+  the same samples.
+- **The processor** `ambi4-pulse-osc` declares three a-rate params —
+  `frequency` (Hz), `width`, `ratio` — read per sample, so modulation can
+  reach Width and Sync ratio without a contract change. processorOptions
+  `{ mode, slave, start, stop }`; it counts in FRAMES (rounding
+  `currentTime · sampleRate`), so the onset lands on its exact sample; a
+  `{ stop }` message on its port moves the stop.
+- **Serving it** is the plucked string's mechanism, now one loader for both:
+  `workletEntry(ctx, name)` keeps a per-context Map (a WeakMap of Maps) of
+  module loads, each from its own Blob URL of its kernel's source text; a
+  piece that never plays one never loads it. `preparePluckString` and
+  `preparePulseOscillator` return the load's promise.
+- **One note.** play() stays synchronous. If the module is ready, the source
+  is an AudioWorkletNode with `parameterData { frequency, width, ratio }`
+  from the patch; a zero-offset ConstantSource is the rig's source for the
+  note's lifetime, WRAPPED so every stop the rig schedules (the note's end, a
+  legato glide that holds it longer, a cancel that ends it sooner) is also
+  posted to the processor; the `frequency` param is registered with
+  `rig.retune`, so a legato glide slides it like an oscillator's. Makeup into
+  the envelope 1.25 for the pulse (1 × 1.25 × the bass's 0.204 envelope peak
+  = 0.255) and 1.6 for sync (1 × 1.6 × the melody's 0.153 = 0.245), both under
+  the per-source ceiling of 0.26. Otherwise — no worklet, a failed addModule, the
+  node constructor throwing, or the first note on a context — the FALLBACK:
+  for a pulse, the morph dial's shape nearest that width (`3 − |2w − 1|`:
+  the square at 50 %, saw-leaning toward either end, a shapeWave
+  PeriodicWave); for sync, the slave's shape at the note through a +6 dB
+  peaking filter at note × ratio, the nearest a plain oscillator gets to
+  sync's peak. It cannot sweep the way a real sync does and does not pretend
+  to; it never throws. Width on a saw slave does nothing on either branch,
+  and its registry hint says so.
+- **The envelopes.** Pulse bass: the saw bass's falling lowpass (f × 6
+  nominal, published 390 Hz) and `sustainEnv`. Sync lead: a lowpass sitting
+  open at 6 kHz (its filter controls omit `envAmount`, which would do
+  nothing) and its published ADSR applied in full even unpatched (decay 0.3,
+  sustain 0.7). Both legato.
+
 ## A genre of the person's own (v0.0.180)
 
 Module ownership: **the page** (`USER_GENRES`, `genreBySlug`, `saveAsMyGenre`,

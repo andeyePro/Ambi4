@@ -125,6 +125,7 @@ const VOICES: Record<string, [string, string][]> = {
     ['sawbass', 'Saw bass'],
     ['acid', 'Squelch'],
     ['upright', 'Upright'],
+    ['pulse', 'Pulse bass'],
   ],
   melody: [
     ['pluck', 'Pluck'],
@@ -137,6 +138,7 @@ const VOICES: Record<string, [string, string][]> = {
     ['tape', 'Worn keys'],
     ['stab', 'Organ stab'],
     ['string', 'Plucked string'],
+    ['sync', 'Sync lead'],
   ],
   texture: [
     ['sparkle', 'Sparkle'],
@@ -1399,8 +1401,8 @@ const VOICES: Record<string, [string, string][]> = {
     const VOICE_LABELS = {
       pad: { warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir', polysaw: 'Poly saw' },
       arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba', muted: 'Muted comp', string: 'Plucked string' },
-      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call', tines: 'Tines', nylon: 'Nylon guitar', tape: 'Worn keys', stab: 'Organ stab', string: 'Plucked string' },
-      bass: { sub: 'Sub', round: 'Round', breath: 'Breath', fingered: 'Fingered', sawbass: 'Saw bass', acid: 'Squelch', upright: 'Upright' },
+      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call', tines: 'Tines', nylon: 'Nylon guitar', tape: 'Worn keys', stab: 'Organ stab', string: 'Plucked string', sync: 'Sync lead' },
+      bass: { sub: 'Sub', round: 'Round', breath: 'Breath', fingered: 'Fingered', sawbass: 'Saw bass', acid: 'Squelch', upright: 'Upright', pulse: 'Pulse bass' },
       texture: {
         sparkle: 'Sparkle',
         grains: 'Grains',
@@ -2036,7 +2038,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // The v3 Patch schema's sections, in editor order. Anything else on a
     // patch object (v14 `perKind`) is state, not an editable section.
     // v0.0.175: `fm` joined (the FM engine section; only FM voices publish it).
-    const PATCH_SECTIONS = ['source', 'fm', 'additive', 'modal', 'pluck', 'filter', 'adsr', 'sends'];
+    const PATCH_SECTIONS = ['source', 'fm', 'additive', 'modal', 'pluck', 'pulse', 'filter', 'adsr', 'sends'];
 
     // Used only when a voice doesn't export .defaults (older engine-voices).
     const FALLBACK_PATCH = {
@@ -12648,6 +12650,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        */
       const MATERIAL_LABELS = { metal: 'Metal', wood: 'Wood', glass: 'Glass', bell: 'Bell' };
       const materialLabel = (id) => MATERIAL_LABELS[id] || id;
+      // The Sync lead's slave shapes, as its Slave dial and select show them.
+      const SLAVE_LABELS = { saw: 'Saw', pulse: 'Pulse' };
 
       function registryHint(path) {
         const table = engineModule && engineModule.PARAM_REGISTRY;
@@ -12980,22 +12984,63 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
 
         // The Plucked-string section (see the knob editor's copy): three
-        // plain 0-1 dials, position on its own fraction of the string.
+        // plain dials, each its registry row's domain and curve.
         const pluckSpecS = controlsSectionSpec(controls, 'pluck');
         const pluckOnS = defaults && isPlainObject(defaults.pluck) && isPlainObject(patch.pluck) && controlsSectionVisible(pluckSpecS);
         const pluckS = pluckOnS ? veSection(container, 'Plucked string') : null;
-        // v0.0.251 merge: domains from the registry rows (phase 2c's rule).
         for (const [key, label] of [['damping', 'Damping'], ['brightness', 'Brightness'], ['position', 'Position']]) {
-          const dialS = registryDial(`pluck.${key}`);
-          if (!pluckS || !dialS || !controlsFieldAllowed(pluckSpecS, key)) continue;
-          const [lo, hi] = [dialS.min, dialS.max];
+          const dial = registryDial(`pluck.${key}`);
+          if (!pluckS || !dial || !controlsFieldAllowed(pluckSpecS, key)) continue;
+          const [lo, hi] = [dial.min, dial.max];
           veRange(pluckS, label, {
             hint: registryHint(`pluck.${key}`),
-            field: dialS.field,
-            min: lo, max: hi, ...sliderCurve(dialS),
+            field: dial.field,
+            min: lo, max: hi, ...sliderCurve(dial),
             value: rangeMid(sanitiseRangeValueIn(patch.pluck[key], lo, hi, defaults.pluck[key])),
             format: pctFormat,
             onChange: (v) => { patch.pluck[key] = v; commit(); },
+          });
+        }
+
+        // The Pulse & sync section (see the knob editor's copy): only the
+        // fields the voice publishes — Width on Pulse bass; Sync ratio, Slave
+        // and Width on Sync lead.
+        const pulseSpecS = controlsSectionSpec(controls, 'pulse');
+        const pulseOnS = defaults && isPlainObject(defaults.pulse) && isPlainObject(patch.pulse) && controlsSectionVisible(pulseSpecS);
+        const pulseS = pulseOnS ? veSection(container, 'Pulse & sync') : null;
+        const pulseHas = (key) => pulseS && key in defaults.pulse && controlsFieldAllowed(pulseSpecS, key);
+        const pulseRatioS = registryDial('pulse.ratio');
+        if (pulseRatioS && pulseHas('ratio')) {
+          const [lo, hi] = [pulseRatioS.min, pulseRatioS.max];
+          veRange(pulseS, 'Sync ratio', {
+            hint: registryHint('pulse.ratio'),
+            field: pulseRatioS.field,
+            min: lo, max: hi, ...sliderCurve(pulseRatioS),
+            value: rangeMid(sanitiseRangeValueIn(patch.pulse.ratio, lo, hi, defaults.pulse.ratio)),
+            format: timesFormat,
+            onChange: (v) => { patch.pulse.ratio = v; commit(); },
+          });
+        }
+        const pulseSlaveS = registryDial('pulse.slave');
+        if (pulseSlaveS && pulseHas('slave')) {
+          veSelect(pulseS, 'Slave', {
+            hint: registryHint('pulse.slave'),
+            field: pulseSlaveS.field,
+            options: pulseSlaveS.values.map((m) => [m, SLAVE_LABELS[m] || m]),
+            value: patch.pulse.slave,
+            onChange: (v) => { patch.pulse.slave = v; commit(); },
+          });
+        }
+        const pulseWidthS = registryDial('pulse.width');
+        if (pulseWidthS && pulseHas('width')) {
+          const [lo, hi] = [pulseWidthS.min, pulseWidthS.max];
+          veRange(pulseS, 'Width', {
+            hint: registryHint('pulse.width'),
+            field: pulseWidthS.field,
+            min: lo, max: hi, ...sliderCurve(pulseWidthS),
+            value: rangeMid(sanitiseRangeValueIn(patch.pulse.width, lo, hi, defaults.pulse.width)),
+            format: pctFormat,
+            onChange: (v) => { patch.pulse.width = v; commit(); },
           });
         }
 
@@ -13728,7 +13773,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // -- Plucked string -- a Karplus-Strong string on an AudioWorklet, on
         // a voice that publishes `pluck` (the melody's and the arp's Plucked
         // string) and no other: the disclosure rule, as for Modal. Three
-        // linear dials, domains and words from their registry rows.
+        // linear dials, domains, spread and words from their registry rows.
         const pluckSpec = controlsSectionSpec(controls, 'pluck');
         const pluckOn = isPlainObject(defaults.pluck) && isPlainObject(patch.pluck) && controlsSectionVisible(pluckSpec);
         const pluckRow = pluckOn ? knobSection('Plucked string') : null;
@@ -13747,6 +13792,66 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             defaultValue: defaults.pluck[key],
             onInput: (v) => {
               patch.pluck[key] = mapRV(v, (x) => clamp(x, lo, hi));
+              commit();
+            },
+          });
+        }
+
+        // -- Pulse & sync -- a band-limited oscillator on an AudioWorklet,
+        // on a voice that publishes `pulse` (Pulse bass, Sync lead) and no
+        // other: the disclosure rule again, and only the fields that voice
+        // publishes. Sync ratio is a log dial (three octaves); Slave is an
+        // enumeration dial like Material; Width is a plain percentage, and on
+        // a saw slave its hint says it does nothing rather than hiding it.
+        const pulseSpec = controlsSectionSpec(controls, 'pulse');
+        const pulseOn = isPlainObject(defaults.pulse) && isPlainObject(patch.pulse) && controlsSectionVisible(pulseSpec);
+        const pulseRow = pulseOn ? knobSection('Pulse & sync') : null;
+        const pulseHas = (key) => pulseRow && key in defaults.pulse && allowed(pulseSpec, key);
+        const pulseRatioDial = registryDial('pulse.ratio');
+        if (pulseRatioDial && pulseHas('ratio')) {
+          const [lo, hi] = [pulseRatioDial.min, pulseRatioDial.max];
+          addRegistryKnob(
+            pulseRow, 'Sync ratio', pulseRatioDial,
+            sanitiseRangeValueIn(patch.pulse.ratio, lo, hi, defaults.pulse.ratio),
+            timesFormat,
+            (v) => {
+              patch.pulse.ratio = mapRV(v, (x) => clamp(x, lo, hi));
+              commit();
+            },
+            defaults.pulse.ratio
+          );
+        }
+        const pulseSlaveDial = registryDial('pulse.slave');
+        if (pulseSlaveDial && pulseHas('slave')) {
+          const slaves = pulseSlaveDial.values;
+          const top = pulseSlaveDial.max;
+          addKnob(pulseRow, {
+            label: 'Slave',
+            ...facts(pulseSlaveDial),
+            ghostMap: (v) => Math.max(0, slaves.indexOf(v)),
+            step: 1,
+            value: Math.max(0, slaves.indexOf(patch.pulse.slave)),
+            marks: integerMarks(pulseSlaveDial),
+            format: (v) => SLAVE_LABELS[slaves[Math.round(clamp(v, pulseSlaveDial.min, top))]],
+            defaultValue: Math.max(0, slaves.indexOf(defaults.pulse.slave)),
+            onInput: (v) => {
+              patch.pulse.slave = slaves[Math.round(clamp(v, pulseSlaveDial.min, top))];
+              commit();
+            },
+          });
+        }
+        const pulseWidthDial = registryDial('pulse.width');
+        if (pulseWidthDial && pulseHas('width')) {
+          const [lo, hi] = [pulseWidthDial.min, pulseWidthDial.max];
+          addKnob(pulseRow, {
+            label: 'Width',
+            ...facts(pulseWidthDial),
+            value: sanitiseRangeValueIn(patch.pulse.width, lo, hi, defaults.pulse.width),
+            format: pctFormat,
+            parse: pctParse,
+            defaultValue: defaults.pulse.width,
+            onInput: (v) => {
+              patch.pulse.width = mapRV(v, (x) => clamp(x, lo, hi));
               commit();
             },
           });
@@ -14393,7 +14498,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               const live = resolveTrackPatch(track, voice);
               if (live && live.filter && !filterDialLive(live.filter.type, key)) return false;
             }
-            if (['fm', 'additive', 'modal', 'pluck'].includes(section)) return !!(entry.defaults && entry.defaults[section] && key in entry.defaults[section]);
+            if (['fm', 'additive', 'modal', 'pluck', 'pulse'].includes(section)) return !!(entry.defaults && entry.defaults[section] && key in entry.defaults[section]);
             if (section === 'source' && !['osc1', 'osc2', 'shape1', 'shape2', 'mix', 'detune', 'octave'].includes(key)) {
               return !!(entry.defaults && entry.defaults.source && key in entry.defaults.source);
             }
@@ -14524,6 +14629,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             'adsr.attack': 'Attack', 'adsr.decay': 'Decay', 'adsr.sustain': 'Sustain', 'adsr.release': 'Release',
             'fm.ratio': 'Ratio', 'fm.depth': 'Depth', 'fm.bite': 'Bite',
             'additive.stretch': 'Stretch', 'modal.material': 'Material', 'modal.hardness': 'Hardness', 'modal.damping': 'Damping',
+            'pluck.damping': 'Damping', 'pluck.brightness': 'Brightness', 'pluck.position': 'Position',
+            'pulse.width': 'Width', 'pulse.ratio': 'Sync ratio', 'pulse.slave': 'Slave',
           };
           const nameOf = (field) => FIELD_NAMES[field] || (/^additive\.p(\d)$/.test(field) ? `P${field.slice(-1)}` : field.split('.')[1]);
           let running = null;

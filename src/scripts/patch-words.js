@@ -201,8 +201,19 @@ export function describePatch({ engineType = '', patch, controls = true, detuneM
       source.push('sculpted noise');
       break;
     default: {
+      // The worklet oscillator publishes `pulse`: a pulse of a given width,
+      // or a slave synced to the note at a ratio. Named off the section, not
+      // the source's morph shape, which these voices do not expose.
+      const pw = patch.pulse && typeof patch.pulse === 'object' ? patch.pulse : null;
       if (kit) {
         source.push('a tuned drum body over noise');
+      } else if (pw && has(pw.ratio)) {
+        const slave = allowed(controls, 'pulse', 'slave') && pw.slave === 'pulse' ? 'pulse' : 'saw';
+        source.push(`a ${slave} hard-synced to the note`);
+        if (allowed(controls, 'pulse', 'ratio')) source.push(`running ${show(pw.ratio, fmt.times)} as fast`);
+        if (slave === 'pulse' && allowed(controls, 'pulse', 'width') && has(pw.width)) source.push(`${show(pw.width, fmt.pct)} wide`);
+      } else if (pw && has(pw.width)) {
+        source.push(allowed(controls, 'pulse', 'width') ? `a pulse ${show(pw.width, fmt.pct)} wide` : 'a pulse');
       } else if (can('source', 'shape1') && shape1 !== null) {
         const a = shapeWord(mid(shape1));
         if (twoOsc) {
@@ -344,6 +355,8 @@ export function printableNumbers(patch) {
   add(modp.hardness, fmt.times); add(modp.damping, fmt.times);
   const plk = (patch && patch.pluck) || {};
   add(plk.damping, fmt.pct); add(plk.brightness, fmt.pct); add(plk.position, fmt.pct);
+  const pls = (patch && patch.pulse) || {};
+  add(pls.width, fmt.pct); add(pls.ratio, fmt.times);
   const addp = (patch && patch.additive) || {};
   for (const [k, v] of Object.entries(addp)) {
     if (k === 'stretch') add(v, fmt.stretch);
