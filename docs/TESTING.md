@@ -1019,6 +1019,13 @@ A sound in mind (v0.0.185)
 - [ ] On the kit, every word answers plainly that nothing here is honestly
       that word; there is no Set it up.
 
+Touch keys and pads (v0.0.240)
+- [ ] On a phone or tablet, open Create: under the Keys row, thirteen keys.
+      Touch one: Keys arms and the note plays; three fingers play a chord;
+      striking low on a key is louder than striking high. Pick the kit in
+      the track list: the keys become one pad per sound. The strip fits the
+      screen with no sideways scroll.
+
 Key-to-ear delay (v0.0.238)
 - [ ] Open Create, press Keys: the line under the row reads about 45-60 ms
       on a Mac, split into the browser's share and the voice's. Pick Flute

@@ -444,6 +444,11 @@ const VOICES: Record<string, [string, string][]> = {
               <span>Undo</span>
             </button>
           </div>
+          <!-- v0.0.240: an on-screen surface for touch (TODO "Touch keyboard and
+               drum pads"): keys at the current octave on a tuned track, one pad
+               per lane on a kit. Velocity is where you strike; every finger is
+               its own note. The first touch arms Keys. -->
+          <div class="play-along-pads" id="play-along-pads" role="group" aria-label="On-screen keys"></div>
           <p class="hint play-along-latency" id="play-along-latency" aria-live="polite">Press Keys to play; the delay from key to ear is measured the moment you do.</p>
           <p id="play-along-note" class="visually-hidden">
             Keys z x c v b n m play one octave and q w e r t y u the next; minus and
@@ -20172,6 +20177,98 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           : 'This browser does not report its output delay.';
       }
 
+      /**
+       * v0.0.240: the touch surface. Each finger is a pointer of its own, so
+       * a chord is several fingers; each note starts on pointerdown and stops
+       * on that pointer's up or cancel, however far the finger has slid. The
+       * velocity is WHERE the key is struck — softer at the top, louder at the
+       * bottom, as a piano key goes deeper — or the pointer's own pressure
+       * where the device reports a real one (a pen, a pressure screen; the
+       * spec's 0.5 for "a button is down" is not a reading). No aftertouch:
+       * the engine has no per-note expression after the strike to give it to.
+       */
+      const padSurface = document.getElementById('play-along-pads');
+      const padDown = new Map(); // pointerId -> { track, midi, el }
+      const PAD_KEYS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+      const BLACK = new Set([1, 3, 6, 8, 10]);
+      function padVelocity(event, el) {
+        const p = event.pressure;
+        if (event.pointerType !== 'mouse' && Number.isFinite(p) && p > 0 && Math.abs(p - 0.5) > 1e-3) return clamp(0.25 + 0.75 * p, 0.05, 1);
+        const box = el.getBoundingClientRect();
+        const y = box.height > 0 ? (event.clientY - box.top) / box.height : 0.6;
+        return clamp(0.35 + 0.6 * clamp(y, 0, 1), 0.05, 1);
+      }
+      function renderPads() {
+        if (!padSurface) return;
+        for (const [, held] of padDown) {
+          try { engine.noteOff(held.track, held.midi); } catch {}
+        }
+        padDown.clear();
+        padSurface.replaceChildren();
+        const track = playAlongTarget();
+        const lanes = isPercussiveTrack(track) ? laneListFor(track, settings.tracks[track]) : null;
+        padSurface.classList.toggle('play-along-pads-kit', !!lanes);
+        padSurface.setAttribute('aria-label', lanes ? `Drum pads for ${TRACK_LABELS[track] || track}` : `On-screen keys for ${TRACK_LABELS[track] || track}`);
+        const cells = lanes
+          // A kit takes the lane from the pitch class (the engine's
+          // kitLaneFor: floor(pc x lanes / 12)), so each pad sends the lowest
+          // pitch class that lands on its own lane.
+          ? lanes.map((lane, i) => ({ midi: 60 + Math.ceil((i * 12) / lanes.length), label: lane.label || lane.key || `Pad ${i + 1}`, black: false }))
+          : PAD_KEYS.map((step) => {
+            const midi = clamp(12 * (playAlongOctave + 1) + step, 0, 127);
+            return { midi, label: noteName(midi), black: BLACK.has(step % 12) };
+          });
+        for (const cell of cells) {
+          const el = document.createElement('button');
+          el.type = 'button';
+          el.className = `play-along-pad${cell.black ? ' play-along-pad-black' : ''}`;
+          el.textContent = cell.label;
+          el.dataset.midi = String(cell.midi);
+          el.setAttribute('aria-label', lanes ? `Play ${cell.label}` : `Play ${cell.label}`);
+          el.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            if (!playAlongOn) setPlayAlong(true);
+            const target = playAlongTarget();
+            let sounded = false;
+            try { sounded = engine.noteOn(target, cell.midi, padVelocity(event, el)) === true; } catch {}
+            if (!sounded) return;
+            try { el.setPointerCapture?.(event.pointerId); } catch {}
+            padDown.set(event.pointerId, { track: target, midi: cell.midi, el });
+            el.classList.add('play-along-pad-down');
+            showPlayed(lanes ? cell.label : noteName(cell.midi));
+            setPlayAlongUI();
+          });
+          const lift = (event) => {
+            const held = padDown.get(event.pointerId);
+            if (!held) return;
+            padDown.delete(event.pointerId);
+            held.el.classList.remove('play-along-pad-down');
+            try { engine.noteOff(held.track, held.midi); } catch {}
+            setPlayAlongUI();
+          };
+          el.addEventListener('pointerup', lift);
+          el.addEventListener('pointercancel', lift);
+          el.addEventListener('lostpointercapture', lift);
+          // A keyboard user already has the computer keys; Enter or Space on
+          // a pad plays it at the middle velocity, so the pads are not a dead
+          // end for one.
+          el.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!playAlongOn) setPlayAlong(true);
+            const target = playAlongTarget();
+            try {
+              if (engine.noteOn(target, cell.midi, 0.7) === true) {
+                showPlayed(lanes ? cell.label : noteName(cell.midi));
+                setTimeout(() => { try { engine.noteOff(target, cell.midi); } catch {} }, 250);
+              }
+            } catch {}
+          });
+          padSurface.append(el);
+        }
+      }
+
       function setPlayAlong(on) {
         if (on === playAlongOn) return;
         playAlongOn = on;
@@ -20264,6 +20361,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             OCTAVE_MAX
           );
           showPlayed(`Oct ${playAlongOctave}`);
+          renderPads();
           event.preventDefault();
           return;
         }
@@ -20351,6 +20449,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       if (engineCaps.playAlong) {
         renderPlayAlongTracks();
+        renderPads();
         setPlayAlongUI();
         playAlongToggle.addEventListener('click', () => setPlayAlong(!playAlongOn));
         playAlongTrack.addEventListener('change', () => {
@@ -20360,6 +20459,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           releaseAll();
           setPlayAlongUI();
           sayLatency();
+          renderPads();
         });
         captureButton.addEventListener('click', () => {
           if (captureState().armed) {
@@ -20711,7 +20811,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               typingInfo,
               'musical typing',
-              'Your computer keyboard plays the selected track: z x c v b n m are one octave and q w e r t y u the next, black keys on the rows above, - and = shift octave. A MIDI keyboard plays the same track the moment it is connected \u2014 nothing to set up (Chrome and Edge; iOS Safari has no MIDI). Capture records the rhythm, velocity and note length you play into that track\u2019s step grid \u2014 pitches follow the piece\u2019s own harmony \u2014 and Undo puts the old grid back.'
+              'Your computer keyboard plays the selected track: z x c v b n m are one octave and q w e r t y u the next, black keys on the rows above, - and = shift octave. A MIDI keyboard plays the same track the moment it is connected \u2014 nothing to set up (Chrome and Edge; iOS Safari has no MIDI). On a touch screen the keys under the row play the same track \u2014 one note per finger, louder the lower you strike (or by pressure, where the screen or pen reports one); on the kit they are one pad per sound. Capture records the rhythm, velocity and note length you play into that track\u2019s step grid \u2014 pitches follow the piece\u2019s own harmony \u2014 and Undo puts the old grid back.'
             );
           }
         }
@@ -24149,6 +24249,44 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     /* v0.0.40: the genre picker was full width for a single short name. */
     .genre-row .genre-select {
       max-width: 50%;
+    }
+
+    /* v0.0.240: the touch surface — keys or drum pads, every finger a note. */
+    .play-along-pads {
+      display: flex;
+      gap: 2px;
+      margin: 6px 0;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .play-along-pad {
+      flex: 1 1 0;
+      min-width: 0;
+      height: 64px;
+      padding: 0 0 6px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      font-size: 0.62rem;
+      border: 1px solid var(--border, #8884);
+      border-radius: 4px;
+      background: var(--panel, #fff);
+      color: inherit;
+      -webkit-touch-callout: none;
+    }
+    .play-along-pad-black {
+      background: var(--text, #222);
+      color: var(--panel, #fff);
+      height: 48px;
+    }
+    .play-along-pad-down {
+      background: var(--accent, #6c8cff);
+      color: var(--bg, #fff);
+    }
+    .play-along-pads-kit .play-along-pad {
+      height: 72px;
+      font-size: 0.8rem;
     }
 
     .play-along-row {

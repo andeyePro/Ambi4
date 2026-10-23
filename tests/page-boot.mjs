@@ -3567,6 +3567,64 @@ try {
         }
         release('z');
 
+        // v0.0.240: the touch surface. Read at the ENGINE: the page's noteOn
+        // and noteOff calls are wrapped, so a pad that lights but never
+        // reaches the engine is caught. Velocity is the strike position (top
+        // soft, bottom loud) or a real pressure; each pointer is its own note.
+        {
+          const engineRef = window.__ambi4Engine;
+          const surface = doc.getElementById('play-along-pads');
+          const calls = [];
+          const realOn = engineRef.noteOn;
+          const realOff = engineRef.noteOff;
+          engineRef.noteOn = function (track, midi, velocity) { calls.push(['on', track, midi, velocity]); return realOn.apply(this, arguments); };
+          engineRef.noteOff = function (track, midi) { calls.push(['off', track, midi]); return realOff.apply(this, arguments); };
+          const pointer = (el, type, init) => {
+            const event = new window.Event(type, { bubbles: true, cancelable: true });
+            for (const [k, v] of Object.entries(init)) Object.defineProperty(event, k, { value: v });
+            el.dispatchEvent(event);
+          };
+          try {
+            const keys = surface ? [...surface.querySelectorAll('.play-along-pad')] : [];
+            if (keys.length !== 13) {
+              failures.push(`touch keys: ${keys.length} keys on the melody, not 13 (an octave and its top note)`);
+            } else {
+              const c = keys[0];
+              c.getBoundingClientRect = () => ({ top: 0, height: 100, left: 0, width: 30, bottom: 100, right: 30 });
+              pointer(c, 'pointerdown', { pointerId: 11, pointerType: 'touch', pressure: 0.5, clientY: 10 });
+              pointer(keys[4], 'pointerdown', { pointerId: 12, pointerType: 'pen', pressure: 0.9, clientY: 0 });
+              keys[4].getBoundingClientRect = c.getBoundingClientRect;
+              const ons = calls.filter((x) => x[0] === 'on');
+              if (ons.length !== 2) failures.push(`touch keys: two fingers made ${ons.length} notes at the engine`);
+              else {
+                if (!(ons[0][3] < 0.5)) failures.push(`touch keys: a strike near the top of a key played at ${ons[0][3]}, not softly`);
+                if (Math.abs(ons[1][3] - (0.25 + 0.75 * 0.9)) > 1e-6) failures.push(`touch keys: a pen at pressure 0.9 played at ${ons[1][3]}, not from its pressure`);
+                if (ons[1][2] - ons[0][2] !== 4) failures.push(`touch keys: the fifth key is ${ons[1][2] - ons[0][2]} semitones above the first, not 4`);
+              }
+              pointer(c, 'pointerup', { pointerId: 11 });
+              pointer(keys[4], 'pointercancel', { pointerId: 12 });
+              const offs = calls.filter((x) => x[0] === 'off');
+              if (offs.length !== 2) failures.push(`touch keys: lifting two fingers sent ${offs.length} note-offs`);
+            }
+            // The kit: one pad per lane, each landing on its own lane.
+            picker.value = 'percussion';
+            picker.dispatchEvent(new window.Event('change', { bubbles: true }));
+            const pads = [...surface.querySelectorAll('.play-along-pad')];
+            const lanes = engineRef.getParams().tracks.percussion.lanes || [];
+            if (!lanes.length || pads.length !== lanes.length) {
+              failures.push(`drum pads: ${pads.length} pads for ${lanes.length} lanes`);
+            } else {
+              const landed = pads.map((pad) => Math.min(lanes.length - 1, Math.floor(((Number(pad.dataset.midi) % 12) * lanes.length) / 12)));
+              if (landed.some((lane, i) => lane !== i)) failures.push(`drum pads: pads land on lanes ${landed.join(',')}, not one each in order`);
+            }
+            picker.value = 'melody';
+            picker.dispatchEvent(new window.Event('change', { bubbles: true }));
+          } finally {
+            engineRef.noteOn = realOn;
+            engineRef.noteOff = realOff;
+          }
+        }
+
         // Typing is not playing. A text box, a select and a dialog all keep
         // their keystrokes — this is the gate that stops the instrument eating
         // a preset name.
