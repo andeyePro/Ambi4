@@ -20,7 +20,7 @@
 // The parameter registry is the ONE table both this sanitiser and the page
 // read (dial-control-plane phase 1): pure frozen data, no audio, no DOM —
 // importing it keeps this module's import-anywhere promise intact.
-import { PARAM_REGISTRY, patchSectionRows, patchSections } from './param-registry.js';
+import { PARAM_REGISTRY, RESERVED_TOKENS as REGISTRY_TOKENS, patchSectionRows, patchSections } from './param-registry.js';
 
 // Re-exported so the page (and anything else driving the engine) reads the
 // SAME table the sanitiser above is built from — the phase-1 contract.
@@ -830,6 +830,19 @@ const DEFAULT_TRACK_DRIFT_RATE = 1;
  * simply the waveforms a fixed-shape source can have.
  */
 export const DRIFT_SHAPES = Object.freeze(['drift', 'rise', 'fall', 'swell', 'cycle', 'step']);
+
+/**
+ * v0.0.231: the step rule — what value a `step` (sample-and-hold) source takes
+ * each time it fires, per walk key in `params.stepRule`. The six reserved
+ * wire tokens (docs/dial-control-plane-plan.md § D7), in order: `absolute`
+ * (the default, never stored — a fresh value anywhere in the span, what every
+ * build has done), `walk` (a random step either way from the held value,
+ * reflected at the ends), `up` / `down` (one step a fire, stopping at the
+ * end), `pingpong` (up to the top and back, again and again), `cycle` (up to
+ * the top, then back to the bottom). The step is the track's own walk step,
+ * Drift rate x 0.15 of the span. A rule on a continuous shape is inert.
+ */
+export const STEP_RULES = REGISTRY_TOKENS.stepRules;
 const DEFAULT_DRIFT_SHAPE = 'drift';
 /** How many bars a shaped drift takes to complete one pass. */
 const DRIFT_BARS_RANGE = Object.freeze([1, 64]);
@@ -1504,6 +1517,7 @@ export const DEFAULT_PARAMS = Object.freeze({
   // v0.0.167 (routing phase 4, engine half): WHEN each spread's walk
   // advances, per dial — sparse, keyed like the walks ('track:param').
   sampling: Object.freeze({}),
+  stepRule: Object.freeze({}),
   // v0.0.168 (routing phase 5, first slice): the modulation graph's edges —
   // { source, destination }, one slot per destination — and the two global
   // sources they can name today.
@@ -3268,6 +3282,21 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
     }
     out.sampling = map;
   }
+  // v0.0.231: the step rule, per walk key. Same law as sampling: supplying
+  // replaces, absent inherits, the default (`absolute`) is never stored, and
+  // a word outside the reserved six is dropped rather than guessed at.
+  {
+    const asked = at('stepRule');
+    const source = asked !== undefined ? asked : from.stepRule;
+    const map = {};
+    if (source && typeof source === 'object' && !Array.isArray(source)) {
+      for (const [key, value] of Object.entries(source)) {
+        if (!WALK_KEY_GRAMMAR.test(key)) continue;
+        if (value !== 'absolute' && STEP_RULES.includes(value)) map[key] = value;
+      }
+    }
+    out.stepRule = map;
+  }
   // v0.0.168: the graph's edges. One slot per destination (D4) — the LAST
   // edge naming a destination wins, because the newest patch REPLACES the
   // occupant; nothing sums, nothing fights. Sources are the two that exist;
@@ -3433,6 +3462,7 @@ function copyParams(params, order = TRACK_ORDER) {
       Object.entries(params.spans || {}).map(([key, span]) => [key, { ...span }])
     ),
     sampling: { ...(params.sampling || {}) },
+    stepRule: { ...(params.stepRule || {}) },
     routing: (params.routing || []).map((edge) => ({ ...edge })),
     lfo1: { ...(params.lfo1 || { bars: 4 }) },
     // A manifest is an object inside the entry: a spread of the entry alone
@@ -5639,6 +5669,33 @@ export function createEngine(initialParams, options = {}) {
   const driftPhases = new Map();
   // The value a `step` (sample-and-hold) source is holding, per walk key.
   const stepHolds = new Map();
+  // v0.0.231: which way a pingpong step rule is travelling, per walk key.
+  const stepDirections = new Map();
+
+  /**
+   * The value a step source takes when it fires, by its step rule. `absolute`
+   * draws exactly as every build has (so a piece with no rule is untouched);
+   * the relative rules move from the held value by the track's walk step,
+   * and the deterministic ones make no draw at all.
+   */
+  function stepRuleNext(track, key, previous, draw) {
+    const rule = params.stepRule ? params.stepRule[key] : undefined;
+    if (!rule || previous === undefined) return draw();
+    const size = walkStep(track);
+    const snap = (v) => +clamp(v, 0, 1).toFixed(9);
+    if (rule === 'walk') return reflectStep(track, previous, draw());
+    if (rule === 'up') return snap(previous + size);
+    if (rule === 'down') return snap(previous - size);
+    if (rule === 'cycle') return previous >= 1 - 1e-9 ? 0 : snap(previous + size);
+    if (rule === 'pingpong') {
+      let dir = stepDirections.get(key) ?? 1;
+      if (previous >= 1 - 1e-9) dir = -1;
+      else if (previous <= 1e-9) dir = 1;
+      stepDirections.set(key, dir);
+      return snap(previous + dir * size);
+    }
+    return draw();
+  }
 
   /**
    * The next walk position for a shaped drift. `driftRate` still scales it, so
@@ -5669,7 +5726,8 @@ export function createEngine(initialParams, options = {}) {
       if (previous === undefined || phase < step) {
         // v0.0.203: a seeded track's sample-and-hold draws off its own path.
         const seed = walkSeedFor(track);
-        const drawn = seed === null ? rng() : seededWalkDraw(seed, key, previous ?? position);
+        const drawn = stepRuleNext(track, key, previous,
+          () => (seed === null ? rng() : seededWalkDraw(seed, key, previous ?? position)));
         stepHolds.set(key, drawn);
         return drawn;
       }
@@ -10757,6 +10815,7 @@ export function createEngine(initialParams, options = {}) {
         const named = (key) => gone.includes(String(key).slice(0, String(key).indexOf(':')));
         params.routing = (params.routing || []).filter((edge) => !named(edge.destination));
         for (const key of Object.keys(params.sampling || {})) if (named(key)) delete params.sampling[key];
+        for (const key of Object.keys(params.stepRule || {})) if (named(key)) delete params.stepRule[key];
       }
     }
     // An offered edge the sanitiser dropped is reported, not swallowed.

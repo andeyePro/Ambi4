@@ -249,6 +249,19 @@ Patch = {
   lying control. Supplying the map replaces it; absent inherits. Shaped drifts
   (rise/fall/swell/cycle/step) gate their phase counters the same way. The tiny
   sampling dial (D4) is the UI half, pending the phase-3 gesture ruling.
+- Step rule (v0.0.231, the fourth-bay item's engine half): `params.stepRule` — a
+  sparse map keyed like the walks saying what value a `step` (sample-and-hold)
+  drift takes each time it fires: `walk` (a random step either way from the held
+  value, reflected at the ends), `up` / `down` (one step a fire, stopping at the
+  end), `pingpong` (to the top and back, repeatedly), `cycle` (to the top, then
+  back to the bottom). `absolute` — a fresh value anywhere in the span, what
+  every build has done — is the default and is never stored; any other word is
+  dropped. The step is the track's walk step (Drift rate × 0.15 of the span); the
+  first fire is always absolute, since there is nothing yet to step from; the
+  deterministic rules make no rng draw. Inert on a continuous shape. Supplying
+  the map replaces it; absent inherits; a removed track takes its keys with it.
+  `STEP_RULES` exports the six tokens. Not on a share link and no control yet:
+  the fourth-bay selector waits on the same phase-3 gesture ruling as sampling.
 - Raw takes (v0.0.164): `getLastTake()` / `setLastTake(take)` move the beat-domain
   raw capture out of the engine and back — the page persists it in its own settings
   (NEVER in params, so it cannot reach a share link, a preset or the audio path) and
