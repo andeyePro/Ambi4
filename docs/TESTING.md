@@ -128,6 +128,7 @@ node tests/prefs-smoke.mjs         # consent + persistence
 node tests/share-name-smoke.mjs    # three-word link names
 node tests/energy-measure.mjs      # the Energy dial's own measurements
 node tests/saturation-smoke.mjs    # opt-in Drive: no nodes at 0, the curve, the law, the ramps
+node tests/texture-grid-smoke.mjs  # texture's opt-in grid: gridless = dev's stream, a manual grid plays exactly its steps
 node tests/content-check.mjs       # playlist frontmatter against the schema
 node tests/wav-export-smoke.mjs    # Save as WAV: the encoder's bytes and the tap
 npm run build && node tests/tutorial-smoke.mjs   # the guided tour
@@ -1252,6 +1253,15 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 - [ ] Write → Tap a rhythm, tap a few beats, stop: Re-fit the last take
       appears. Switch Write to another row while tapping: tap mode stands
       down (Space is a plain key again).
+- [ ] Add a percussive track of your own, then Write → Tap a rhythm onto it
+      (the picker beside the button; the built-in kit is the default): your
+      taps sound and land on YOUR kit's grid, the built-in kit is untouched,
+      and Re-fit re-lands the take on your kit.
+- [ ] Blank slate, then Write → Melody onto Texture, C6 E6 G6: the texture
+      switches on, plays exactly those three notes from the next bar, and its
+      editor shows the grid (Manual). A texture with no grid shows Add a step
+      grid instead, and adding one changes nothing heard until a step is set
+      and Manual chosen.
 - [ ] Reload: Create reopens on the last Write choice.
 - [ ] Automated: page-boot's Create block (visible-control count at first
       open, Melody shows exactly its row, Strip → Notes at the ENGINE) and
@@ -1261,6 +1271,10 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       sequencers at the ENGINE, one bar per chord, chord tones on every
       downbeat, ending home, the melody switched on, a second press a new
       tune); `node tests/tune-from-chords-smoke.mjs` pins the derivation.
+      pad on; an imported file is hand-written and enters at bar 0), and
+      the v0.0.262 leftovers block (Tap onto a user kit writes that kit's
+      stored grid at the engine and Re-fit follows it; Write → Melody onto
+      texture stores a manual C6 E6 G6 grid that enters at bar 0).
       Layout unmeasured until `.vibe/measure.sh local overlaps` runs on it,
       at desktop and 390×844.
 

@@ -27,10 +27,10 @@ and the shipped Create door disagree, the door is what he reviewed.
 |---|---|---|
 | Play or type a melody, chords derived | SHIPPED | Write: Melody (any tuned track, v0.0.152), touch keys v0.0.240, Fit chords to the tune v0.0.155 |
 | Play or type a chord sequence, melody derived | SHIPPED | Typed chords in the Chords row itself; Follow my chords (v0.0.250) is the played half; Words sings over the loop; and Write a tune over these chords (this build) derives a plain melody from whatever loop is set onto any tuned track's grid — pure module src/scripts/tune-from-chords.js, rules pinned in tests/tune-from-chords-smoke.mjs: chord tones on the beats, stepwise passing/neighbour tones between, an arch per four-bar phrase, density from Complexity, a cadence at the end, the track's register, deterministic per loop and seed |
-| Start with a beat, tap a rhythm | SHIPPED | Write: Beat (v0.0.147, any kit v0.0.153), Tap a rhythm (v0.0.87/107). Tap still points at the built-in kit only |
+| Start with a beat, tap a rhythm | SHIPPED | Write: Beat (v0.0.147, any kit v0.0.153), Tap a rhythm (v0.0.87/107) onto any kit, a user's own included, through an "onto" picker in the same row (v0.0.262; the built-in kit first, the raw take and Re-fit follow the kit tapped on) |
 | Hum / whistle, then sing | OPEN, long-term | Needs the v0.2.x audio-in track |
 | Start with words | SHIPPED | Write: Words, v0.0.148 |
-| Start with ANY track | SHIPPED except texture | Melody, Words, MIDI file onto any tuned/sequenced track (v0.0.152); Beat onto any kit (v0.0.153); Chords START the pad (this build: typed chords and Fit chords switch it on after Blank slate); a MIDI file is hand-written and enters at once (this build). Texture has no step grid, and giving it one moves SEQUENCED_TRACKS, whose order is the engine's draw order — an engine change, not a Write row, so the Write ⓘ says how it starts instead |
+| Start with ANY track | SHIPPED | Melody, Words, MIDI file onto any tuned/sequenced track (v0.0.152); Beat onto any kit (v0.0.153); Chords START the pad (typed chords and Fit chords switch it on after Blank slate); a MIDI file is hand-written and enters at once. Texture (v0.0.262): an OPT-IN step grid — absent is today's drift to the draw (texture stays out of SEQUENCED_TRACKS, the draw-order list; tests/texture-grid-smoke.mjs pins the gridless stream to dev's digests), a Manual grid plays exactly its steps. Write: Melody targets it and starts it; its editor shows the grid, or Add a step grid when it has none |
 | Guided start | SHIPPED | Help me start, v0.0.135 |
 | Authored-versus-generated seam | BLOCKED | fromClaude 18 (what a hand-edited step does); staged entry of a typed line inside a genre is fromClaude 19 |
 | Simple and Advanced both | SHIPPED | the Create door, his 96 |
@@ -75,7 +75,7 @@ of these."
 | Melody | Play · type into the step grid (needs the pitch-editable grid from the transparency build) | Chord suggestion — SHIPPED v0.0.155 as Fit chords to the tune, reading any tuned track's grid whatever put the notes there |
 | Beat (percussion) | Step editor · **tap a rhythm — space bar or button** (his "love it") | Bass placement coupling (bass-follows-kick, from the Energy brief) |
 | Bass | Play · type | Kick coupling the other way; chord roots |
-| Arp / texture | Arp: any Write row that takes a track (typed, words, MIDI file). Texture: switched on from its own row — it has no grid to write | Follows the chord loop once one exists |
+| Arp / texture | Arp: any Write row that takes a track (typed, words, MIDI file). Texture: Write → Melody onto Texture, which gives it its opt-in grid (v0.0.262), or its own row to let it drift | Follows the chord loop once one exists |
 | Voice (long-term) | **Hum or whistle first, sing later** (his ordering; both want the audio-in track) | Melody transcription, then everything melody offers |
 | Words (long-term) | Type lyrics | Algorithmic melody attempt from syllable count, stress and contour — no external AI, so the AI-free position is untouched |
 

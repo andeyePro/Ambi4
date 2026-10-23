@@ -416,6 +416,8 @@ const VOICES: Record<string, [string, string][]> = {
           </div>
           <div class="create-row" data-write="tap" hidden>
             <button type="button" id="create-tap" class="secondary-button" aria-pressed="false">Tap a rhythm (Space)</button>
+            <label class="create-picker-label" for="create-tap-track">onto</label>
+            <select id="create-tap-track" class="genre-select create-midi-track"></select>
             <button type="button" id="create-refit" class="secondary-button" hidden>Re-fit the last take</button>
           </div>
           <div class="create-row create-midi-row" data-write="midi" hidden>
@@ -1555,6 +1557,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       return lanes.slice(0, PERC_MAX_LANES);
     }
 
+    /**
+     * v0.0.262: tracks whose step grid is OPT-IN — the engine's
+     * OPT_GRID_TRACKS. Texture is not in SEQ_TRACKS (that order is the
+     * engine's draw order) and has no grid until one is written to it.
+     */
+    const OPT_GRID_TRACKS = ['texture'];
+    const hasOptGrid = (t) => Boolean(t && ((Array.isArray(t.sequencers) && t.sequencers.length)
+      || isPlainObject(t.sequencer)));
+
     /** A track's lane list, top-down; melodic tracks have exactly one. */
     function laneListFor(track, t) {
       if (!isPercussiveTrack(track)) return [{ key: null, label: null, kind: null }];
@@ -2454,6 +2465,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           normaliseSequencerList(s.tracks[id], id, isPerc(id));
         }
       }
+      // v0.0.262: the texture's grid is OPT-IN — present only once written
+      // (a share link may carry just the singular alias). Absent stays absent,
+      // so a piece with no texture grid loads exactly as it always has.
+      for (const id of OPT_GRID_TRACKS) {
+        const t = s.tracks[id];
+        if (!isPlainObject(t) || userById.has(id)) continue;
+        if (hasOptGrid(t)) normaliseSequencerList(t, id, false);
+        else {
+          delete t.sequencers;
+          delete t.sequencer;
+          delete t.sequencerAdvance;
+        }
+      }
       // Legacy boolean mask follows the arp's FIRST sequencer (kept for older
       // engines and for the combined-complexity estimate).
       s.arp.steps = s.tracks.arp.sequencers[0].steps.slice(0, 16).map((st) => !!st.on);
@@ -2994,6 +3018,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         percussionLanes: false,
         stepGate: false,
         stepPitch: false,
+        // v0.0.262: the texture's OPT-IN step grid (sanitiser probe below).
+        textureGrid: false,
         // v0.0.163: weighted-by-section voice blends (sanitiser probe below).
         voiceBlend: false,
         // v0.0.203: the bass groove rule (sanitiser probe below).
@@ -3177,6 +3203,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ? (pitchProbe.melody.sequencer.steps || [])[0]
             : null;
         engineCaps.stepPitch = isPlainObject(probedPitch) && probedPitch.midi === 72;
+
+        // v0.0.262: does this engine keep a grid written onto the texture?
+        // Probed by round-trip — an engine without the opt-in grid drops it.
+        const textureProbe = probeTracks({ texture: { sequencers: [{ mode: 'manual', steps: [{ on: true }] }] } });
+        engineCaps.textureGrid = Boolean(textureProbe && isPlainObject(textureProbe.texture)
+          && Array.isArray(textureProbe.texture.sequencers) && textureProbe.texture.sequencers.length === 1);
 
         // The melody's motif as a rule (Reconstructible Ambi4): rendered only
         // where the sanitiser keeps both the cell and its rule.
@@ -4060,6 +4092,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // stored one — so a load without it says 0 out loud, or the last
             // piece's saturation would ride along under this one.
             t.drive = typeof t.drive === 'number' && t.drive > 0 ? t.drive : 0;
+          }
+          // v0.0.262: the texture's grid is sparse in the engine too — absent
+          // keeps a stored one — so a piece without one says null out loud,
+          // or the last piece's texture line would ride along under this one.
+          for (const id of OPT_GRID_TRACKS) {
+            const t = p.tracks[id];
+            if (t && typeof t === 'object' && !(Array.isArray(t.sequencers) && t.sequencers.length)) {
+              t.sequencers = null;
+              delete t.sequencer;
+            }
           }
           // The motif rule is sparse in the engine, which KEEPS a stored one
           // when the key is missing - so a load of a piece without one (a
@@ -14251,10 +14293,36 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // v6 step sequencer at the top of the pulsed tracks' panels. Arp
         // always shows it (on/off degrades to the legacy boolean mask);
         // melody/bass/percussion need engine support or the grid is dead.
+        // v0.0.262: the texture's grid is OPT-IN — shown once it has one;
+        // until then a single button gives it one (stored in Auto, so adding
+        // it changes nothing you hear until a step is set and Manual chosen).
+        const optGrid = OPT_GRID_TRACKS.includes(track) && engineCaps.textureGrid;
         const showSeq =
           track === 'arp' ||
           ((SEQ_SINGLE_TRACKS.includes(track) || isPercussiveTrack(track)) &&
-            engineCaps.sequencer[track]);
+            engineCaps.sequencer[track]) ||
+          (optGrid && hasOptGrid(settings.tracks[track]));
+        if (optGrid && !showSeq) {
+          const addRow = document.createElement('div');
+          addRow.className = 'seq-head seq-opt-grid';
+          const addGrid = document.createElement('button');
+          addGrid.type = 'button';
+          addGrid.className = 'secondary-button';
+          addGrid.id = `seq-add-grid-${track}`;
+          addGrid.textContent = 'Add a step grid';
+          describe(addGrid, `${TRACK_LABELS[track] || track} drifts over the chords and scale with no grid. Add one to place its notes yourself: set steps, choose Manual, and it plays exactly those. Create \u2192 Write \u2192 Melody onto ${TRACK_LABELS[track] || track} writes one for you.`);
+          addGrid.addEventListener('click', () => {
+            const t = settings.tracks[track];
+            const blankStep = () => ({ on: false, prob: 1, vmin: 0.6, vmax: 0.8 });
+            t.sequencers = [{ mode: 'auto', weights: [1], steps: Array.from({ length: SEQ_SLOTS }, blankStep) }];
+            t.sequencer = t.sequencers[0];
+            engine.setParams({ tracks: { [track]: { sequencers: structuredClone(t.sequencers) } } });
+            persistSettings();
+            renderVoiceEditor(track);
+          });
+          addRow.append(addGrid);
+          container.append(addRow);
+        }
         // Editing the lane list re-keys perKind, so the kit tabs below have to
         // follow it. Assigned once they exist; a no-op until then.
         let syncKitTabs = () => {};
@@ -21631,7 +21699,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'create',
-              'Two doors. START: Blank slate silences and empties everything \u2014 instruments off, grids cleared, no genre, FX zeroed \u2014 so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing); start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. Help me start asks what you want to make and names what that genre\u2019s composers usually start with. Seed voices borrows a genre\u2019s instruments without playing a note. Strip a layer takes ONE layer away \u2014 voices back to stock, chords to one, melodic notes, the drum pattern, or the FX \u2014 and keeps the rest, so any preset or genre can be your starting material. WRITE: choose what to write and only that row opens. Melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). Chords opens the chord editor; once an instrument carries a tune \u2014 typed, sung, imported or drawn \u2014 Fit chords to the tune appears beside it and writes the chord loop that fits, notes on the beat deciding each bar\u2019s chord and notes between passing. The other way round, Write a tune over these chords writes a melody over whatever chord loop is set \u2014 typed, edited or a genre\u2019s \u2014 onto the instrument you pick, in its own register: chord tones on the beats, a step at a time between them, rising and falling over each four-bar phrase, ending on the home note when the last chord holds it, as busy as Complexity says. Press it again for another tune over the same chords; every note is an ordinary step you can drag. Beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, the pitches from your chords. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. Tap a rhythm turns Space into a drum and writes your taps into the drum grid; the raw timing is kept, so once there is a take Re-fit the last take appears and lands the same performance on a new time signature or tempo. MIDI file brings in a phrase composed elsewhere. The panel remembers your last Write choice.'
+              'Two doors. START: Blank slate silences and empties everything \u2014 instruments off, grids cleared, no genre, FX zeroed \u2014 so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing); start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. Help me start asks what you want to make and names what that genre\u2019s composers usually start with. Seed voices borrows a genre\u2019s instruments without playing a note. Strip a layer takes ONE layer away \u2014 voices back to stock, chords to one, melodic notes, the drum pattern, or the FX \u2014 and keeps the rest, so any preset or genre can be your starting material. WRITE: choose what to write and only that row opens. Melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). The texture has no grid until you write one: a line written onto it gives it one, and it plays your notes instead of drifting. Chords opens the chord editor; once an instrument carries a tune \u2014 typed, sung, imported or drawn \u2014 Fit chords to the tune appears beside it and writes the chord loop that fits, notes on the beat deciding each bar\u2019s chord and notes between passing. The other way round, Write a tune over these chords writes a melody over whatever chord loop is set \u2014 typed, edited or a genre\u2019s \u2014 onto the instrument you pick, in its own register: chord tones on the beats, a step at a time between them, rising and falling over each four-bar phrase, ending on the home note when the last chord holds it, as busy as Complexity says. Press it again for another tune over the same chords; every note is an ordinary step you can drag. Beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, the pitches from your chords. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. Tap a rhythm turns Space into a drum and writes your taps into the grid of the kit you pick \u2014 the built-in one or one of your own; the raw timing is kept, so once there is a take Re-fit the last take appears and lands the same performance on a new time signature or tempo. MIDI file brings in a phrase composed elsewhere. The panel remembers your last Write choice.'
             );
           }
           const followInfo = document.getElementById('follow-chords-info');
@@ -21827,13 +21895,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const tunedSequenced = () => SEQ_TRACKS.filter((id) => !isKitTrack(id));
         const kitSequenced = () => SEQ_TRACKS.filter(isKitTrack);
         const beatTrackSelect = document.getElementById('compose-beat-track');
+        const tapTrackSelect = document.getElementById('create-tap-track');
         const harmoniseTrackSelect = document.getElementById('compose-harmonise-track');
         const tuneTrackSelect = document.getElementById('compose-tune-track');
+        // v0.0.262: Write: Melody also reaches the texture, whose grid is
+        // OPT-IN — writing a line onto it is what creates the grid and starts
+        // it. Offered only where the engine keeps that grid.
+        const melodyTargets = () => [
+          ...tunedSequenced(),
+          ...OPT_GRID_TRACKS.filter((id) => engineCaps.textureGrid && TRACK_IDS.includes(id)
+            && !SEQ_TRACKS.includes(id)),
+        ];
         function renderMidiTracks() {
           fillTrackPicker(midiTrackSelect, SEQ_TRACKS, 'melody');
-          fillTrackPicker(melodyTrackSelect, tunedSequenced(), 'melody');
+          fillTrackPicker(melodyTrackSelect, melodyTargets(), 'melody');
           fillTrackPicker(wordsTrackSelect, tunedSequenced(), 'melody');
           fillTrackPicker(beatTrackSelect, kitSequenced(), 'percussion');
+          // v0.0.262: Tap a rhythm writes onto ANY kit, a user's own included,
+          // through the same picker the Beat row has; the built-in kit first.
+          fillTrackPicker(tapTrackSelect, kitSequenced(), 'percussion');
           fillTrackPicker(harmoniseTrackSelect, tunedSequenced(), 'melody');
           fillTrackPicker(tuneTrackSelect, tunedSequenced(), 'melody');
         }
@@ -21843,6 +21923,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(melodyTrackSelect, 'Which instrument the typed notes are written onto — any of them, not just the melody.');
         describe(wordsTrackSelect, 'Which instrument sings the words — any tuned track, not just the melody.');
         describe(beatTrackSelect, 'Which kit the typed beat is written onto.');
+        describe(tapTrackSelect, 'Which kit your taps are written onto \u2014 the built-in one or a kit of your own.');
         describe(harmoniseTrackSelect, 'Which instrument’s tune the chords are fitted to.');
         describe(tuneTrackSelect, 'Which instrument the tune over the chords is written onto — any tuned track, each in its own register.');
 
@@ -22687,7 +22768,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           tapMode = !tapMode;
           createTap.setAttribute('aria-pressed', String(tapMode));
           if (tapMode) {
-            if (TRACK_IDS.includes('percussion')) playAlongTrack.value = 'percussion';
+            // v0.0.262: whichever kit the row names, a user kit included;
+            // the built-in kit when nothing else is chosen.
+            const kit = tapTrackSelect && TRACK_IDS.includes(tapTrackSelect.value)
+              ? tapTrackSelect.value : 'percussion';
+            if (TRACK_IDS.includes(kit)) playAlongTrack.value = kit;
             if (!playAlongOn) setPlayAlong(true);
             setPlayAlongUI();
             // AUDIT FIX: tapping re-points the KEYS at percussion, so an
@@ -22706,11 +22791,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
             if (guidedTip) {
               guidedTip.textContent =
-                'Tap Space — each tap sounds the kit and Capture writes it into the drum grid. Press the button again to stop.';
+                `Tap Space — each tap sounds ${TRACK_LABELS[playAlongTarget()] || 'the kit'} and Capture writes it into its grid. Press the button again to stop.`;
             }
           } else {
             endCapture();
           }
+        });
+        // Changing the kit mid-take stops the take (Capture writes what was
+        // tapped onto the kit it was tapped on) and starts again on the new one.
+        tapTrackSelect?.addEventListener('change', () => {
+          if (!tapMode || !createTap) return;
+          createTap.click();
+          createTap.click();
         });
 
         // v0.0.107 (his "keep the raw tap data so the user can re-quantise"):
@@ -22795,7 +22887,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             syncCreateWrite();
             persistSettings();
           });
-          describe(writeSelect, 'What to write: a melody, the chords, a beat, words to sing, a rhythm tapped on Space, or a MIDI file. Only the one you choose is shown. Any instrument can go first: Melody, Words and MIDI file write onto whichever one you pick, Chords start the pad, Beat and Tap the kit. The texture alone has no grid to write — it drifts over the chords and scale, so switch it on from its own row.');
+          describe(writeSelect, 'What to write: a melody, the chords, a beat, words to sing, a rhythm tapped on Space, or a MIDI file. Only the one you choose is shown. Any instrument can go first: Melody, Words and MIDI file write onto whichever one you pick, Chords start the pad, Beat and Tap a rhythm onto whichever kit you pick. Melody can also go onto the texture: writing a line gives it a step grid, and from then on it plays your notes instead of drifting.');
         }
         // Re-read on every open: a tune typed, sung, imported or captured since
         // the panel was last shown is what makes Fit chords appear.

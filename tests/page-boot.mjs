@@ -5580,6 +5580,132 @@ try {
     }
   }
 
+  // ---- v0.0.262 the two leftovers of "Start with ANY track" ----------------
+  // (1) Tap a rhythm wrote onto the built-in kit and nowhere else: it now
+  // names its kit in the same row, a user's own kit included, and the raw take
+  // re-fits onto that kit. (2) Texture had no grid, so no Write door could
+  // start it: Write → Melody now reaches it, the line it writes IS its grid,
+  // and the voice editor shows that grid. Both asserted at the ENGINE.
+  {
+    const engine = window.__ambi4Engine;
+    const panel = doc.getElementById('play-along');
+    const opener = doc.getElementById('play-along-open');
+    const writeSelect = doc.getElementById('create-write');
+    const blankButton = doc.getElementById('create-blank');
+    const choose = (value) => {
+      writeSelect.value = value;
+      writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+    };
+    const seqsOf = (t) => (Array.isArray(t && t.sequencers) && t.sequencers.length ? t.sequencers : (t && t.sequencer ? [t.sequencer] : []));
+    const hits = (seq) => {
+      const steps = seq && seq.steps;
+      if (!steps || typeof steps !== 'object' || Array.isArray(steps)) return 0;
+      return Object.values(steps).reduce((n, lane) => n + (Array.isArray(lane) ? lane.filter((st) => st && st.on).length : 0), 0);
+    };
+    if (!engine || !panel || !opener || !writeSelect || !blankButton || typeof engine.addTrack !== 'function') {
+      failures.push('start with any track (leftovers): the Create panel, the engine seam or addTrack is missing');
+    } else {
+      if (panel.hidden) opener.click();
+      await new Promise((r) => setTimeout(r, 30));
+
+      // (1) Tap onto a user kit.
+      let kitId = null;
+      try {
+        kitId = engine.addTrack({ label: 'Tap kit', family: 'percussive' })?.id ?? null;
+      } catch (error) {
+        failures.push(`tap onto a user kit: addTrack refused a percussive track (${error && error.message})`);
+      }
+      await new Promise((r) => setTimeout(r, 30));
+      choose('tap');
+      const tapTrack = doc.getElementById('create-tap-track');
+      const tapButton = doc.getElementById('create-tap');
+      if (!tapTrack) {
+        failures.push('tap onto a user kit: the Tap row has no kit picker (#create-tap-track) — Tap only ever writes the built-in kit');
+      } else if (kitId) {
+        const offered = Array.from(tapTrack.options).map((o) => o.value);
+        if (offered[0] !== 'percussion') failures.push(`tap onto a user kit: the picker does not default to the built-in kit first (${offered.join(', ')})`);
+        if (!offered.includes(kitId)) failures.push(`tap onto a user kit: the picker does not offer the user kit ${kitId} (${offered.join(', ')})`);
+        if (offered.some((id) => ['melody', 'bass', 'arp', 'pad', 'texture'].includes(id))) {
+          failures.push(`tap onto a user kit: the picker offers a tuned track (${offered.join(', ')})`);
+        }
+        const kitBefore = JSON.stringify(seqsOf(engine.getParams().tracks.percussion).map((q) => q.steps));
+        tapTrack.value = kitId;
+        tapTrack.dispatchEvent(new window.Event('change', { bubbles: true }));
+        tapButton.click();
+        const armed = engine.getCapture();
+        if (!armed.armed || armed.track !== kitId) {
+          failures.push(`tap onto a user kit: Tap armed ${armed.armed ? armed.track : 'nothing'}, not ${kitId}`);
+        }
+        for (let i = 0; i < 3; i++) {
+          doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+          doc.body.dispatchEvent(new window.KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true }));
+        }
+        tapButton.click();
+        const written = engine.getParams().tracks[kitId];
+        const active = seqsOf(written)[0];
+        if (!active || active.mode !== 'manual' || hits(active) < 1) {
+          failures.push(`tap onto a user kit: the taps never reached ${kitId}'s stored grid at the engine (${active ? `${active.mode}, ${hits(active)} hits` : 'no sequencer'})`);
+        }
+        const kitAfter = JSON.stringify(seqsOf(engine.getParams().tracks.percussion).map((q) => q.steps));
+        if (kitAfter !== kitBefore) failures.push('tap onto a user kit: the taps were written onto the built-in kit as well');
+        // Re-fit lands the SAME take on the same kit.
+        const raw = typeof engine.getLastTake === 'function' ? engine.getLastTake() : null;
+        if (!raw || raw.track !== kitId) failures.push(`tap onto a user kit: the raw take is kept for ${raw ? raw.track : 'nothing'}, not ${kitId}`);
+        doc.getElementById('create-refit')?.click();
+        const refitted = seqsOf(engine.getParams().tracks[kitId])[0];
+        if (!refitted || refitted.mode !== 'manual' || hits(refitted) < 1) failures.push('tap onto a user kit: Re-fit left the user kit without the take');
+        if (JSON.stringify(seqsOf(engine.getParams().tracks.percussion).map((q) => q.steps)) !== kitBefore) {
+          failures.push('tap onto a user kit: Re-fit wrote the take onto the built-in kit');
+        }
+        tapTrack.value = 'percussion';
+        tapTrack.dispatchEvent(new window.Event('change', { bubbles: true }));
+      }
+      if (kitId && typeof engine.removeTrack === 'function') {
+        try { engine.removeTrack(kitId); } catch {}
+      }
+
+      // (2) Write → Melody onto the texture, from a Blank slate.
+      blankButton.click();
+      await waitUntil(() => engine.getParams().tracks.texture.state === 'off');
+      if ('sequencers' in engine.getParams().tracks.texture) {
+        failures.push('melody onto texture: a Blank slate leaves the texture holding a grid');
+      }
+      choose('melody');
+      const melodyTrack = doc.getElementById('compose-melody-track');
+      const targets = Array.from(melodyTrack.options).map((o) => o.value);
+      if (!targets.includes('texture')) {
+        failures.push(`melody onto texture: Write → Melody does not offer the texture (${targets.join(', ')})`);
+      } else {
+        melodyTrack.value = 'texture';
+        melodyTrack.dispatchEvent(new window.Event('change', { bubbles: true }));
+        const box = doc.getElementById('compose-melody-text');
+        box.value = 'C6 E6 G6';
+        box.dispatchEvent(new window.Event('input', { bubbles: true }));
+        doc.getElementById('compose-melody-write').click();
+        await waitUntil(() => engine.getParams().tracks.texture.state !== 'off');
+        const texture = engine.getParams().tracks.texture;
+        if (texture.state === 'off') failures.push('melody onto texture: writing a line left the texture off');
+        const seq = seqsOf(texture)[0];
+        const pinned = seq && Array.isArray(seq.steps)
+          ? [0, 4, 8].map((slot) => seq.steps[slot] && seq.steps[slot].on ? seq.steps[slot].midi : null) : [];
+        if (!seq || seq.mode !== 'manual' || JSON.stringify(pinned) !== JSON.stringify([84, 88, 91])) {
+          failures.push(`melody onto texture: the engine's texture grid is ${seq ? `${seq.mode}, beats ${JSON.stringify(pinned)}` : 'absent'}, not manual C6 E6 G6`);
+        }
+        const entry = typeof engine.entryBar === 'function' ? engine.entryBar('texture') : 'no entryBar';
+        if (entry !== 0) failures.push(`melody onto texture: the written texture enters at bar ${entry}, not at once`);
+        const editor = await openEditor('texture');
+        if (!editor || !editor.querySelector('.seq')) failures.push('melody onto texture: the texture editor shows no step grid once it has one');
+        const cells = editor ? editor.querySelectorAll('.seq .seq-cell-on') : [];
+        if (editor && editor.querySelector('.seq') && !cells.length) failures.push('melody onto texture: the texture grid draws none of the written steps');
+        blankButton.click();
+        await waitUntil(() => !('sequencers' in engine.getParams().tracks.texture));
+        if ('sequencers' in engine.getParams().tracks.texture) failures.push('melody onto texture: Blank slate did not take the texture grid away at the engine');
+      }
+      choose('');
+      if (!panel.hidden) opener.click();
+    }
+  }
+
   // ---- v0.0.249 the Processor dial takes a span ------------------------------
   // Untouched it IS the whole Eco–Full span, which is the old Auto; a sideways
   // gesture (here its keyboard form, Shift+Left/Right) narrows the span the

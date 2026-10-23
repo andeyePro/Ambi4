@@ -513,7 +513,7 @@ export const SEQUENCER_MODES = Object.freeze(['auto', 'manual']);
 /** Longest metre grid (5/4 = 20 sixteenths); shorter metres use a prefix. */
 export const SEQUENCER_STEP_COUNT = 20;
 
-/** Tracks with a pulse to sequence. pad and texture are sustained, so no grid. */
+/** Tracks with a pulse to sequence. pad is sustained, so no grid; texture's is opt-in (OPT_GRID_TRACKS). */
 export const SEQUENCED_TRACKS = Object.freeze(TRACK_REGISTRY
   .filter((track) => track.sequenced !== null)
   .sort((a, b) => a.sequenced - b.sequenced)
@@ -538,6 +538,18 @@ export const MAX_PERCUSSION_LANES = 8;
 // starting point", and the rows are click-to-rename anyway, so a user who
 // wants a kit names one. Reverted at v0.0.66.
 const PERCUSSION_LANE_LABELS = Object.freeze({ low: 'Low', mid: 'Mid', high: 'High' });
+
+/**
+ * Tracks whose step grid is OPT-IN (the "Start with ANY track" leftover,
+ * v0.0.262): texture has no grid until one is written to it, and it is NOT in
+ * SEQUENCED_TRACKS — that list's order is the Markov pass's draw order, so
+ * joining it would move the rng stream of every piece ever written. A texture
+ * with no `sequencers` key plans exactly as it always has; one with a grid in
+ * MANUAL mode plays the grid's steps instead of drifting; a grid in auto mode
+ * is stored but inert, as melody's is under auto. The grid is sparse: only a
+ * write puts the key there, and `sequencers: null` takes it away.
+ */
+export const OPT_GRID_TRACKS = Object.freeze(['texture']);
 
 /** Tracks that sound a pitch, so a chord discipline means anything to them. */
 export const TUNED_TRACKS = Object.freeze(TRACK_REGISTRY
@@ -2678,7 +2690,18 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
       // shared with the built-in percussion track.
       track.lanes = sanitisePercussionLanes(partial && partial.lanes, baseTrack.lanes);
     }
-    if (shape.sequenced) {
+    // v0.0.262: an opt-in grid exists when the caller sends one, or the base
+    // already had one; an explicit null (either field) takes it away.
+    let gridded = shape.sequenced;
+    if (!gridded && !userById?.has(name) && OPT_GRID_TRACKS.includes(name)) {
+      const dropped = partial && ((('sequencers' in partial) && partial.sequencers === null)
+        || (('sequencer' in partial) && partial.sequencer === null));
+      const sent = partial && ((Array.isArray(partial.sequencers) && partial.sequencers.length)
+        || (partial.sequencer && typeof partial.sequencer === 'object'));
+      const stored = Array.isArray(baseTrack.sequencers) && baseTrack.sequencers.length > 0;
+      gridded = !dropped && Boolean(sent || stored);
+    }
+    if (gridded) {
       // v0.0.131: the track's editing RESOLUTION decides how many slots a lane
       // stores and how many of them a bar plays. Absent means the sixteenth
       // every version so far baked, so nothing about a stored setup changes.
@@ -4203,7 +4226,8 @@ export const NOTE_SOURCES = Object.freeze({
   // the figure's step / the phase copy / the additive cell's slot / the
   // energy octave double / a hand-sequenced step / floor
   arp: Object.freeze(['figure', 'phase', 'cell', 'double', 'step', 'cover']),
-  texture: Object.freeze(['drift', 'cover']),
+  // the drift's own draw / a step of its opt-in grid (v0.0.262) / floor
+  texture: Object.freeze(['drift', 'step', 'cover']),
   // user-track lines; `live` is any track played by hand (play-along)
   user: Object.freeze(['step']),
   live: Object.freeze(['live']),
@@ -6303,7 +6327,7 @@ export function createEngine(initialParams, options = {}) {
    * and never draws.
    */
   function advanceSequencers() {
-    for (const track of sequencedTracks()) {
+    for (const track of gridTracks()) {
       const list = params.tracks[track].sequencers;
       if (!list || list.length < 2) continue;
       if (held.has(track)) continue;
@@ -6523,6 +6547,18 @@ export function createEngine(initialParams, options = {}) {
       while (i < notes.length && notes[i].index <= end) i += 1;
     }
     return merged;
+  }
+
+  /**
+   * v0.0.262: every track with a step grid right now — the sequenced set in
+   * its load-bearing order, then an opt-in grid track (texture) only while it
+   * HAS a grid. Appended last and absent when gridless, so a piece with no
+   * texture grid walks exactly the list it always walked.
+   */
+  function gridTracks() {
+    const extra = OPT_GRID_TRACKS.filter((name) => params.tracks[name]
+      && Array.isArray(params.tracks[name].sequencers) && params.tracks[name].sequencers.length);
+    return extra.length ? [...sequencedTracks(), ...extra] : sequencedTracks();
   }
 
   function isManual(track) {
@@ -9641,8 +9677,72 @@ export function createEngine(initialParams, options = {}) {
     return { motifDerived: notes.length > 0, notes, octave, op };
   }
 
+  /**
+   * v0.0.262: a texture line written onto its opt-in grid. The grid's steps
+   * decide the onsets — exactly those, nothing drifting in between — and the
+   * pitch comes from the harmony the way every other tuned grid's does (the
+   * chord under the step, root/third/fifth in turn), or is the typed note
+   * verbatim where a step pins one. Same event shape as the drift plan, so
+   * one scheduler plays both; `grid` marks which law the pitch follows.
+   */
+  const TEXTURE_GRID_DEGREES = Object.freeze([0, 2, 4]);
+
+  function planTextureGrid() {
+    const lane = sequencerFor('texture').steps;
+    const slots = trackSlots('texture');
+    const stepBeats = trackStepBeats('texture');
+    const sounded = new Map();
+    let notes = [];
+    let taken = 0;
+    for (let i = 0; i < slots; i++) {
+      const step = lane[i];
+      if (!step || !step.on) continue;
+      const prob = groupedProb(sounded, step, effectiveProb('texture', `step.${i}`, step.prob));
+      const fires = rng() < prob;
+      if (step.group !== undefined) sounded.set(step.group, fires);
+      if (!fires) continue;
+      const stray = dissonanceDraw('texture');
+      const degree = TEXTURE_GRID_DEGREES[taken++ % TEXTURE_GRID_DEGREES.length];
+      notes.push({
+        index: i,
+        beat: i * stepBeats,
+        pinned: Number.isFinite(step.midi) ? step.midi : null,
+        degree: stray && !stray.chromatic ? degree + stray.dir : degree,
+        bend: stray && stray.chromatic ? stray.dir : 0,
+        gate: step.gate,
+        velocity: between(step.vmin, step.vmax, rng) * velocityJitter('texture'),
+        pan: between(-0.8, 0.8, rng) + panSpread('texture'),
+        octave: octaveWander('texture'),
+        nudge: timingNudge('texture'),
+      });
+    }
+    notes = mergeTies(notes, lane, slots);
+    return notes.map((note) => {
+      const pulse = pulseAtBeat(note.beat);
+      return {
+        grid: true,
+        index: note.index,
+        beat: note.beat,
+        pulse,
+        offset: note.beat - bar.starts[pulse],
+        beats: drawnSpan(note, stepBeats),
+        pinned: note.pinned,
+        degree: note.degree,
+        bend: note.bend,
+        velocity: note.velocity,
+        pan: note.pan,
+        octave: note.octave,
+        nudge: note.nudge,
+      };
+    });
+  }
+
   /** Texture is pure drift: scale degrees rather than chord tones, one draw per pulse. */
   function planTexture(intensity) {
+    // v0.0.262: a written grid, in manual mode, is the texture's whole
+    // material. Without one (or under auto) not a line below changes — that
+    // is the byte-identity guarantee for every piece that has no grid.
+    if (isManual('texture')) return planTextureGrid();
     const chance = clamp(
       (0.05 + params.complexity * 0.3) * (0.5 + intensity) * trackDensity('texture'), 0, 1,
     );
@@ -10553,6 +10653,26 @@ export function createEngine(initialParams, options = {}) {
     if (isActive('texture')) {
       for (const event of texturePlan) {
         if (event.pulse !== index) continue;
+        if (event.grid) {
+          // v0.0.262: a grid step — the typed note verbatim, or the chord
+          // tone under the step in the texture's own high band.
+          let midi = event.pinned;
+          if (midi == null) {
+            midi = scaleDegreeToMidi(chordAtBeat(event.beat).degree + event.degree, bar.scale, bar.rootPc, 6);
+            while (midi > 100) midi -= 12;
+            while (midi < 79) midi += 12;
+            midi = foldIntoRange(midi + 12 * (event.octave ?? 0) + (event.bend ?? 0), 67, 108);
+          }
+          playNote('texture', {
+            midi,
+            when: time + (swung(event.beat, 'texture') - from) * bar.secPerBeat + (event.nudge ?? 0),
+            duration: Math.max(0.05, event.beats * bar.secPerBeat),
+            velocity: event.velocity,
+            pan: event.pan,
+            source: 'step',
+          });
+          continue;
+        }
         let midi = scaleDegreeToMidi(event.degree, bar.scale, bar.rootPc, 6);
         while (midi > 100) midi -= 12;
         while (midi < 79) midi += 12;
@@ -11347,7 +11467,7 @@ export function createEngine(initialParams, options = {}) {
   function invalidateEditedPlans(partial) {
     if (!partial || typeof partial !== 'object') return;
     const tracks = partial.tracks && typeof partial.tracks === 'object' ? partial.tracks : null;
-    for (const name of sequencedTracks()) {
+    for (const name of [...sequencedTracks(), ...OPT_GRID_TRACKS]) {
       const track = tracks && tracks[name] && typeof tracks[name] === 'object' ? tracks[name] : null;
       if (track && ('sequencer' in track || 'sequencers' in track)) clearFrozen(name);
     }

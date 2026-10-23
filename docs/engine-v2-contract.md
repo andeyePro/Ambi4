@@ -299,7 +299,7 @@ Patch = {
   `double` (the energy octave double beside a lead note), `step` (a manual arp's
   lead note when not additive), `cover`; a bar the arp plays in answer to the
   melody keeps the melody's sources (and `motif: true`). Texture: `drift`,
-  `cover`. User-track lines: `step`. Any note played by hand: `live`. Drum hits
+  `step` (a note of its opt-in grid, v0.0.262), `cover`. User-track lines: `step`. Any note played by hand: `live`. Drum hits
   carry none. Telemetry only: every value is a fact the planner already decided
   — no draw is made to name it — so no piece moves (audio-reference unchanged).
   tests/note-source-smoke.mjs holds the set and the laws tying each to what it
@@ -1292,6 +1292,29 @@ instrument manifests (JSON dial spec), persistence of user tracks in params.
 ---
 
 # v23 — user tracks (window-3 build spec; supersedes v22's PENDING note)
+
+## v0.0.262 — the texture's OPT-IN step grid
+
+`OPT_GRID_TRACKS = ['texture']`. Texture is NOT in `SEQUENCED_TRACKS` and never
+joins it: that list's order is the Markov pass's draw order, and moving it would
+move the rng stream of every piece ever written. Instead the grid is SPARSE:
+
+- Absent (every default, every stored piece): `tracks.texture` has no
+  `sequencers` key and the texture drifts exactly as before — the same draws in
+  the same order (tests/texture-grid-smoke.mjs pins the note stream of fixed
+  seeds to digests frozen from v0.0.259; audio-reference unmoved).
+- Present: the sanitiser builds it like any melodic track's list (`sequencers`,
+  the `sequencer` alias, `stepBeats`, `sequencerAdvance`). Sending either field
+  creates it; `sequencers: null` (or `sequencer: null`) takes it away; a key
+  left out keeps what is stored. The page states null on every full push, as it
+  does the motif rule, so a preset without one never inherits the last piece's.
+- Under `auto` a stored grid is inert, as melody's is. Under `manual` the grid
+  IS the texture: each step that fires plays its pinned `midi` verbatim, or the
+  chord tone under it (root/third/fifth in turn) folded into the texture's
+  67-108 band; `source: 'step'`; no drift note in between. A hand-written grid
+  enters at once (`hand`), like any other.
+- It advances (chain or weights) AFTER the sequenced set, only while present,
+  so a gridless piece walks the same list it always walked.
 
 ## The frozen floor (THE decision — read this before anything below)
 
