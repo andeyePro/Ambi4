@@ -5208,6 +5208,116 @@ try {
     }
   }
 
+  // ---- Start with ANY track (his "chords=pad … even texture") ---------------
+  // Every Write door must be able to START its instrument from a Blank slate,
+  // the way Write → Melody always could. Two could not: the Chords door wrote a
+  // loop the pad never played (Blank slate switches the pad off and nothing in
+  // the chords path switched it back on), and a MIDI file landed without the
+  // hand-written flag, so it waited its track's staged turn (five bars on the
+  // kit) where a typed line enters at once. Asserted at the ENGINE: the stored
+  // seed, the pad's state, and the imported line's entry bar.
+  {
+    const engine = window.__ambi4Engine;
+    const panel = doc.getElementById('play-along');
+    const opener = doc.getElementById('play-along-open');
+    const writeSelect = doc.getElementById('create-write');
+    const blankButton = doc.getElementById('create-blank');
+    const choose = (value) => {
+      writeSelect.value = value;
+      writeSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+    };
+    if (!engine || !panel || !opener || !writeSelect || !blankButton) {
+      failures.push('start with any track: the Create panel or the engine seam is missing');
+    } else {
+      if (panel.hidden) opener.click();
+      await new Promise((r) => setTimeout(r, 30));
+
+      // Chords → the pad, from a Blank slate.
+      blankButton.click();
+      await waitUntil(() => engine.getParams().tracks.pad.state === 'off');
+      if (engine.getParams().tracks.pad.state !== 'off') {
+        failures.push(`start with any track: Blank slate left the pad ${engine.getParams().tracks.pad.state}, so the chords test proves nothing`);
+      }
+      choose('chords');
+      const chordsText = doc.getElementById('compose-chords-text');
+      const chordsWrite = doc.getElementById('compose-chords-write');
+      if (!chordsText || !chordsWrite) {
+        failures.push('start with any track: Write → Chords has no typed-chords row (#compose-chords-text / #compose-chords-write)');
+      } else {
+        // Four degrees every scale has, pentatonic included (the seed law refuses
+        // a whole loop if one chord is outside the scale).
+        chordsText.value = 'I iv V I';
+        chordsText.dispatchEvent(new window.Event('input', { bubbles: true }));
+        chordsWrite.click();
+        await waitUntil(() => engine.getParams().tracks.pad.state === 'on');
+        const after = engine.getParams();
+        const seed = after.harmony && after.harmony.seed;
+        if (!Array.isArray(seed) || seed.length !== 4) {
+          failures.push(`start with any track: typed chords I iv V I did not reach the engine as a four-chord loop: ${JSON.stringify(seed)} (tip: ${doc.getElementById('guided-tip')?.textContent})`);
+        }
+        if (after.tracks.pad.state !== 'on') {
+          failures.push(`start with any track: chords written onto a Blank slate left the pad ${after.tracks.pad.state} — the loop is stored and silent`);
+        }
+      }
+
+      // Fit chords to the tune switches the pad on too.
+      blankButton.click();
+      await waitUntil(() => engine.getParams().tracks.pad.state === 'off');
+      choose('melody');
+      const melodyTrack = doc.getElementById('compose-melody-track');
+      melodyTrack.value = 'bass';
+      melodyTrack.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const box = doc.getElementById('compose-melody-text');
+      box.value = 'C3 F3 G3 C3';
+      box.dispatchEvent(new window.Event('input', { bubbles: true }));
+      doc.getElementById('compose-melody-write').click();
+      choose('chords');
+      const harmoniseTrack = doc.getElementById('compose-harmonise-track');
+      harmoniseTrack.value = 'bass';
+      doc.getElementById('compose-harmonise')?.click();
+      await waitUntil(() => engine.getParams().tracks.pad.state === 'on');
+      if (engine.getParams().tracks.pad.state !== 'on') {
+        failures.push('start with any track: Fit chords to the tune on a Blank slate left the pad off — the fitted loop is silent');
+      }
+
+      // MIDI file → hand-written, so it enters at once.
+      blankButton.click();
+      await waitUntil(() => engine.getParams().tracks.bass.state === 'off');
+      choose('midi');
+      const midiInput = doc.getElementById('compose-midi');
+      const midiTrack = doc.getElementById('compose-midi-track');
+      midiTrack.value = 'bass';
+      // Format 0, 96 ticks a beat, one D3 lasting a beat (D3: no earlier block writes it).
+      const bytes = new Uint8Array([
+        0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0, 0x60,
+        0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 12,
+        0x00, 0x90, 0x32, 0x64, 0x60, 0x80, 0x32, 0x00, 0x00, 0xff, 0x2f, 0x00,
+      ]);
+      const fakeFile = { name: 'line.mid', arrayBuffer: async () => bytes.buffer.slice(0) };
+      Object.defineProperty(midiInput, 'files', { configurable: true, get: () => [fakeFile] });
+      midiInput.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const imported = () => {
+        const t = engine.getParams().tracks.bass;
+        const seqs = Array.isArray(t.sequencers) && t.sequencers.length ? t.sequencers : [t.sequencer];
+        return seqs[0] && Array.isArray(seqs[0].steps) && seqs[0].steps.some((st) => st && st.on && st.midi === 50) ? seqs[0] : null;
+      };
+      await waitUntil(() => imported() !== null, 3000);
+      const seq = imported();
+      if (!seq) {
+        failures.push(`start with any track: the MIDI file never reached the bass grid at the engine (tip: ${doc.getElementById('guided-tip')?.textContent})`);
+      } else {
+        // getParams() does not echo `hand`; the engine's entry bar is what it
+        // decides with, so that is what is asserted (1 = the bass's staged turn).
+        const entry = typeof engine.entryBar === 'function' ? engine.entryBar('bass') : 'no entryBar';
+        if (entry !== 0) failures.push(`start with any track: an imported bass line enters at bar ${entry}, not at once`);
+      }
+      Object.defineProperty(midiInput, 'files', { configurable: true, value: null });
+
+      choose('');
+      if (!panel.hidden) opener.click();
+    }
+  }
+
   // ---- v0.0.249 the Processor dial takes a span ------------------------------
   // Untouched it IS the whole Eco–Full span, which is the old Auto; a sideways
   // gesture (here its keyboard form, Shift+Left/Right) narrows the span the

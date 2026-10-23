@@ -21,6 +21,22 @@ writes the diatonic chord loop that fits it (pure module
 draw anywhere so the same tune always yields the same loop). Where this spec
 and the shipped Create door disagree, the door is what he reviewed.
 
+## Status per row (triaged 2026-10-23, against v0.0.250)
+
+| Row | Status | Where |
+|---|---|---|
+| Play or type a melody, chords derived | SHIPPED | Write: Melody (any tuned track, v0.0.152), touch keys v0.0.240, Fit chords to the tune v0.0.155 |
+| Play or type a chord sequence, melody derived | PARTLY | Typed chords now in the Chords row itself; Follow my chords (v0.0.250) is the played half. Words sings over the loop; a plain melody-from-chords derivation is not built |
+| Start with a beat, tap a rhythm | SHIPPED | Write: Beat (v0.0.147, any kit v0.0.153), Tap a rhythm (v0.0.87/107). Tap still points at the built-in kit only |
+| Hum / whistle, then sing | OPEN, long-term | Needs the v0.2.x audio-in track |
+| Start with words | SHIPPED | Write: Words, v0.0.148 |
+| Start with ANY track | SHIPPED except texture | Melody, Words, MIDI file onto any tuned/sequenced track (v0.0.152); Beat onto any kit (v0.0.153); Chords START the pad (this build: typed chords and Fit chords switch it on after Blank slate); a MIDI file is hand-written and enters at once (this build). Texture has no step grid, and giving it one moves SEQUENCED_TRACKS, whose order is the engine's draw order — an engine change, not a Write row, so the Write ⓘ says how it starts instead |
+| Guided start | SHIPPED | Help me start, v0.0.135 |
+| Authored-versus-generated seam | BLOCKED | fromClaude 18 (what a hand-edited step does); staged entry of a typed line inside a genre is fromClaude 19 |
+| Simple and Advanced both | SHIPPED | the Create door, his 96 |
+| MIDI-file import | SHIPPED | v0.0.134, compose side per his 96 |
+| Recipe sheet | BLOCKED | fromClaude 22 |
+
 ## What it is
 
 A third way into the app, beside "the app draws a genre" and "a share link
@@ -55,11 +71,11 @@ of these."
 
 | Start with | Enter it by | Derivations offered |
 |---|---|---|
-| Chords (pad) | Type (the roman-numeral loop editor, v0.0.68/76) · play (play-along/MIDI, working again v0.0.82) | Melody suggestion; bass root-following |
+| Chords (pad) | Type (in the Chords row itself — writing chords switches the pad on; the roman-numeral loop editor, v0.0.68/76, is one press away) · play (Follow my chords, v0.0.250) | Melody suggestion; bass root-following |
 | Melody | Play · type into the step grid (needs the pitch-editable grid from the transparency build) | Chord suggestion — SHIPPED v0.0.155 as Fit chords to the tune, reading any tuned track's grid whatever put the notes there |
 | Beat (percussion) | Step editor · **tap a rhythm — space bar or button** (his "love it") | Bass placement coupling (bass-follows-kick, from the Energy brief) |
 | Bass | Play · type | Kick coupling the other way; chord roots |
-| Arp / texture | Pick a voice and a pattern seed, then edit | Follows the chord loop once one exists |
+| Arp / texture | Arp: any Write row that takes a track (typed, words, MIDI file). Texture: switched on from its own row — it has no grid to write | Follows the chord loop once one exists |
 | Voice (long-term) | **Hum or whistle first, sing later** (his ordering; both want the audio-in track) | Melody transcription, then everything melody offers |
 | Words (long-term) | Type lyrics | Algorithmic melody attempt from syllable count, stress and contour — no external AI, so the AI-free position is untouched |
 

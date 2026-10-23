@@ -1217,15 +1217,21 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       Chords, Rhythms and FX strip their one layer each.
 - [ ] Write → Melody: exactly the melody row opens (box, "onto", picker,
       Write it). Each other choice swaps it for its own row; Write… closes it.
-- [ ] Write → Chords on a blank slate shows only Type the chords. Write a
-      melody, come back to Chords: Fit chords to the tune is now beside it,
-      pointed at the track that carries the tune.
+- [ ] Write → Chords on a blank slate shows the chords box, Write it and
+      Chord editor. Type I vi IV V, Write it: the pad switches itself on and
+      the loop plays (Blank slate had the pad off). Write a melody, come back
+      to Chords: Fit chords to the tune is now beside it, pointed at the
+      track that carries the tune, and it too switches the pad on.
+- [ ] Write → MIDI file onto any instrument after Blank slate: it plays at
+      once and starts the piece, like a typed line (no staged wait).
 - [ ] Write → Tap a rhythm, tap a few beats, stop: Re-fit the last take
       appears. Switch Write to another row while tapping: tap mode stands
       down (Space is a plain key again).
 - [ ] Reload: Create reopens on the last Write choice.
 - [ ] Automated: page-boot's Create block (visible-control count at first
-      open, Melody shows exactly its row, Strip → Notes at the ENGINE).
+      open, Melody shows exactly its row, Strip → Notes at the ENGINE) and
+      its Start-with-any-track block (typed chords and Fit chords switch the
+      pad on; an imported file is hand-written and enters at bar 0).
       Layout unmeasured until `.vibe/measure.sh local overlaps` runs on it,
       at desktop and 390×844.
 

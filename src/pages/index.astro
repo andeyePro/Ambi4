@@ -360,7 +360,17 @@ const VOICES: Record<string, [string, string][]> = {
             <button type="button" id="compose-melody-write" class="secondary-button">Write it</button>
           </div>
           <div class="create-row create-harmonise-row" data-write="chords" hidden>
-            <button type="button" id="compose-chords" class="secondary-button">Type the chords</button>
+            <label class="visually-hidden" for="compose-chords-text">Type the chords, one numeral per chord</label>
+            <input
+              type="text"
+              id="compose-chords-text"
+              class="create-melody-input"
+              placeholder="Type the chords: I vi IV V (one numeral per bar, up to eight)"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="compose-chords-write" class="secondary-button">Write it</button>
+            <button type="button" id="compose-chords" class="secondary-button">Chord editor</button>
             <span id="create-harmonise-wrap" class="create-harmonise-wrap" hidden>
               <button type="button" id="compose-harmonise" class="secondary-button">Fit chords to the tune</button>
               <label class="visually-hidden" for="compose-harmonise-track">Fit chords to which instrument&rsquo;s tune</label>
@@ -21686,7 +21696,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 ...(Math.abs(record.gate - 1) > 0.01 ? { gate: record.gate } : {}),
               };
             }
-            return { mode: 'manual', weights: fitted.bars.map(() => 1), steps };
+            // "Start with ANY track": the file is the person's own composition
+            // (his 96 — "the user composed the MIDI in another app"), so it is
+            // HAND-written, exactly as a typed line is (v0.0.194). Without the
+            // flag an imported drum part waited the kit's staged turn — five
+            // silent bars after Blank slate — and the import never started the
+            // piece, where every other Write row does.
+            return { mode: 'manual', weights: fitted.bars.map(() => 1), steps, hand: true };
           });
           const settingsTrack = settings.tracks[track];
           settingsTrack.sequencers = list;
@@ -21722,6 +21738,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             notes.push(`It is written in ${parsed.timeSignature}; this piece is in ${settings.timeSignature}.`);
           }
           say(notes.join(' '));
+          startAfterWriting();
         }
 
         midiInput?.addEventListener('change', () => {
@@ -22116,9 +22133,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             return;
           }
           commitProgression(derived.numerals.join(' '));
+          const padSwitched = startPadForChords();
           say(`Chords fitted to ${label}'s tune: ${derived.numerals.join(' – ')}.`
+            + (padSwitched ? ' The pad is switched on to play them.' : '')
             + (derived.emptyBars ? ` ${derived.emptyBars} bar${derived.emptyBars === 1 ? ' had' : 's had'} no notes and carries the chord through.` : '')
-            + ' They are in the chord editor now — press Type the chords to hear each one and change any of them.');
+            + ' They are in the chord editor now — press Chord editor to hear each one and change any of them.');
         }
 
         harmoniseButton?.addEventListener('click', () => { deriveChordsFromTrack(); });
@@ -22262,6 +22281,65 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(melodyWrite, melodyWriteHint());
         melodyTrackSelect?.addEventListener('change', () => describe(melodyWrite, melodyWriteHint(), { replace: true }));
 
+        // "Start with ANY track" (his extension of the bassline idea:
+        // "chords=pad"). The chords door is the PAD's way in, and before this
+        // it could not start it: Blank slate switches every instrument off,
+        // and neither the chord editor nor Fit chords switched the pad back
+        // on — so a loop typed onto a blank slate was stored, shown, and
+        // silent. Writing chords from Create now does what every other Write
+        // row does for its track: the pad is switched on (it is the
+        // instrument that plays the loop) and the piece starts if nothing is
+        // playing. The pad's staged turn is bar 0, so it sounds at once.
+        function startPadForChords() {
+          const pad = settings.tracks.pad;
+          if (!pad || pad.state !== 'off') return false;
+          pad.state = 'on';
+          engine.setParams({ tracks: { pad: { state: 'on' } } });
+          syncTrackStateUI();
+          persistSettings();
+          return true;
+        }
+        const chordsText = document.getElementById('compose-chords-text');
+        const chordsWrite = document.getElementById('compose-chords-write');
+        function writeTypedChords() {
+          const raw = (chordsText?.value || '').trim();
+          if (!raw) return;
+          const typed = raw.split(/[\s,]+/).filter(Boolean).slice(0, PROGRESSION_MAX);
+          commitProgression(raw);
+          const seed = settings.harmony && Array.isArray(settings.harmony.seed) ? settings.harmony.seed : null;
+          // The engine takes a loop whole or not at all (a numeral the scale
+          // has no chord for refuses it), and commitProgression re-reads what
+          // it kept — so a refusal is said, never reported as written.
+          const kept = (progressionSeedSlots() || []).map((slot) => slot.degree).join(' ');
+          const asked = typed.map((t) => {
+            const match = /^([ivIV]+)/.exec(t);
+            return match ? NUMERALS.indexOf(match[1].toLowerCase()) : -1;
+          }).join(' ');
+          if (!seed || !seed.length || kept !== asked) {
+            if (guidedTip) {
+              const size = currentScale() ? currentScale().length : 7;
+              guidedTip.textContent = `Those chords were not written — write roman numerals I to ${['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][size] || 'VII'} (this scale has ${size}), lower case for minor, 7 or 9 for colour.`;
+            }
+            return;
+          }
+          const switched = startPadForChords();
+          if (guidedTip) {
+            guidedTip.textContent = `Chords written: ${seed.map(slotToNumeral).join(' – ')}`
+              + (switched ? ', and the pad switched on to play them' : '')
+              + (engine.running ? ' — they play from the next chord change.' : '.');
+          }
+          startAfterWriting();
+        }
+        chordsWrite?.addEventListener('click', writeTypedChords);
+        chordsText?.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            writeTypedChords();
+          }
+        });
+        describe(chordsWrite, 'Writes the typed chords as the piece\u2019s chord loop, one per bar in order, switches the pad on to play them and starts the piece if nothing is playing. Roman numerals of the current scale: I is the home chord, lower case is minor, 7 or 9 adds colour.');
+        describe(document.getElementById('compose-chords'), 'Opens the chord editor, where every chord is a chip you can hear, change, widen or remove.');
+
                 composeChords?.addEventListener('click', () => {
           activateTab('advanced', { focus: false });
           const chords = document.getElementById('control-progression');
@@ -22386,7 +22464,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             syncCreateWrite();
             persistSettings();
           });
-          describe(writeSelect, 'What to write: a melody, the chords, a beat, words to sing, a rhythm tapped on Space, or a MIDI file. Only the one you choose is shown.');
+          describe(writeSelect, 'What to write: a melody, the chords, a beat, words to sing, a rhythm tapped on Space, or a MIDI file. Only the one you choose is shown. Any instrument can go first: Melody, Words and MIDI file write onto whichever one you pick, Chords start the pad, Beat and Tap the kit. The texture alone has no grid to write — it drifts over the chords and scale, so switch it on from its own row.');
         }
         // Re-read on every open: a tune typed, sung, imported or captured since
         // the panel was last shown is what makes Fit chords appear.
