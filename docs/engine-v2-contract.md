@@ -257,6 +257,30 @@ Patch = {
   the frame and draws nothing. Under `harmony.beats` (v0.0.241) the chord is the
   one in force at the note's own beat, read a tenth of a beat late so a note
   humanised early onto a change still belongs to the chord it was planned for.
+- Note sources (v0.0.245): where `role` says what a note IS, `source` says WHY
+  it was chosen — the mechanism that decided its pitch and onset. Every pitched
+  'note' event carries one, from `NOTE_SOURCES` (exported) for its track. Pad:
+  `voicing` (the chord struck on its span), `breath` (the half-bar re-attack),
+  `cover`, `closing`. Bass: `groove-root` / `groove-fifth` / `groove-octave` (a
+  groove step, by the tone it asked for — the fifth is a perfect fifth, interval
+  7), `approach` (the last off-beat of a bar that turns to a known next chord,
+  re-pitched to the tone nearest that chord's root), `owed-root` (the root an
+  emptied pattern still owes), `step` (a hand-sequenced step), `cover`, `closing`.
+  Melody: `motif` (a cell note as this bar develops it), `lean` (one a dissonance
+  draw moved off the cell), `grace` (an ornament leaning into the next cell
+  note), `cadence` (the phrase- or section-ending note pulled onto a chord tone;
+  a manual grid's last step too), `step`, `cover`; an auto melody note also
+  carries `development`, the bar's op from `MOTIF_OPS` (`repeat` is the
+  statement). Arp: `figure` (a step of the figure), `phase` (the phase copy,
+  always with `phase: true`), `cell` (an additive slot, always with `cell`),
+  `double` (the energy octave double beside a lead note), `step` (a manual arp's
+  lead note when not additive), `cover`; a bar the arp plays in answer to the
+  melody keeps the melody's sources (and `motif: true`). Texture: `drift`,
+  `cover`. User-track lines: `step`. Any note played by hand: `live`. Drum hits
+  carry none. Telemetry only: every value is a fact the planner already decided
+  — no draw is made to name it — so no piece moves (audio-reference unchanged).
+  tests/note-source-smoke.mjs holds the set and the laws tying each to what it
+  does.
 - Step rule (v0.0.231, the fourth-bay item's engine half): `params.stepRule` — a
   sparse map keyed like the walks saying what value a `step` (sample-and-hold)
   drift takes each time it fires: `walk` (a random step either way from the held

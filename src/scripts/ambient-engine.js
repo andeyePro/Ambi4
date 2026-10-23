@@ -4169,6 +4169,31 @@ const BASS_MIN_NOTE = 0.06;
  */
 const BASS_RANGE = Object.freeze({ low: 28, high: 55 });
 
+/**
+ * v0.0.245 — why a pitched note was chosen: the `source` on a 'note' event,
+ * by the track that generates it. Telemetry only: every value is a fact the
+ * planner had already decided (no draw is made to name it), so no piece
+ * moves. Drum hits carry none. A melody bar played by the arp (call and
+ * response) keeps the melody's sources. See docs/engine-v2-contract.md.
+ */
+export const NOTE_SOURCES = Object.freeze({
+  // the chord struck on its span / the half-bar re-attack / silence floor / final bar
+  pad: Object.freeze(['voicing', 'breath', 'cover', 'closing']),
+  // groove step by tone / the off-beat lean into the next chord / the root an
+  // empty pattern still owes / a hand-sequenced step / floor / final bar
+  bass: Object.freeze(['groove-root', 'groove-fifth', 'groove-octave', 'approach', 'owed-root', 'step', 'cover', 'closing']),
+  // a cell note as developed / one a dissonance draw leant off it / a grace
+  // note / the phrase-ending chord tone / a hand-sequenced step / floor
+  melody: Object.freeze(['motif', 'lean', 'grace', 'cadence', 'step', 'cover']),
+  // the figure's step / the phase copy / the additive cell's slot / the
+  // energy octave double / a hand-sequenced step / floor
+  arp: Object.freeze(['figure', 'phase', 'cell', 'double', 'step', 'cover']),
+  texture: Object.freeze(['drift', 'cover']),
+  // user-track lines; `live` is any track played by hand (play-along)
+  user: Object.freeze(['step']),
+  live: Object.freeze(['live']),
+});
+
 /** The turnaround: which bar of a section may carry a fill, and how often. */
 const BASS_FILL_CYCLE = 8;
 const BASS_FILL_CHANCE = 0.7;
@@ -7476,6 +7501,12 @@ export function createEngine(initialParams, options = {}) {
     // A kit is the track that owns lanes (trackShape's `percussive`).
     const kit = params.tracks[track] && Array.isArray(params.tracks[track].lanes);
     if (!kit && Number.isFinite(full.midi)) Object.assign(event, noteRole(full.midi, full.when));
+    // v0.0.245: WHY the note was chosen — the mechanism that decided it, not
+    // what it turned out to be (that is `role`). Named by the caller from a
+    // fact its planner had already decided; see NOTE_SOURCES. A melody note
+    // also names the development its bar stated.
+    if (typeof note.source === 'string') event.source = note.source;
+    if (typeof note.development === 'string') event.development = note.development;
     emit('note', event);
   }
 
@@ -7719,6 +7750,7 @@ export function createEngine(initialParams, options = {}) {
       // The one field that tells a listener this note came from the hands and
       // not from the piece.
       live: true,
+      source: 'live',
     });
     return true;
   }
@@ -8545,7 +8577,7 @@ export function createEngine(initialParams, options = {}) {
     };
   }
 
-  function attackChord(time, duration, plan, level) {
+  function attackChord(time, duration, plan, level, source = 'voicing') {
     const midis = chordMidis(3, plan.maxNotes);
     // Velocity per note shrinks as the voicing thickens, keeping the pad's
     // total contribution roughly constant.
@@ -8559,6 +8591,7 @@ export function createEngine(initialParams, options = {}) {
         duration,
         velocity: velocity * plan.jitters[i],
         pan: spread + plan.pans[i],
+        source,
       });
     });
   }
@@ -8570,7 +8603,7 @@ export function createEngine(initialParams, options = {}) {
     // ringing to the end of the chord span.
     const half = bar.duration * 0.5;
     if (duration - half < 0.2) return;
-    attackChord(time + half, duration - half, plan, PAD_REATTACK_LEVEL);
+    attackChord(time + half, duration - half, plan, PAD_REATTACK_LEVEL, 'breath');
   }
 
   // -- the silence floor -----------------------------------------------------
@@ -8625,7 +8658,7 @@ export function createEngine(initialParams, options = {}) {
         nudges: [0, 0, 0, 0, 0],
         pans: [0, 0, 0, 0, 0],
         swell: 1,
-      }, 0.8);
+      }, 0.8, 'cover');
       return;
     }
     if (track === 'percussion') {
@@ -8646,6 +8679,7 @@ export function createEngine(initialParams, options = {}) {
       duration: barChords ? Math.min(length, barChordBeats(0) * bar.secPerBeat * 0.95) : length,
       velocity: track === 'texture' ? 0.32 : track === 'bass' ? 0.6 : 0.4,
       pan: 0,
+      source: 'cover',
     });
   }
 
@@ -9003,6 +9037,7 @@ export function createEngine(initialParams, options = {}) {
           when: time + at * bar.secPerBeat + step.nudge,
           duration: Math.max(0.08, gated),
           velocity: step.velocity,
+          source: 'step',
         });
       });
       return;
@@ -9041,13 +9076,17 @@ export function createEngine(initialParams, options = {}) {
         }
         if (lead && lead.beat >= from.beat - 1e-9 && !isStrongBeat(lead.beat)) {
           lead.midi = nearestTo(lead, into.degree);
+          lead.approach = true;
         }
       }
     }
     const last = events[events.length - 1];
     const target = chordBarsLeft <= 0 && last && !isStrongBeat(last.beat)
       ? nextChordAhead() : null;
-    if (target !== null) last.midi = nearestTo(last, target);
+    if (target !== null) {
+      last.midi = nearestTo(last, target);
+      last.approach = true;
+    }
 
     // A held step slurs into the next one on a mono track; anything shorter
     // stops where its gate says and leaves the gap the groove asked for.
@@ -9068,6 +9107,7 @@ export function createEngine(initialParams, options = {}) {
         when: time + at * bar.secPerBeat + event.nudge,
         duration: Math.max(floor, span * (gate >= 0.95 ? legato : gate)),
         velocity: event.velocity,
+        source: event.approach ? 'approach' : `groove-${event.tone === 'fifth' || event.tone === 'octave' ? event.tone : 'root'}`,
       });
     });
     if (!events.length && barChords) {
@@ -9079,6 +9119,7 @@ export function createEngine(initialParams, options = {}) {
           when: time + chord.beat * bar.secPerBeat + bassPocketFor(),
           duration: barChordBeats(i) * bar.secPerBeat * 0.95,
           velocity: 0.8,
+          source: 'owed-root',
         });
       });
     } else if (!events.length) {
@@ -9089,6 +9130,7 @@ export function createEngine(initialParams, options = {}) {
         when: time + bassPocketFor(),
         duration: barDuration * 0.95,
         velocity: 0.8,
+        source: 'owed-root',
       });
     }
   }
@@ -9153,6 +9195,7 @@ export function createEngine(initialParams, options = {}) {
     if (last && last.pinned == null && (phraseBar === PHRASE_BARS - 1 || sectionEndsThisBar())) {
       last.degree = nearestChordTone(last.degree, scale().length);
       last.octave = 0;
+      last.source = 'cadence';
     }
     // The pitches came off the cell even though the rhythm is the user's grid.
     return { motifDerived: Boolean(motif) && notes.length > 0, notes };
@@ -9306,6 +9349,7 @@ export function createEngine(initialParams, options = {}) {
           pan: between(-0.25, 0.25, rng) + panSpread('melody'),
           octave: 0,
           nudge: timingNudge('melody'),
+          source: 'grace',
         });
       }
       // Dissonance (v14): a note may lean off the chord — a step inside the
@@ -9322,9 +9366,11 @@ export function createEngine(initialParams, options = {}) {
         velocity: (i === 0 ? 0.78 : 0.6) * (0.75 + intensity * 0.3) * velocityJitter('melody'),
         pan: between(-0.25, 0.25, rng) + panSpread('melody'),
         nudge: timingNudge('melody'),
+        // Telemetry only (v0.0.242): which decision this note is.
+        source: last && cadence ? 'cadence' : stray ? 'lean' : 'motif',
       });
     }
-    return { motifDerived: notes.length > 0, notes, octave };
+    return { motifDerived: notes.length > 0, notes, octave, op };
   }
 
   /** Texture is pure drift: scale degrees rather than chord tones, one draw per pulse. */
@@ -9584,7 +9630,7 @@ export function createEngine(initialParams, options = {}) {
       const velocity = clamp(0.85 / Math.sqrt(midis.length), 0.15, 1);
       midis.forEach((midi, i) => {
         const spread = (i / (midis.length - 1) - 0.5) * 0.5;
-        playNote('pad', { midi, when: time, duration: hold, velocity, pan: spread });
+        playNote('pad', { midi, when: time, duration: hold, velocity, pan: spread, source: 'closing' });
       });
     }
     if (isActive('bass')) {
@@ -9593,6 +9639,7 @@ export function createEngine(initialParams, options = {}) {
         when: time,
         duration: hold,
         velocity: 0.75,
+        source: 'closing',
       });
     }
   }
@@ -10158,6 +10205,7 @@ export function createEngine(initialParams, options = {}) {
             velocity: note.velocity,
             pan: note.pan,
             phase: true,
+            source: 'phase',
           });
         }
       }
@@ -10210,6 +10258,10 @@ export function createEngine(initialParams, options = {}) {
           velocity: note.velocity,
           pan: note.pan,
           motif: melodyPlan.motifDerived === true,
+          // A manual grid's steps are the user's; an auto cell's notes are
+          // motif / lean / grace / cadence and name the bar's development.
+          source: note.source ?? (isManual('melody') ? 'step' : 'motif'),
+          ...(typeof melodyPlan.op === 'string' ? { development: melodyPlan.op } : {}),
         });
         // v0.0.115, Energy stage 2d — "doubling in many for a wall of sound".
         //
@@ -10245,6 +10297,7 @@ export function createEngine(initialParams, options = {}) {
           duration: event.duration,
           velocity: event.velocity,
           pan: event.pan,
+          source: 'drift',
         });
       }
     }
@@ -10271,6 +10324,7 @@ export function createEngine(initialParams, options = {}) {
       // replaces the step's place in the figure. Its phase copy, if any,
       // phases against the CELL (the shift wraps at the cell's length).
       const additive = arpAdditiveBar;
+      const leadSource = isManual('arp') ? 'step' : 'figure';
       for (const step of arpPlan.steps) {
         if (step.beat < from || step.beat >= to) continue;
         // Chord length in beats: the figure of the chord in force at the
@@ -10295,6 +10349,7 @@ export function createEngine(initialParams, options = {}) {
           velocity: step.velocity,
           pan: step.pan,
           ...(cellPos >= 0 ? { cell: cellPos, cellLength: cellLen } : {}),
+          source: cellPos >= 0 ? 'cell' : leadSource,
         });
         if (phasing) {
           const len = cellPos >= 0 ? cellLen : figure.length;
@@ -10307,7 +10362,7 @@ export function createEngine(initialParams, options = {}) {
             pan: -(step.pan ?? 0),
           };
           if (step.beat + offset < bar.beats - 1e-6) {
-            playNote('arp', { ...copy, when: when + offset * bar.secPerBeat, phase: true });
+            playNote('arp', { ...copy, when: when + offset * bar.secPerBeat, phase: true, source: 'phase' });
           } else if (!finishRequest) {
             // Late past the barline: it belongs to the next bar's first beat.
             // Not owed into a closing bar, which is pad and bass alone.
@@ -10324,6 +10379,7 @@ export function createEngine(initialParams, options = {}) {
             duration,
             velocity: step.velocity * 0.5,
             pan: -(step.pan ?? 0),
+            source: 'double',
           });
         }
       }
@@ -10381,6 +10437,7 @@ export function createEngine(initialParams, options = {}) {
           duration: Math.max(0.05, note.duration * bar.secPerBeat),
           velocity: note.velocity,
           pan: note.pan,
+          source: 'step',
         });
       }
     }
