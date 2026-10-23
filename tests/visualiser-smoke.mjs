@@ -618,6 +618,25 @@ test('chord event drives bar-tick chord labels; falls back to the section label 
   inst.destroy();
 });
 
+test('chords in beats: the barline shows the bar\'s first chord and a mid-bar chord gets its own label', () => {
+  const calls = {};
+  calls.texts = [];
+  const canvas = makeCanvas(calls);
+  const engine = makeEngine();
+  engine.running = true;
+  const inst = initVisualiser(canvas, engine);
+  engine.emit('state', { running: true });
+  engine.emit('bar', { bar: 0, beatsPerBar: 4, time: 0 });
+  engine.emit('chord', { name: 'Dm7', bar: 0, time: 0, beat: 0 });
+  engine.emit('chord', { name: 'G7', bar: 0, time: 0.3, beat: 2 });
+  engine.emit('state', { running: false });
+  const dm = calls.texts.filter((t) => t === 'Dm7').length;
+  const g = calls.texts.filter((t) => t === 'G7').length;
+  assert.equal(dm, 1, `the bar's first chord drawn once at its barline (drawn ${dm} times)`);
+  assert.equal(g, 1, `the mid-bar chord drawn once, as its own label (drawn ${g} times)`);
+  inst.destroy();
+});
+
 test('malformed chord events are dropped, not thrown', () => {
   const calls = {};
   const canvas = makeCanvas(calls);

@@ -708,6 +708,9 @@ export function initVisualiser(canvas, engine) {
         time: typeof evt.time === 'number' ? evt.time : 0,
         bar: evt.bar,
         name: evt.name != null ? String(evt.name) : '',
+        // v0.0.242: chord length in beats — where in its bar a chord starts.
+        // 0 (or absent, every bar-level chord) is the barline's own chord.
+        beat: typeof evt.beat === 'number' && Number.isFinite(evt.beat) ? evt.beat : 0,
       });
       if (chordMarks.length > MAX_MARKERS) chordMarks.shift();
     } catch {
@@ -1336,8 +1339,11 @@ export function initVisualiser(canvas, engine) {
 
   /** Chord name for a specific bar tick: exact bar match first, else the latest chord at/before its time. */
   function chordNameForBarTick(tick) {
+    // The barline's chord is the bar's beat-0 one. With chords in beats a bar
+    // has several marks, and the latest of them is a mid-bar chord — which
+    // put the bar's SECOND chord on its barline.
     for (let i = chordMarks.length - 1; i >= 0; i--) {
-      if (chordMarks[i].bar === tick.bar) return chordMarks[i].name;
+      if (chordMarks[i].bar === tick.bar && chordMarks[i].beat <= 1e-9) return chordMarks[i].name;
     }
     for (let i = chordMarks.length - 1; i >= 0; i--) {
       if (chordMarks[i].time <= tick.time) return chordMarks[i].name;
@@ -1505,6 +1511,37 @@ export function initVisualiser(canvas, engine) {
             chordRowEnds[row] = left + textW + CHORD_LABEL_PAD;
             ctx2d.fillText(chordName, snapPixel(left), snapPixel(12 + row * CHORD_ROW_GAP));
           }
+        }
+      }
+    }
+
+    // v0.0.242: a chord that starts INSIDE a bar (chord length in beats) gets
+    // a short tick of its own at the top and its name beside it, in the same
+    // two rows the barline names use — so 2 beats in 4/4 reads as two names a
+    // bar, each where its chord begins.
+    if (hasChordEvents) {
+      for (const mark of chordMarks) {
+        if (!(mark.beat > 1e-9) || !mark.name) continue;
+        const x = x0 + fracForTime(mark.time, nowCtx) * w;
+        if (x < x0 - 4 || x > x0 + w + 4) continue;
+        const xSnap = snapHairline(x);
+        ctx2d.strokeStyle = rgba(theme.border, 0.6);
+        ctx2d.lineWidth = 1;
+        ctx2d.beginPath();
+        ctx2d.moveTo(xSnap, 0);
+        ctx2d.lineTo(xSnap, topMargin());
+        ctx2d.stroke();
+        ctx2d.font = LABEL_FONT;
+        ctx2d.fillStyle = rgba(theme.text, 0.75);
+        const textW = measureLabelWidth(mark.name);
+        const left = clampRange(x + 3, x0, x0 + w - 4);
+        let row = -1;
+        for (let r = 0; r < chordRowEnds.length; r++) {
+          if (left >= chordRowEnds[r]) { row = r; break; }
+        }
+        if (row >= 0) {
+          chordRowEnds[row] = left + textW + CHORD_LABEL_PAD;
+          ctx2d.fillText(mark.name, snapPixel(left), snapPixel(12 + row * CHORD_ROW_GAP));
         }
       }
     }
