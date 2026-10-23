@@ -150,7 +150,11 @@ off `getComputedStyle(canvas)`; devicePixelRatio-aware; rAF only while `engine.r
   this contract; UI hardcodes them — do not import engine-voices.js into frontmatter).
 - Advanced concertina gains: Structure `<select>` (Auto/Drone/Waves/Build/ABAB/Journey/Custom)
   + block builder: up to 8 blocks, each label A–D select, bars 1–32 number, intensity
-  slider; add/remove/reorder (up/down buttons). Since v0.0.202 it also shows the blocks of
+  dial; add/remove/reorder (up/down buttons). A block's intensity is NOT rangeable: the
+  blocks themselves are how intensity moves through a piece, and a level that wandered
+  inside one would re-band the bass groove and bring auto-tracks in and out bar to bar
+  (the per-bar re-roll the bass contract fixed); a sideways drag says so under the dials
+  rather than refusing in silence. Since v0.0.202 it also shows the blocks of
   ABAB and Journey (picked, or what Auto resolves to; `PRESET_BLOCKS` and
   `structureBlocksFor()` are engine exports), and the first edit takes the structure over as
   Custom starting from exactly those blocks — the engine keys the playhead on the blocks
@@ -161,7 +165,11 @@ off `getComputedStyle(canvas)`; devicePixelRatio-aware; rAF only while `engine.r
   Under Auto they read what Complexity chose (`getResolved().arp`, tagged "· auto", dimmed),
   and touching one takes over in Manual starting from exactly that choice (v0.0.201, "auto
   writes its choice into Now"); `getRecipe()` names the resolved pattern/rate/octaves under
-  Auto. Plus the 16-step toggle grid.
+  Auto. Plus the 16-step toggle grid. Octaves, Gate, Phase and Additive are dials and NOT
+  rangeable: the arp is one repeating figure and these are its shape — its span, its
+  articulation, and the two processes whose steady rate IS their movement (a wandering
+  phase slip would never land back in unison; a wandering additive count would blur the
+  build-up). Each says so under the dials on a sideways drag or Shift+Arrow.
 - Voices slider (v1) is removed. localStorage key becomes `ambi4-generator-settings-v2`
   (ignore/discard v1 key).
 - `<canvas id="track-visualiser">` above the sliders; page script calls
@@ -624,7 +632,10 @@ record of why each field first became rangeable.
 Rangeable + DEFAULT RANGE mode (ships as {min,max} in defaults where marked *):
 filter cutoff*, sends reverb/delay, sequencer step prob, track randomness macro.
 Rangeable + default SINGLE: mix, detune, Q, envAmount, ADSR (all four), vary aspects,
-volume knobs. NOT rangeable: filter type, structure/arp discrete selects,
+volume knobs. Every dial that DRAWS a range must hand the engine one:
+page-boot's range sweep spreads every dial that takes the sideways gesture
+(`data-spread="yes"`) and asserts a {min, max} lands in `getParams()` — or,
+for the genre-rules dials, in the applied genreRules. NOT rangeable: filter type, structure/arp discrete selects,
 timeSignature/root/mode.
 
 v0.0.74 amendment. The owner's instruction was "either tell me why you won't add
@@ -1153,7 +1164,9 @@ space, so users sculpt real-world impressions themselves:
 - tracks[t].density: 0-2|null (null = complexity-derived; scales that track's
   event rate only, post-activation).
 - tracks[t].driftRate: 0.02-1 (scales ALL of that track's RangeValue walk step
-  sizes; default 1 = current ±0.15/bar).
+  sizes; default 1 = current ±0.15/bar). NOT rangeable, and the reason is circular:
+  it is the pace every other span walks at, so a span on it would be a walk setting
+  its own step. The Drift rate dial says so under the dials on a sideways drag.
 - reverbTail: 0.5-6 seconds (global preset-capturable; engine rebuilds the IR
   async on change, crossfading sends — governor tier caps still apply on top).
 - harmony.rhythm: 'auto' | 'section' | 1..16 bars-per-chord (hook pass length
@@ -1269,7 +1282,12 @@ space, so users sculpt real-world impressions themselves:
     and off from the computer keys, the on-screen keys and a MIDI keyboard
     together, and clears the follow when nothing is held.
 - Pad breathing: swell phase locks to bar phase (existing sin contour keyed to
-  bar clock — already bar-phased; expose padBreath 0-1 depth param).
+  bar clock — already bar-phased; expose padBreath 0-1 depth param). padBreath
+  is NOT rangeable: it is the depth of a swell the pad already makes every
+  bar, so the swell is the movement, and a depth that wandered would blur the
+  bar it marks. The pad editor's Breath dial says so under the dials on a
+  sideways drag (until 2026-10-23 it drew a span and handed the engine its
+  middle — page-boot's range sweep found it).
 - Modes add: ionian, mixolydian, phrygian (scale tables + chord naming).
 - Percussion lanes become DYNAMIC: sequencer.steps keyed by lane id (built-ins
   'high','mid','low' preserved; user lanes append, each with a voice-kind map
@@ -2821,7 +2839,11 @@ following the live groove, and a pick holds (Auto becomes Chance 0); Chance
 is a dial from Auto through Hold to 100 %, with When; Pool is an inline list
 with Add what plays, ▲▼, ×, weights and By weight / In turn; Next keeps a
 held groove; Blank slate writes Chance 0 and an empty pool; Save as my genre
-carries it). Gated by `tests/groove-rule-smoke.mjs` (12 checks, 11 red on the
+carries it). Chance is NOT rangeable, for Loop chance's reason: it is already
+a probability rolled afresh at every When, and its left end is two named
+positions (Auto, Hold); the dial says so under the dials on a sideways drag
+(until 2026-10-23 it drew a span and handed the engine NaN, read as Auto).
+Gated by `tests/groove-rule-smoke.mjs` (12 checks, 11 red on the
 old engine — the twelfth, a held rule never consulting its pool, is a guard)
 and page-boot's groove block (red on the old page); the secret-layers row
 `bassGroove` is named.
@@ -2846,6 +2868,11 @@ its step grid's tabs, each `{ chance, when, pool: [{ tab, weight }], order }`
   the pool is the tabs a fill is drawn from, and a tab in it plays only as a
   fill — every variant draw, ruled or weighted, steps over it. Never on the bar
   a fill has just handed back.
+
+Neither rule's Chance is rangeable, for Loop chance's reason: it is already a
+probability rolled afresh at every When (a span would be a chance of a chance),
+and its left end is named positions (Auto, Hold / Off). The kit and fill
+Chance dials say so under the dials on a sideways drag.
 
 Module ownership: **the engine** (`sanitiseTabRule`: sparse, field-by-field
 merge, null clears, pools pruned to the tabs that exist, sanitised after the
@@ -2952,7 +2979,9 @@ not bar/section/piece; `pool.words` for what an empty or null pool means),
 follows the playing cell and a press keeps it as yours at Chance Hold; Chance
 is a knob with an Auto detent; Pool edits in place; Next keeps a held rule;
 Blank slate writes Chance 0 and an empty pool; Save as my genre and the Rules
-form carry it; every push states motif / motifRule as null when unset, since
+form carry it; Chance is NOT rangeable, for Loop chance's reason, and says so
+on a sideways drag — until 2026-10-23 it drew a span and stored its middle;
+every push states motif / motifRule as null when unset, since
 the engine keeps a stored one otherwise) and **the recipe**
 (`Melody motif: <shape> steps … beats … lengths …`, `Melody motif rule:
 chance <n|auto> when … order … pool <op:w,…|empty|auto>`). The typed melody

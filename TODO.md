@@ -34,14 +34,15 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 - [x] **Match a sample** — SHIPPED v0.0.229: the voice editor's "more" gains a Choose a sound file… row; the file is measured (pitch, loudness curve, spectral shape) and every voice of the track is rendered offline and searched until one measures closest; the recording is never played or kept. `src/scripts/sample-match.js`, `tests/sample-match-smoke.mjs`, `tests/pending/sample-match-drive.mjs`.
 - [x] **Record a note from the microphone** — SHIPPED v0.0.230: Record a note beside Choose a sound file…, up to four seconds (press again to stop), the browser's own permission prompt, the stream closed when the take ends, matched and dropped like a file. Not measured: a real microphone in a real browser.
-- [ ] **Time it in a real browser** — 600 renders took 3–8 s per match in Node on node-web-audio-api; Chromium on a phone is unmeasured. If it is slow there, cut the budget on Eco (the power governor already knows).
+- [ ] **Time it in a real browser** — *(desktop measured v0.0.269: Chrome on an Apple-silicon Mac, 1.8–9.6 s a match, Warm the slowest)* 600 renders took 3–8 s per match in Node on node-web-audio-api; Chromium on a phone is unmeasured. If it is slow there, cut the budget on Eco (the power governor already knows).
 - [x] **A kit sample** — SHIPPED v0.0.234: on the kit, Match a sample matches the OPEN TAB's sound (Low, Mid, High or a lane of yours) and sets that sound's own dials on the current kit, tuning included; the other sounds are untouched; on Common it asks for a tab. (My 2026-10-23 note that the engine honours only a sound's envelope was wrong: `patchFor(track, lane)` merges the lane's whole override; only the envelope rides separately, as `kindAdsr`.) Measured on the shipped kits: Soft's Low 47 → 80 %, Hand's High 47 → 89 %. Not built: matching across kits — another kit changes every sound, so it stays the voice picker's job.
-- [ ] **The browser drive** `tests/pending/sample-match-drive.mjs` passes when its page bodies run in Node against node-web-audio-api (5 cases, 2026-10-23); move it to tests/ when the bridge returns, or when a Node audio harness lands in the repo.
+- [x] *(DONE v0.0.269 — moved to tests/, 7/7 in real Chrome)* **The browser drive** `tests/pending/sample-match-drive.mjs` passes when its page bodies run in Node against node-web-audio-api (5 cases, 2026-10-23); move it to tests/ when the bridge returns, or when a Node audio harness lands in the repo.
 
 ## Review suspicions, 2026-10-23 evening
 
 - [x] All four confirmed and fixed in v0.0.268 (tune vs chord length, WAV peak memory, pluck stop time, harmony.beats true).
-- [ ] Four more dials refuse a sideways drag without saying why (Drift rate, the rule Chance dial, the arp range dials, intensity) — in progress.
+- [x] Seven dials that refused or mis-took a spread now say why (v0.0.269); page-boot sweeps every spreadable dial against the engine.
+- [ ] Late in page-boot an editor's Edit button stopped opening, no error (seen while building v0.0.269) — under investigation.
 
 ## Test hygiene found 2026-10-23
 

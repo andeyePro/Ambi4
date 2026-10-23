@@ -1,9 +1,9 @@
 /**
- * Match a sample, measured on the SHIPPED voices (v0.0.229). PARKED in
- * tests/pending until the Mac test bridge key is restored (fromClaude 13);
- * then:
+ * Match a sample, measured on the SHIPPED voices (v0.0.229). Swept with the
+ * other drives since v0.0.269 (first real-browser pass that night: 7/7 named
+ * the right voice, 87-99% alike, 1.8-9.6 s a match on an Apple-silicon Mac):
  *
- *   npm run build && .vibe/measure.sh local drive tests/pending/sample-match-drive.mjs
+ *   npm run build && .vibe/measure.sh local drive tests/sample-match-drive.mjs
  *
  * tests/sample-match-smoke.mjs proves the analysis and the search in Node
  * against a stand-in synth. This proves the claim on the real thing: a note

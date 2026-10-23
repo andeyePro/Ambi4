@@ -8097,6 +8097,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               value: grooveChanceRaw(stored ? stored.chance : null),
               marks: [0],
               format: grooveChanceFormat,
+              // Single-valued, for Loop chance's reason (docs/engine-v2-contract.md,
+              // the bass groove as a rule): Chance is already a probability
+              // rolled afresh at every When, and its left end is two named
+              // positions (Auto, Hold). It used to take the sideways drag and
+              // hand the engine NaN, which the sanitiser read as Auto.
+              allowRange: false,
+              onRangeRefused: () =>
+                sayUnderDials(
+                  'Groove chance holds one value \u2014 it is already a chance, rolled afresh at every When, ' +
+                    'so the groove moves unevenly on its own. Drag it up or down to set how often the bass changes groove.',
+                  undefined,
+                  { hold: true }
+                ),
               defaultValue: 0,
               onInput: (v) => {
                 const rule = ensureGrooveRule();
@@ -8106,7 +8119,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 commitGrooveRule();
               },
             });
-            describe(chanceKnob.el, 'Chance: how likely the bass is to move to another groove from its pool, at each bar, section or piece (the When beside it). Hold keeps the groove you hear for good; at the left detent, Auto, the app redraws it whenever a section or the energy moves, as it always has.');
+            describe(chanceKnob.el, 'Chance: how likely the bass is to move to another groove from its pool, at each bar, section or piece (the When beside it). Hold keeps the groove you hear for good; at the left detent, Auto, the app redraws it whenever a section or the energy moves, as it always has. It holds one value rather than a range: it is already a chance, rolled afresh each time.');
           } catch {
             cell.remove();
           }
@@ -8410,7 +8423,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           },
         });
         handle.setMark(Boolean(rule) || isPlainObject(t.motif));
-        const hint = "Chance: how likely the melody is to draw a NEW cell at each phrase, section or piece (the When beside it). 0 reads Hold and keeps the cell for good; at the left detent (Auto) the engine's own law decides - a new section brings a new or a remembered cell.";
+        const hint = "Chance: how likely the melody is to draw a NEW cell at each phrase, section or piece (the When beside it). 0 reads Hold and keeps the cell for good; at the left detent (Auto) the engine's own law decides - a new section brings a new or a remembered cell. It holds one value rather than a range: it is already a chance, rolled afresh each time.";
         const onChance = (raw) => {
           const value = varyValueFromRaw(raw);
           ensureMotifRule().chance = value === null ? null : clamp(Number(isPlainObject(value) ? rangeMid(value) : value) || 0, 0, 1);
@@ -8432,6 +8445,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               value: raw,
               marks: [0],
               format: (v) => (Math.round(v) === 1 ? 'Hold' : varyFormat(v)),
+              // Single-valued, for Loop chance's reason (docs/engine-v2-contract.md,
+              // the melody's motif as a rule): already a probability rolled at
+              // every When, left end named positions. It used to draw a span
+              // and quietly store the span's middle.
+              allowRange: false,
+              onRangeRefused: () =>
+                sayUnderDials(
+                  'Motif chance holds one value \u2014 it is already a chance, rolled afresh at every When, ' +
+                    'so new cells come unevenly on their own. Drag it up or down to set how often the melody draws a new cell.',
+                  undefined,
+                  { hold: true }
+                ),
               defaultValue: 0,
               onInput: onChance,
             });
@@ -8696,7 +8721,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // dial crosses its span at the engine's own ±0.15/bar, at the bottom it
       // creeps. Rendered only where the engine advertises the param.
       const DRIFT_HINT =
-        'How fast this track’s min–max dials drift between their two ends. Low is a slow creep; 1 is the normal rate.';
+        'How fast this track’s min–max dials drift between their two ends. Low is a slow creep; 1 is the normal rate. ' +
+        'It holds one value rather than a range: it is the pace every other span walks at.';
+      // Said under the dials when a spread gesture reaches Drift rate (CLAUDE.md:
+      // a control that cannot do what it advertises says so). Single-valued by
+      // contract — docs/engine-v2-contract.md, tracks[t].driftRate.
+      const DRIFT_REFUSED_WORDS =
+        'Drift rate holds one value \u2014 it is the pace every other min\u2013max dial on this track walks at, ' +
+        'so a spread here would be a walk setting its own pace. Drag it up or down for slower or faster drifting.';
 
       // v26: every feel dial this track owns lands in ONE row (the caller's),
       // so drift rate can never be stranded on a line of its own — the
@@ -8781,8 +8813,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               label: 'Drift rate',
               // v0.0.56 opt-out: a plain number in the engine, and the one
               // dial where a spread is also circular — drift rate is how fast
-              // every OTHER spread walks.
+              // every OTHER spread walks. It says so rather than refusing in
+              // silence.
               allowRange: false,
+              onRangeRefused: () => sayUnderDials(DRIFT_REFUSED_WORDS, undefined, { hold: true }),
               min: 0.02,
               max: 1,
               step: 0.01,
@@ -9205,7 +9239,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // How deep the pad's own bar-phased swell goes. Not RangeValue-capable
       // (a plain 0-1 depth) and pad-only — the engine already breathes on its
       // own bar clock, this just exposes how far.
-      const PAD_BREATH_HINT = 'How much the pad swells with each bar.';
+      const PAD_BREATH_HINT = 'How much the pad swells with each bar. It holds one value rather than a range: the swell is already the movement.';
+      // Said under the dials when a spread gesture reaches Breath. Single-valued
+      // by contract (docs/engine-v2-contract.md, padBreath): it used to draw a
+      // span and quietly hand the engine its middle.
+      const PAD_BREATH_REFUSED_WORDS =
+        'Breath holds one value \u2014 it is the depth of the swell the pad already makes every bar, ' +
+        'and a depth that wandered would blur the bar it marks. Drag it up or down for a deeper or flatter swell.';
 
       function buildPadBreathControl(row, track, knobs) {
         if (track !== 'pad' || !engineCaps.padBreath) return;
@@ -9234,6 +9274,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               value: stored,
               format: pctFormat,
             parse: pctParse,
+              allowRange: false,
+              onRangeRefused: () => sayUnderDials(PAD_BREATH_REFUSED_WORDS, undefined, { hold: true }),
               defaultValue: shipped,
               onInput: commitPadBreath,
             });
@@ -11171,13 +11213,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const HINTS = {
             variantRule: {
               now: 'The tab playing now. Press to open it in the grid below.',
-              chance: 'Chance: how likely the kit is to move to another tab from its pool, at each bar, each new section, or once when it comes in (the When beside it). 0 reads Hold and keeps the tab playing for good; at the left detent, Auto, the tabs\u2019 own Shuffle weights or In order decide, as they always have.',
+              chance: 'Chance: how likely the kit is to move to another tab from its pool, at each bar, each new section, or once when it comes in (the When beside it). 0 reads Hold and keeps the tab playing for good; at the left detent, Auto, the tabs\u2019 own Shuffle weights or In order decide, as they always have. It holds one value rather than a range: it is already a chance, rolled afresh each time.',
               when: 'When the tab may be redrawn: at every bar, at the first bar of every new section, or once, when the kit comes in.',
               pool: 'The tabs a redraw may land on, in order and weighted: by weight draws among them (the playing tab included), in turn steps to the next. Empty holds. A tab the fill rule owns is stepped over.',
             },
             fillRule: {
               now: 'The tab a fill plays. Press to open it in the grid below.',
-              chance: 'Chance: how likely a fill is \u2014 one bar of a fill tab, then straight back to the tab it interrupted. Off means no fills. A tab in the fill pool plays only as a fill.',
+              chance: 'Chance: how likely a fill is \u2014 one bar of a fill tab, then straight back to the tab it interrupted. Off means no fills. A tab in the fill pool plays only as a fill. It holds one value rather than a range: it is already a chance, rolled afresh each time.',
               when: 'When a fill may come: at any bar, on the last bar of every section (a fill into the next), or once, into the second section.',
               pool: 'The tabs a fill is drawn from, by weight or in turn. Empty means no fills.',
             },
@@ -11259,7 +11301,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                   format: label,
                   // Typed entry reads a percentage, the number the readout shows.
                   parse: (pct) => 1 + Math.round(clamp(pct, 0, 100) / 5),
+                  // Single-valued on purpose, as Loop chance is
+                  // (docs/engine-v2-contract.md, the kit's tab rules): the
+                  // chance is already a probability rolled afresh at every
+                  // When, so a span would be a chance of a chance, and its
+                  // left end is named positions (Auto, Hold / Off).
                   allowRange: false,
+                  onRangeRefused: () =>
+                    sayUnderDials(
+                      `${fill ? 'Fill' : 'Kit'} chance holds one value \u2014 it is already a chance, rolled afresh at every When, ` +
+                        `so the ${fill ? 'fills come' : 'kit moves'} unevenly on ${fill ? 'their' : 'its'} own. ` +
+                        `Drag it up or down to set how often.`,
+                      undefined,
+                      { hold: true }
+                    ),
                   defaultValue: fill ? 1 : 0,
                   onInput: onChance,
                 });
@@ -12055,6 +12110,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // committing it, and `el` carries the dimmed auto-resolved class.
         const arpKnobs = document.createElement('div');
         arpKnobs.className = 'arp-knobs';
+        // Why each arp dial holds one value, said under the dials when a spread
+        // gesture reaches it (docs/engine-v2-contract.md, the Arpeggiator
+        // editor). The arp is a repeating figure; these four ARE the figure.
+        const ARP_REFUSED_WORDS = {
+          Octaves: 'Octaves holds one value \u2014 it is the span of the figure the arp repeats, and a figure whose span changed bar to bar would stop being one figure. Set the arp to Auto to let Complexity choose it.',
+          Gate: 'Gate holds one value \u2014 it is the articulation of the figure the arp repeats, every pass alike. Drag it up or down for shorter or longer notes.',
+          Phase: 'Phase holds one value \u2014 the copy\u2019s steady slip IS the movement, and a slip that wandered would never land back in unison. Drag it up or down for a faster or slower phase.',
+          Additive: 'Additive holds one value \u2014 the build-up IS the movement, a note added every so many repetitions, and a count that wandered would blur it. Drag it up or down to build faster or slower.',
+        };
         function arpRange(labelText, { min, max, step, value, defaultValue, format, parse, hint, onChange }) {
           const id = `arp-${labelText.toLowerCase()}`;
           const show = format || ((v) => String(v));
@@ -12071,15 +12135,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 max,
                 step,
                 value,
-                // A single value: the engine takes one octave count and one
-                // gate, so a span would be a gesture that does nothing.
+                // A single value: the engine takes one octave count, gate,
+                // phase and additive count — the figure's own shape — and
+                // says why rather than refusing in silence.
                 allowRange: false,
+                onRangeRefused: () => sayUnderDials(ARP_REFUSED_WORDS[labelText] || `${labelText} holds one value.`, undefined, { hold: true }),
                 format: show,
                 parse,
                 defaultValue,
                 onInput: (v) => onChange(String(v)),
               });
-              if (hint) describe(handle.el, hint);
+              // The tooltip says it is single-valued, as the refusal line does.
+              if (hint) describe(handle.el, `${hint} It holds one value rather than a range: it is part of the figure the arp repeats.`);
               const labelEl = handle.el.querySelector('.knob-label');
               return {
                 el: cell,
@@ -18317,17 +18384,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 max: 1,
                 step: 0.01,
                 value: block.intensity,
-                // One number per block: the engine reads a block's intensity
-                // as a single level, so a span would be a gesture that does
-                // nothing.
+                // One number per block (docs/engine-v2-contract.md, the block
+                // builder): the BLOCKS are how intensity moves through a piece,
+                // and a level that wandered inside one would re-band the bass
+                // groove and bring parts in and out bar to bar — the per-bar
+                // re-roll the bass contract fixed. It says so rather than
+                // refusing in silence.
                 allowRange: false,
+                onRangeRefused: () =>
+                  sayUnderDials(
+                    'A block\u2019s intensity holds one value \u2014 the blocks themselves are how intensity moves through the piece, ' +
+                      'and a level that wandered inside a block would redraw the bass groove and bring parts in and out bar to bar. ' +
+                      'Drag it up or down; add another block for another level.',
+                    undefined,
+                    { hold: true }
+                  ),
                 format: pctFormat,
                 parse: (n) => n / 100, // typed "70" is 70 %
                 defaultValue: 0.5,
                 onInput: (v) => commitIntensity(Number(v)),
               });
               handle.el.setAttribute('aria-label', `Block ${index + 1} intensity`);
-              describe(handle.el, 'How full this block plays: low leaves parts out, high brings more in. Tap the centre for the middle.');
+              describe(handle.el, 'How full this block plays: low leaves parts out, high brings more in. Tap the centre for the middle. It holds one value rather than a range: the blocks themselves are how intensity moves.');
               intensityWrap = cell;
             } catch {
               intensityWrap = null;

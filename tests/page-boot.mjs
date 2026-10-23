@@ -928,6 +928,164 @@ try {
     }
   })();
 
+  // 2026-10-23 — every dial that DRAWS a range hands the engine a range.
+  // A dial that takes the sideways gesture (data-spread="yes") and then reads
+  // "drifting" must have left a {min, max} in the engine's params — CLAUDE.md:
+  // assert the ENGINE's stored value, not just the readout. Groove chance drew
+  // a span and stored NaN (sanitised to Auto); Motif chance drew one and
+  // stored its middle. This is the generic form, so the next dial that does it
+  // is caught the day it lands: every spreadable dial on the page, spread with
+  // Shift+ArrowRight (the keyboard's sideways drag, which reaches the same
+  // applySpread as the pointer), the engine's params diffed before and after.
+  // The genre-rules dials are a model that lands on Apply, so they are spread
+  // together, applied once, and read back from the share link's genreRules.
+  // It moves every dial on the page and resets each with Backspace.
+  await (async () => {
+    const engine = window.__ambi4Engine;
+    const LOG = process.env.PAGE_BOOT_RANGE_LOG === '1';
+    const isSpan = (v) => (v && typeof v === 'object' && !Array.isArray(v)
+      && Number.isFinite(v.min) && Number.isFinite(v.max) && v.min < v.max)
+      || (Array.isArray(v) && v.length === 2 && Number.isFinite(v[0]) && Number.isFinite(v[1]) && v[0] < v[1]);
+    const holdsSpan = (v) => isSpan(v) || Boolean(v && typeof v === 'object' && Object.values(v).some(holdsSpan));
+    // Every path whose value differs, with the value after.
+    const diffPaths = (a, b, path = '', out = []) => {
+      if (Object.is(a, b)) return out;
+      const objA = a && typeof a === 'object';
+      const objB = b && typeof b === 'object';
+      if (!objA || !objB || Array.isArray(a) !== Array.isArray(b) || isSpan(b)) {
+        if (JSON.stringify(a) !== JSON.stringify(b)) out.push([path, b]);
+        return out;
+      }
+      for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffPaths(a[k], b[k], `${path}.${k}`, out);
+      return out;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const spreadKeys = (knob) => {
+      // Several presses: one keyboard step on a fine dial (Tempo's 0.001) is
+      // narrower than the engine's own rounding, which is not the fault here.
+      for (let i = 0; i < 8; i += 1) {
+        knob.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+      }
+    };
+    const drewSpan = (knob) => (knob.getAttribute('aria-valuetext') || '').includes('drifting');
+    // A stable name per dial, so an editor rebuilt by an edit (new nodes) is
+    // not swept twice and a dial skipped as detached is never silent.
+    const listDials = () => {
+      const all = [...doc.querySelectorAll('.knob[data-spread="yes"]')];
+      const count = new Map();
+      return all.map((knob) => {
+        const where = knob.closest('[id]')?.id || '?';
+        const label = knob.getAttribute('aria-label') || '?';
+        const base = `${where} | ${label}`;
+        const n = (count.get(base) || 0) + 1;
+        count.set(base, n);
+        return { knob, where, label, key: `${base} #${n}`, rules: Boolean(knob.closest('#genre-rules')) };
+      });
+    };
+    if (!engine || typeof engine.getParams !== 'function') {
+      failures.push('range sweep: no engine seam to check the spreadable dials against');
+      return;
+    }
+    const seen = new Set();
+    let drew = 0;
+    async function sweepVisible() {
+      for (let guard = 0; guard < 1000; guard += 1) {
+        const next = listDials().find((d) => !d.rules && !seen.has(d.key));
+        if (!next) return;
+        seen.add(next.key);
+        const { knob, where, label } = next;
+        const before = engine.getParams();
+        spreadKeys(knob);
+        if (!drewSpan(knob)) {
+          if (LOG) console.log(`range sweep: ${next.key} drew no span`);
+        } else {
+          drew += 1;
+          // Some commits are debounced (Complexity, Energy: 120 ms).
+          let changed = [];
+          await waitUntil(() => {
+            changed = diffPaths(before, engine.getParams());
+            return changed.some(([, v]) => holdsSpan(v));
+          }, 500);
+          const spanned = changed.filter(([, v]) => holdsSpan(v));
+          if (LOG) console.log(`range sweep: ${next.key} -> ${spanned.map(([p]) => p).join(', ') || JSON.stringify(changed).slice(0, 200)}`);
+          if (!spanned.length) {
+            failures.push(`${label} (${where}) draws a range the engine never receives: after a spread the engine changed ${changed.length ? JSON.stringify(changed).slice(0, 200) : 'nothing'}`);
+          }
+        }
+        // Put it back as a person would (Backspace resets to the default), and
+        // let a debounced commit land before the next dial's snapshot.
+        if (knob.isConnected) knob.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+        await sleep(140);
+      }
+    }
+    await sweepVisible();
+    // Then each track's editor in turn: opening one may tear another down, so
+    // an editor's dials are swept while it is the one open.
+    for (const track of REGISTRY_IDS) {
+      const editor = doc.getElementById(`voice-editor-${track}`);
+      if (!editor || editor.hidden) doc.getElementById(`voice-edit-toggle-${track}`)?.click();
+      const open = await waitUntil(() => {
+        const el = doc.getElementById(`voice-editor-${track}`);
+        return Boolean(el && !el.hidden && el.querySelector('.knob'));
+      });
+      if (!open) {
+        const el = doc.getElementById(`voice-editor-${track}`);
+        const tg = doc.getElementById(`voice-edit-toggle-${track}`);
+        failures.push(`range sweep: the ${track} editor did not open (editor ${el ? (el.hidden ? 'hidden' : 'shown') : 'missing'}, ${el ? el.querySelectorAll('.knob').length : 0} dials, toggle ${tg ? (tg.hidden ? 'hidden' : tg.getAttribute('aria-expanded')) : 'missing'})`);
+      }
+      await sweepVisible();
+    }
+    if (LOG) console.log(`range sweep: ${seen.size} spreadable dials, ${drew} drew a span`);
+    if (drew < 100) failures.push(`range sweep: only ${drew} of ${seen.size} spreadable dials drew a span under Shift+ArrowRight — the sweep lost its dials`);
+    for (const must of ['Groove chance', 'Motif chance', 'Volume', 'Tempo']) {
+      if (![...seen].some((key) => key.includes(`| ${must} #`))) {
+        // A dial made single-valued leaves the sweep: say so only if it still
+        // claims the gesture somewhere.
+        const still = [...doc.querySelectorAll('.knob')].some((k) => k.getAttribute('aria-label') === must && k.dataset.spread === 'yes');
+        if (still) failures.push(`range sweep: ${must} takes the gesture but was never swept`);
+      }
+    }
+
+    // The genre rules: spread every one, Apply once, read the link's genreRules.
+    const genreSelect = doc.getElementById('genre-select');
+    const toggle = doc.getElementById('genre-rules-toggle');
+    const panel = doc.getElementById('genre-rules');
+    if (!genreSelect || !toggle || !panel) {
+      failures.push('range sweep: no genre rules panel to sweep');
+      return;
+    }
+    genreSelect.value = 'g:synthwave';
+    genreSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await waitUntil(() => engine.getParams().genre === 'synthwave');
+    await waitUntil(() => !toggle.hidden);
+    if (panel.hidden) toggle.click();
+    await waitUntil(() => !panel.hidden);
+    const ruled = [];
+    for (const d of listDials().filter((x) => x.rules)) {
+      spreadKeys(d.knob);
+      const field = d.knob.closest('.rules-dial')?.dataset.field || '';
+      if (drewSpan(d.knob)) ruled.push({ ...d, field });
+    }
+    if (ruled.length < 10) failures.push(`range sweep: only ${ruled.length} genre-rules dials drew a span`);
+    doc.getElementById('genre-rules-apply').click();
+    await sleep(150);
+    const share = doc.getElementById('preset-share');
+    clipboard.text = '';
+    share?.click();
+    await waitUntil(() => clipboard.text.includes('#p='));
+    const link = decodeCopiedLink();
+    const rules = link && ((link.d && link.d.genreRules) || link.genreRules);
+    for (const d of ruled) {
+      const path = d.field.replace(/^essence\./, '').split('.');
+      const got = path.reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), rules);
+      if (LOG) console.log(`range sweep: rules ${d.field} -> ${JSON.stringify(got)}`);
+      if (!isSpan(got)) failures.push(`${d.label} (${d.field}) draws a range Apply never hands on: the applied rules hold ${JSON.stringify(got)}`);
+    }
+    const reset = doc.getElementById('genre-rules-reset');
+    if (reset && !reset.hidden) reset.click();
+    if (!panel.hidden) toggle.click();
+  })();
+
   // ---- v21 probe-gated surfaces --------------------------------------------
   // The page renders these only where the engine's own sanitiser accepts the
   // param behind them, so the gate has to ask the SAME question rather than
@@ -1320,9 +1478,42 @@ try {
   // the same onRangeRefused as the pointer drag.
   {
     const line = doc.getElementById('dial-confirm');
-    const want = [['Loop chance', /already a chance/], ['Drive', /pump the tone/]];
-    for (const [label, words] of want) {
-      const knobs = [...doc.querySelectorAll('.knob')].filter((k) => k.getAttribute('aria-label') === label);
+    // 2026-10-23: Drift rate, the kit's rule Chance, the four arp dials
+    // and a block's intensity refused in silence too. Each label is matched
+    // exactly, except the block dials, which carry their block's number.
+    const want = [
+      ['Loop chance', /already a chance/],
+      ['Drive', /pump the tone/],
+      ['Drift rate', /pace every other/],
+      ['Chance', /already a chance/],
+      ['Octaves', /span of the figure/],
+      ['Gate', /articulation of the figure/],
+      ['Phase', /back in unison/],
+      ['Additive', /build-up IS the movement/],
+      [/^Block \d+ intensity$/, /blocks themselves/],
+      // 2026-10-23: three that DREW a span the engine never received (the
+      // range sweep above): each lives in one track's editor, opened first.
+      ['Breath', /swell the pad already makes/, 'pad'],
+      ['Groove chance', /already a chance/, 'bass'],
+      ['Motif chance', /already a chance/, 'melody'],
+    ];
+    // The block dials exist only while a block structure shows its blocks:
+    // pick ABAB (a block preset, shown since v0.0.202) and put it back after.
+    const structureSel = doc.getElementById('structure');
+    const structureWas = structureSel ? structureSel.value : null;
+    if (structureSel && [...structureSel.options].some((o) => o.value === 'abab')) {
+      structureSel.value = 'abab';
+      structureSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+    }
+    for (const [label, words, track] of want) {
+      const named = (k) => (typeof label === 'string' ? k.getAttribute('aria-label') === label : label.test(k.getAttribute('aria-label') || ''));
+      if (track) {
+        const editor = doc.getElementById(`voice-editor-${track}`);
+        if (!editor || editor.hidden) doc.getElementById(`voice-edit-toggle-${track}`)?.click();
+        await waitUntil(() => [...(doc.getElementById(`voice-editor-${track}`)?.querySelectorAll('.knob') || [])].some(named));
+      }
+      const scope = track ? doc.getElementById(`voice-editor-${track}`) || doc : doc;
+      const knobs = [...scope.querySelectorAll('.knob')].filter(named);
       if (!knobs.length) {
         failures.push(`single-valued dials: no ${label} dial to test`);
         continue;
@@ -1337,6 +1528,10 @@ try {
         if (knob.getAttribute('aria-valuetext')?.includes('drifting')) failures.push(`${label} opened a span it should refuse`);
         await new Promise((r) => setTimeout(r, 0));
       }
+    }
+    if (structureSel && structureWas !== null && structureSel.value !== structureWas) {
+      structureSel.value = structureWas;
+      structureSel.dispatchEvent(new window.Event('change', { bubbles: true }));
     }
     if (line) line.textContent = '';
   }

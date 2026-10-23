@@ -25,13 +25,6 @@
 const ENUM_DIALS = new Set(['Type', 'Processor']);
 
 /**
- * Drift rate is the one numeric dial still deliberately single-valued: it is
- * the speed at which every OTHER span walks, so spreading it would be asking a
- * walk to set its own step size. Called out here rather than left implied.
- */
-const CIRCULAR_DIALS = new Set(['Drift rate']);
-
-/**
  * Numeric dials the CONTRACT pins single-valued, each of which must SAY so
  * under the dials when the sideways gesture reaches it (CLAUDE.md: a control
  * that cannot do what it advertises says so rather than refusing in silence).
@@ -44,8 +37,36 @@ const CIRCULAR_DIALS = new Set(['Drift rate']);
  *   Loop chance — docs/engine-v2-contract.md § The chord loop as voiced:
  *                 harmony.hookRule.chance is already a probability rolled at
  *                 every When, and its left end is two named positions.
+ *   Drift rate  — docs/engine-v2-contract.md, tracks[t].driftRate: the pace
+ *                 every OTHER span walks at, so a span on it is circular. It
+ *                 used to be skipped here as CIRCULAR_DIALS, which let it
+ *                 refuse in silence; it is on the pinned pad, so it is
+ *                 REQUIRED below rather than asserted only when seen.
+ *   Chance      — the kit's variantRule / fillRule chance, Loop chance's reason.
+ *   Octaves, Gate, Phase, Additive — the arp's figure (contract, the
+ *                 Arpeggiator editor). Asserted whenever they are on screen.
+ *   Breath, Groove chance, Motif chance — 2026-10-23: each DREW a span the
+ *                 engine never received (page-boot's range sweep). Breath is
+ *                 the depth of the pad's own swell; the two rule Chances are
+ *                 Loop chance's reason.
+ * A block's intensity is the other one; its label carries the block number,
+ * and page-boot holds it (it is not in the voice editor this drive opens).
  */
-const SINGLE_VALUED = new Map([['Drive', /pump the tone/], ['Loop chance', /already a chance/]]);
+const SINGLE_VALUED = new Map([
+  ['Drive', /pump the tone/],
+  ['Loop chance', /already a chance/],
+  ['Drift rate', /pace every other/],
+  ['Chance', /already a chance/],
+  ['Octaves', /span of the figure/],
+  ['Gate', /articulation of the figure/],
+  ['Phase', /back in unison/],
+  ['Additive', /build-up IS the movement/],
+  ['Breath', /swell the pad already makes/],
+  ['Groove chance', /already a chance/],
+  ['Motif chance', /already a chance/],
+]);
+/** Single-valued dials that are always on the pinned pad's editor. */
+const REQUIRED_SINGLE = ['Drift rate'];
 
 const visibleDials = (page, scope) =>
   page.evaluate((sel) => {
@@ -182,7 +203,7 @@ export default async function drive(page) {
   const refused = [];
   const spreadable = [];
   for (const label of labels) {
-    if (ENUM_DIALS.has(label) || CIRCULAR_DIALS.has(label) || SINGLE_VALUED.has(label)) continue;
+    if (ENUM_DIALS.has(label) || SINGLE_VALUED.has(label)) continue;
     const after = await dragSideways(label, '#panel-advanced');
     if (spread(after)) spreadable.push(label);
     else refused.push(label);
@@ -191,6 +212,9 @@ export default async function drive(page) {
   results.push({ name: 'dials proven spreadable', ok: true, got: spreadable.length, want: '(informational)' });
 
   // The contract's single-valued dials refuse — and say why, in words.
+  for (const label of REQUIRED_SINGLE) {
+    check(`${label} is on the pinned pad`, labels.includes(label), (v) => v === true);
+  }
   for (const [label, words] of SINGLE_VALUED) {
     if (!labels.includes(label)) continue;
     await page.evaluate(() => { const el = document.getElementById('dial-confirm'); if (el) el.textContent = ''; });
