@@ -1019,6 +1019,12 @@ A sound in mind (v0.0.185)
 - [ ] On the kit, every word answers plainly that nothing here is honestly
       that word; there is no Set it up.
 
+Key-to-ear delay (v0.0.238)
+- [ ] Open Create, press Keys: the line under the row reads about 45-60 ms
+      on a Mac, split into the browser's share and the voice's. Pick Flute
+      on the melody and press Keys again: the voice's share is about 60 ms
+      and named a softer attack, not lag.
+
 ⓘ hover (v0.0.235)
 - [ ] Rest the mouse on any ⓘ: its box opens; move away: it closes. Click
       the ⓘ: it stays open after the mouse leaves; click again or Esc: it

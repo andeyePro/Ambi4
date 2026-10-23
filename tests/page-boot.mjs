@@ -3544,9 +3544,21 @@ try {
           );
         }
 
+        // v0.0.238: the key-to-ear delay is said, not hidden. The line is
+        // always there (nothing appears or moves); off it invites, on it
+        // reports what this browser can measure — here, a harness with no
+        // output latency and no offline renderer, which it must say plainly.
+        const latency = doc.getElementById('play-along-latency');
+        const invite = latency ? latency.textContent : '';
+        if (!latency || !/Press Keys/.test(invite)) failures.push(`the play-along latency line is missing or does not invite (${JSON.stringify(invite)})`);
         toggle.click();
         if (toggle.getAttribute('aria-pressed') !== 'true') {
           failures.push('clicking Play along did not arm it');
+        }
+        if (latency && !await waitUntil(() => latency.textContent !== invite)) {
+          failures.push('arming the keys left the latency line on its invitation');
+        } else if (latency && !/does not report its output delay|ms from key to ear/.test(latency.textContent)) {
+          failures.push(`the armed latency line said ${JSON.stringify(latency.textContent)}`);
         }
         press('z');
         const sounded = readout.textContent;

@@ -444,6 +444,7 @@ const VOICES: Record<string, [string, string][]> = {
               <span>Undo</span>
             </button>
           </div>
+          <p class="hint play-along-latency" id="play-along-latency" aria-live="polite">Press Keys to play; the delay from key to ear is measured the moment you do.</p>
           <p id="play-along-note" class="visually-hidden">
             Keys z x c v b n m play one octave and q w e r t y u the next; minus and
             equals change octave; a MIDI instrument plays the same track. Capture
@@ -20093,6 +20094,64 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         setPlayAlongUI();
       }
 
+      /**
+       * v0.0.238: the delay from key to ear, said rather than hidden (TODO,
+       * "Investigate play-along keyboard latency"). Two parts, both measured:
+       * the browser and sound card's own output latency (getOutputInfo — a
+       * browser cannot go below it; a DAW runs 5-15 ms), and how long the
+       * selected track's voice takes to reach -20 dB of its peak, read off one
+       * small offline render of that voice and cached per voice. A slow
+       * attack is not latency, but it feels like it, so it is named apart.
+       */
+      const playAlongLatency = document.getElementById('play-along-latency');
+      const speakCache = new Map();
+      async function voiceSpeakMs(track) {
+        const set = voiceSetOf(track);
+        const voiceId = (settings.tracks[track] && settings.tracks[track].voice) || null;
+        await getVoicesTable();
+        const entry = voicesTable && voicesTable[set] && voiceId ? voicesTable[set][voiceId] : null;
+        if (!entry || typeof OfflineAudioContext !== 'function') return null;
+        const patch = resolveTrackPatch(track, voiceId);
+        const key = `${set}/${voiceId}/${JSON.stringify(patch.adsr || {})}`;
+        if (speakCache.has(key)) return speakCache.get(key);
+        const SR = 24000;
+        const ctx = new OfflineAudioContext(1, SR, SR);
+        entry.play(ctx, ctx.destination, { when: 0, freq: set === 'bass' ? 82.41 : 329.63, midi: set === 'bass' ? 40 : 64, velocity: 0.8, duration: 0.6, kind: 'mid' }, patch);
+        const data = (await ctx.startRendering()).getChannelData(0);
+        const hop = 24;
+        const frames = [];
+        for (let i = 0; i + hop <= data.length; i += hop) {
+          let sum = 0;
+          for (let j = i; j < i + hop; j++) sum += data[j] * data[j];
+          frames.push(Math.sqrt(sum / hop));
+        }
+        const peak = Math.max(...frames);
+        const at = peak > 0 ? frames.findIndex((x) => x >= peak * 0.1) : -1;
+        const ms = at < 0 ? null : Math.round((at * hop * 1000) / SR);
+        speakCache.set(key, ms);
+        return ms;
+      }
+      async function sayLatency() {
+        if (!playAlongLatency) return;
+        if (!playAlongOn) {
+          playAlongLatency.textContent = 'Press Keys to play; the delay from key to ear is measured the moment you do.';
+          return;
+        }
+        let info = null;
+        try { info = typeof engine.getOutputInfo === 'function' ? engine.getOutputInfo() : null; } catch {}
+        const outMs = info ? Math.round(1000 * ((info.outputLatency || 0) + (info.baseLatency || 0))) : null;
+        const track = playAlongTarget();
+        let speak = null;
+        try { speak = await voiceSpeakMs(track); } catch {}
+        const voiceName = voiceLabel(track, settings.tracks[track] && settings.tracks[track].voice);
+        const parts = [];
+        if (outMs !== null && outMs > 0) parts.push(`${outMs} ms is your browser and sound card (a DAW gets 5–15 ms; a web page cannot go below this)`);
+        if (speak !== null) parts.push(`${speak} ms is ${voiceName} starting to speak${speak >= 30 ? ' — a softer attack, not lag; a plucked voice speaks at once' : ''}`);
+        playAlongLatency.textContent = parts.length
+          ? `About ${(outMs || 0) + (speak || 0)} ms from key to ear: ${parts.join('; ')}.`
+          : 'This browser does not report its output delay.';
+      }
+
       function setPlayAlong(on) {
         if (on === playAlongOn) return;
         playAlongOn = on;
@@ -20117,6 +20176,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         showPlayed('');
         setPlayAlongUI();
+        sayLatency();
       }
 
       function releaseAll() {
@@ -20279,6 +20339,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           endCapture();
           releaseAll();
           setPlayAlongUI();
+          sayLatency();
         });
         captureButton.addEventListener('click', () => {
           if (captureState().armed) {
