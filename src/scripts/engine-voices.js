@@ -17,7 +17,8 @@
  *   - a patch can change the sound but never the level guarantees: nothing a
  *     patch sets adds gain, and resonance is paid for with a matching trim
  *
- * Pure module: no imports, and nothing touches an AudioContext until a voice is
+ * Pure module: its one import is pluck-kernel.js, the plucked string's DSP,
+ * which is pure too — and nothing touches an AudioContext until a voice is
  * played, so importing this outside a browser is safe.
  *
  * Layout:
@@ -31,6 +32,8 @@
  *   4. voices: pad, bass, melody, texture, arp, percussion
  *   5. VOICES export
  */
+
+import { pluckWorkletSource, PLUCK_PROCESSOR, pluckT60 } from './pluck-kernel.js';
 
 // ---------------------------------------------------------------------------
 // 1. Constants and pure helpers
@@ -533,6 +536,26 @@ function createRig(ctx, destination, note) {
       // partials and FM modulators all do. The exceptions are control-rate
       // sources, which unpitch() takes back out.
       sources.push({ node, start, stop: null, base: Math.max(frequency, 0.01), pitched: true });
+      return keep(node);
+    },
+
+    /**
+     * Keep a node the rig did not build (the plucked string's AudioWorkletNode)
+     * on the teardown list, so the note disconnects it with everything else.
+     */
+    adopt(node) {
+      return keep(node);
+    },
+
+    /**
+     * Register a scheduled source the rig did not build — the ConstantSource
+     * whose start and stop ARE a worklet note's lifetime, since an
+     * AudioWorkletNode has no start/stop of its own and the teardown keys on
+     * sources ending. Unpitched: there is nothing in it a glide could retune.
+     */
+    track(node, start) {
+      node.start(start);
+      sources.push({ node, start, stop: null, base: 0, pitched: false });
       return keep(node);
     },
 
@@ -1138,6 +1161,23 @@ const summed = (defaults) => defaults.additive !== undefined;
 const struck = (defaults) => defaults.modal !== undefined;
 
 /**
+ * True for a voice that publishes the Plucked-string section (a Karplus–Strong
+ * string on an AudioWorklet — docs/synthesis-programme.md § 2). Declared by
+ * publishing `pluck`; only the two Plucked string voices do.
+ */
+const plucked = (defaults) => defaults.pluck !== undefined;
+
+/** The string's three dials, patch over defaults, clamped to the registry. */
+const pluckOf = (patch, d) => {
+  const asked = part(patch, 'pluck');
+  return {
+    damping: inRange(asked.damping, 0, 1, d.pluck.damping),
+    brightness: inRange(asked.brightness, 0, 1, d.pluck.brightness),
+    position: inRange(asked.position, 0.05, 0.5, d.pluck.position),
+  };
+};
+
+/**
  * The overtone tables, `[ratio, mix, span]` per partial: the ratio over the
  * note, the level, and how long that partial rings relative to the whole.
  * `metal` IS chimes' table and `wood` IS marimba's, verbatim; glass and bell
@@ -1346,6 +1386,8 @@ function patchFor(defaults, patch, kind = null) {
     ...(summed(d) ? { additive: additiveOf(patch, d) } : {}),
     // v0.0.177: the Modal section, on the voices that publish it.
     ...(struck(d) ? { modal: modalOf(patch, d) } : {}),
+    // The Plucked-string section, on the two voices that publish it.
+    ...(plucked(d) ? { pluck: pluckOf(patch, d) } : {}),
     // AUDIT FIX (voices cluster): the voice's OWN published values, so a
     // patch can be applied RELATIVE to what the voice authored rather than
     // replacing it. A kit publishes ONE adsr and ONE filter but plays three
@@ -1808,6 +1850,18 @@ const DEFAULTS = {
       // v0.0.176: six drawbars, the tonewheel registration as shipped.
       additive: { p1: 1, p2: 1, p3: 1, p4: 1, p5: 1, p6: 1, stretch: 0 },
     },
+    // The plucked string (Karplus–Strong on an AudioWorklet). Opt-in: no
+    // genre or preset names it, and the voice wander never lands on it (see
+    // `optIn` on its VOICES entry). The filter is the patch filter after the
+    // string, published wide open — the string's own tone is the Pluck
+    // section's Brightness, inside the loop, where a filter cannot reach.
+    string: {
+      source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
+      filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
+      adsr: { attack: 0.003, decay: 0.01, sustain: 1, release: 0.4 },
+      sends: { reverb: 0.35, delay: 0.25 },
+      pluck: { damping: 0.4, brightness: 0.5, position: 0.18 },
+    },
   },
   texture: {
     sparkle: {
@@ -1915,6 +1969,19 @@ const DEFAULTS = {
       filter: { type: 'lowpass', cutoff: 3080, q: 5, envAmount: 1 },
       adsr: { attack: 0.004, decay: 0.225, sustain: 0, release: 0.05 },
       sends: { reverb: 0.25, delay: 0.3 },
+    },
+    // The arp's plucked string: the melody's model, damped harder and let go
+    // sooner so a sixteenth still articulates. Opt-in: no
+    // genre or preset names it, and the voice wander never lands on it (see
+    // `optIn` on its VOICES entry). The filter is the patch filter after the
+    // string, published wide open — the string's own tone is the Pluck
+    // section's Brightness, inside the loop, where a filter cannot reach.
+    string: {
+      source: { osc1: 'sine', osc2: null, shape1: 0, shape2: null, mix: 0, detune: 0, octave: 0 },
+      filter: { type: 'lowpass', cutoff: 12000, q: 0.7, envAmount: 0 },
+      adsr: { attack: 0.003, decay: 0.01, sustain: 1, release: 0.25 },
+      sends: { reverb: 0.3, delay: 0.3 },
+      pluck: { damping: 0.6, brightness: 0.55, position: 0.18 },
     },
   },
   // v18: a kit is tuned in semitones, not by the octave switch, and its noise
@@ -2096,6 +2163,10 @@ const CONTROLS = {
     nylon: { source: true, filter: true, adsr: true, sends: true },
     tape: { source: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     stab: { source: ['octave'], additive: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'stretch'], filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
+    // The string has no oscillator to re-type, blend or detune: octave is
+    // its only source control, the Pluck section is its voice, and the patch
+    // filter sits after the string (type, cutoff, Q — it does not move).
+    string: { source: ['octave'], pluck: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   texture: {
     sparkle: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
@@ -2117,6 +2188,7 @@ const CONTROLS = {
     crystal: { source: ['octave'], fm: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     marimba: { source: ['octave'], modal: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
     muted: { source: true, filter: true, adsr: true, sends: true },
+    string: { source: ['octave'], pluck: true, filter: ['type', 'cutoff', 'q'], adsr: true, sends: true },
   },
   percussion: {
     // membrane() reads shape1+pitch for the pitched skin; noiseBurst() (hat/
@@ -2238,6 +2310,12 @@ const ENGINE_TYPES = {
     // class because drawbars are the one engine a listener can read at a
     // glance, and the editor chip would otherwise teach the wrong word.
     stab: 'additive',
+    // A Karplus–Strong string: a delay line one period long, fed a burst of
+    // noise and read back through a lossy, darkening loop — a physical model
+    // of a vibrating string. Where no AudioWorklet can run, the voice falls
+    // back to a subtractive stack (see stringVoice); the class names the model
+    // the voice IS, and the fallback is a stand-in for it, not its identity.
+    string: 'physical',
   },
   texture: {
     // Two or three sine carriers, each with a ratio-7.1 modulator.
@@ -2270,6 +2348,8 @@ const ENGINE_TYPES = {
     marimba: 'physical',
     // Saw and square under a cutoff at Q 5 that shuts in 60 ms.
     muted: 'subtractive',
+    // The melody's Karplus–Strong string, damped for sixteenths.
+    string: 'physical',
   },
   percussion: {
     // Membranes whose skins bend as they relax, with beater and brush noise
@@ -3955,6 +4035,219 @@ function arpMuted(ctx, destination, note, patch) {
 }
 
 // ---------------------------------------------------------------------------
+// 4c-bis. The plucked string — Karplus–Strong on an AudioWorklet
+// ---------------------------------------------------------------------------
+
+/**
+ * Per AudioContext: the worklet module's load, started once and cached.
+ * `state` is 'loading' until addModule settles, then 'ready' or 'failed'.
+ * A WeakMap, so a closed context takes its entry with it.
+ */
+const PLUCK_WORKLETS = new WeakMap();
+
+/** The worklet string's makeup into the envelope — see workletString. */
+const STRING_MAKEUP = 1.55;
+
+/** One Blob URL for the module, built from the kernel's own source text. */
+let pluckModuleUrl = null;
+
+function pluckWorkletUrl() {
+  if (pluckModuleUrl) return pluckModuleUrl;
+  if (typeof Blob !== 'function' || typeof URL === 'undefined'
+    || typeof URL.createObjectURL !== 'function') return null;
+  pluckModuleUrl = URL.createObjectURL(new Blob([pluckWorkletSource()], { type: 'text/javascript' }));
+  return pluckModuleUrl;
+}
+
+/**
+ * Start (once) loading the plucked string's processor into `ctx`, and say
+ * whether it is ready NOW. Never throws, never awaits: a voice's play() is
+ * synchronous and schedules on the audio clock, so the first note on a fresh
+ * context — before addModule has resolved — plays the fallback, and every note
+ * after it plays the string. Exported as preparePluckString for anything that
+ * wants to warm a context ahead of the first note (it returns the promise).
+ *
+ * The module is served as a Blob URL made from pluck-kernel.js's own source
+ * text (pluckWorkletSource), not from public/ or a bundler `?url` import: the
+ * same bytes then run in dev, in the production build and under Node, and
+ * engine-voices.js stays importable by the Node suites with no bundler.
+ */
+export function preparePluckString(ctx) {
+  const entry = pluckEntry(ctx);
+  return entry ? entry.promise : Promise.resolve(false);
+}
+
+function pluckEntry(ctx) {
+  if (!ctx || typeof ctx !== 'object') return null;
+  let entry = PLUCK_WORKLETS.get(ctx);
+  if (entry) return entry;
+  entry = { state: 'failed', promise: Promise.resolve(false) };
+  try {
+    const worklet = ctx.audioWorklet;
+    const url = worklet && typeof worklet.addModule === 'function'
+      && typeof AudioWorkletNode === 'function' ? pluckWorkletUrl() : null;
+    if (url) {
+      entry.state = 'loading';
+      entry.promise = Promise.resolve()
+        .then(() => worklet.addModule(url))
+        .then(() => { entry.state = 'ready'; return true; })
+        .catch(() => { entry.state = 'failed'; return false; });
+    }
+  } catch {
+    entry.state = 'failed';
+  }
+  PLUCK_WORKLETS.set(ctx, entry);
+  return entry;
+}
+
+const pluckReady = (ctx) => {
+  const entry = pluckEntry(ctx);
+  return Boolean(entry && entry.state === 'ready');
+};
+
+/**
+ * The string itself, in the worklet: one AudioWorkletNode per note, silent
+ * until `t` and silent again from `stop`, kept alive (and torn down) by a
+ * zero-offset ConstantSource the rig tracks as the note's source. Returns
+ * false — and builds nothing that would outlive the note — when the node
+ * cannot be made, so the caller falls back.
+ */
+function workletString(ctx, rig, dest, { t, stop, f, v, s }) {
+  let node;
+  let life;
+  try {
+    node = new AudioWorkletNode(ctx, PLUCK_PROCESSOR, {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      processorOptions: {
+        freq: f,
+        damping: s.damping,
+        brightness: s.brightness,
+        position: s.position,
+        velocity: v,
+        // From Math.random, so a seeded performance seeds its strings too.
+        seed: Math.floor(Math.random() * 2147483647),
+        start: t,
+        stop,
+      },
+    });
+    life = ctx.createConstantSource();
+  } catch {
+    if (node && typeof node.disconnect === 'function') node.disconnect();
+    return false;
+  }
+  life.offset.value = 0;
+  rig.adopt(node);
+  rig.track(life, t);
+  life.connect(node);
+  // The kernel leaves every pluck at a peak of 0.62 and never passes ±0.95
+  // (pluck-smoke's bounded grid). This makeup brings its RMS near the
+  // fallback stack's while the worst case stays under the house ceiling:
+  // 0.95 x 1.55 x the melody's 0.166 envelope peak = 0.244.
+  const makeup = rig.gain(STRING_MAKEUP);
+  node.connect(makeup);
+  makeup.connect(dest);
+  return true;
+}
+
+/**
+ * The FALLBACK, for a context with no AudioWorklet (an old browser, the Node
+ * suites' mocks, an addModule that failed) and for the first note on a context
+ * whose worklet is still loading: the nylon voice's subtractive pluck — a
+ * triangle and a saw through a lowpass that falls from bright towards the
+ * fundamental, with a nail click on the front — under the same envelope, so
+ * every dial still does what it says:
+ *
+ *   damping     the T60 the string would have had, as an exponential ring
+ *   brightness  where the lowpass starts, and how loud the click is
+ *   position    the triangle/saw balance: a pluck at the middle of a string
+ *               cancels its even harmonics and a triangle has only odd ones,
+ *               while near the bridge every harmonic speaks, as in a saw
+ *
+ * It is a stand-in, not a model: it cannot go inharmonic the way the string
+ * does, and it says so here rather than in the editor because the editor is
+ * showing the dials of the string the browser will play from the next note.
+ */
+function fallbackString(rig, dest, { t, f, v, s, t60 }) {
+  const ring = rig.gain(1);
+  ring.gain.setValueAtTime(1, t);
+  ring.gain.exponentialRampToValueAtTime(1e-3, t + t60);
+  ring.connect(dest);
+
+  const lowpass = rig.filter('lowpass', f * 4, 1.2);
+  lowpass.connect(ring);
+  const open = clamp(f * (2 + 14 * s.brightness * (0.55 + 0.45 * v)), 200, 12000);
+  const shut = Math.min(Math.max(f * 1.5, 120), open);
+  lowpass.frequency.setValueAtTime(open, t);
+  lowpass.frequency.exponentialRampToValueAtTime(shut, t + clamp(t60 * 0.25, 0.05, 1.5));
+
+  const middle = (s.position - 0.05) / 0.45;
+  const triangle = 0.72 * (0.3 + 0.6 * middle);
+  for (const [type, weight] of [['triangle', triangle], ['sawtooth', 0.72 - triangle]]) {
+    const osc = rig.osc(type, f, t);
+    const gain = rig.gain(weight);
+    osc.connect(gain);
+    gain.connect(lowpass);
+  }
+
+  noiseBurst(rig, lowpass, {
+    t, colour: 'pink', freq: clamp(f * 2.5, 200, 4000), q: 1.4, decay: 0.01,
+    peak: 0.05 * v * (0.5 + s.brightness), attack: 0.001,
+  });
+}
+
+/**
+ * Plucked string: a Karplus–Strong string (src/scripts/pluck-kernel.js) run
+ * sample by sample in an AudioWorklet, so it tunes at any pitch — the 128-
+ * sample floor a DelayNode feedback loop has is what kept this model out
+ * until now. Signal path, both branches:
+ *
+ *   string → amp (the envelope) → patch filter → out
+ *
+ * The envelope rises in 3 ms (the excitation starts on a noise sample, and
+ * nothing may start on a step), holds while the note is held — the string
+ * decays on its own inside the loop — and releases over `release` when the
+ * note ends, which is a hand muting the string. A held note longer than the
+ * string can ring is released when the string has fallen 60 dB, so the node
+ * is not kept alive for silence.
+ */
+function stringVoice(ctx, destination, note, patch, d, basePeak) {
+  const rig = createRig(ctx, destination, note);
+  const p = patchFor(d, patch);
+  const s = p ? p.pluck : d.pluck;
+  const t = timeOf(ctx, note);
+  const f = shifted(p, freqOf(note, 440));
+  const v = velOf(note);
+  const dur = durOf(note, 1);
+  const t60 = pluckT60(s.damping);
+
+  const amp = rig.gain(SILENCE);
+  const { node: filter, out: filtered } = mainFilter(rig, p, { type: 'lowpass', freq: 12000, q: 0.7 });
+  amp.connect(filter);
+  filtered.connect(rig.out);
+
+  const end = sustainEnv(amp.gain, t, {
+    attack: 0.003, hold: Math.min(dur, t60), release: d.adsr.release, peak: level(basePeak, v),
+  }, p);
+
+  const strung = pluckReady(ctx)
+    && workletString(ctx, rig, amp, { t, stop: end + 0.05, f, v, s });
+  if (!strung) fallbackString(rig, amp, { t, f, v, s, t60 });
+  return rig.finish(end + 0.05);
+}
+
+/** The melody's plucked string, at the nylon guitar's level. */
+function melodyString(ctx, destination, note, patch) {
+  return stringVoice(ctx, destination, note, patch, DEFAULTS.melody.string, PEAK.melody * 0.92);
+}
+
+/** The arp's plucked string, at the muted comp's level. */
+function arpString(ctx, destination, note, patch) {
+  return stringVoice(ctx, destination, note, patch, DEFAULTS.arp.string, PEAK.arp * 0.8);
+}
+
+// ---------------------------------------------------------------------------
 // 4f. Percussion — note.kind selects the drum; midi and freq are null
 // ---------------------------------------------------------------------------
 
@@ -4327,6 +4620,16 @@ export const VOICES = {
       defaults: DEFAULTS.melody.stab,
       controls: CONTROLS.melody.stab,
     },
+    string: {
+      label: 'Plucked string',
+      play: melodyString,
+      engineType: ENGINE_TYPES.melody.string,
+      defaults: DEFAULTS.melody.string,
+      controls: CONTROLS.melody.string,
+      // Opt-in: the engine's voice wander never draws it (no stock genre
+      // or preset names it either), so every shipped piece sounds as it did.
+      optIn: true,
+    },
   },
   texture: {
     sparkle: {
@@ -4407,6 +4710,16 @@ export const VOICES = {
       engineType: ENGINE_TYPES.arp.muted,
       defaults: DEFAULTS.arp.muted,
       controls: CONTROLS.arp.muted,
+    },
+    string: {
+      label: 'Plucked string',
+      play: arpString,
+      engineType: ENGINE_TYPES.arp.string,
+      defaults: DEFAULTS.arp.string,
+      controls: CONTROLS.arp.string,
+      // Opt-in: the engine's voice wander never draws it (no stock genre
+      // or preset names it either), so every shipped piece sounds as it did.
+      optIn: true,
     },
   },
   percussion: {
@@ -4516,13 +4829,13 @@ const CATEGORIES = {
   },
   melody: {
     pluck: 'synth', bell: 'mallets', flute: 'wind', keys: 'keys', call: 'nature', tines: 'keys',
-    nylon: 'plucked', tape: 'keys', stab: 'keys',
+    nylon: 'plucked', tape: 'keys', stab: 'keys', string: 'plucked',
   },
   texture: {
     sparkle: 'synth', grains: 'noise', chimes: 'mallets', wash: 'noise', colour: 'noise',
     cloud: 'noise', call: 'nature',
   },
-  arp: { softPluck: 'synth', crystal: 'synth', marimba: 'mallets', muted: 'plucked' },
+  arp: { softPluck: 'synth', crystal: 'synth', marimba: 'mallets', muted: 'plucked', string: 'plucked' },
   percussion: { soft: 'drums', hand: 'drums', tick: 'drums', dust: 'drums' },
 };
 for (const [track, bank] of Object.entries(CATEGORIES)) {

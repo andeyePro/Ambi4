@@ -1622,6 +1622,44 @@ try {
       if (cells().length) failures.push('Soft pluck, a subtractive arp, grew modal dials — the disclosure rule is broken');
     }
 
+    // The Plucked string: its section appears on the arp's Plucked string and
+    // nowhere else, every dial carries its registry hint, the chip says
+    // String (not the struck-object Modal), and the words call it a string.
+    {
+      const select = doc.getElementById('track-voice-arp');
+      const cells = () => doc.querySelectorAll('#voice-editor-arp .patch-controls .knob-cell[data-field^="pluck."]');
+      const pick = async (voice) => {
+        select.value = voice;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        await openEditor('arp');
+        await waitUntil(() => doc.querySelectorAll('#voice-editor-arp .patch-controls .knob-cell').length > 0);
+      };
+      if (!Array.from(select.options).some((o) => o.value === 'string')) {
+        failures.push('the arp picker does not offer Plucked string');
+      } else {
+        await pick('string');
+        if (!(await waitUntil(() => cells().length === 3))) {
+          failures.push(`Plucked string's editor shows ${cells().length} pluck dials, expected Damping, Brightness and Position`);
+        } else {
+          for (const cell of cells()) {
+            const row = registry[`patch.${cell.dataset.field}`];
+            const knob = cell.querySelector('.knob');
+            const descId = knob && knob.getAttribute('aria-describedby');
+            const desc = descId ? doc.getElementById(descId) : null;
+            if (!row || !desc || desc.textContent !== row.hint) failures.push(`${cell.dataset.field}: the pluck dial does not carry its registry hint`);
+          }
+          const chip = doc.querySelector('#voice-editor-arp .ve-engine');
+          if (!chip || chip.textContent !== 'String') failures.push(`Plucked string's engine chip reads ${JSON.stringify(chip && chip.textContent)}, not String`);
+          const words = doc.querySelector('#voice-editor-arp .ve-words');
+          if (!words || !/plucked string/.test(words.textContent) || /modal/.test(words.textContent)) failures.push(`Plucked string's words line: ${JSON.stringify(words && words.textContent)}`);
+        }
+        await pick('marimba');
+        await new Promise((r) => setTimeout(r, 50));
+        if (cells().length) failures.push('Marimba grew pluck dials — the disclosure rule is broken');
+        await pick('softPluck');
+      }
+    }
+
     // v0.0.182 — unit 8: My voices. Pin the pad on Warm, move Cutoff through
     // the real typed readout, save it under a name; the picker gains a My
     // voices entry that is selected; picking Glass then picking the saved

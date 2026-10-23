@@ -3607,6 +3607,42 @@ test('vary.voice wanders the sounding voice; getParams keeps the user\'s', () =>
   }
 }));
 
+test('vary.voice never wanders onto an opt-in voice (the plucked string)', () => hiddenTab(async () => {
+  const bank = bankFor('melody');
+  const optIn = Object.keys(bank).filter((id) => bank[id].optIn);
+  // The library ships one; the fallback bank (no library) has none to guard.
+  if (!optIn.length) return;
+  const userVoice = Object.keys(bank).find((id) => !bank[id].optIn);
+  const spy = spyOnBank(bank);
+  try {
+    const engine = createEngine({
+      bpm: 120, speed: 2, structure: 'drone', complexity: 0.6,
+      tracks: {
+        ...tracksAll('off'),
+        melody: {
+          state: 'on', voice: userVoice, randomness: 0, vary: { voice: 1 },
+          sequencer: { mode: 'manual', steps: seqLane({ prob: 1 }) },
+        },
+      },
+    }, { rng: seededRng(4242) });
+    await engine.start();
+    const resolved = new Set();
+    for (let i = 0; i < 80; i++) {
+      await advance(2, FAST);
+      resolved.add(engine.getResolved().tracks.melody.voice);
+    }
+    engine.stop();
+    const sounded = new Set(spy.plays.map((p) => p.id));
+    assert.ok(sounded.size > 2, `vary.voice 1 barely wandered: ${[...sounded]}`);
+    for (const id of optIn) {
+      assert.ok(!sounded.has(id) && !resolved.has(id),
+        `the wander drew the opt-in voice ${id} — a stock piece must never drift onto a voice it did not name`);
+    }
+  } finally {
+    spy.restore();
+  }
+}));
+
 // --------------------------------------------------------------------------
 // v8 — the gain chain: TRACK_MIX × clamp(level-drift × volume-walk, ·, 1)
 // --------------------------------------------------------------------------
@@ -8905,6 +8941,7 @@ test('v23 manifest: compiles to a controls/defaults pair the voice-editor shape 
     fm: false,
     additive: false,
     modal: false,
+    pluck: false,
     filter: false,
     adsr: ['attack'],
     sends: false,
@@ -8925,7 +8962,7 @@ test('v23 manifest: compiles to a controls/defaults pair the voice-editor shape 
   // Every section a built-in editor knows about is answered for — an absent
   // key would read as "render everything", which is not what "no dials" means.
   // Registry order: the fm rows sit between adsr and sends in the table.
-  assert.deepEqual(Object.keys(compiled.controls), ['source', 'filter', 'adsr', 'fm', 'additive', 'modal', 'sends']);
+  assert.deepEqual(Object.keys(compiled.controls), ['source', 'filter', 'adsr', 'fm', 'additive', 'modal', 'pluck', 'sends']);
 
   // Not for a built-in, not for an unknown id, not for a track without one.
   assert.equal(engine.getTrackManifest('pad'), null);

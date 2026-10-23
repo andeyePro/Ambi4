@@ -167,6 +167,16 @@ export const PARAM_REGISTRY = Object.freeze({
   'patch.modal.material': enumeration(MATERIALS, { hint: 'What the struck object is made of: metal rings with the overtones of a tube, wood is short and hollow like a bar, glass is pure and high, bell is deep and clangorous.' }),
   'patch.modal.hardness': number(0, 2, { hint: 'How hard the mallet strikes: soft is dull with little click, hard is bright with a sharp click and stronger upper overtones.' }),
   'patch.modal.damping': number(0.25, 4, { curve: 'log', hint: 'How quickly the ring dies away: left rings on freely, right is choked as if a hand rests on it.' }),
+  // The Plucked-string section (docs/synthesis-programme.md § 2, the
+  // physical-modelling row): a Karplus–Strong string on an AudioWorklet.
+  // Read only by a voice whose defaults publish `pluck` (the melody's and the
+  // arp's Plucked string). Damping maps to the fundamental's T60 (0 → 8 s,
+  // 1 → 0.2 s, log); brightness sets the loop filter's corner between the
+  // 8th and the 200th harmonic and opens the excitation; position is where
+  // along the string it is plucked, as a fraction of its length.
+  'patch.pluck.damping': number(0, 1, { hint: 'How long the string rings: free and long at the left, muted at the right as if a palm rests on it.' }),
+  'patch.pluck.brightness': number(0, 1, { hint: 'The tone of the string: dark and soft like a thumb at the left, bright and twangy like a pick at the right.' }),
+  'patch.pluck.position': number(0.05, 0.5, { hint: 'Where the string is plucked: near the bridge at the left is thin and nasal, the middle at the right is round and hollow.' }),
   'patch.sends.reverb': number(0, 1, { hint: 'How much of this voice goes to the shared reverb: dry and close at the left, in a hall at the right.' }),
   'patch.sends.delay': number(0, 1, { hint: 'How much of this voice goes to the shared echo: none at the left, repeating in time at the right.' }),
 });

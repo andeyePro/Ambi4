@@ -136,6 +136,7 @@ const VOICES: Record<string, [string, string][]> = {
     ['nylon', 'Nylon guitar'],
     ['tape', 'Worn keys'],
     ['stab', 'Organ stab'],
+    ['string', 'Plucked string'],
   ],
   texture: [
     ['sparkle', 'Sparkle'],
@@ -151,6 +152,7 @@ const VOICES: Record<string, [string, string][]> = {
     ['crystal', 'Crystal'],
     ['marimba', 'Marimba'],
     ['muted', 'Muted comp'],
+    ['string', 'Plucked string'],
   ],
   percussion: [
     ['soft', 'Soft kit'],
@@ -1350,13 +1352,25 @@ const VOICES: Record<string, [string, string][]> = {
         words: 'Two engines at once, each carrying a real share of the sound: a tone and its breath, or partials and an FM shimmer.',
       },
     };
+    // The plucked string is `physical` too, but it is not a struck object, and
+    // the Modal chip would teach the wrong thing: a voice whose defaults carry
+    // the `pluck` section names its own model instead.
+    const STRING_WORDS = {
+      label: 'String',
+      words: 'A model of a plucked string: a burst of noise runs round a loop one period long, losing a little top each time, so it rings at its pitch and mellows as it dies.',
+    };
+    const engineWordsFor = (engineId, voiceEntry) => (
+      voiceEntry && isPlainObject(voiceEntry.defaults) && isPlainObject(voiceEntry.defaults.pluck)
+        ? STRING_WORDS
+        : ENGINE_WORDS[engineId]
+    );
 
     // Voice ids → display names, mirroring the frontmatter's <option> labels
     // (the page never imports engine-voices.js just for names).
     const VOICE_LABELS = {
       pad: { warm: 'Warm', glass: 'Glass', strings: 'Strings', choir: 'Choir', polysaw: 'Poly saw' },
-      arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba', muted: 'Muted comp' },
-      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call', tines: 'Tines', nylon: 'Nylon guitar', tape: 'Worn keys', stab: 'Organ stab' },
+      arp: { softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba', muted: 'Muted comp', string: 'Plucked string' },
+      melody: { pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call', tines: 'Tines', nylon: 'Nylon guitar', tape: 'Worn keys', stab: 'Organ stab', string: 'Plucked string' },
       bass: { sub: 'Sub', round: 'Round', breath: 'Breath', fingered: 'Fingered', sawbass: 'Saw bass', acid: 'Squelch', upright: 'Upright' },
       texture: {
         sparkle: 'Sparkle',
@@ -1991,7 +2005,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // The v3 Patch schema's sections, in editor order. Anything else on a
     // patch object (v14 `perKind`) is state, not an editable section.
     // v0.0.175: `fm` joined (the FM engine section; only FM voices publish it).
-    const PATCH_SECTIONS = ['source', 'fm', 'additive', 'modal', 'filter', 'adsr', 'sends'];
+    const PATCH_SECTIONS = ['source', 'fm', 'additive', 'modal', 'pluck', 'filter', 'adsr', 'sends'];
 
     // Used only when a voice doesn't export .defaults (older engine-voices).
     const FALLBACK_PATCH = {
@@ -12739,6 +12753,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
         }
 
+        // The Plucked-string section (see the knob editor's copy): three
+        // plain 0-1 dials, position on its own fraction of the string.
+        const pluckSpecS = controlsSectionSpec(controls, 'pluck');
+        const pluckOnS = defaults && isPlainObject(defaults.pluck) && isPlainObject(patch.pluck) && controlsSectionVisible(pluckSpecS);
+        const pluckS = pluckOnS ? veSection(container, 'Plucked string') : null;
+        // v0.0.251 merge: domains from the registry rows (phase 2c's rule).
+        for (const [key, label] of [['damping', 'Damping'], ['brightness', 'Brightness'], ['position', 'Position']]) {
+          const dialS = registryDial(`pluck.${key}`);
+          if (!pluckS || !dialS || !controlsFieldAllowed(pluckSpecS, key)) continue;
+          const [lo, hi] = [dialS.min, dialS.max];
+          veRange(pluckS, label, {
+            hint: registryHint(`pluck.${key}`),
+            field: dialS.field,
+            min: lo, max: hi, ...sliderCurve(dialS),
+            value: rangeMid(sanitiseRangeValueIn(patch.pluck[key], lo, hi, defaults.pluck[key])),
+            format: pctFormat,
+            onChange: (v) => { patch.pluck[key] = v; commit(); },
+          });
+        }
+
         // v0.0.189 (phase 2c, the fallback's half): the Filter, Envelope and
         // Sends controls are one loop over the registry, exactly as the knob
         // editor's became in v0.0.187 — domain, curve (log sliders map through
@@ -13450,6 +13484,33 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           );
         }
 
+        // -- Plucked string -- a Karplus-Strong string on an AudioWorklet, on
+        // a voice that publishes `pluck` (the melody's and the arp's Plucked
+        // string) and no other: the disclosure rule, as for Modal. Three
+        // linear dials, domains and words from their registry rows.
+        const pluckSpec = controlsSectionSpec(controls, 'pluck');
+        const pluckOn = isPlainObject(defaults.pluck) && isPlainObject(patch.pluck) && controlsSectionVisible(pluckSpec);
+        const pluckRow = pluckOn ? knobSection('Plucked string') : null;
+        // v0.0.251 merge: the row's own facts (domain, rangeable), as every
+        // other registry dial since phase 2c.
+        for (const [key, label] of [['damping', 'Damping'], ['brightness', 'Brightness'], ['position', 'Position']]) {
+          const dial = registryDial(`pluck.${key}`);
+          if (!pluckRow || !dial || !allowed(pluckSpec, key)) continue;
+          const [lo, hi] = [dial.min, dial.max];
+          addKnob(pluckRow, {
+            label,
+            ...facts(dial),
+            value: sanitiseRangeValueIn(patch.pluck[key], lo, hi, defaults.pluck[key]),
+            format: pctFormat,
+            parse: pctParse,
+            defaultValue: defaults.pluck[key],
+            onInput: (v) => {
+              patch.pluck[key] = mapRV(v, (x) => clamp(x, lo, hi));
+              commit();
+            },
+          });
+        }
+
         // -- filter, envelope, sends: ONE loop over the registry (phase 2c,
         // v0.0.187). Each numeric dial's domain, curve (log → addLogKnob) and
         // unit (→ the format) come from its row, and whether it may spread
@@ -13699,7 +13760,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           ? voiceEntry.engineType.trim()
           : '';
         const engineWords = engineId
-          ? ENGINE_WORDS[engineId] || { label: engineId[0].toUpperCase() + engineId.slice(1), words: '' }
+          ? engineWordsFor(engineId, voiceEntry) || { label: engineId[0].toUpperCase() + engineId.slice(1), words: '' }
           : null;
         // v0.0.184: the chip is a button — press it for a short lesson on
         // this engine, on these dials.
@@ -14060,7 +14121,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const spec = entry.controls ? entry.controls[section] : undefined;
             if (spec === false) return false;
             if (Array.isArray(spec) && !spec.includes(key)) return false;
-            if (['fm', 'additive', 'modal'].includes(section)) return !!(entry.defaults && entry.defaults[section] && key in entry.defaults[section]);
+            if (['fm', 'additive', 'modal', 'pluck'].includes(section)) return !!(entry.defaults && entry.defaults[section] && key in entry.defaults[section]);
             if (section === 'source' && !['osc1', 'osc2', 'shape1', 'shape2', 'mix', 'detune', 'octave'].includes(key)) {
               return !!(entry.defaults && entry.defaults.source && key in entry.defaults.source);
             }
@@ -16089,7 +16150,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function voiceEngineType(track, voiceId) {
         const type = voiceEngineId(track, voiceId);
         if (!type) return null;
-        return ENGINE_WORDS[type] ? ENGINE_WORDS[type].label : type[0].toUpperCase() + type.slice(1);
+        const words = engineWordsFor(type, voicesTable?.[voiceSetOf(track)]?.[voiceId]);
+        return words ? words.label : type[0].toUpperCase() + type.slice(1);
       }
 
       /** Shape-normalised copy, so an osc1/shape1 spelling never reads as an edit. */
@@ -23852,6 +23914,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       /** The chapter an editor's chip opens, by the engine and the sections the voice publishes. */
       function lessonFor(engineId, voiceEntry) {
         const defaults = voiceEntry && isPlainObject(voiceEntry.defaults) ? voiceEntry.defaults : {};
+        // The plucked string has no lesson yet; the modal one would be wrong.
+        if (isPlainObject(defaults.pluck)) return null;
         const key = engineId === 'hybrid'
           ? (isPlainObject(defaults.additive) ? 'additive' : isPlainObject(defaults.fm) ? 'fm' : 'subtractive')
           : engineId;

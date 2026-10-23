@@ -1012,6 +1012,21 @@ The engine lessons (v0.0.184)
 - [ ] The same on Warm (Subtractive), Organ stab (Additive), Marimba (Modal),
       Coloured noise (Noise). Every highlighted dial is a dial that editor has.
 
+The plucked string (AudioWorklet)
+- [ ] Melody → voice → Plucked string. Play a phrase that climbs above F4 (up to
+      E6): every note is in tune with the chord, and a high note rings as a
+      string, not a buzz. The editor chip says String, and its sentence talks
+      about a loop, not a struck object.
+- [ ] The Plucked string section has Damping, Brightness and Position. Damping
+      right: notes stop like a palm mute; left: they ring on. Brightness left:
+      a thumb; right: a pick. Position right (the middle): rounder and hollow.
+- [ ] The very first note after Play may sound slightly different (the
+      subtractive stand-in plays while the worklet loads); from the second
+      note on it is the string. On a browser with no AudioWorklet the stand-in
+      plays every note and nothing errors.
+- [ ] The same voice on the Arp. No stock genre or preset ever lands on it,
+      even with the voice wander up.
+
 A sound in mind (v0.0.185)
 - [ ] Under any tuned track's dials, behind "more", "A sound in mind?": press "bright" and
       "glassy" on the melody — the answer reads "Try Bell (FM): …" with two

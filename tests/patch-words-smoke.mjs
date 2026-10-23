@@ -52,7 +52,8 @@ test('every stock voice gets a sentence, and every number in it is a patch value
       voices += 1;
     }
   }
-  assert.equal(voices, 36, `${voices} voices described, not 36`);
+  // 36, plus the two plucked strings.
+  assert.equal(voices, 38, `${voices} voices described, not 38`);
 });
 
 test('the engine class opens the sentence in its own words', () => {
@@ -97,6 +98,19 @@ test('a struck voice names its material, and hardness and damping only when move
   assert.doesNotMatch(text, /struck .* as hard/);
   const allowed = printableNumbers(patch);
   for (const n of printed(text)) assert.ok(allowed.has(n), `${n} is not a patch value: ${text}`);
+});
+
+test('a plucked string is a string, not a struck object, and names its three dials', () => {
+  for (const track of ['melody', 'arp']) {
+    const patch = deepClone(VOICES[track].string.defaults);
+    patch.pluck.damping = 0.8;
+    patch.pluck.position = { min: 0.1, max: 0.3 };
+    const text = describeVoice(track, 'string', patch);
+    assert.match(text, /^A modelled plucked string, damped 80%, brightness \d+%, plucked 10–30% along\./);
+    assert.doesNotMatch(text, /modal|struck-object/);
+    const allowed = printableNumbers(patch);
+    for (const n of printed(text)) assert.ok(allowed.has(n), `${n} is not a patch value: ${text}`);
+  }
 });
 
 test('a spread prints as its two ends, both of them patch values', () => {

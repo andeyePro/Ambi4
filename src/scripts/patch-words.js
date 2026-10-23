@@ -153,6 +153,19 @@ export function describePatch({ engineType = '', patch, controls = true, detuneM
     }
     case 'physical': {
       if (kit) { source.push('a drum model: a bending skin over noise'); break; }
+      // The plucked string publishes `pluck`, not `modal`: a string, not a
+      // struck object. Each dial is named only off its published middle.
+      if (patch.pluck && typeof patch.pluck === 'object') {
+        const k = patch.pluck;
+        source.push('a modelled plucked string');
+        const dm = mid(k.damping);
+        if (allowed(controls, 'pluck', 'damping') && dm !== null) source.push(`damped ${show(k.damping, fmt.pct)}`);
+        const br = mid(k.brightness);
+        if (allowed(controls, 'pluck', 'brightness') && br !== null) source.push(`brightness ${show(k.brightness, fmt.pct)}`);
+        const ps = mid(k.position);
+        if (allowed(controls, 'pluck', 'position') && ps !== null) source.push(`plucked ${show(k.position, fmt.pct)} along`);
+        break;
+      }
       const m = patch.modal || {};
       const material = allowed(controls, 'modal', 'material') && typeof m.material === 'string' ? `, ${m.material}` : '';
       source.push(`a struck-object model (modal${material})`);
@@ -297,6 +310,8 @@ export function printableNumbers(patch) {
   add(fmp.ratio, fmt.times); add(fmp.depth, fmt.times); add(fmp.bite, fmt.sec);
   const modp = (patch && patch.modal) || {};
   add(modp.hardness, fmt.times); add(modp.damping, fmt.times);
+  const plk = (patch && patch.pluck) || {};
+  add(plk.damping, fmt.pct); add(plk.brightness, fmt.pct); add(plk.position, fmt.pct);
   const addp = (patch && patch.additive) || {};
   for (const [k, v] of Object.entries(addp)) {
     if (k === 'stretch') add(v, fmt.stretch);

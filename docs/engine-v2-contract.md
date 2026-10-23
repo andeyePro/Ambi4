@@ -2391,6 +2391,76 @@ voice's default material is the literal it always rang with; `glass` and
 damping (0.25–4, log) default to 1. The membrane kits do not publish the
 section (docs/synthesis-programme.md § 5, unit 6, says why).
 
+## The Plucked-string section and its AudioWorklet
+
+Module ownership: **`src/scripts/pluck-kernel.js`** (pure: `createPluckString`,
+`definePluckProcessor`, `pluckWorkletSource`, `pluckT60`, `PLUCK_PROCESSOR`),
+**the registry** (`patch.pluck.damping` 0–1, `.brightness` 0–1, `.position`
+0.05–0.5), **the voice library** (`plucked()`, `pluckOf`, `stringVoice`,
+`workletString`, `fallbackString`, `preparePluckString`; `melody.string` and
+`arp.string` publish `pluck` and read it), both editors (the Plucked string
+section, and the editor chip, which says String rather than Modal for a voice
+whose defaults carry `pluck`), `patch-words.js` (the string's own sentence),
+and the engine's voice wander (it skips any voice whose VOICES entry carries
+`optIn: true`); gated by `tests/pluck-smoke.mjs`, `tests/voices-smoke.mjs`,
+`tests/engine-smoke.mjs` and `tests/patch-words-smoke.mjs`.
+
+Contract:
+
+- A voice publishes the section by carrying `pluck` in its defaults; only the
+  two Plucked string voices do. Both are `engineType: 'physical'`, category
+  `plucked`, and `optIn: true` — an optional VOICES key meaning "only when
+  chosen": no genre, preset or starting patch names them, and the wander's
+  candidate list filters them out, so the list (and every shipped stream) is
+  exactly what it was before they existed.
+- **The kernel** is a Karplus–Strong loop, `y[n] = x[n] + loss · LP(AP(y[n − M]))`,
+  sample by sample, no Web Audio. Damping is the fundamental's T60,
+  `8 · (0.2/8)^damping` seconds (`pluckT60`); brightness puts the one-pole
+  loop filter's corner between the 8th and the 200th harmonic of the note and
+  opens the excitation's own lowpass (with velocity); position combs the
+  excitation at that fraction of the period. Tuning is exact at the
+  fundamental: the loop filter's phase delay at the note is subtracted and the
+  allpass coefficient is solved by bisection for the rest. Every pluck is
+  normalised by pre-roll to leave at a peak of 0.62 and never passes ±0.95.
+  The same seed is the same pluck.
+- **Serving the worklet.** The module is the kernel's and the processor's own
+  source text (`pluckWorkletSource()`), joined so the processor receives the
+  factory as an argument, wrapped in a Blob URL and handed to
+  `ctx.audioWorklet.addModule` once per AudioContext (a WeakMap caches the
+  promise). Not `public/`, and not a Vite `?url` import: the same bytes then
+  run in dev, in the production build (verified by loading the built chunk
+  under node-web-audio-api's AudioWorklet) and in Node, and engine-voices.js
+  stays importable by the Node suites with no bundler. Both functions must
+  stay self-contained — a helper hoisted out of either is undefined inside the
+  worklet. A Content-Security-Policy, if one is ever added, must allow
+  `blob:` for worklets or the voice silently takes the fallback.
+- **One note.** play() stays synchronous. If the context's module is ready,
+  the string is an AudioWorkletNode (processor `ambi4-pluck-string`, mono,
+  `processorOptions` `{ freq, damping, brightness, position, velocity, seed,
+  start, stop }`) that is silent before `start` (the pluck lands on its exact
+  sample), silent from `stop`, and returns false from `process` after it; a
+  zero-offset ConstantSource with the same start and stop is the rig's
+  source, so teardown and cancel work exactly as for any other voice; a
+  makeup of 1.55 into the envelope keeps the worst case at 0.95 × 1.55 ×
+  0.166 = 0.244. Otherwise — no `audioWorklet`, no `AudioWorkletNode`, no
+  Blob URL, addModule rejected, the node constructor throwing, or simply the
+  first note on a context while the module loads — the FALLBACK plays: the
+  nylon voice's subtractive pluck (triangle and saw through a falling
+  lowpass, a nail click), with damping as an exponential ring of the same
+  T60, brightness as the lowpass's opening and the click's level, and
+  position as the triangle/saw balance. It never throws. A one-note
+  OfflineAudioContext the page makes for a single render (the scope trace,
+  the speak-latency probe, Match a sample) therefore always measures the
+  fallback; `preparePluckString(ctx)` returns the load's promise for a caller
+  that wants to await the string first.
+- **The envelope**, both branches: a 3 ms exponential rise from the floor (the
+  excitation starts on a noise sample, and nothing may start on a step), held
+  while the note is held — the string decays inside the loop — and released
+  over `release` when the note ends, or when the string has fallen 60 dB if
+  that is sooner. ADSR is honoured in full under a patch. The patch filter
+  sits after the envelope (type, cutoff, Q; published open at 12 kHz); the
+  string's tone is Brightness, inside the loop, where a filter cannot reach.
+
 ## A genre of the person's own (v0.0.180)
 
 Module ownership: **the page** (`USER_GENRES`, `genreBySlug`, `saveAsMyGenre`,

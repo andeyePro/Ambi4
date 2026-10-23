@@ -410,6 +410,7 @@ const EXPECTED = {
   melody: {
     pluck: 'Pluck', bell: 'Bell', flute: 'Flute', keys: 'Keys', call: 'Call',
     tines: 'Tines', nylon: 'Nylon guitar', tape: 'Worn keys', stab: 'Organ stab',
+    string: 'Plucked string',
   },
   texture: {
     sparkle: 'Sparkle', grains: 'Grains', chimes: 'Chimes', wash: 'Wash',
@@ -417,6 +418,7 @@ const EXPECTED = {
   },
   arp: {
     softPluck: 'Soft pluck', crystal: 'Crystal', marimba: 'Marimba', muted: 'Muted comp',
+    string: 'Plucked string',
   },
   percussion: {
     soft: 'Soft kit', hand: 'Hand drum', tick: 'Ticks', dust: 'Worn kit',
@@ -434,7 +436,9 @@ test('VOICES matches the contract exactly', () => {
       assert.equal(typeof voice.play, 'function', `${track}.${id}: play`);
       // detuneMode (v0.0.158) is optional — its own tests below pin exactly
       // which voices carry it and what each value must mean.
-      const keys = Object.keys(voice).filter((k) => k !== 'detuneMode').sort().join(',');
+      // optIn (the plucked string) is optional too: true keeps the voice out
+      // of the engine's wander — the pluck tests below pin who carries it.
+      const keys = Object.keys(voice).filter((k) => k !== 'detuneMode' && k !== 'optIn').sort().join(',');
       assert.equal(keys, 'category,controls,defaults,engineType,label,play',
         `${track}.${id}: unexpected keys`);
       // New… (step 3): the Instrument door's shelf. new-voice-smoke holds the list.
@@ -779,7 +783,7 @@ test('every voice publishes a complete, in-range default patch', () => {
       // v0.0.159: a kit also publishes each sound's own envelope in perKind.
       // v0.0.175: an FM voice also publishes its `fm` section (unit 4).
       // v0.0.176: an additive voice publishes its drawbars the same way.
-      const groups = Object.keys(defaults).filter((k) => !['perKind', 'fm', 'additive', 'modal'].includes(k)).sort();
+      const groups = Object.keys(defaults).filter((k) => !['perKind', 'fm', 'additive', 'modal', 'pluck'].includes(k)).sort();
       assert.deepEqual(groups, ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
       if (defaults.modal !== undefined) {
@@ -787,6 +791,10 @@ test('every voice publishes a complete, in-range default patch', () => {
         assert.deepEqual(Object.keys(defaults.modal).sort(), ['damping', 'hardness', 'material'], `${where}.modal: wrong fields`);
         assert.equal(defaults.modal.hardness, 1, `${where}.modal.hardness: as struck today is 1`);
         assert.equal(defaults.modal.damping, 1, `${where}.modal.damping: as shipped is 1`);
+      }
+      if (defaults.pluck !== undefined) {
+        assert.equal(VOICES[track][id].engineType, 'physical', `${where}: publishes pluck but is ${VOICES[track][id].engineType}`);
+        assert.deepEqual(Object.keys(defaults.pluck).sort(), ['brightness', 'damping', 'position'], `${where}.pluck: wrong fields`);
       }
       if (defaults.additive !== undefined) {
         // Glass is hybrid (partials plus an FM shimmer); stab is additive outright.
@@ -920,6 +928,8 @@ const V2_ATTACK = {
   melody: {
     pluck: 0.006, bell: 0.005, flute: 0.09, keys: 0.004, call: 0.006,
     tines: 0.005, nylon: 0.005, tape: 0.006, stab: 0.006,
+    // No v2 past: the plucked string's own envelope is its published one.
+    string: 0.003,
   },
   // v19: the three new voices have no v2 past to keep, so their unpatched
   // envelope IS their published default — which is what these numbers say.
@@ -927,7 +937,7 @@ const V2_ATTACK = {
     sparkle: 0.02, grains: null, chimes: 0.008, wash: 3, colour: 2.6, cloud: 1.2, call: 0.008,
   },
   arp: {
-    softPluck: 0.006, crystal: 0.003, marimba: 0.003, muted: 0.004,
+    softPluck: 0.006, crystal: 0.003, marimba: 0.003, muted: 0.004, string: 0.003,
   },
   percussion: {
     soft: 0.008, hand: 0.005, tick: 0.003, dust: 0.008,
@@ -1168,6 +1178,8 @@ test('an inapplicable source field never silences a voice', () => {
     ['percussion', 'soft'], ['percussion', 'hand'], ['percussion', 'tick'],
     // v27: an FM pair and an additive drawbar stack, plus the new kit.
     ['melody', 'tines'], ['melody', 'stab'], ['percussion', 'dust'],
+    // The plucked string: no oscillator stack, in either branch.
+    ['melody', 'string'], ['arp', 'string'],
   ];
   for (const [track, id] of ignoring) {
     const note = attackNote(track);
@@ -1656,8 +1668,10 @@ test('controls: schema shape, and every applicable field exists in defaults', ()
       assert.ok(controls && typeof controls === 'object', `${where}: missing`);
       // v0.0.175: an FM voice also declares `fm: true`, and only an FM voice —
       // the section a voice exposes is the section it publishes.
-      assert.deepEqual(Object.keys(controls).filter((k) => !['fm', 'additive', 'modal'].includes(k)).sort(), ['adsr', 'filter', 'sends', 'source'],
+      assert.deepEqual(Object.keys(controls).filter((k) => !['fm', 'additive', 'modal', 'pluck'].includes(k)).sort(), ['adsr', 'filter', 'sends', 'source'],
         `${where}: wrong groups`);
+      assert.equal('pluck' in controls, defaults.pluck !== undefined,
+        `${where}: pluck control declared ${'pluck' in controls} but defaults publish ${defaults.pluck !== undefined}`);
       assert.equal('modal' in controls, defaults.modal !== undefined,
         `${where}: modal control declared ${'modal' in controls} but defaults publish ${defaults.modal !== undefined}`);
       assert.equal('additive' in controls, defaults.additive !== undefined,
@@ -2735,8 +2749,8 @@ test('v18: every voice declares an engineType from the contract\'s six classes',
     }
   }
   // 21 at v18, plus v19's colour, cloud and the two readings of call, plus
-  // v27's eleven signature voices.
-  assert.equal(declared, 36, `${declared} voices carry an engineType, not 36`);
+  // v27's eleven signature voices, plus the two plucked strings.
+  assert.equal(declared, 38, `${declared} voices carry an engineType, not 38`);
 });
 
 // --------------------------------------------------------------------------
@@ -3104,6 +3118,163 @@ for (const [id, entry] of Object.entries(STARTING_PATCHES)) {
 // --------------------------------------------------------------------------
 // Runner
 // --------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------
+// The plucked string (Karplus–Strong on an AudioWorklet). The kernel's own
+// laws — pitch, decay, brightness, bounds — are tests/pluck-smoke.mjs; these
+// are the voice's wiring, on both branches.
+// --------------------------------------------------------------------------
+
+const STRINGS = [['melody', 'string'], ['arp', 'string']];
+const stringNote = { midi: 69, freq: null, kind: null, duration: 1, when: 0.5, velocity: 0.8, pan: 0 };
+const pluckPatch = (track, id, pluck) => ({
+  ...VOICES[track][id].defaults, pluck: { ...VOICES[track][id].defaults.pluck, ...pluck },
+});
+
+test('pluck: only the two plucked strings publish the section, and they are opt-in', () => {
+  for (const [track, bank] of Object.entries(VOICES)) {
+    for (const [id, voice] of Object.entries(bank)) {
+      const isString = STRINGS.some(([t, i]) => t === track && i === id);
+      assert.equal(voice.defaults.pluck !== undefined, isString, `${track}.${id}: pluck section`);
+      assert.equal(voice.optIn === true, isString, `${track}.${id}: optIn`);
+      if (voice.optIn !== undefined) assert.equal(voice.optIn, true, `${track}.${id}: optIn is true or absent`);
+    }
+  }
+  for (const [track, id] of STRINGS) {
+    assert.equal(VOICES[track][id].controls.pluck, true, `${track}.${id}: the whole section applies`);
+    assert.equal(VOICES[track][id].category, 'plucked', `${track}.${id}: category`);
+  }
+});
+
+test('pluck fallback (no AudioWorklet): every dial moves the graph it stands in with', () => {
+  for (const [track, id] of STRINGS) {
+    const base = withSeed(5, () => playAndCheck(`${track}.${id} base`, VOICES[track][id], stringNote,
+      { patch: VOICES[track][id].defaults }));
+    assert.ok(!base.graph.some((n) => n.kind === 'worklet'), `${track}.${id}: built a worklet node with no AudioWorklet`);
+    assert.ok(base.graph.some((n) => n.kind === 'oscillator'), `${track}.${id}: the fallback has no oscillator`);
+    for (const [field, wild] of [['damping', 1], ['brightness', 0], ['position', 0.5]]) {
+      const run = withSeed(5, () => playAndCheck(`${track}.${id} ${field}`, VOICES[track][id], stringNote,
+        { patch: pluckPatch(track, id, { [field]: wild }) }));
+      assert.notEqual(renderSignature(run), renderSignature(base), `${track}.${id}: pluck.${field} moved nothing on the fallback`);
+    }
+    // Damping shortens the ring: the fallback's ring gain reaches -60 dB sooner.
+    const ringEnd = (run) => Math.max(...run.events.filter((e) => e.name === 'gain.gain' && e.kind === 'exponential' && Math.abs(e.value - 1e-3) < 1e-9).map((e) => e.time));
+    const free = withSeed(5, () => playAndCheck('free', VOICES[track][id], stringNote, { patch: pluckPatch(track, id, { damping: 0 }) }));
+    const choked = withSeed(5, () => playAndCheck('choked', VOICES[track][id], stringNote, { patch: pluckPatch(track, id, { damping: 1 }) }));
+    assert.ok(ringEnd(choked) < ringEnd(free), `${track}.${id}: damping 1 does not ring shorter than 0`);
+  }
+});
+
+/**
+ * A mock AudioWorklet on the harness's own mock context: addModule resolves,
+ * and AudioWorkletNode is a recorded node. The voice must, from the second
+ * note on a context, build the string in the worklet with the dials as its
+ * processor options — and still keep every house rule the harness checks.
+ */
+async function withWorklet(fn, { fail = false } = {}) {
+  const proto = MockAudioContext.prototype;
+  const savedBlob = globalThis.URL.createObjectURL;
+  const modules = [];
+  let workletInstances = [];
+  Object.defineProperty(proto, 'audioWorklet', {
+    configurable: true,
+    get() {
+      if (!this._worklet) {
+        this._worklet = { addModule: (url) => { modules.push(url); return fail ? Promise.reject(new Error('blocked')) : Promise.resolve(); } };
+      }
+      return this._worklet;
+    },
+  });
+  proto.createConstantSource = function createConstantSource() {
+    const node = makeNode('constantSource');
+    node.offset = makeParam('constantSource.offset', 1);
+    return node;
+  };
+  globalThis.AudioWorkletNode = class {
+    constructor(ctx, name, options) {
+      const node = makeNode('worklet');
+      node.processor = name;
+      node.options = options;
+      workletInstances.push(node);
+      return node;
+    }
+  };
+  globalThis.URL.createObjectURL = () => 'blob:pluck';
+  try {
+    return await fn({ modules, instances: () => workletInstances, reset: () => { workletInstances = []; } });
+  } finally {
+    delete proto.audioWorklet;
+    delete proto.createConstantSource;
+    delete globalThis.AudioWorkletNode;
+    globalThis.URL.createObjectURL = savedBlob;
+  }
+}
+
+tests.push(['pluck worklet: the first note falls back, the next plays the string with the dials as its options', async () => {
+  await withWorklet(async ({ modules, instances, reset }) => {
+    const voice = VOICES.melody.string;
+    // One context for both notes: playAndCheck builds its own, so drive the
+    // voice directly here and check the graph by hand.
+    const ctx = new MockAudioContext();
+    created = [];
+    startedSources = [];
+    automation.length = 0;
+    const destination = makeNode('gain');
+    voice.play(ctx, destination, stringNote, pluckPatch('melody', 'string', { damping: 0.7, brightness: 0.2, position: 0.4 }));
+    assert.equal(instances().length, 0, 'the first note did not wait for the module: it must fall back');
+    assert.ok(created.some((n) => n.kind === 'oscillator'), 'the first note played nothing');
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(modules.length, 1, 'addModule was not asked for exactly once');
+    reset();
+    created = [];
+    startedSources = [];
+    const handle = voice.play(ctx, destination, stringNote, pluckPatch('melody', 'string', { damping: 0.7, brightness: 0.2, position: 0.4 }));
+    voice.play(ctx, destination, stringNote);
+    assert.equal(modules.length, 1, 'the module was loaded twice on one context');
+    const [node] = instances();
+    assert.ok(node, 'the ready worklet built no string');
+    assert.equal(node.processor, 'ambi4-pluck-string');
+    const o = node.options.processorOptions;
+    assert.equal(o.damping, 0.7);
+    assert.equal(o.brightness, 0.2);
+    assert.equal(o.position, 0.4);
+    assert.ok(Math.abs(o.freq - 440) < 1e-9, `freq ${o.freq}`);
+    assert.equal(o.start, stringNote.when, 'the string is not plucked at the note');
+    assert.ok(Number.isInteger(o.seed), 'no seed');
+    assert.ok(!created.some((n) => n.kind === 'oscillator'), 'the worklet note also built the fallback stack');
+    const life = created.find((n) => n.kind === 'constantSource');
+    assert.ok(life && life.startedAt === stringNote.when, 'no lifetime source at the note');
+    assert.ok(Math.abs(life.stoppedAt - o.stop) < 1e-9, `the lifetime source stops at ${life.stoppedAt}, the processor at ${o.stop}`);
+    assert.ok(node.outputs.length === 1, 'the string is not connected');
+    // The envelope still guards the onset: the amp starts at the floor and
+    // ramps; the string reaches the bus through it at no more than the peak.
+    // The kernel never passes ±0.95 (pluck-smoke's bounded grid), so that is
+    // the source level the per-note ceiling is checked against here.
+    const makeup = node.outputs[0];
+    const amp = makeup.outputs[0];
+    assert.ok(amp.gain.min > 0 && amp.gain.min <= 2e-4, `the amp starts at ${amp.gain.min}, not the floor`);
+    // ...at full velocity: the amp scales with velocity squared.
+    const ceiling = (0.95 * makeup.gain.max * amp.gain.max) / (stringNote.velocity ** 2);
+    assert.ok(ceiling <= 0.25, `the string can reach the bus at ${ceiling.toFixed(3)}`);
+    // Teardown: ending the lifetime source disconnects the worklet node too.
+    for (const source of startedSources) source.onended();
+    assert.ok(node.disconnected > 0, 'the worklet node outlived its note');
+    assert.equal(typeof handle.cancel, 'function');
+  });
+}]);
+
+tests.push(['pluck worklet: an addModule that fails leaves the fallback, and never throws', async () => {
+  await withWorklet(async ({ instances }) => {
+    const ctx = new MockAudioContext();
+    const destination = makeNode('gain');
+    VOICES.arp.string.play(ctx, destination, stringNote);
+    await new Promise((r) => setTimeout(r, 0));
+    created = [];
+    VOICES.arp.string.play(ctx, destination, stringNote);
+    assert.equal(instances().length, 0, 'a failed module still built a worklet node');
+    assert.ok(created.some((n) => n.kind === 'oscillator'), 'the failed module left the note silent');
+  }, { fail: true });
+}]);
 
 let failures = 0;
 for (const [name, fn] of tests) {

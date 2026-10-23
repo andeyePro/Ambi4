@@ -7052,7 +7052,13 @@ export function createEngine(initialParams, options = {}) {
         continue;
       }
       if (rng() >= VOICE_WANDER_CHANCE * amount) continue;
-      const others = Object.keys(voiceBank(name)).filter((id) => id !== effectiveVoice(name));
+      // An OPT-IN voice (`optIn: true` — the plucked string) is never a
+      // wander target: it is there for whoever chooses it, and a stock piece
+      // must not drift onto a voice it never named. Filtering it out keeps
+      // `others` exactly the list it was before that voice existed, so the
+      // draw below — and every shipped piece's stream — is unchanged.
+      const bank = voiceBank(name);
+      const others = Object.keys(bank).filter((id) => id !== effectiveVoice(name) && !(bank[id] && bank[id].optIn));
       if (!others.length) continue;
       const next = pick(others, rng);
       if (next === params.tracks[name].voice) wanderedVoice.delete(name);
