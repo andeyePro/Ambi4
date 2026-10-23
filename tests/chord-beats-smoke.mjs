@@ -20,7 +20,12 @@
  *     a tone of its own chord;
  *   - the remainder rule: the barline restarts the grid (3 in 4/4 is 0 and 3);
  *   - beats >= the bar is rhythm 1, note for note;
- *   - absent is the pre-feature engine to the byte (digests taken on v0.0.238).
+ *   - absent is the pre-feature engine to the byte (digests taken on v0.0.238);
+ *   - the bass approach leans into a MID-BAR change as it does into a barline
+ *     (red on v0.0.241, which leaned only into the next bar's first chord);
+ *   - sampling 'chord' under the field is bar sampling, value for value — a
+ *     walk is one number a bar, so it cannot step at a mid-bar chord (a pin
+ *     of v0.0.241's behaviour, not a change).
  *
  * Red on the pre-feature engine: no HARMONY_BEATS_MAX, no beats key, one chord
  * event a bar.
@@ -452,6 +457,74 @@ test('beats 2 under a full, humanised band: still two chords a bar, every pad no
     const chord = chords.reduce((best, c) => (Math.abs(c.time - note.time) < Math.abs(best.time - note.time) ? c : best));
     assert.ok(pcs(chord).has(pc(note.midi)), `pad ${note.midi} is not a tone of ${chord.name}`);
   }
+}));
+
+// ---------------------------------------------------------------------------
+// The bass approach leans into a MID-BAR change too (follow-up to v0.0.241).
+// ---------------------------------------------------------------------------
+
+/** The bass tones the engine offers on a chord of C ionian: root (octave 2), fifth, octave. */
+function bassOptions(chord) {
+  const root = 36 + rootPcOf(chord);
+  return [root, root + 7, root + 12 <= 55 ? root + 12 : root - 12 >= 28 ? root - 12 : root];
+}
+const nearest = (options, to) => options.reduce((best, m) => (Math.abs(m - to) < Math.abs(best - to) ? m : best));
+
+test('beats 2: the last off-beat bass note before beat 3 leans to the option nearest the coming chord\'s root', () => hiddenTab(async () => {
+  let checked = 0;
+  // Complexity and seed chosen so the groove HAS an off-beat (beat 1.75)
+  // before the change; at complexity 0 it plays only on the beat, where the
+  // law is that nothing is touched.
+  for (const [complexity, seed] of [[0.5, 11], [0.9, 11]]) {
+    const params = fixture({ beats: 2 });
+    params.complexity = complexity;
+    const { chords, notes, barStarts } = await play(params, BARS, seed);
+    const bass = notes.filter((n) => n.track === 'bass');
+    for (let b = 0; b < barStarts.length; b++) {
+      const [from, into] = chords.filter((c) => c.bar === b);
+      if (!into || rootPcOf(from) === rootPcOf(into)) continue;
+      const before = bass.filter((n) => n.time >= from.time - 1e-6 && n.time < into.time - 1e-6);
+      const lead = before[before.length - 1];
+      if (!lead) continue;
+      const beat = (lead.time - barStarts[b]) / SEC_PER_BEAT;
+      if (Math.abs(beat - Math.round(beat)) < 1e-6) continue; // a strong beat: never re-pitched
+      const want = nearest(bassOptions(from), 36 + rootPcOf(into));
+      assert.equal(lead.midi, want,
+        `bar ${b} (cx ${complexity}): bass ${lead.midi} at beat ${beat + 1} into ${into.name} should be ${want}, the ${from.name} tone nearest ${into.name}'s root`);
+      checked += 1;
+    }
+  }
+  assert.ok(checked >= BARS, `only ${checked} mid-bar approach notes were judged`);
+}));
+
+// ---------------------------------------------------------------------------
+// sampling: 'chord' under harmony.beats is bar resolution, by construction.
+// ---------------------------------------------------------------------------
+
+test('beats 2: a chord-sampled walk steps once a bar — value for value what bar sampling does', () => hiddenTab(async () => {
+  // A walk is ONE number per (track, param) per bar — resolved once and read
+  // by every note of the bar — so it cannot step at a mid-bar chord. Under
+  // harmony.beats every bar starts a chord, so 'chord' sampling is 'bar'.
+  // rhythm 4 is there to prove beats governs: alone it would hold the walk four bars.
+  const run = async (sampling) => {
+    const params = fixture({ beats: 2, rhythm: 4 });
+    params.tracks.pad = { ...params.tracks.pad, randomness: 0.5, level: { min: 0.2, max: 0.8 } };
+    params.sampling = sampling;
+    const engine = createEngine(params, { rng: seededRng(6711) });
+    const perBar = [];
+    engine.on('bar', () => perBar.push(engine.getResolved().tracks.pad.level));
+    await engine.start();
+    await advance(4 * SEC_PER_BEAT * (BARS + 1));
+    engine.stop();
+    return perBar.slice(0, BARS);
+  };
+  const chorded = await run({ 'pad:level': 'chord' });
+  const barred = await run({});
+  assert.equal(chorded.length, BARS);
+  assert.deepEqual(chorded, barred, 'chord sampling under harmony.beats is not bar sampling');
+  let changes = 0;
+  for (let i = 1; i < chorded.length; i++) if (chorded[i] !== chorded[i - 1]) changes += 1;
+  assert.ok(changes >= BARS - 3, `the chord-sampled level moved on only ${changes} of ${BARS - 1} bars`);
 }));
 
 let failures = 0;

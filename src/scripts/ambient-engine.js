@@ -9017,17 +9017,37 @@ export function createEngine(initialParams, options = {}) {
     // pattern was already going to play rather than adding one, so the section
     // keeps its rhythm, and it only ever takes an off-beat, so every felt pulse
     // still voices the root.
+    const nearestTo = (event, degree) => {
+      const to = scaleDegreeToMidi(degree, scale(), rootPc, 2);
+      const tones = tonesAt(event.beat);
+      const options = [tones.root, tones.fifth, tones.octave];
+      return options.reduce(
+        (best, midi) => (Math.abs(midi - to) < Math.abs(best - to) ? midi : best),
+      );
+    };
+    // Chord length in beats: the same law at every chord change INSIDE the
+    // bar. The last event before each boundary where the chord moves — still
+    // inside the chord it leaves, never a strong beat — leans to the coming
+    // chord's root, which is known (the frame drew the whole bar already). No
+    // draw is made, and without harmony.beats there are no boundaries here.
+    if (barChords) {
+      for (let i = 1; i < barChords.length; i++) {
+        const from = barChords[i - 1];
+        const into = barChords[i];
+        if (into.degree === from.degree) continue;
+        let lead = null;
+        for (const event of events) {
+          if (event.beat < into.beat - 1e-9) lead = event;
+        }
+        if (lead && lead.beat >= from.beat - 1e-9 && !isStrongBeat(lead.beat)) {
+          lead.midi = nearestTo(lead, into.degree);
+        }
+      }
+    }
     const last = events[events.length - 1];
     const target = chordBarsLeft <= 0 && last && !isStrongBeat(last.beat)
       ? nextChordAhead() : null;
-    if (target !== null) {
-      const to = scaleDegreeToMidi(target, scale(), rootPc, 2);
-      const tones = tonesAt(last.beat);
-      const options = [tones.root, tones.fifth, tones.octave];
-      last.midi = options.reduce(
-        (best, midi) => (Math.abs(midi - to) < Math.abs(best - to) ? midi : best),
-      );
-    }
+    if (target !== null) last.midi = nearestTo(last, target);
 
     // A held step slurs into the next one on a mono track; anything shorter
     // stops where its gate says and leaves the gap the groove asked for.

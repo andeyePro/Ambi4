@@ -1155,10 +1155,26 @@ space, so users sculpt real-world impressions themselves:
     half-bar breath only where the chord is long enough to hold it.
   - **The 'chord' event fires per chord** and, only under this field, carries
     `beat` (its onset in the bar); a bar-level chord's event is unchanged.
-  - **Limits.** The bass's approach note leans only into the NEXT BAR's first
-    chord, not into a mid-bar change; `sampling: 'chord'` steps once a bar
-    under this field (each bar is one harmony frame); there is no UI control
-    yet (the Chord length select would be the place).
+  - **The bass approach** leans into every chord change, not only the
+    barline's: for each boundary inside the bar where the degree moves, the
+    last pattern event before it, if it lies inside the chord being left and
+    is not a strong beat, is re-pitched to whichever of THAT chord's root,
+    fifth and octave is nearest the coming chord's root — the bar-end law,
+    applied per boundary. It draws nothing (the frame already holds every
+    chord of the bar), and with no field there are no boundaries, so the
+    byte digest is unmoved.
+  - **`sampling: 'chord'` is bar resolution under this field, by
+    construction.** A walk is ONE position per (track, param), stepped once
+    in scheduleBar before anything is planned and read by every note of the
+    bar (`resolveRange`, the patch cache cleared per bar, `getResolved`);
+    there is no sub-bar step to gate. Every bar under the field starts a
+    chord (`samplingChordFresh` true each bar, span 1), so a chord-sampled
+    walk steps exactly when a bar-sampled one does, value for value
+    (`tests/chord-beats-smoke.mjs` pins it). Following mid-bar chords would
+    need a new sub-bar walk mechanism, which would change what every ranged
+    dial does inside a bar — deliberately not done.
+  - **Limits.** There is no UI control yet (the Chord length select would be
+    the place).
   - Recipe: `harmony.beats`, "Chord length in beats", a number, named only
     when set.
 - Pad breathing: swell phase locks to bar phase (existing sin contour keyed to
