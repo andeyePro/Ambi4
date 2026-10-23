@@ -1019,6 +1019,18 @@ A sound in mind (v0.0.185)
 - [ ] On the kit, every word answers plainly that nothing here is honestly
       that word; there is no Set it up.
 
+Advanced in three sections (v0.0.232, UI review fix 18)
+- [ ] Open Advanced on a fresh visit: three headings, Sound, Music and
+      Presets, each showing its essentials with one "more" beside it. Press a
+      "more": the rest of that section opens in place and the button reads
+      "less". Set Rules show to "+ pool": every "more" opens; set it back:
+      they fold again.
+- [ ] Start the guided tour and step to Share: the step it points at is
+      visible (its fold opened first). In Create, Chords opens the Music
+      section before it scrolls there.
+- [ ] Phone width (390 × 844): no heading or "more" overlaps the controls
+      under it, open or folded.
+
 Match a sample (v0.0.229)
 - [ ] Under the melody's dials, behind "more", "Match a sample": Choose a sound
       file…, pick a recording of one note (a plucked string, a bell, a flute).

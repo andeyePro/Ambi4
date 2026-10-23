@@ -210,3 +210,41 @@ export function createRule(host, spec) {
   apply();
   return { el, chanceSlot, when, setPool, setMark, setNow, setLevel, setWhen };
 }
+
+/**
+ * The "more" on its own: one button that folds one or more boxes away and
+ * back, reading "more" closed and "less" open, in the rule primitive's own
+ * `.rule-more` style. UI review 2026-10-03 (one interaction model): the voice
+ * editor's fold (fix 9) and the Advanced tab's Sound / Music / Presets
+ * sections (fix 18) are this, not widgets of their own. `label(open)` gives
+ * the button's accessible name; `onToggle(open)` hears a press before it
+ * lands (the page keeps what the person chose). The boxes are toggled by the
+ * `hidden` attribute alone, so whatever ELSE hides a control inside them (an
+ * engine without Swing, say) is left as it was.
+ */
+export function bindMore(toggle, boxes, { label = null, open = false, onToggle = null } = {}) {
+  const list = (Array.isArray(boxes) ? boxes : [boxes]).filter(Boolean);
+  toggle.classList.add('rule-more');
+  const ids = list.map((box) => box.id).filter(Boolean);
+  if (ids.length) toggle.setAttribute('aria-controls', ids.join(' '));
+  let isOpen = false;
+  function set(next) {
+    isOpen = Boolean(next);
+    for (const box of list) box.hidden = !isOpen;
+    toggle.textContent = isOpen ? 'less' : 'more';
+    toggle.setAttribute('aria-expanded', String(isOpen));
+    if (typeof label === 'function') toggle.setAttribute('aria-label', label(isOpen));
+  }
+  toggle.addEventListener('click', () => {
+    const next = !isOpen;
+    if (typeof onToggle === 'function') onToggle(next);
+    set(next);
+  });
+  set(open);
+  return {
+    set,
+    isOpen: () => isOpen,
+    /** Does one of this fold's boxes hold `el`? */
+    holds: (el) => Boolean(el) && list.some((box) => box.contains(el)),
+  };
+}

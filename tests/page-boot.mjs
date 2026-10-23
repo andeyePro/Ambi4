@@ -2032,6 +2032,165 @@ try {
       }
     }
 
+    // UI review 2026-10-03, fix 18 — Advanced collapses to its Now. The tab
+    // is three sections (Sound / Music / Presets), each a heading with ONE
+    // "more" — rule-control.js's bindMore, the voice editor's own fold, so the
+    // same .rule-more button reading more/less with aria-expanded. At the
+    // default Rules show level a first visit shows fewer controls than with
+    // every fold open (v0.0.222 showed them all: no folds at all); each "more"
+    // reveals its own controls; a dial inside a fold still reaches the ENGINE;
+    // "+ pool" (expert) opens every fold, as it opens every editor's; and the
+    // tour never rings a control that is folded away.
+    {
+      const engine = window.__ambi4Engine;
+      const panel = doc.getElementById('panel-advanced');
+      const levelSelect = doc.getElementById('rule-level');
+      const setLevel = (level) => {
+        levelSelect.value = level;
+        levelSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      };
+      const shown = (el) => {
+        if (!el) return false;
+        for (let n = el; n && n !== panel.parentNode; n = n.parentElement) if (n.hidden) return false;
+        return true;
+      };
+      const visibleControls = () => Array.from(
+        panel.querySelectorAll('button, input, select, textarea, .knob'),
+      ).filter((el) => !el.matches('.knob-value') && shown(el)).length;
+      const SECTIONS = {
+        sound: ['repetition-dial'],
+        music: ['timeSignature', 'structure'],
+        presets: ['preset-save', 'preset-share', 'blank-slate', 'preset-copy'],
+      };
+      // Always on screen whatever the folds: each section's Now.
+      const NOW = ['speed-dial-adv', 'track-voice-melody', 'voice-edit-toggle-pad', 'root', 'mode', 'preset-load'];
+      if (!panel || !levelSelect || !engine) {
+        failures.push('advanced sections: no Advanced panel, Rules show select or engine seam');
+      } else {
+        const levelWas = levelSelect.value;
+        const tabWas = doc.querySelector('[role="tab"][aria-selected="true"]');
+        doc.getElementById('tab-advanced').click();
+        if (panel.hidden) failures.push('advanced sections: the Advanced tab did not open');
+        for (const toggle of panel.querySelectorAll('.voice-edit-toggle[aria-expanded="true"]')) toggle.click();
+        // Counted on a fixed scene: a drawn block structure shows its blocks
+        // (tens of controls) and would make the count the draw's — so Drone.
+        const structurePin = doc.getElementById('structure');
+        const structurePinWas = structurePin ? structurePin.value : null;
+        if (structurePin && structurePin.value !== 'drone') {
+          structurePin.value = 'drone';
+          structurePin.dispatchEvent(new window.Event('change', { bubbles: true }));
+        }
+        await new Promise((r) => setTimeout(r, 30));
+        setLevel('advanced');
+        const closedCount = visibleControls();
+        const mores = {};
+        for (const name of Object.keys(SECTIONS)) {
+          const section = doc.getElementById(`adv-section-${name}`);
+          const heading = section && section.querySelector('.adv-head .adv-title');
+          const more = section && section.querySelector('.adv-head .rule-more');
+          mores[name] = more;
+          if (!section || !heading || !more) {
+            failures.push(`advanced sections: no ${name} section with a heading and a "more" (the rule primitive's .rule-more)`);
+            continue;
+          }
+          if (more.getAttribute('aria-expanded') !== 'false' || more.textContent !== 'more') failures.push(`advanced sections: ${name}'s "more" does not read as closed at the default level`);
+          for (const id of SECTIONS[name]) {
+            const el = doc.getElementById(id);
+            if (!el) failures.push(`advanced sections: #${id} is gone — nothing may be removed`);
+            else if (!section.contains(el)) failures.push(`advanced sections: #${id} is not in the ${name} section`);
+            else if (shown(el)) failures.push(`advanced sections: #${id} shows before ${name}'s "more" is pressed`);
+          }
+        }
+        for (const id of NOW) {
+          if (!shown(doc.getElementById(id))) failures.push(`advanced sections: #${id} (a section's Now) is not on screen at the default level`);
+        }
+        // The drives' seam names the real "more" that opens a folded control.
+        const foldMore = typeof window.__ambi4FoldMore === 'function' ? window.__ambi4FoldMore : null;
+        if (!foldMore) failures.push('advanced sections: no window.__ambi4FoldMore seam for the browser drives');
+        else {
+          for (const [selector, want] of [['#structure', '#adv-more-music'], ['#preset-share', '#adv-more-presets'], ['#repetition-dial', '#adv-more-sound'], ['#root', null], ['#nothing-here', null]]) {
+            if (foldMore(selector) !== want) failures.push(`advanced sections: __ambi4FoldMore('${selector}') reads ${foldMore(selector)}, not ${want}`);
+          }
+        }
+        // Each "more" reveals its own controls, and only its own.
+        for (const [name, more] of Object.entries(mores)) {
+          if (!more) continue;
+          more.click();
+          if (more.getAttribute('aria-expanded') !== 'true' || more.textContent !== 'less') failures.push(`advanced sections: ${name}'s "more" does not read as open after a press`);
+          for (const id of SECTIONS[name]) {
+            if (!shown(doc.getElementById(id))) failures.push(`advanced sections: pressing ${name}'s "more" did not reveal #${id}`);
+          }
+          for (const [other, ids] of Object.entries(SECTIONS)) {
+            if (other === name || !mores[other] || mores[other].getAttribute('aria-expanded') === 'true') continue;
+            for (const id of ids) if (shown(doc.getElementById(id))) failures.push(`advanced sections: ${name}'s "more" revealed ${other}'s #${id}`);
+          }
+        }
+        const openCount = visibleControls();
+        console.log(`advanced sections: a first visit shows ${closedCount} controls; every fold open, ${openCount}`);
+        if (!(closedCount < openCount) || openCount - closedCount < 10) failures.push(`advanced sections: the folds hide ${openCount - closedCount} controls (${closedCount} of ${openCount} shown) — fewer than ten`);
+        // A dial inside a fold, used, reaches the ENGINE; so does a select.
+        const reprise = doc.getElementById('repetition-dial');
+        const repWas = engine.getParams().repetition;
+        const repTo = Math.abs(repWas - 0.37) < 0.01 ? 0.61 : 0.37;
+        if (!reprise || !typeIntoKnob(reprise, String(Math.round(repTo * 100)))) {
+          failures.push('advanced sections: the folded Reprise dial has no typed readout');
+        } else {
+          const landed = await waitUntil(() => Math.abs(engine.getParams().repetition - repTo) < 0.006);
+          if (!landed) failures.push(`advanced sections: typing ${Math.round(repTo * 100)} % into the folded Reprise dial left the engine at ${engine.getParams().repetition}`);
+        }
+        const structure = doc.getElementById('structure');
+        if (structure) {
+          const structWas = structure.value;
+          const other = [...structure.options].map((o) => o.value).find((v) => v !== structWas && v !== 'custom');
+          structure.value = other;
+          structure.dispatchEvent(new window.Event('change', { bubbles: true }));
+          if (engine.getParams().structure !== other) failures.push(`advanced sections: picking ${other} in the folded Structure left the engine at ${engine.getParams().structure}`);
+          structure.value = structWas;
+          structure.dispatchEvent(new window.Event('change', { bubbles: true }));
+        }
+        engine.setParams({ repetition: repWas });
+        // Fold back by "less"; then "+ pool" opens every fold, and "what
+        // plays" closes them again.
+        for (const more of Object.values(mores)) if (more && more.getAttribute('aria-expanded') === 'true') more.click();
+        if (visibleControls() !== closedCount) failures.push(`advanced sections: pressing "less" on every section did not return to the first visit's ${closedCount} controls (${visibleControls()})`);
+        setLevel('expert');
+        for (const [name, ids] of Object.entries(SECTIONS)) {
+          for (const id of ids) if (!shown(doc.getElementById(id))) failures.push(`advanced sections: Rules show "+ pool" left ${name}'s #${id} folded`);
+          if (mores[name] && mores[name].getAttribute('aria-expanded') !== 'true') failures.push(`advanced sections: at "+ pool" ${name}'s "more" does not read as open`);
+        }
+        setLevel('simple');
+        for (const [name, ids] of Object.entries(SECTIONS)) {
+          for (const id of ids) if (shown(doc.getElementById(id))) failures.push(`advanced sections: Rules show "what plays" left ${name}'s #${id} open`);
+        }
+        // The tour: every target is on screen once its step runs, with every
+        // fold closed beforehand (Share sits in Presets' fold).
+        setLevel('advanced');
+        const steps = readTutorialSteps();
+        const tourPanel = doc.getElementById('tutorial-panel');
+        if (tourPanel.hidden) doc.getElementById('tutorial-toggle').click();
+        const back = doc.getElementById('tutorial-prev');
+        for (let guard = 0; !back.disabled && guard < 40; guard += 1) back.click();
+        let foldedTargets = 0;
+        for (const [index, step] of steps.entries()) {
+          if (index > 0) doc.getElementById('tutorial-next').click();
+          if (!step.target) continue;
+          const target = doc.querySelector(step.target);
+          if (target && panel.contains(target) && !shown(target)) {
+            foldedTargets += 1;
+            failures.push(`advanced sections: tour step ${index + 1} rings ${step.target}, which is folded away`);
+          }
+        }
+        doc.getElementById('tutorial-close').click();
+        console.log(`advanced sections: ${steps.filter((s) => s.tab === 'advanced').length} Advanced tour steps, ${foldedTargets} ringing a folded control`);
+        if (structurePin && structurePin.value !== structurePinWas) {
+          structurePin.value = structurePinWas;
+          structurePin.dispatchEvent(new window.Event('change', { bubbles: true }));
+        }
+        setLevel(levelWas);
+        if (tabWas) tabWas.click();
+      }
+    }
+
     // v0.0.187 — the dial LAYOUT of every stock voice, pinned. Phase 2c of
     // the routing programme turns the knob editor's hand-written literals
     // into a loop over the registry, and "byte-identical" needs a witness:

@@ -16,8 +16,21 @@
  * exactly rather than approximately.
  */
 
+// UI review fix 18: Advanced folds its sections (Sound / Music / Presets) behind
+// a "more". Before a pointer touches a folded control, press the REAL "more"
+// that opens it; the page names it (window.__ambi4FoldMore — drives load as
+// data: URLs and cannot import a shared helper, so the shared half is there).
+const openFoldFor = async (page, selector) => {
+  const more = await page.evaluate((s) => (typeof window.__ambi4FoldMore === 'function' ? window.__ambi4FoldMore(s) : null), selector);
+  if (more) {
+    await page.click(more);
+    await page.waitForTimeout(150);
+  }
+};
+
 const submitUrl = async (page) => {
   await page.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; }; });
+  await openFoldFor(page, '#preset-submit');
   await page.click('#preset-submit');
   await page.waitForTimeout(700);
   return page.evaluate(() => window.__opened.pop() || null);

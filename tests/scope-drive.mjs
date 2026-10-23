@@ -36,6 +36,18 @@ const trackValues = (page, key) =>
     } catch { return null; }
   }, key);
 
+// UI review fix 18: Advanced folds its sections (Sound / Music / Presets) behind
+// a "more". Before a pointer touches a folded control, press the REAL "more"
+// that opens it; the page names it (window.__ambi4FoldMore — drives load as
+// data: URLs and cannot import a shared helper, so the shared half is there).
+const openFoldFor = async (page, selector) => {
+  const more = await page.evaluate((s) => (typeof window.__ambi4FoldMore === 'function' ? window.__ambi4FoldMore(s) : null), selector);
+  if (more) {
+    await page.click(more);
+    await page.waitForTimeout(150);
+  }
+};
+
 export default async function drive(page) {
   const results = [];
   const check = (name, got, want) => {
@@ -47,6 +59,7 @@ export default async function drive(page) {
   await page.waitForTimeout(200);
   await page.click('#tab-advanced');
   await page.waitForTimeout(400);
+  await openFoldFor(page, '#dial-swing');
 
   const swing = await scopeState(page, 'dial-swing');
   check('the Swing dial has a scope control', !!swing, (v) => v === true);

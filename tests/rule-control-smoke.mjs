@@ -90,6 +90,43 @@ test('createRule: the level hides layers, "more" opens the next, a level change 
   assert.equal(el.querySelector('.rule-now-value').textContent, 'Tines');
 });
 
+// UI review fix 18: the "more" on its own — the voice editor's fold and the
+// Advanced tab's Sound / Music / Presets sections are this one function.
+test('bindMore: one .rule-more folds its boxes, reads more/less, and leaves other hiding alone', () => {
+  const host = doc.createElement('div');
+  host.innerHTML = '<button id="bm-toggle"></button><div id="bm-a"><span id="bm-in"></span><i id="bm-off" hidden></i></div><div id="bm-b"></div><p id="bm-out"></p>';
+  doc.body.append(host);
+  assert.equal(typeof mod.bindMore, 'function', 'rule-control.js exports bindMore');
+  const toggle = doc.getElementById('bm-toggle');
+  const a = doc.getElementById('bm-a');
+  const b = doc.getElementById('bm-b');
+  const heard = [];
+  const fold = mod.bindMore(toggle, [a, b], { label: (open) => `Sound: ${open ? 'fold away' : 'show'}`, onToggle: (open) => heard.push(open) });
+  assert.ok(toggle.classList.contains('rule-more'), 'the rule primitive\'s own button style');
+  assert.equal(toggle.getAttribute('aria-controls'), 'bm-a bm-b');
+  assert.equal(a.hidden, true);
+  assert.equal(b.hidden, true);
+  assert.equal(toggle.textContent, 'more');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(toggle.getAttribute('aria-label'), 'Sound: show');
+  toggle.click();
+  assert.deepEqual(heard, [true]);
+  assert.equal(a.hidden, false);
+  assert.equal(b.hidden, false);
+  assert.equal(toggle.textContent, 'less');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(doc.getElementById('bm-off').hidden, true, 'a control hidden for its own reason stays hidden');
+  assert.equal(fold.isOpen(), true);
+  assert.equal(fold.holds(doc.getElementById('bm-in')), true);
+  assert.equal(fold.holds(doc.getElementById('bm-out')), false);
+  fold.set(false);
+  assert.equal(a.hidden, true);
+  assert.equal(toggle.textContent, 'more');
+  assert.deepEqual(heard, [true], 'set() is the page speaking, not a press');
+  const opened = mod.bindMore(doc.createElement('button'), doc.createElement('div'), { open: true });
+  assert.equal(opened.isOpen(), true, 'open: true starts open (the expert level)');
+});
+
 let failures = 0;
 for (const [name, fn] of tests) {
   try { await fn(); console.log(`ok   ${name}`); }

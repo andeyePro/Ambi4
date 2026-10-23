@@ -53,6 +53,18 @@ const openLink = async (page, url) => {
   await page.waitForTimeout(2500);
 };
 
+// UI review fix 18: Advanced folds its sections (Sound / Music / Presets) behind
+// a "more". Before a pointer touches a folded control, press the REAL "more"
+// that opens it; the page names it (window.__ambi4FoldMore — drives load as
+// data: URLs and cannot import a shared helper, so the shared half is there).
+const openFoldFor = async (page, selector) => {
+  const more = await page.evaluate((s) => (typeof window.__ambi4FoldMore === 'function' ? window.__ambi4FoldMore(s) : null), selector);
+  if (more) {
+    await page.click(more);
+    await page.waitForTimeout(150);
+  }
+};
+
 const shareUrl = async (page) => {
   await page.evaluate(() => {
     window.__copied = null;
@@ -62,6 +74,7 @@ const shareUrl = async (page) => {
     // of those two paths the browser takes today.
     navigator.clipboard.writeText = (text) => { window.__copied = text; return Promise.resolve(); };
   });
+  await openFoldFor(page, '#preset-share');
   await page.click('#preset-share');
   await page.waitForTimeout(700);
   return page.evaluate(() => window.__copied);

@@ -789,6 +789,19 @@ const VOICES: Record<string, [string, string][]> = {
           <option value="expert">+ pool</option>
         </select>
       </div>
+      <!-- UI review fix 18 (2026-10-03): Advanced in three sections, Sound /
+           Music / Presets. Each heading shows its essential controls (its
+           Now); ONE "more" beside it opens the rest in place — the rule
+           primitive's and the voice editor's own "more" (rule-control.js
+           bindMore), not a widget of its own. Rules show decides the folds:
+           "+ pool" opens them all, as it does an editor's. Nothing is removed
+           and no id changed; whatever targets a folded control (the tour,
+           Create's Chords) opens its fold first (revealFoldFor). -->
+      <section class="adv-section" id="adv-section-sound" aria-labelledby="adv-title-sound">
+        <div class="adv-head">
+          <h2 class="adv-title panel-label" id="adv-title-sound">Sound</h2>
+          <button type="button" class="rule-more adv-more" id="adv-more-sound" aria-expanded="false">more</button>
+        </div>
       <div class="module-panel sliders-module" id="advanced-dials">
         <div class="advanced-dial-row">
           {MAIN_DIALS.map(([id, label, lowMark, midMark, highMark]) => {
@@ -808,6 +821,9 @@ const VOICES: Record<string, [string, string][]> = {
             );
           })}
 
+          <!-- The fold's dials stay IN the one dial row (v26: dials pack
+               horizontally): the box is display: contents while open. -->
+          <div class="adv-more-box adv-more-box-inline" id="adv-more-box-sound" hidden>
           <div class="control simple-dial" id="dial-repetition">
             <div class="control-label-row">
               <label for="repetition" class="panel-label">Reprise</label>
@@ -830,6 +846,7 @@ const VOICES: Record<string, [string, string][]> = {
               <label for="reverbTail" class="panel-label">Reverb tail</label>
             </div>
             <div class="dial-slot" id="reverb-tail-dial"></div>
+          </div>
           </div>
         </div>
         <div class="dial-info-row" id="advanced-dials-info"></div>
@@ -875,6 +892,14 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
+      </section>
+
+      <section class="adv-section" id="adv-section-music" aria-labelledby="adv-title-music">
+        <div class="adv-head">
+          <h2 class="adv-title panel-label" id="adv-title-music">Music</h2>
+          <button type="button" class="rule-more adv-more" id="adv-more-music" aria-expanded="false">more</button>
+        </div>
+
       <!-- v0.0.46: paired onto rows. Six full-width selects stacked down the
            page for values that are two or three characters wide was most of
            what made Advanced feel long and empty. The BPM slider is gone with
@@ -901,6 +926,21 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
+      <!-- v0.0.68: the chord progression, visible and editable. Step two of
+           the agreed plan and the single biggest thing that could not be
+           touched. Built by the page script only where the engine accepts a
+           hook seed. -->
+      <div class="control" id="control-progression" hidden>
+        <div class="control-label-row">
+          <label id="progression-label">Chords</label>
+          <span id="progression-info"></span>
+        </div>
+        <div id="progression-chords" class="progression-chords"></div>
+        <div id="progression-row" class="progression-row"></div>
+        <p class="hint" id="progression-hint"></p>
+      </div>
+
+      <div class="adv-more-box" id="adv-more-box-music" hidden>
       <div class="control-pair">
         <div class="control">
           <label for="timeSignature">Time signature</label>
@@ -936,20 +976,6 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
       </div>
 
-      <!-- v0.0.68: the chord progression, visible and editable. Step two of
-           the agreed plan and the single biggest thing that could not be
-           touched. Built by the page script only where the engine accepts a
-           hook seed. -->
-      <div class="control" id="control-progression" hidden>
-        <div class="control-label-row">
-          <label id="progression-label">Chords</label>
-          <span id="progression-info"></span>
-        </div>
-        <div id="progression-chords" class="progression-chords"></div>
-        <div id="progression-row" class="progression-row"></div>
-        <p class="hint" id="progression-hint"></p>
-      </div>
-
       <div class="control">
         <div class="control-label-row">
           <label for="structure">Structure</label>
@@ -967,13 +993,28 @@ const VOICES: Record<string, [string, string][]> = {
         <p class="hint" id="structure-blocks-note">Loops forever, in order. Up to 8 blocks.</p>
       </div>
 
-      <p class="hint factory-presets-link">
-        Factory presets moved to the Simple tab &mdash;
-        <button type="button" id="factory-presets-jump" class="link-button">show them</button>.
-      </p>
+      </div>
+      </section>
 
-      <fieldset class="presets-group">
-        <legend>Presets</legend>
+      <section class="adv-section" id="adv-section-presets" aria-labelledby="adv-title-presets">
+        <div class="adv-head">
+          <h2 class="adv-title panel-label" id="adv-title-presets">Presets</h2>
+          <button type="button" class="rule-more adv-more" id="adv-more-presets" aria-expanded="false">more</button>
+        </div>
+      <fieldset class="presets-group" aria-labelledby="adv-title-presets">
+        <div class="preset-row">
+          <label for="preset-load" class="visually-hidden">Load preset</label>
+          <select id="preset-load">
+            <option value="">Load preset&hellip;</option>
+          </select>
+          <button type="button" id="preset-delete" class="secondary-button">Delete</button>
+        </div>
+        <div class="adv-more-box" id="adv-more-box-presets" hidden>
+        <p class="hint factory-presets-link">
+          Factory presets moved to the Simple tab &mdash;
+          <button type="button" id="factory-presets-jump" class="link-button">show them</button>.
+        </p>
+
         <div class="preset-row">
           <button type="button" id="blank-slate" class="secondary-button">Blank slate</button>
         </div>
@@ -981,13 +1022,6 @@ const VOICES: Record<string, [string, string][]> = {
           <label for="preset-name" class="visually-hidden">Preset name</label>
           <input id="preset-name" type="text" placeholder="Preset name" />
           <button type="button" id="preset-save" class="secondary-button">Save</button>
-        </div>
-        <div class="preset-row">
-          <label for="preset-load" class="visually-hidden">Load preset</label>
-          <select id="preset-load">
-            <option value="">Load preset&hellip;</option>
-          </select>
-          <button type="button" id="preset-delete" class="secondary-button">Delete</button>
         </div>
         <div class="preset-row">
           <button type="button" id="preset-share" class="secondary-button">Share</button>
@@ -1011,7 +1045,9 @@ const VOICES: Record<string, [string, string][]> = {
              Evidence for the AI-free question rather than a verdict on it —
              the label is a claim a person signs about the music. -->
         <p class="hint" id="preset-provenance"></p>
+        </div>
       </fieldset>
+      </section>
 
     </section>
   </div>
@@ -4951,7 +4987,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const m = await import('../scripts/rule-control.js');
         if (m && typeof m.createRule === 'function') ruleApi = m;
       } catch {}
-      const RULE_LEVEL_WORDS = 'How much of every rule opens by default: what plays only; plus its Chance (0 holds it, and when it may redraw); plus its Pool (what a redraw may pick from). "more" on any rule opens the next layer whatever this says. One setting: the Advanced tab and every voice editor show the same one.';
+      const RULE_LEVEL_WORDS = 'How much of every rule opens by default: what plays only; plus its Chance (0 holds it, and when it may redraw); plus its Pool (what a redraw may pick from). "more" on any rule opens the next layer whatever this says. At "+ pool" every "more" starts open too, on the Advanced sections and in the editors. One setting: the Advanced tab and every voice editor show the same one.';
       // The level select is wired HERE, after the import — the tab wiring
       // above runs before `ruleApi` exists (the same temporal-dead-zone trap
       // this file has hit before).
@@ -4964,6 +5000,66 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           describe(select, RULE_LEVEL_WORDS);
           if (!ruleApi) select.closest('.rule-level-row')?.setAttribute('hidden', '');
         }
+      }
+      // UI review fix 18 (2026-10-03): the Advanced tab's three sections —
+      // Sound, Music, Presets — each a heading showing its Now, with ONE
+      // "more" opening the rest: rule-control.js's bindMore, the voice
+      // editor's own fold. Closed at the first two Rules show levels, open at
+      // "+ pool", exactly as an editor's is; what the person presses survives
+      // until the level next changes. Without the rule module nothing folds.
+      const advFolds = new Map();
+      const advMoreOpen = new Map();
+      for (const [name, words] of [
+        ['sound', 'Reprise, Swing and Reverb tail'],
+        ['music', 'time signature, chord length and structure'],
+        ['presets', 'saving, sharing and submitting presets'],
+      ]) {
+        const toggle = document.getElementById(`adv-more-${name}`);
+        const box = document.getElementById(`adv-more-box-${name}`);
+        if (!toggle || !box) continue;
+        if (!ruleApi || typeof ruleApi.bindMore !== 'function') {
+          toggle.hidden = true;
+          box.hidden = false;
+          continue;
+        }
+        const title = document.getElementById(`adv-title-${name}`)?.textContent || name;
+        advFolds.set(name, ruleApi.bindMore(toggle, box, {
+          label: (open) => `${title}: ${open ? 'fold away' : 'show'} ${words}`,
+          open: ruleLevel() === 'expert',
+          onToggle: (open) => advMoreOpen.set(name, open),
+        }));
+      }
+      /**
+       * Open whichever Advanced fold holds `el`, so a control the tour (or any
+       * other jump) points at is on screen rather than folded away. True if a
+       * fold was opened.
+       */
+      function revealFoldFor(el) {
+        if (!el) return false;
+        for (const [name, fold] of advFolds) {
+          if (!fold.isOpen() && fold.holds(el)) {
+            advMoreOpen.set(name, true);
+            fold.set(true);
+            return true;
+          }
+        }
+        return false;
+      }
+      // A deliberate test seam, like window.__ambi4Engine: the "more" that
+      // would open the Advanced fold holding `selector` (a selector string for
+      // page.click), or null when that control is not folded away. The browser
+      // drives (tests/*-drive.mjs) press THAT button, the real one, before they
+      // touch a folded control — they load as data: URLs and cannot import a
+      // shared helper, so the shared half lives here.
+      if (typeof window !== 'undefined') {
+        window.__ambi4FoldMore = (selector) => {
+          let el = null;
+          try { el = document.querySelector(selector); } catch { return null; }
+          for (const [name, fold] of advFolds) {
+            if (!fold.isOpen() && fold.holds(el)) return `#adv-more-${name}`;
+          }
+          return null;
+        };
       }
 
       try {
@@ -7234,6 +7330,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         settings.ui.level = level;
         veMoreOpen.clear();
         for (const ed of openEditors.values()) ed.applyMore?.(level === 'expert');
+        // UI review fix 18: the Advanced sections fold the same way.
+        advMoreOpen.clear();
+        for (const fold of advFolds.values()) fold.set(level === 'expert');
         for (const handle of mountedRules) {
           if (!handle.el.isConnected) { mountedRules.delete(handle); continue; }
           handle.setLevel(level);
@@ -13563,19 +13662,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const moreBox = document.createElement('div');
         moreBox.className = 've-more-box';
         moreBox.id = `ve-more-box-${track}`;
-        moreToggle.setAttribute('aria-controls', moreBox.id);
-        const applyMore = (open) => {
-          moreBox.hidden = !open;
-          moreToggle.textContent = open ? 'less' : 'more';
-          moreToggle.setAttribute('aria-expanded', String(open));
-          moreToggle.setAttribute('aria-label', `${TRACK_LABELS[track] || track}: ${open ? 'fold away' : 'show'} the sound in words, Save voice, Hide this voice, the sound finder and Match a sample`);
-        };
-        applyMore(veMoreOpen.has(track) ? veMoreOpen.get(track) : ruleLevel() === 'expert');
-        moreToggle.addEventListener('click', () => {
-          const open = moreBox.hidden;
-          veMoreOpen.set(track, open);
-          applyMore(open);
-        });
+        // UI review fix 18: the fold is rule-control.js's bindMore — the same
+        // one the Advanced tab's Sound / Music / Presets sections use.
+        const moreLabel = (open) => `${TRACK_LABELS[track] || track}: ${open ? 'fold away' : 'show'} the sound in words, Save voice, Hide this voice, the sound finder and Match a sample`;
+        const moreStartsOpen = veMoreOpen.has(track) ? veMoreOpen.get(track) : ruleLevel() === 'expert';
+        let applyMore;
+        if (ruleApi && typeof ruleApi.bindMore === 'function') {
+          applyMore = ruleApi.bindMore(moreToggle, moreBox, {
+            label: moreLabel,
+            open: moreStartsOpen,
+            onToggle: (open) => veMoreOpen.set(track, open),
+          }).set;
+        } else {
+          // No rule module: nothing to fold with, so nothing is folded away.
+          moreToggle.hidden = true;
+          applyMore = () => { moreBox.hidden = false; };
+          applyMore();
+        }
         ed.applyMore = applyMore;
         container.append(moreToggle, moreBox);
         const wordsLine = document.createElement('p');
@@ -21143,7 +21246,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
                 composeChords?.addEventListener('click', () => {
           activateTab('advanced', { focus: false });
-          document.getElementById('control-progression')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          const chords = document.getElementById('control-progression');
+          revealFoldFor(chords);
+          chords?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
 
         // Tap a rhythm (his item 96, and 89's "space bar or button"): one
@@ -22599,7 +22704,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#preset-share',
-          text: 'Share copies a link that carries the style it grew from plus your own changes — nothing is uploaded, and no code travels with it, so a link stays short enough to paste anywhere. Each link works out its own three-word name, shown on the line below, so you can say which link you mean out loud. Save keeps a setup on this device under Presets.',
+          text: 'Advanced comes in three sections — Sound, Music, Presets — each showing the essentials, with more beside its heading for the rest. Presets\' more holds Share, which copies a link of the style it grew from plus your own changes: nothing is uploaded and no code travels, so it pastes anywhere. Each link gets a three-word name, shown below it. Save keeps a setup on this device.',
         },
         {
           target: null,
@@ -22819,6 +22924,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function highlightTutorialTarget(selector) {
         if (tutorialHighlighted) tutorialHighlighted.classList.remove('tutorial-highlight');
         tutorialHighlighted = selector ? document.querySelector(selector) : null;
+        // UI review fix 18: a step never rings a control folded away.
+        if (tutorialHighlighted) revealFoldFor(tutorialHighlighted);
         if (tutorialHighlighted) tutorialHighlighted.classList.add('tutorial-highlight');
       }
 
@@ -25931,6 +26038,31 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .ve-more {
       display: block;
       margin: 4px 0 10px;
+    }
+
+    /* UI review fix 18: the Advanced tab's Sound / Music / Presets sections.
+       The heading carries the section's "more" (.rule-more); the fold box is
+       toggled by [hidden]. Sound's box lives INSIDE the one dial row and is
+       display: contents while open, so its dials stay cells of that row. */
+    .adv-section {
+      margin-bottom: 20px;
+    }
+    .adv-head {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 10px;
+    }
+    .adv-title {
+      font-size: 16px;
+      margin: 0;
+    }
+    .adv-more-box-inline {
+      display: contents;
+    }
+    .adv-more-box[hidden] {
+      display: none;
     }
 
     /* -- v6: per-track randomisation-target mini knobs -- */
