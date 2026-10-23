@@ -2293,6 +2293,72 @@ try {
       }
     }
 
+    // (3) Review follow-up: a running match belongs to the TRACK, not the
+    // editor's DOM. Closing and reopening the editor rebuilds it; the match
+    // carried on with no Stop button, and the new editor let a second match
+    // start alongside it. The rebuilt editor must show the progress and a
+    // Stop that reaches it, and refuse a second match while it runs.
+    {
+      let decodes = 0;
+      class SlowOffline extends StubAudioContext {
+        constructor(channels, length, sampleRate) { super(); this.length = length; this.sampleRate = sampleRate; }
+        async decodeAudioData() {
+          decodes += 1;
+          const sr = 24000;
+          const data = new Float32Array(sr);
+          for (let i = 0; i < sr; i++) data[i] = Math.sin((2 * Math.PI * 220 * i) / sr) * Math.exp((-3 * i) / sr);
+          return { numberOfChannels: 1, sampleRate: sr, getChannelData: () => data };
+        }
+        async startRendering() {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          const data = new Float32Array(this.length);
+          return { getChannelData: () => data };
+        }
+      }
+      globalThis.OfflineAudioContext = SlowOffline;
+      window.OfflineAudioContext = SlowOffline;
+      try {
+        const q = (sel) => doc.querySelector(`#voice-editor-melody ${sel}`);
+        const answer = () => (q('.ve-sample-answer') || {}).textContent || '';
+        const feed = (input) => {
+          Object.defineProperty(input, 'files', { configurable: true, value: [new window.File([new Uint8Array(8)], 'note.wav', { type: 'audio/wav' })] });
+          input.dispatchEvent(new window.Event('change'));
+        };
+        await openEditor('melody');
+        await waitUntil(() => q('.ve-sample-match input[type="file"]'));
+        feed(q('.ve-sample-match input[type="file"]'));
+        if (!await waitUntil(() => /Trying the voices/.test(answer()), 6000)) {
+          failures.push(`match ownership: the melody match never started searching: ${JSON.stringify(answer())}`);
+        } else {
+          const oldStop = q('.ve-sample-stop');
+          doc.getElementById('voice-edit-toggle-melody').click(); // close
+          await waitUntil(() => doc.getElementById('voice-editor-melody').hidden);
+          await openEditor('melody'); // reopen: a rebuilt editor
+          await waitUntil(() => q('.ve-sample-stop') && q('.ve-sample-stop') !== oldStop);
+          const stop = q('.ve-sample-stop');
+          if (!stop || stop === oldStop) failures.push('match ownership: reopening the editor did not rebuild it — the test proves nothing');
+          else {
+            if (stop.hidden) failures.push('match ownership: a rebuilt editor shows no Stop while its track\'s match runs');
+            if (!q('.ve-sample-choose')?.disabled) failures.push('match ownership: a rebuilt editor offers Choose a sound file while its track\'s match runs');
+            if (!await waitUntil(() => /Trying the voices/.test(answer()), 3000)) failures.push(`match ownership: a rebuilt editor does not show the running match's progress (${JSON.stringify(answer())})`);
+            const was = decodes;
+            feed(q('.ve-sample-match input[type="file"]'));
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            if (decodes !== was) failures.push('match ownership: a second match started on the same track while one ran');
+            stop.click();
+            if (!await waitUntil(() => /stopped early|Nothing on this track|alike/.test(answer()) && q('.ve-sample-stop')?.hidden, 20000)) {
+              failures.push(`match ownership: Stop in the rebuilt editor did not end the match (${JSON.stringify(answer())})`);
+            }
+          }
+        }
+        // Whatever happened, let the match end before the stub goes.
+        await waitUntil(() => q('.ve-sample-stop')?.hidden && !q('.ve-sample-choose')?.disabled, 30000);
+      } finally {
+        window.OfflineAudioContext = undefined;
+        delete globalThis.OfflineAudioContext;
+      }
+    }
+
     // UI review 2026-10-03, fixes 8, 9, 10 and 12 — the voice editor gets
     // layers. First open shows fewer controls than it did (the words, save
     // row and finder fold behind one "more"; the Off/Auto/On radios go, the
@@ -3964,6 +4030,19 @@ try {
               const offs = calls.filter((x) => x[0] === 'off');
               if (offs.length !== 2) failures.push(`touch keys: lifting two fingers sent ${offs.length} note-offs`);
             }
+            // Review follow-up: letting go of everything (Keys off, a blur)
+            // stopped the notes but left a held pad lit, and still holding
+            // its note, until the finger lifted.
+            if (keys.length === 13) {
+              pointer(keys[2], 'pointerdown', { pointerId: 13, pointerType: 'touch', pressure: 0.5, clientY: 10 });
+              if (!keys[2].classList.contains('play-along-pad-down')) failures.push('touch keys: a held key is not lit — the release check proves nothing');
+              toggle.click(); // Keys off
+              if (keys[2].classList.contains('play-along-pad-down')) failures.push('touch keys: Keys off left a held key lit');
+              const offsBefore = calls.filter((x) => x[0] === 'off').length;
+              pointer(keys[2], 'pointerup', { pointerId: 13 });
+              if (calls.filter((x) => x[0] === 'off').length !== offsBefore) failures.push('touch keys: a key released by Keys off still held its note until the finger lifted');
+              toggle.click(); // back on, as the rest of this block expects
+            }
             // The kit: one pad per lane, each landing on its own lane.
             picker.value = 'percussion';
             picker.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -5268,6 +5347,42 @@ try {
     }
   }
 
+  // Review follow-up: saved layout names were keys of a plain object, so
+  // "__proto__" was silently not saved and "constructor" / "toString" got
+  // past the twelve-layout cap (`name in {}` is true for both).
+  {
+    const nameBox = doc.getElementById('layout-name');
+    const saveButton = doc.getElementById('layout-save');
+    const store = () => window.__ambi4Layout?.saved || {};
+    const count = () => Object.keys(store()).length;
+    if (!nameBox || !saveButton || !window.__ambi4Layout) {
+      failures.push('layout names: no layout name field, Save, or layout seam');
+    } else {
+      const startCount = count();
+      const save = (n) => { nameBox.value = n; saveButton.click(); };
+      save('__proto__');
+      if (!Object.keys(store()).includes('__proto__')) failures.push('layout names: a layout named __proto__ was not saved');
+      let stored = null;
+      try { stored = JSON.parse(window.localStorage.getItem('ambi4:layout')); } catch {}
+      if (stored && !Object.prototype.hasOwnProperty.call(stored.saved || {}, '__proto__')) failures.push('layout names: a layout named __proto__ did not reach storage');
+      for (let i = count(); i < 12; i++) save(`L${i}`);
+      const full = count();
+      save('constructor');
+      save('toString');
+      if (count() !== full) failures.push(`layout names: constructor / toString got past the ${full}-layout cap (${count()} saved)`);
+      if (Object.keys(store()).some((k) => k === 'constructor' || k === 'toString')) failures.push('layout names: constructor or toString was saved past the cap');
+      // Clean up: no saved layouts left behind.
+      const select = doc.getElementById('layout-select');
+      for (const n of Object.keys(store())) {
+        select.value = n;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        doc.getElementById('layout-forget')?.click();
+      }
+      if (count() !== startCount && startCount === 0) failures.push(`layout names: ${count()} layouts left after forgetting them all`);
+      doc.getElementById('tab-simple')?.click();
+    }
+  }
+
   // v0.0.241: chord length in BEATS reaches the engine from the Chord length
   // select, and picking a bar length clears it again.
   {
@@ -5792,7 +5907,7 @@ try {
   // bundle in a second jsdom, against a URL that carries a share link. It runs
   // LAST because it swaps the DOM globals the bundle reads.
   {
-    const payload = Buffer.from(JSON.stringify({ bpm: 71, reverb: 0.42 }), 'utf8').toString(
+    const payload = Buffer.from(JSON.stringify({ bpm: 71, reverb: 0.42, harmony: { beats: 5 } }), 'utf8').toString(
       'base64url'
     );
     const expected = shareNameModule.shareNameFor(`p=${payload}`, SHARE_POOL);
@@ -5859,6 +5974,17 @@ try {
         }
         if (arrivalWindow.location.hash) {
           failures.push('the share fragment was left in the URL after it was applied');
+        }
+        // Review follow-up: the link carries chord length 5 beats, which the
+        // sanitiser keeps (1-8) and the engine plays, but the select listed
+        // only 1-3 beats and so showed a BAR setting the engine did not have.
+        const lengthSelect = arrivalDoc.getElementById('chordLength');
+        const heldBeats = arrivalWindow.__ambi4Engine?.getParams().harmony.beats;
+        if (heldBeats !== 5) failures.push(`a link carrying chord length 5 beats left the engine on ${JSON.stringify(heldBeats)} — the select check proves nothing`);
+        else if (!lengthSelect || lengthSelect.value !== 'beats:5') {
+          failures.push(`a link carrying chord length 5 beats shows the Chord length select as ${JSON.stringify(lengthSelect && lengthSelect.value)} (${JSON.stringify(lengthSelect?.selectedOptions?.[0]?.textContent)})`);
+        } else if (!/^5 beats/.test(lengthSelect.selectedOptions[0].textContent)) {
+          failures.push(`the 5-beat chord length is labelled ${JSON.stringify(lengthSelect.selectedOptions[0].textContent)}`);
         }
       }
     } catch (err) {

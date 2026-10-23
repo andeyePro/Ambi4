@@ -497,6 +497,42 @@ test('beats 2: the last off-beat bass note before beat 3 leans to the option nea
   assert.ok(checked >= BARS, `only ${checked} mid-bar approach notes were judged`);
 }));
 
+test('beats 3: a bar whose last bass note falls BEFORE its second chord leans into that chord, not the next bar\'s', () => hiddenTab(async () => {
+  // Review follow-up. Chords at beats 1 and 4 (3 beats in 4/4). When the
+  // groove's last note of the bar is an off-beat inside the FIRST chord, the
+  // chord it walks into is the mid-bar one; the end-of-bar approach (lean to
+  // the next bar's chord) used to overwrite that lean, aiming the note two
+  // chords ahead. The loop I ii V I makes the two targets differ: out of I,
+  // ii's root D is nearest C, V's root G is nearest the fifth G.
+  let judged = 0;
+  let differ = 0;
+  for (const complexity of [0.3, 0.45, 0.55, 0.7]) {
+    for (const seed of [3, 11, 29, 47, 71]) {
+      const params = fixture({ beats: 3, seed: ['I', 'ii', 'V', 'I'] });
+      params.complexity = complexity;
+      const { chords, notes, barStarts } = await play(params, BARS, seed);
+      const bass = notes.filter((n) => n.track === 'bass');
+      for (let b = 0; b + 1 < barStarts.length; b++) {
+        const [from, into] = chords.filter((c) => c.bar === b);
+        const nextBar = chords.find((c) => c.bar === b + 1);
+        if (!into || !nextBar || rootPcOf(from) === rootPcOf(into)) continue;
+        const inBar = bass.filter((n) => n.time >= barStarts[b] - 1e-6 && n.time < barStarts[b + 1] - 1e-6);
+        const last = inBar[inBar.length - 1];
+        if (!last || last.time >= into.time - 1e-6) continue; // the bar's last note is not before the second chord
+        const beat = (last.time - barStarts[b]) / SEC_PER_BEAT;
+        if (Math.abs(beat - Math.round(beat)) < 1e-6) continue; // a strong beat: never re-pitched
+        const want = nearest(bassOptions(from), 36 + rootPcOf(into));
+        const wrong = nearest(bassOptions(from), 36 + rootPcOf(nextBar));
+        if (want !== wrong) differ += 1;
+        assert.equal(last.midi, want,
+          `bar ${b} (cx ${complexity}, seed ${seed}): bass ${last.midi} at beat ${beat + 1}, before ${into.name} at beat ${into.beat + 1}, should lean to ${want} (nearest ${into.name}), not ${wrong} (nearest the next bar's ${nextBar.name})`);
+        judged += 1;
+      }
+    }
+  }
+  assert.ok(differ >= 1, `no case where the mid-bar and end-of-bar leans differ was found (${judged} judged) — the law is untested`);
+}));
+
 // ---------------------------------------------------------------------------
 // sampling: 'chord' under harmony.beats is bar resolution, by construction.
 // ---------------------------------------------------------------------------

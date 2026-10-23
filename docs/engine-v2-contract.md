@@ -1220,8 +1220,14 @@ space, so users sculpt real-world impressions themselves:
     (`tests/chord-beats-smoke.mjs` pins it). Following mid-bar chords would
     need a new sub-bar walk mechanism, which would change what every ranged
     dial does inside a bar — deliberately not done.
-  - **Limits.** There is no UI control yet (the Chord length select would be
-    the place).
+  - **Limits.** The Chord length select lists 1-3 beats; a stored length of
+    4-8 (a preset, a link) gets an option of its own, labelled as from a
+    preset or link, so the select always shows the value in force.
+  - **Bass approach.** The last off-beat note before each mid-bar change
+    leans to the coming chord; the end-of-bar lean (to the next bar's chord)
+    takes the bar's last note only when no change lies between it and the
+    barline — otherwise it would aim two chords ahead
+    (`tests/chord-beats-smoke.mjs` pins both).
   - Recipe: `harmony.beats`, "Chord length in beats", a number, named only
     when set.
 - **Follow my chords — `engine.setChordFollow(degree)` / `getChordFollow()`**

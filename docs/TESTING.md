@@ -759,6 +759,9 @@ Scale (Advanced → Scale select)
 Chord length (Advanced, near Structure)
 - [ ] A "Chord length" select sits directly under Structure: Auto / 1 / 2 / 4 /
       8 bars.
+- [ ] A preset or link carrying a chord length of 4 to 8 beats shows it in the
+      select ("5 beats (from a preset or link)"), never a bar setting it is
+      not playing; picking a listed length takes that option away again.
 - [ ] Auto behaves as today (the hook picks its own pass length). Setting 1
       bar audibly changes chord every bar; 8 bars holds one chord for a long
       stretch. Changing it while playing takes effect without a glitch.
@@ -1091,6 +1094,9 @@ Pins and saved layouts (v0.0.233, UI review fix 19's second half)
       pressing it opens the editor.
 - [ ] Save a layout under a name (pins, tab, open editor), change the pins,
       pick the layout from the strip's picker: it comes back. Forget removes it.
+- [ ] Any name is a name: a layout called __proto__ or constructor saves and
+      recalls like any other, and the thirteenth layout is refused whatever
+      it is called.
 
 Advanced in three sections (v0.0.232, UI review fix 18)
 - [ ] Open Advanced on a fresh visit: three headings, Sound, Music and
@@ -1115,6 +1121,10 @@ Match a sample (v0.0.229)
 - [ ] Press Stop part-way: the best so far lands and the line says it stopped
       early. A silent file says so; a file that is not audio says which
       formats work.
+- [ ] Start a match and close the editor: the match keeps going. Reopen the
+      editor while it runs: the line shows its progress and Stop is there and
+      stops it; Choose a sound file and Record a note wait until it ends, so a
+      second match cannot start on the same track.
 - [ ] (v0.0.234) The kit: behind "more", Match a sample on the Common tab asks
       for a sound's tab. Open Low, choose a kick sample: Low's own dials move
       (Pitch, Noise, the filter, its envelope) and the line ends "Only Low
@@ -1432,6 +1442,8 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 - [ ] The same with a MIDI keyboard (Chrome) and with the on-screen keys.
 - [ ] Keys off: Follow my chords goes off with it, and turning Keys back on
       leaves it off.
+- [ ] Hold an on-screen key and turn Keys off (or switch window): the note
+      stops AND the key goes dark at once, not when the finger lifts.
 - [ ] Automated: `node tests/chord-follow-smoke.mjs` (the mapper over every
       mode in SCALES, and the engine law: lands at the next boundary, not
       before; under chord-length-in-beats the whole next bar; letting go

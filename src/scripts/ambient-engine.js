@@ -9385,7 +9385,13 @@ export function createEngine(initialParams, options = {}) {
       }
     }
     const last = events[events.length - 1];
-    const target = chordBarsLeft <= 0 && last && !isStrongBeat(last.beat)
+    // The end-of-bar lean is for a last note inside the bar's LAST chord. A
+    // last note that falls before a mid-bar change has a nearer chord to
+    // walk into — the one the loop above already leant it towards — and
+    // re-aiming it at the next bar's chord would skip a chord.
+    const changeAhead = Boolean(barChords && last) && barChords.some((chord) => chord.beat > last.beat + 1e-9
+      && chord.degree !== chordAtBeat(last.beat).degree);
+    const target = chordBarsLeft <= 0 && last && !isStrongBeat(last.beat) && !changeAhead
       ? nextChordAhead() : null;
     if (target !== null) {
       last.midi = nearestTo(last, target);

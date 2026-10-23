@@ -4046,6 +4046,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const structureSelect = document.getElementById('structure');
       const chordLengthControl = document.getElementById('control-chord-length');
       const chordLengthSelect = document.getElementById('chordLength');
+      // What the Chord length select should show; set where the select is built.
+      let chordLengthValue = () => String(settings.harmony.rhythm);
 
       // Only the scales the engine's own sanitiser confirmed it accepts stay
       // in the list — an unaccepted value would sit there doing nothing the
@@ -5396,6 +5398,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // The last match's line per track, so the editor rebuild that applying
       // a match causes does not fold its own answer away.
       const lastSampleMatch = new Map();
+      // The match RUNNING on each track, if any. It belongs to the track, not
+      // to the editor that started it: an editor is rebuilt by closing and
+      // reopening it (or by a voice change), and a match held in the old
+      // editor's DOM carried on with no Stop while the new editor let a
+      // second one start alongside. Closing the editor does NOT cancel it —
+      // the search runs to its end (or until Stop) and the editor shows its
+      // progress and its Stop again on reopen. Each build registers its
+      // answer line and buttons as the run's `ui`, so progress always lands
+      // in the editor on screen.
+      const sampleMatchRuns = new Map();
       let sampleMatchApi = null;
       try {
         const m = await import('../scripts/sample-match.js');
@@ -7446,9 +7458,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           chordLengthSelect.replaceChildren(...options);
         }
-        const chordLengthValue = () => (Number.isInteger(settings.harmony.beats)
-          && chordLengthSelect.querySelector(`option[value="beats:${settings.harmony.beats}"]`)
-          ? `beats:${settings.harmony.beats}` : String(settings.harmony.rhythm));
+        // The select shows the length IN FORCE, always. The sanitiser keeps
+        // 1-8 beats but the menu lists only 1-3, so a preset or a link
+        // carrying 5 played 5 beats while the menu showed a bar setting the
+        // engine did not have. A stored length outside the list gets an
+        // option of its own, labelled as what it is, and goes again once a
+        // listed length is picked.
+        chordLengthValue = () => {
+          const beats = settings.harmony.beats;
+          for (const extra of chordLengthSelect.querySelectorAll('option[data-stored-beats]')) {
+            if (Number(extra.dataset.storedBeats) !== beats) extra.remove();
+          }
+          if (!Number.isInteger(beats)) return String(settings.harmony.rhythm);
+          if (!chordLengthSelect.querySelector(`option[value="beats:${beats}"]`)) {
+            const option = document.createElement('option');
+            option.value = `beats:${beats}`;
+            option.dataset.storedBeats = String(beats);
+            option.textContent = `${beats} beats (from a preset or link)`;
+            const before = [...chordLengthSelect.options].find((o) => o.value.startsWith('beats:') && Number(o.value.slice(6)) > beats);
+            chordLengthSelect.insertBefore(option, before || null);
+          }
+          return `beats:${beats}`;
+        };
         chordLengthSelect.value = chordLengthValue();
         chordLengthSelect.addEventListener('change', () => {
           const raw = chordLengthSelect.value;
@@ -7462,11 +7493,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             delete settings.harmony.beats;
             engine.setParams({ harmony: { rhythm: value, beats: null } });
           }
+          chordLengthSelect.value = chordLengthValue();
           persistSettings();
         });
         describe(
           chordLengthSelect,
-          'How long the chord progression holds each chord. Bars: Auto lets the hook decide, and One per section gives each part of the piece a single chord of its own length. Beats: the chord changes inside the bar — 2 beats in 4/4 is two chords a bar — and every instrument plays the chord in force at its own beat. A length that does not divide the bar leaves a shorter last chord; the barline always starts a new one.'
+          'How long the chord progression holds each chord. Bars: Auto lets the hook decide, and One per section gives each part of the piece a single chord of its own length. Beats: the chord changes inside the bar — 2 beats in 4/4 is two chords a bar — and every instrument plays the chord in force at its own beat. A length that does not divide the bar leaves a shorter last chord; the barline always starts a new one. A preset or link can carry up to 8 beats; a length not in this list shows here as it is.'
         );
       }
 
@@ -14708,7 +14740,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             'pulse.width': 'Width', 'pulse.ratio': 'Sync ratio', 'pulse.slave': 'Slave',
           };
           const nameOf = (field) => FIELD_NAMES[field] || (/^additive\.p(\d)$/.test(field) ? `P${field.slice(-1)}` : field.split('.')[1]);
-          let running = null;
           const fieldExposed = (voice, field) => {
             const entry = voicesTable && voicesTable[voiceSetOf(track)] && voicesTable[voiceSetOf(track)][voice];
             if (!entry) return false;
@@ -14737,12 +14768,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const buffer = await ctx.startRendering();
             return { samples: buffer.getChannelData(0), sampleRate: SR };
           };
-          stop.addEventListener('click', () => { if (running) running.cancelled = true; });
+          stop.addEventListener('click', () => {
+            const run = sampleMatchRuns.get(track);
+            if (run) run.cancelled = true;
+          });
+          const matchUi = { answer: matchAnswer, choose, record, stop };
+          const showRunning = (ui, on) => {
+            ui.choose.disabled = on;
+            ui.record.disabled = on;
+            ui.stop.hidden = !on;
+          };
           choose.addEventListener('click', () => fileInput.click());
           // One path for a chosen file and a recorded note: `source` names it
           // and hands over its encoded bytes; the decoder does the rest.
           const matchFrom = async (source) => {
-            if (!source || running) return;
+            if (!source || sampleMatchRuns.has(track)) return;
             if (kitMatch && !kitKind) {
               matchAnswer.textContent = 'Pick a sound\'s tab first — Low, Mid, High or one of yours — so the match knows which drum this is.';
               return;
@@ -14762,13 +14802,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               matchAnswer.textContent = 'The voices have not loaded yet — try again in a moment.';
               return;
             }
-            const job = { cancelled: false };
-            running = job;
-            choose.disabled = true;
-            record.disabled = true;
-            stop.hidden = false;
+            if (sampleMatchRuns.has(track)) return; // one started while the voices loaded
+            const job = { cancelled: false, ui: matchUi, text: '' };
+            sampleMatchRuns.set(track, job);
+            showRunning(job.ui, true);
+            // Every line the run says goes to the editor on screen now.
+            const say = (text) => { job.text = text; job.ui.answer.textContent = text; };
             try {
-              matchAnswer.textContent = `Listening to ${source.name}…`;
+              say(`Listening to ${source.name}…`);
               const bytes = await source.bytes();
               const decoder = new OfflineAudioContext(1, 1, 44100);
               const decoded = await decoder.decodeAudioData(bytes);
@@ -14776,7 +14817,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               for (let c = 0; c < decoded.numberOfChannels; c++) channels.push(decoded.getChannelData(c));
               const target = sampleMatchApi.analyseSample(sampleMatchApi.mixDown(channels), decoded.sampleRate);
               if (!target) {
-                matchAnswer.textContent = `That ${source.kind} is silent — nothing to match.`;
+                say(`That ${source.kind} is silent — nothing to match.`);
                 return;
               }
               const hidden = new Set(hiddenPrefs.voices || []);
@@ -14813,11 +14854,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 fallbackFreq: SCOPE_FREQ[voiceSetOf(track)] || 220,
                 cancelled: () => job.cancelled,
                 onProgress: (done, total) => {
-                  matchAnswer.textContent = `Heard ${heard}. Trying the voices… ${Math.min(100, Math.round((100 * done) / total))}%`;
+                  say(`Heard ${heard}. Trying the voices… ${Math.min(100, Math.round((100 * done) / total))}%`);
                 },
               });
               if (!result.best) {
-                matchAnswer.textContent = sampleMatchApi.describeMatch(target, result, nameOf);
+                say(sampleMatchApi.describeMatch(target, result, nameOf));
                 return;
               }
               const best = result.best;
@@ -14846,6 +14887,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 commit();
                 const line = `${sampleMatchApi.describeMatch(target, result, nameOf)}${job.cancelled ? ' (stopped early — the best so far)' : ''} Only ${tabLabel} changed. ⌘Z takes it back.`;
                 lastSampleMatch.set(track, line);
+                sampleMatchRuns.delete(track);
                 renderVoiceEditor(track, { kind: kitKind });
                 sayUnderDials(line);
                 return;
@@ -14875,17 +14917,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               refreshVoiceSelect(track);
               const line = `${sampleMatchApi.describeMatch(target, result, nameOf)}${job.cancelled ? ' (stopped early — the best so far)' : ''} ⌘Z takes it back.`;
               lastSampleMatch.set(track, line);
+              sampleMatchRuns.delete(track);
               renderVoiceEditor(track);
               sayUnderDials(line);
             } catch (error) {
-              matchAnswer.textContent = source.kind === 'file'
+              say(source.kind === 'file'
                 ? 'That file could not be read as audio. WAV, MP3, OGG, FLAC and M4A all work in most browsers.'
-                : 'This browser recorded the note in a form it cannot read back. Choose a sound file instead.';
+                : 'This browser recorded the note in a form it cannot read back. Choose a sound file instead.');
             } finally {
-              if (running === job) running = null;
-              choose.disabled = false;
-              record.disabled = false;
-              stop.hidden = true;
+              if (sampleMatchRuns.get(track) === job) sampleMatchRuns.delete(track);
+              showRunning(job.ui, false);
             }
           };
           fileInput.addEventListener('change', () => {
@@ -14907,7 +14948,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // microphone opened a second stream; the first recorder's take
             // was then overwritten, so neither Stop nor the four-second cap
             // could reach it and the microphone stayed open.
-            if (running || asking) return;
+            if (sampleMatchRuns.has(track) || asking) return;
             if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || typeof MediaRecorder !== 'function') {
               matchAnswer.textContent = 'This browser cannot record from a microphone here. Choose a sound file instead.';
               return;
@@ -14942,6 +14983,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             matchAnswer.textContent = 'Recording — play or sing one note now. It stops by itself after four seconds.';
           });
           if (lastSampleMatch.has(track)) matchAnswer.textContent = lastSampleMatch.get(track);
+          // A match still running on this track (this editor was rebuilt
+          // under it): take it over — its progress, its Stop.
+          const runningHere = sampleMatchRuns.get(track);
+          if (runningHere) {
+            runningHere.ui = matchUi;
+            showRunning(matchUi, true);
+            if (runningHere.text) matchAnswer.textContent = runningHere.text;
+          }
           const matchButtons = document.createElement('div');
           matchButtons.className = 've-finder-words';
           matchButtons.append(choose, record, stop);
@@ -21182,6 +21231,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       function releaseAll() {
+        // The on-screen pads too: a held pad's note is stopped below like
+        // every other, and its light and its held state go with it rather
+        // than waiting for a finger that may already be gone.
+        for (const [, held] of padDown) {
+          held.el.classList.remove('play-along-pad-down');
+          try { engine.noteOff(held.track, held.midi); } catch {}
+        }
+        padDown.clear();
         for (const [key, held] of playAlongDown) {
           try {
             engine.noteOff(held.track, held.midi);
@@ -23768,7 +23825,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // Per device, through prefs like the favourites.
       const PIN_CAP = 12;
       const LAYOUT_CAP = 12;
-      const layoutPrefs = { pins: [], saved: {} };
+      // `saved` has NO prototype: layout names are the user's own words, and
+      // on a plain object "__proto__" was silently not saved while
+      // "constructor" and "toString" were already `in` it, so they got past
+      // the cap. JSON round-trips it unchanged (own keys, same shape), so
+      // layouts stored before this read back exactly as they were.
+      const layoutPrefs = { pins: [], saved: Object.create(null) };
       try {
         const stored = prefs.get('layout');
         if (isPlainObject(stored)) {
@@ -23997,7 +24059,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         };
       }
       function recallLayout(name) {
-        const layout = layoutPrefs.saved[name];
+        const layout = Object.prototype.hasOwnProperty.call(layoutPrefs.saved, name) ? layoutPrefs.saved[name] : null;
         if (!layout) return false;
         if (layout.editor) openTrackEditor(layout.editor);
         else for (const id of TRACK_IDS) closeTrackEditor(id);
@@ -24042,7 +24104,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           sayUnderDials('Give the layout a name first.');
           return;
         }
-        if (!(name in layoutPrefs.saved) && Object.keys(layoutPrefs.saved).length >= LAYOUT_CAP) {
+        if (!Object.prototype.hasOwnProperty.call(layoutPrefs.saved, name) && Object.keys(layoutPrefs.saved).length >= LAYOUT_CAP) {
           sayUnderDials(`This device holds ${LAYOUT_CAP} layouts already \u2014 forget one to make room.`);
           return;
         }
@@ -24968,9 +25030,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         syncGenreUI();
         if (engineCaps.harmonyRhythm) {
-          const beatsValue = Number.isInteger(settings.harmony.beats) ? `beats:${settings.harmony.beats}` : null;
-          chordLengthSelect.value = beatsValue && chordLengthSelect.querySelector(`option[value="${beatsValue}"]`)
-            ? beatsValue : String(settings.harmony.rhythm);
+          chordLengthSelect.value = chordLengthValue();
         }
         syncStructureUI();
         syncArpUI();
