@@ -190,9 +190,12 @@ Four layers, each usable alone, cheapest first.
    dials that move it there, and sets them. It is a lookup over the voice table
    and the hints, not an AI, and it says why in one line. Every row's claim is
    held by measurement, not by taste: bright moves the spectral centroid up,
-   plucky shortens attack-to-peak, sustained raises the RMS at one second,
-   moving raises the RMS modulation. A row the render suite cannot prove does
-   not ship.
+   plucky shortens the sounding length and sustained lengthens it, gritty
+   spreads power off the strongest partial, moving makes the centroid travel
+   further while the note sounds — each by at least 5 %. A row the render
+   suite cannot prove does not ship. (First measured 2026-10-23, v0.0.237:
+   17 rows failed and were replaced; Detune is a signed gap, so "detune down"
+   never means "less beating".)
 5. **Match a sample (v0.0.229).** The finder's other half: words describe a
    sound you have in mind, a recording IS one. Under the finder, "Match a
    sample" takes one recorded note — a file, or (v0.0.230) a take from the

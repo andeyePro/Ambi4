@@ -79,7 +79,11 @@ test('every word speaks for every tuned set; a kit is spoken for by none', () =>
 test('findSound: the voice most words agree on, every move on it, in the order the words were picked', () => {
   const found = findSound(['bright', 'glassy'], 'melody', { exposes: (v, f) => exposes('melody', v, f) });
   assert.equal(found.voice, 'bell', 'bright and glassy both say Bell on the melody');
-  assert.deepEqual(found.moves.map((m) => m.field), ['fm.depth', 'fm.bite', 'fm.ratio'], 'a repeated dial is named once');
+  assert.deepEqual(found.moves.map((m) => m.field), ['fm.depth', 'fm.bite', 'fm.ratio', 'filter.cutoff'], 'every move on Bell, in word order');
+  // Thin also moves FM depth on Bell (down): a dial two words name is named
+  // once, the first word picked deciding its direction.
+  const twice = findSound(['bright', 'thin'], 'melody', { exposes: (v, f) => exposes('melody', v, f) });
+  assert.deepEqual(twice.moves.map((m) => `${m.field} ${m.direction}`), ['fm.depth up', 'fm.bite up', 'filter.cutoff up'], 'a repeated dial is named once');
   assert.ok(found.why.includes('Brightness') && found.why.includes('Glass'), found.why);
   const tie = findSound(['plucky', 'warm'], 'melody', { exposes: (v, f) => exposes('melody', v, f) });
   assert.equal(tie.voice, 'pluck', 'a tie goes to the first word picked');

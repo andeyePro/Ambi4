@@ -11,9 +11,12 @@
  * holds the table's referential integrity in Node — every voice named exists
  * and is of the engine claimed, every dial named is a registry row the voice
  * exposes, every direction is up or down — and the measured proof (bright
- * moves the spectral centroid up, plucky shortens attack-to-peak, sustained
- * raises the RMS at one second, moving raises the RMS modulation) lives in
+ * moves the spectral centroid up, plucky shortens the sounding length,
+ * gritty spreads power off the strongest partial, moving makes the centroid
+ * travel further, and so on, each by at least 5%) lives in
  * tests/pending/sound-finder-render-drive.mjs until the bridge key returns.
+ * `source.detune` is a SIGNED gap (-50..50 cents), so "down" from 0 or 8
+ * WIDENS the gap: no row uses detune down for "less beating".
  *
  * Shape: one entry per WORD; `sets` maps a voice set to the starting voice and
  * the moves there. A word missing a set has nothing honest to say for that
@@ -30,7 +33,7 @@ export const SOUND_WORDS = Object.freeze([
     sets: {
       pad: { voice: 'glass', moves: [up('filter.cutoff', 'open the top end'), up('additive.p4', 'more of the high partials')] },
       melody: { voice: 'bell', moves: [up('fm.depth', 'drive the wobble harder'), up('fm.bite', 'keep it bright longer')] },
-      bass: { voice: 'sawbass', moves: [up('filter.cutoff', 'open the filter'), up('filter.envAmount', 'let each note open it further')] },
+      bass: { voice: 'sawbass', moves: [up('filter.cutoff', 'open the filter'), up('source.mix', 'and both saws through it')] },
       arp: { voice: 'crystal', moves: [up('fm.depth', 'more overtones'), up('filter.cutoff', 'and let them through')] },
       texture: { voice: 'sparkle', moves: [up('fm.depth', 'more sparkle'), up('filter.cutoff', 'and let it through')] },
     },
@@ -41,7 +44,7 @@ export const SOUND_WORDS = Object.freeze([
     sets: {
       pad: { voice: 'warm', moves: [down('filter.cutoff', 'close the filter'), down('filter.envAmount', 'and keep it closed')] },
       melody: { voice: 'tape', moves: [down('filter.cutoff', 'close the filter'), up('adsr.attack', 'soften the start')] },
-      bass: { voice: 'sub', moves: [down('filter.cutoff', 'keep only the weight'), down('source.detune', 'one clean tone')] },
+      bass: { voice: 'sawbass', moves: [down('filter.cutoff', 'close the filter'), down('filter.envAmount', 'and keep it closed')] },
       arp: { voice: 'marimba', moves: [down('modal.hardness', 'a soft mallet'), down('filter.cutoff', 'muffle the rest')] },
       texture: { voice: 'colour', moves: [down('source.tilt', 'brown and rumbling'), down('source.bandCentre', 'the band low')] },
     },
@@ -52,8 +55,8 @@ export const SOUND_WORDS = Object.freeze([
     sets: {
       pad: { voice: 'warm', moves: [down('adsr.attack', 'strike, do not swell'), down('adsr.sustain', 'let it fall away')] },
       melody: { voice: 'pluck', moves: [down('adsr.decay', 'shorter'), down('adsr.release', 'and stop dead')] },
-      bass: { voice: 'fingered', moves: [down('adsr.decay', 'shorter'), down('adsr.release', 'and stop dead')] },
-      arp: { voice: 'softPluck', moves: [down('adsr.decay', 'shorter'), up('filter.envAmount', 'a bright pick on the front')] },
+      bass: { voice: 'upright', moves: [down('adsr.decay', 'shorter'), down('adsr.release', 'and stop dead')] },
+      arp: { voice: 'softPluck', moves: [down('adsr.decay', 'shorter'), down('adsr.release', 'and stop dead')] },
       texture: { voice: 'chimes', moves: [up('modal.damping', 'choke the ring'), up('modal.hardness', 'a sharper strike')] },
     },
   },
@@ -61,10 +64,10 @@ export const SOUND_WORDS = Object.freeze([
     word: 'sustained', opposite: 'plucky',
     why: 'A sustained sound holds while the note lasts and takes its time to fade.',
     sets: {
-      pad: { voice: 'strings', moves: [up('adsr.sustain', 'hold the note'), up('adsr.release', 'and let it linger')] },
+      pad: { voice: 'strings', moves: [up('adsr.attack', 'swell in'), up('adsr.release', 'and let it linger')] },
       melody: { voice: 'flute', moves: [up('adsr.attack', 'ease in'), up('adsr.release', 'and ease out')] },
-      bass: { voice: 'round', moves: [up('adsr.sustain', 'hold the note'), up('adsr.release', 'and let it ring on')] },
-      arp: { voice: 'crystal', moves: [up('adsr.release', 'let each note ring into the next'), down('fm.bite', 'and mellow the attack')] },
+      bass: { voice: 'round', moves: [up('adsr.attack', 'ease in'), up('adsr.release', 'and let it ring on')] },
+      arp: { voice: 'crystal', moves: [up('adsr.sustain', 'hold the note'), up('adsr.release', 'and let it ring into the next')] },
       texture: { voice: 'wash', moves: [up('adsr.attack', 'swell in'), up('adsr.release', 'and fade slowly')] },
     },
   },
@@ -72,10 +75,10 @@ export const SOUND_WORDS = Object.freeze([
     word: 'clean', opposite: 'gritty',
     why: 'Clean is one tone with nothing folding or beating against it.',
     sets: {
-      pad: { voice: 'glass', moves: [down('source.detune', 'partials in tune'), down('filter.q', 'no ring at the cutoff')] },
+      pad: { voice: 'glass', moves: [down('additive.p2', 'less of the second partial'), down('additive.p3', 'and of the third')] },
       melody: { voice: 'keys', moves: [down('fm.depth', 'fewer overtones'), down('filter.q', 'no ring')] },
-      bass: { voice: 'sub', moves: [down('source.fold', 'no folding'), down('filter.q', 'no ring')] },
-      arp: { voice: 'softPluck', moves: [down('source.fold', 'no folding'), down('source.detune', 'one tone')] },
+      bass: { voice: 'sub', moves: [down('source.mix', 'less of the second sine'), down('filter.q', 'no ring')] },
+      arp: { voice: 'softPluck', moves: [down('source.shape1', 'a rounder wave'), down('source.mix', 'less of the second oscillator')] },
       texture: { voice: 'sparkle', moves: [down('fm.depth', 'plainer'), down('filter.q', 'no ring')] },
     },
   },
@@ -87,7 +90,7 @@ export const SOUND_WORDS = Object.freeze([
       melody: { voice: 'tines', moves: [up('fm.depth', 'drive the wobble'), up('filter.q', 'and ring the filter')] },
       bass: { voice: 'acid', moves: [up('source.fold', 'fold it'), up('filter.q', 'squelch')] },
       arp: { voice: 'muted', moves: [up('source.fold', 'fold the chop'), up('filter.q', 'and ring it')] },
-      texture: { voice: 'grains', moves: [up('filter.q', 'ring the band'), down('adsr.attack', 'and let each grain hit hard')] },
+      texture: { voice: 'sparkle', moves: [up('fm.depth', 'drive the FM'), up('filter.q', 'and ring the filter')] },
     },
   },
   {
@@ -96,7 +99,7 @@ export const SOUND_WORDS = Object.freeze([
     sets: {
       pad: { voice: 'warm', moves: [up('source.detune', 'a little beating'), down('filter.cutoff', 'and no top end')] },
       melody: { voice: 'nylon', moves: [down('filter.cutoff', 'round it off'), up('adsr.release', 'and let it breathe')] },
-      bass: { voice: 'round', moves: [down('filter.cutoff', 'round it off'), up('source.detune', 'a little width')] },
+      bass: { voice: 'sawbass', moves: [down('filter.cutoff', 'round it off'), up('source.detune', 'a little width')] },
       arp: { voice: 'marimba', moves: [down('modal.hardness', 'a soft mallet'), down('modal.damping', 'and let the wood ring')] },
       texture: { voice: 'colour', moves: [down('source.tilt', 'towards brown'), down('source.bandWidth', 'a narrow, purring band')] },
     },
@@ -106,8 +109,8 @@ export const SOUND_WORDS = Object.freeze([
     why: 'Glass is stretched partials, high and pure, or an FM bell with little drive.',
     sets: {
       pad: { voice: 'glass', moves: [up('additive.stretch', 'stretch the partials'), up('filter.cutoff', 'and let them through')] },
-      melody: { voice: 'bell', moves: [up('fm.ratio', 'an inharmonic ratio'), down('fm.depth', 'kept pure')] },
-      bass: { voice: 'upright', moves: [up('filter.cutoff', 'open it'), down('source.detune', 'one clean string')] },
+      melody: { voice: 'bell', moves: [up('fm.ratio', 'an inharmonic ratio'), up('filter.cutoff', 'only the high partials through')] },
+      bass: { voice: 'upright', moves: [up('filter.cutoff', 'open it'), down('source.mix', 'more of the pure sine')] },
       arp: { voice: 'crystal', moves: [up('fm.ratio', 'an inharmonic ratio'), up('adsr.release', 'and let it ring')] },
       texture: { voice: 'chimes', moves: [down('modal.damping', 'let the tubes ring'), up('filter.cutoff', 'and let the top through')] },
     },
@@ -116,11 +119,11 @@ export const SOUND_WORDS = Object.freeze([
     word: 'thick', opposite: 'thin',
     why: 'Thickness is more sound at once: detuned layers, a folded wave, a fuller stack.',
     sets: {
-      pad: { voice: 'polysaw', moves: [up('source.detune', 'spread the stack'), up('source.mix', 'both oscillators')] },
+      pad: { voice: 'polysaw', moves: [up('source.detune', 'spread the stack'), up('filter.cutoff', 'and let all of it through')] },
       melody: { voice: 'stab', moves: [up('additive.p2', 'more octave'), up('additive.p3', 'more twelfth')] },
-      bass: { voice: 'sawbass', moves: [up('source.detune', 'two saws apart'), up('source.fold', 'and a little fold')] },
+      bass: { voice: 'sawbass', moves: [up('source.detune', 'two saws apart'), up('source.mix', 'both saws, evenly')] },
       arp: { voice: 'muted', moves: [up('source.mix', 'both oscillators'), up('source.detune', 'and spread them')] },
-      texture: { voice: 'wash', moves: [up('adsr.sustain', 'hold it'), up('adsr.release', 'and let it wash on')] },
+      texture: { voice: 'colour', moves: [up('source.bandWidth', 'a wider band'), up('source.tilt', 'and less of it rolled off')] },
     },
   },
   {
@@ -129,8 +132,8 @@ export const SOUND_WORDS = Object.freeze([
     sets: {
       pad: { voice: 'glass', moves: [down('additive.p1', 'less fundamental'), up('filter.cutoff', 'more top')] },
       melody: { voice: 'bell', moves: [down('fm.depth', 'a purer tone'), up('filter.cutoff', 'and thinner')] },
-      bass: { voice: 'upright', moves: [down('source.detune', 'one string'), up('filter.cutoff', 'and less weight')] },
-      arp: { voice: 'crystal', moves: [down('fm.depth', 'a purer tone'), down('adsr.sustain', 'and shorter')] },
+      bass: { voice: 'upright', moves: [up('source.mix', 'less of the round sine'), up('filter.cutoff', 'and more top over the bottom')] },
+      arp: { voice: 'crystal', moves: [down('fm.depth', 'a purer tone'), up('filter.cutoff', 'and the bottom taken away')] },
       texture: { voice: 'colour', moves: [down('source.bandWidth', 'a narrow band'), up('source.bandCentre', 'sat high')] },
     },
   },
@@ -138,21 +141,21 @@ export const SOUND_WORDS = Object.freeze([
     word: 'still', opposite: 'moving',
     why: 'Still is a sound that does not move inside itself: no sweep, no gust, no drift.',
     sets: {
-      pad: { voice: 'warm', moves: [down('filter.envAmount', 'a filter that holds'), down('source.detune', 'no beating')] },
+      pad: { voice: 'warm', moves: [down('filter.envAmount', 'a filter that holds'), down('filter.q', 'no ring')] },
       melody: { voice: 'keys', moves: [down('fm.bite', 'no bright flash'), down('filter.q', 'no ring')] },
-      bass: { voice: 'sub', moves: [down('filter.q', 'no ring at the cutoff'), down('source.detune', 'no beating')] },
-      arp: { voice: 'softPluck', moves: [down('filter.envAmount', 'no wah'), down('source.detune', 'no beating')] },
-      texture: { voice: 'colour', moves: [down('source.sweepDepth', 'no sweep'), down('source.gust', 'no gusts')] },
+      bass: { voice: 'sub', moves: [down('filter.q', 'no ring at the cutoff'), down('source.mix', 'one sine')] },
+      arp: { voice: 'softPluck', moves: [down('filter.envAmount', 'no wah'), down('filter.q', 'no ring')] },
+      texture: { voice: 'colour', moves: [down('source.gust', 'no gusts'), down('source.burst', 'no droplets')] },
     },
   },
   {
     word: 'moving', opposite: 'still',
     why: 'Moving is a sound that changes as it sounds: a filter opening, a band sweeping, gusts.',
     sets: {
-      pad: { voice: 'warm', moves: [up('filter.envAmount', 'a filter that opens on each note'), up('source.detune', 'and beats')] },
-      melody: { voice: 'tines', moves: [up('fm.bite', 'a bright flash that fades'), up('fm.depth', 'and drive it harder')] },
-      bass: { voice: 'acid', moves: [up('filter.envAmount', 'a filter that opens on each note'), up('filter.q', 'and squelches')] },
-      arp: { voice: 'softPluck', moves: [up('filter.envAmount', 'a wah on each note'), up('source.detune', 'and beating')] },
+      pad: { voice: 'warm', moves: [down('adsr.attack', 'a filter that opens inside the note'), up('filter.q', 'and rings as it opens')] },
+      melody: { voice: 'tines', moves: [down('fm.bite', 'a bright flash that fades fast'), up('fm.depth', 'and drive it harder')] },
+      bass: { voice: 'acid', moves: [down('filter.cutoff', 'start the filter low, so each note opens it further'), up('filter.q', 'and squelches')] },
+      arp: { voice: 'softPluck', moves: [down('filter.cutoff', 'a wah that starts closed'), up('filter.q', 'and rings')] },
       texture: { voice: 'colour', moves: [up('source.sweepDepth', 'a band that sweeps'), up('source.gust', 'and gusts')] },
     },
   },
