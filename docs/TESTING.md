@@ -229,6 +229,9 @@ Worst-first within each section: if a step fails, note it and keep going.
 
 - [ ] Open the pad voice editor. Drag ADSR attack long — new pad notes swell in obviously slowly. Drag short — percussive onset.
 - [ ] Sweep filter cutoff down then up — obvious darkening/brightening of new notes.
+- [ ] Turn the filter Type dial to Vowel: Cutoff and Env amount leave the row and a
+      Vowel dial (ticks for u o a e i, readout in letters) takes Cutoff's place.
+      Sweep it: the sound says u… o… a… e… i. Back to LP: Cutoff returns where it was.
 - [ ] Reverb send 0 → 1 — dry vs washed. Delay send similarly.
 - [ ] The reset in the editor's head, beside the engine chip, restores the original sound.
 - [ ] Edits apply to NEW notes only (no retro-change of ringing notes) — expected, not a bug.
@@ -1448,3 +1451,18 @@ ruling). To see it: `localStorage.setItem('ambi4:dev','1')`, then refresh.
       docs/engine-v2-contract.md § Opt-in saturation is measured on real Web
       Audio.
 
+
+## v0.0.257 delta — the Vowel filter
+
+- [ ] Pad → Warm editor → Type to Vowel. The row shows Type, Vowel, Resonance —
+      no Cutoff, no Env amount. The Vowel readout prints letters ('a', 'a~e').
+- [ ] Sweep Vowel u → i on a held chord: the vowel moves; nothing clicks; nothing
+      gets LOUDER than Low-pass was (it is quieter — the formants remove energy).
+- [ ] Resonance up: the vowel sharpens and whistles; down: it blurs.
+- [ ] The words under the dials say "A vowel filter on ‘a’", no Hz.
+- [ ] Spread the Vowel dial (o–e): the vowel walks bar by bar.
+- [ ] Type back to Low-pass: Cutoff and Env amount come back with their values.
+- [ ] Automated: `node tests/vowel-filter-smoke.mjs` (registry, bank built at the
+      table, position law, unity law, automation order, words), voices-smoke's
+      two vowel extremes, automation-order-smoke's vowel pass, and page-boot's
+      dial fixtures (a hidden Vowel cell beside every Type dial).

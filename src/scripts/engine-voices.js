@@ -17,8 +17,9 @@
  *   - a patch can change the sound but never the level guarantees: nothing a
  *     patch sets adds gain, and resonance is paid for with a matching trim
  *
- * Pure module: its one import is pluck-kernel.js, the plucked string's DSP,
- * which is pure too — and nothing touches an AudioContext until a voice is
+ * Pure module: two imports — pluck-kernel.js (the plucked string's DSP) and
+ * vowel-formants.js (the Vowel filter's formant table), both pure — and
+ * nothing touches an AudioContext until a voice is
  * played, so importing this outside a browser is safe.
  *
  * Layout:
@@ -34,6 +35,7 @@
  */
 
 import { pluckWorkletSource, PLUCK_PROCESSOR, pluckT60 } from './pluck-kernel.js';
+import { VOWEL_HOME, vowelBank } from './vowel-formants.js';
 
 // ---------------------------------------------------------------------------
 // 1. Constants and pure helpers
@@ -1083,7 +1085,9 @@ function grainField(rig, dest, {
  * there was an editor at all.
  */
 
-const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch'];
+// v0.0.257: 'vowel' is a bank of formants, not a biquad type — see
+// mainFilter() and src/scripts/vowel-formants.js.
+const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch', 'vowel'];
 // v12: two octaves either way, and detune reaches flat as well as sharp.
 const OCTAVES = [-2, -1, 0, 1, 2];
 // v18: percussion tunes in semitones instead — the same two octaves either
@@ -1352,6 +1356,10 @@ function patchFor(defaults, patch, kind = null) {
       cutoff: inRange(filter.cutoff, 40, 12000, d.filter.cutoff),
       q: inRange(filter.q, 0.1, 20, d.filter.q),
       envAmount: inRange(filter.envAmount, 0, 1, d.filter.envAmount),
+      // v0.0.257: the Vowel filter's position along u–o–a–e–i. No stock
+      // voice publishes one (none ships a vowel filter), so it rests on 'a'
+      // until a patch sets it; it is only READ while the type is 'vowel'.
+      vowel: inRange(filter.vowel, 0, 4, VOWEL_HOME),
     },
     adsr: dk
       ? {
@@ -1514,6 +1522,38 @@ const stackPeak = (layers) => layers.reduce((sum, l) => sum + l.gain, 0);
 const qTrim = (q) => Math.min(1, 1 / Math.sqrt(Math.max(q, 1)));
 
 /**
+ * v0.0.257 — the Vowel filter: three band-passes in PARALLEL at the formants
+ * of the patch's vowel position (u–o–a–e–i, src/scripts/vowel-formants.js),
+ * Q from the Resonance dial, the formants' gains summing to 1 — so the bank
+ * never exceeds unity at any frequency, position or Q (each band-pass peaks
+ * at 0 dB), and nothing a patch sets adds gain.
+ *
+ * Returns { node, out } in mainFilter's shape. `node` is the bank's INPUT,
+ * and it carries `frequency` and `Q` params because every caller schedules
+ * its own cutoff sweep (and LFOs) on them. Those params belong to a biquad
+ * that is connected to nothing: a vowel has no cutoff for a voice's sweep to
+ * move, so the sweep is kept off the sound rather than reinterpreted — which
+ * is why the editors take Cutoff and Env amount off the surface while Vowel
+ * is the type (FILTER_TYPE_DIALS in param-registry.js).
+ */
+function vowelFilter(rig, p) {
+  const input = rig.gain(1);
+  const out = rig.gain(1);
+  const bank = vowelBank(p.filter.vowel, p.filter.q);
+  bank.freqs.forEach((centre, k) => {
+    const formant = rig.filter('bandpass', centre, bank.Q);
+    const level = rig.gain(bank.gains[k]);
+    input.connect(formant);
+    formant.connect(level);
+    level.connect(out);
+  });
+  const held = rig.filter('lowpass', 1000, 0.7);
+  input.frequency = held.frequency;
+  input.Q = held.Q;
+  return { node: input, out };
+}
+
+/**
  * The voice's main filter. Without a patch it is exactly the filter the voice
  * asked for, and its own node is the output; with one it is the patch's
  * type/cutoff/Q, with the resonance trim spliced behind it.
@@ -1523,6 +1563,7 @@ function mainFilter(rig, p, { type, freq, q = 1 }) {
     const node = rig.filter(type, freq, q);
     return { node, out: node };
   }
+  if (p.filter.type === 'vowel') return vowelFilter(rig, p);
   // AUDIT FIX: the patch used to replace type AND cutoff outright, which is
   // wrong wherever the AUTHORED filter is that layer's character — the soft
   // kit's hat is a 6.75 kHz highpass in front of a 9 kHz burst, and swapping
@@ -1548,6 +1589,11 @@ function mainFilter(rig, p, { type, freq, q = 1 }) {
  */
 function insertFilter(rig, p, dest) {
   if (!p) return dest;
+  if (p.filter.type === 'vowel') {
+    const { node, out } = vowelFilter(rig, p);
+    out.connect(dest);
+    return node;
+  }
   const node = rig.filter(p.filter.type, p.filter.cutoff, p.filter.q);
   const trim = rig.gain(qTrim(p.filter.q));
   node.connect(trim);

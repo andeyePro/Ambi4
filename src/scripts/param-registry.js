@@ -43,7 +43,26 @@
  */
 
 const OSC_TYPES = Object.freeze(['sine', 'triangle', 'sawtooth', 'square']);
-const FILTER_TYPES = Object.freeze(['lowpass', 'highpass', 'bandpass', 'notch']);
+// v0.0.257: 'vowel' is the formant bank (src/scripts/vowel-formants.js),
+// positioned by its own row, patch.filter.vowel — not a fifth biquad type.
+const FILTER_TYPES = Object.freeze(['lowpass', 'highpass', 'bandpass', 'notch', 'vowel']);
+
+/**
+ * v0.0.257: which Filter dials each filter type actually listens to. A vowel
+ * has no cutoff (its formants are not a function of one frequency, so a Hz
+ * readout would lie) and nothing for a voice's cutoff sweep to bend, so
+ * Cutoff and Env amount leave the surface while Vowel is chosen and the Vowel
+ * dial joins it; every other type is the cutoff filter it always was. Data,
+ * read by both editors and the sound finder, so "which dials are live" is
+ * stated once. Type itself is always live.
+ */
+export const FILTER_TYPE_DIALS = Object.freeze({
+  lowpass: Object.freeze(['cutoff', 'q', 'envAmount']),
+  highpass: Object.freeze(['cutoff', 'q', 'envAmount']),
+  bandpass: Object.freeze(['cutoff', 'q', 'envAmount']),
+  notch: Object.freeze(['cutoff', 'q', 'envAmount']),
+  vowel: Object.freeze(['vowel', 'q']),
+});
 // v0.0.177: the overtone tables a modal voice can ring with (unit 6).
 const MATERIALS = Object.freeze(['metal', 'wood', 'glass', 'bell']);
 
@@ -124,9 +143,18 @@ export const PARAM_REGISTRY = Object.freeze({
   'patch.source.formant2': number(60, 8000, { curve: 'log', unit: 'Hz', hint: 'The upper resonance. Far above the first reads as a whistle; close to it, as a hoot.' }),
   'patch.source.cadence': number(0.5, 8, { hint: 'Calls per bar — a single long note at the left, chattering at the right.' }),
   'patch.source.irregular': number(0, 1, { hint: 'How unevenly those calls are spaced. Zero is metronomic; higher sounds like a living thing.' }),
-  'patch.filter.type': enumeration(FILTER_TYPES, { hint: 'Which part of the sound gets through: low-pass keeps the bottom, high-pass the top, band-pass one slice, notch everything but one slice.' }),
+  'patch.filter.type': enumeration(FILTER_TYPES, { hint: 'Which part gets through: low-pass the bottom, high-pass the top, band-pass one slice, notch all but one; vowel shapes it like a mouth saying u, o, a, e or i.' }),
   'patch.filter.cutoff': number(40, 12000, { curve: 'log', unit: 'Hz', hint: 'How much of the top end gets through: left is muffled and dark, right is open and bright.' }),
   'patch.filter.q': number(0.1, 20, { curve: 'log', hint: 'A peak at the cutoff: a little gives body, a lot rings and whistles.' }),
+  // v0.0.257 — the Vowel filter's position, a SEPARATE row rather than a
+  // reinterpretation of cutoff: cutoff is Hz on a log curve and a span of it
+  // is a frequency band, while a vowel position is an index into a table with
+  // its own readout (u–o–a–e–i) and its own default ('a'). Sharing one row
+  // would make every reader of filter.cutoff — the words, the finder, sample
+  // matching, a saved span — branch on the type to know what the number means.
+  // 0..4 is VOWELS' index range (tests/vowel-filter-smoke.mjs pins it).
+  // Rangeable: a span walks the vowel bar by bar, like any other dial.
+  'patch.filter.vowel': number(0, 4, { hint: 'With the Vowel filter: which vowel the sound speaks, u at the left through o, a and e to i. Between two letters is a blend of them.' }),
   'patch.filter.envAmount': number(0, 1, { hint: 'How far each note opens the filter as it starts: none is steady, full is a bright wah on every attack.' }),
   'patch.adsr.attack': number(0.001, 8, { curve: 'log', unit: 's', hint: 'How long a note takes to reach full: short is a strike, long is a swell.' }),
   'patch.adsr.decay': number(0.001, 8, { curve: 'log', unit: 's', hint: 'How quickly a note falls from its peak to the level it holds.' }),

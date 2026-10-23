@@ -20,6 +20,8 @@
  * Ranges (a spread) print as `lo–hi`, the same en dash the ghost readout uses.
  */
 
+import { VOWELS } from './vowel-formants.js';
+
 const SHAPE_NAMES = ['sine', 'triangle', 'saw', 'square'];
 const FILTER_WORDS = {
   lowpass: 'Low-pass',
@@ -27,6 +29,26 @@ const FILTER_WORDS = {
   bandpass: 'Band-pass',
   notch: 'Notch',
 };
+
+/**
+ * v0.0.257: the Vowel filter's position in words — letters, never a number,
+ * because the dial's readout is letters too (a position is an index, and
+ * "vowel 2.4" would teach nothing). A spread names the two ends it walks.
+ */
+function vowelWord(v) {
+  const letter = (x) => {
+    const c = Math.max(0, Math.min(VOWELS.length - 1, x));
+    const r = Math.round(c);
+    if (Math.abs(c - r) < 0.05) return { one: VOWELS[r] };
+    return { between: [VOWELS[Math.floor(c)], VOWELS[Math.ceil(c)]] };
+  };
+  const say = (l) => (l.one ? `‘${l.one}’` : `between ‘${l.between[0]}’ and ‘${l.between[1]}’`);
+  if (isRange(v) && Math.abs(v.max - v.min) >= 0.05) {
+    const [lo, hi] = [Math.min(v.min, v.max), Math.max(v.min, v.max)];
+    return `wandering from ${say(letter(lo))} to ${say(letter(hi))}`;
+  }
+  return `on ${say(letter(mid(v)))}`;
+}
 
 /** The editors' formatters, one per unit — exported so the test can share them. */
 export const fmt = {
@@ -244,7 +266,17 @@ export function describePatch({ engineType = '', patch, controls = true, detuneM
 
   // ---- the filter ---------------------------------------------------------
   const filter = [];
-  if (can('filter', 'cutoff')) {
+  if (flt.type === 'vowel' && allowed(controls, 'filter', 'type')) {
+    // A vowel has no cutoff and nothing for the voice's sweep to bend, so the
+    // words say which vowel and how sharply, and nothing about Hz or opening.
+    filter.push(`a vowel filter ${vowelWord(has(flt.vowel) ? flt.vowel : 2)}`);
+    if (can('filter', 'q')) {
+      const q = mid(flt.q);
+      if (q !== null && q >= 6) filter.push(`whistling (resonance ${show(flt.q, fmt.plain)})`);
+      else if (q !== null && q >= 2) filter.push(`ringing (resonance ${show(flt.q, fmt.plain)})`);
+      else if (q !== null && q < 0.3) filter.push(`soft-edged (resonance ${show(flt.q, fmt.plain)})`);
+    }
+  } else if (can('filter', 'cutoff')) {
     const type = typeof flt.type === 'string' && FILTER_WORDS[flt.type] ? FILTER_WORDS[flt.type] : 'filter';
     filter.push(`${type} at ${show(flt.cutoff, fmt.hz)}`);
     if (can('filter', 'q')) {

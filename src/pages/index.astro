@@ -12291,6 +12291,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       };
       const FILTER_LABELS = {
         lowpass: 'Low-pass', highpass: 'High-pass', bandpass: 'Band-pass', notch: 'Notch',
+        vowel: 'Vowel',
       };
       const labelledTypes = (ids, labels) => (Array.isArray(ids) && ids.length ? ids : Object.keys(labels))
         .map((id) => [id, labels[id] ?? id]);
@@ -12307,7 +12308,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // Phase 2c: the Type dial's ORDER is the registry row's value list (it
       // was a literal copy of it); only the short dial names are a page fact.
-      const FILTER_DIAL_LABELS = { lowpass: 'LP', highpass: 'HP', bandpass: 'BP', notch: 'Notch' };
+      const FILTER_DIAL_LABELS = { lowpass: 'LP', highpass: 'HP', bandpass: 'BP', notch: 'Notch', vowel: 'Vowel' };
+      // v0.0.257: the Vowel filter's position reads as letters, u–o–a–e–i, the
+      // way the shape dial reads as shapes — 'a' on a letter, 'a~e' between.
+      // The letters come from the engine (vowel-formants.js via
+      // PATCH_VOWELS); the literal is the fallback an older bundle boots on.
+      const VOWEL_LETTERS = (engineModule && Array.isArray(engineModule.PATCH_VOWELS) && engineModule.PATCH_VOWELS.length)
+        ? engineModule.PATCH_VOWELS : ['u', 'o', 'a', 'e', 'i'];
+      const vowelFormat = (v) => {
+        const top = VOWEL_LETTERS.length - 1;
+        const x = clamp(Number.isFinite(v) ? v : 2, 0, top);
+        const r = Math.round(x);
+        if (Math.abs(x - r) < 0.05) return VOWEL_LETTERS[r];
+        return `${VOWEL_LETTERS[Math.floor(x)]}~${VOWEL_LETTERS[Math.ceil(x)]}`;
+      };
+      // v0.0.251: which Filter dials a filter type listens to
+      // (FILTER_TYPE_DIALS in param-registry.js). A type the table does not
+      // know shows the cutoff dials, which is every type before Vowel.
+      const filterDialLive = (type, key) => {
+        if (key === 'type') return true;
+        const table = engineModule && engineModule.FILTER_TYPE_DIALS;
+        const live = table && table[type];
+        if (Array.isArray(live)) return live.includes(key);
+        return key !== 'vowel';
+      };
       const shapeFormat = (v) => {
         const r = Math.round(clamp(v, 0, 3));
         if (Math.abs(v - r) < 0.05) return SHAPE_LABELS[r];
@@ -12987,6 +13011,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const SLIDER_DIALS = [
           ['filter', 'Filter', filterSpec, [
             ['cutoff', 'Cutoff', { initial: 2000, write: Math.round }],
+            // v0.0.257: the Vowel filter's position — on the surface only
+            // while Vowel is the type, in Cutoff's place (filterDialLive).
+            ['vowel', 'Vowel', { initial: 2, format: vowelFormat, withType: true }],
             ['q', 'Resonance', { initial: 0.7, step: 0.1 }],
             ['envAmount', 'Env amount', { initial: 0.3 }],
           ]],
@@ -13001,6 +13028,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             ['delay', 'Delay', { initial: 0.15 }],
           ]],
         ];
+        // v0.0.251: the filter controls whose visibility follows the type.
+        const sliderFilterWraps = {};
+        const syncSliderFilter = () => {
+          for (const [key, wrap] of Object.entries(sliderFilterWraps)) {
+            if (wrap) wrap.hidden = !filterDialLive(patch.filter.type, key);
+          }
+        };
         const sliderFormat = (unit) => (unit === 'Hz' ? hzFormat : unit === 's' ? secFormat : undefined);
         for (const [section, heading, spec, dials] of SLIDER_DIALS) {
           const box = controlsSectionVisible(spec) ? veSection(container, heading) : null;
@@ -13013,6 +13047,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               value: patch.filter.type,
               onChange: (v) => {
                 patch.filter.type = v;
+                syncSliderFilter();
                 commit();
               },
             });
@@ -13020,22 +13055,26 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           for (const [key, label, ui] of dials) {
             const path = `${section}.${key}`;
             const d = registryDial(path);
-            if (!d || !controlsFieldAllowed(spec, key)) continue;
+            // The Vowel dial rides with Type: a voice that offers the type
+            // menu offers its vowel, without every CONTROLS list naming it.
+            if (!d || !controlsFieldAllowed(spec, ui.withType ? 'type' : key)) continue;
             const [lo, hi] = [d.min, d.max];
-            veRange(box, label, {
+            const sliderInput = veRange(box, label, {
               hint: registryHint(path),
               field: d.field,
               min: lo,
               max: hi,
               ...(d.log ? { log: true } : { step: ui.step || 0.01 }),
               value: rangeMid(sanitiseRangeValueIn(patch[section][key], lo, hi, ui.initial)),
-              ...(sliderFormat(d.unit) ? { format: sliderFormat(d.unit) } : {}),
+              ...(ui.format ? { format: ui.format } : sliderFormat(d.unit) ? { format: sliderFormat(d.unit) } : {}),
               onChange: (v) => {
                 patch[section][key] = ui.write ? ui.write(v) : v;
                 commit();
               },
             });
+            if (section === 'filter') sliderFilterWraps[key] = sliderInput.closest('.ve-control');
           }
+          if (section === 'filter') syncSliderFilter();
         }
       }
 
@@ -13727,6 +13766,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const PATCH_DIALS = [
           ['filter', 'Filter', filterSpec, [
             ['cutoff', 'Cutoff', { initial: 2000, rangeDefault: true, write: Math.round }],
+            // v0.0.257: the Vowel filter's position, a row of its own
+            // (patch.filter.vowel), shown in Cutoff's place only while Vowel
+            // is the type — filterDialLive() and syncFilterCells below. It
+            // rides with Type (`withType`): a voice offering the type menu
+            // offers its vowel. Letters for a readout, a tick per vowel.
+            ['vowel', 'Vowel', { initial: 2, format: vowelFormat, marks: true, withType: true }],
             ['q', 'Resonance', { initial: 0.7, step: 0.1 }],
             ['envAmount', 'Env amount', { initial: 0.3 }],
           ]],
@@ -13742,6 +13787,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           ]],
         ];
         const formatForUnit = (unit) => (unit === 'Hz' ? hzFormat : unit === 's' ? secFormat : plainFormat);
+        // v0.0.251: the filter cells whose visibility follows the type.
+        // Visibility only, as with Mix and OSC 2: the stored cutoff is left
+        // exactly as it was, so choosing Low-pass again brings it back.
+        const filterCells = {};
+        const syncFilterCells = () => {
+          for (const [key, cell] of Object.entries(filterCells)) {
+            if (cell) cell.hidden = !filterDialLive(patch.filter.type, key);
+          }
+        };
         for (const [section, heading, spec, dials] of PATCH_DIALS) {
           const row = controlsSectionVisible(spec) ? knobSection(heading) : null;
           if (!row) continue;
@@ -13761,6 +13815,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             defaultValue: Math.max(0, order.indexOf(defaults.filter.type)),
             onInput: (v) => {
               patch.filter.type = order[Math.round(clamp(v, typeDial.min, typeDial.max))];
+              syncFilterCells();
               commit();
             },
           });
@@ -13783,9 +13838,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           for (const [key, label, ui] of dials) {
             const path = `${section}.${key}`;
             const dial = registryDial(path);
-            if (!dial || !allowed(spec, key)) continue;
+            if (!dial || !allowed(spec, ui.withType ? 'type' : key)) continue;
             const [lo, hi] = [dial.min, dial.max];
-            const format = formatForUnit(dial.unit);
+            const format = ui.format || formatForUnit(dial.unit);
             const value = sanitiseRangeValueIn(patch[section][key], lo, hi, ui.initial);
             const write = ui.write
               ? (v) => { patch[section][key] = mapRV(v, ui.write); commit(); }
@@ -13793,21 +13848,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 ? (v) => { patch[section][key] = v; commit(); }
                 : (v) => { patch[section][key] = mapRV(v, (x) => clamp(x, lo, hi)); commit(); };
             const knobOpts = ui.rangeDefault ? { rangeDefault: true } : {};
+            // A field no stock voice publishes (filter.vowel) resets to the
+            // dial's own initial; every other field's default is the voice's.
+            const resetTo = defaults[section][key] ?? ui.initial;
+            let made;
             if (dial.log) {
-              addLogKnob(row, label, dial, value, format, write, knobOpts, defaults[section][key]);
+              made = addLogKnob(row, label, dial, value, format, write, knobOpts, resetTo);
             } else {
-              addKnob(row, {
+              made = addKnob(row, {
                 label,
                 ...facts(dial),
                 ...(ui.step ? { step: ui.step } : {}),
+                ...(ui.marks ? { marks: integerMarks(dial) } : {}),
                 value,
                 format,
-                defaultValue: defaults[section][key],
+                defaultValue: resetTo,
                 onInput: write,
                 ...knobOpts,
               });
             }
+            if (section === 'filter' && made) filterCells[key] = made.cell;
           }
+          if (section === 'filter') syncFilterCells();
         }
       }
 
@@ -14325,6 +14387,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const spec = entry.controls ? entry.controls[section] : undefined;
             if (spec === false) return false;
             if (Array.isArray(spec) && !spec.includes(key)) return false;
+            // v0.0.251: a dial the patch's filter type has taken off the
+            // surface (Cutoff, Env amount under Vowel) is not a move to offer.
+            if (section === 'filter') {
+              const live = resolveTrackPatch(track, voice);
+              if (live && live.filter && !filterDialLive(live.filter.type, key)) return false;
+            }
             if (['fm', 'additive', 'modal', 'pluck'].includes(section)) return !!(entry.defaults && entry.defaults[section] && key in entry.defaults[section]);
             if (section === 'source' && !['osc1', 'osc2', 'shape1', 'shape2', 'mix', 'detune', 'octave'].includes(key)) {
               return !!(entry.defaults && entry.defaults.source && key in entry.defaults.source);
@@ -14452,7 +14520,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             : 'One note works best: a few seconds, starting at its start. The closest synth on this track takes its place — the recording itself is never played.';
           const FIELD_NAMES = {
             'source.shape1': 'OSC 1', 'source.shape2': 'OSC 2', 'source.pitch': 'Pitch', 'source.noise': 'Noise', 'source.mix': 'Mix', 'source.detune': 'Detune', 'source.fold': 'Fold',
-            'filter.cutoff': 'Cutoff', 'filter.q': 'Resonance', 'filter.envAmount': 'Env amount',
+            'filter.cutoff': 'Cutoff', 'filter.vowel': 'Vowel', 'filter.q': 'Resonance', 'filter.envAmount': 'Env amount',
             'adsr.attack': 'Attack', 'adsr.decay': 'Decay', 'adsr.sustain': 'Sustain', 'adsr.release': 'Release',
             'fm.ratio': 'Ratio', 'fm.depth': 'Depth', 'fm.bite': 'Bite',
             'additive.stretch': 'Stretch', 'modal.material': 'Material', 'modal.hardness': 'Hardness', 'modal.damping': 'Damping',

@@ -198,8 +198,8 @@ Patch = {
     osc1: 'sine'|'triangle'|'sawtooth'|'square', osc2: same|null,
     mix: 0–1, detune: -50–50 (cents; see below), octave: -2..2 (int; see below)
   },
-  filter: { type: 'lowpass'|'highpass'|'bandpass'|'notch', cutoff: 40–12000 (Hz, log UI),
-            q: 0.1–20, envAmount: 0–1 },
+  filter: { type: 'lowpass'|'highpass'|'bandpass'|'notch'|'vowel', cutoff: 40–12000 (Hz, log UI),
+            q: 0.1–20, envAmount: 0–1, vowel: 0–4 (u–o–a–e–i; v0.0.257) },
   adsr:   { attack: 0.001–8 s, decay: 0.001–8 s, sustain: 0–1, release: 0.01–12 s },
   sends:  { reverb: 0–1, delay: 0–1 },
 }
@@ -208,6 +208,24 @@ Patch = {
   merged over that voice's own defaults) and must honour filter/adsr; subtractive-source
   voices honour `source` too; FM/noise/physical voices ignore `source` fields that don't
   apply. Each voice exports its defaults: `VOICES[track][id].defaults` (full Patch).
+- **The Vowel filter (v0.0.257).** `type: 'vowel'` replaces the voice's main
+  filter (`mainFilter()` / `insertFilter()`) with three parallel band-passes at
+  the formant table in `vowel-formants.js`, positioned by `filter.vowel`
+  (geometric between rows; whole numbers are the table), Q = 5·√q from the
+  Resonance dial, gains [1, ½, ¼] normalised to sum to 1 — so the bank's
+  response is at most unity everywhere, by construction, under the same
+  path-sum accounting voices-smoke holds every voice to. `cutoff` and
+  `envAmount` are kept on the patch but NOT read: the voice's own cutoff sweep
+  and LFOs are scheduled on a biquad connected to nothing (the bank input's
+  `frequency`/`Q`), because a vowel has no cutoff to move. `filter.vowel` is a
+  separate row rather than a reading of `cutoff`: cutoff is Hz on a log curve,
+  a position is an index with letters for a readout, and one shared number
+  would make every reader of cutoff branch on the type. No stock voice
+  publishes `filter.vowel`; the sanitiser rests it on 2 ('a').
+  `FILTER_TYPE_DIALS` (`param-registry.js`) says which filter dials each type
+  listens to; both editors and the sound finder read it. Measured level: a
+  vowel through a stock voice sits 12–20 dB under that voice's own low-pass —
+  the band-passes remove energy, they never add it.
 - Octave is three different bounds today, not one: the registry row
   (`patch.source.octave`, `param-registry.js`) declares `-2..2`, and the
   sanitiser is derived from that row, so `-2..2` is what a patch or a link

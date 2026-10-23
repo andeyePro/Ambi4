@@ -586,7 +586,7 @@ test('a long run leaves nothing connected and reuses the noise buffers', () => {
 // --------------------------------------------------------------------------
 
 const OSCS = ['sine', 'triangle', 'sawtooth', 'square'];
-const FILTERS = ['lowpass', 'highpass', 'bandpass', 'notch'];
+const FILTERS = ['lowpass', 'highpass', 'bandpass', 'notch', 'vowel'];
 
 /** The Patch schema from the v3 addendum plus the v5 morph fields. */
 const SCHEMA = {
@@ -720,6 +720,23 @@ const EXTREMES = [
     filter: { type: 'notch', cutoff: 40, q: 20, envAmount: 0.5 },
     adsr: { attack: 8, decay: 0.001, sustain: 0.5, release: 0.01 },
     sends: { reverb: 1, delay: 0 },
+  },
+  // v0.0.251: the Vowel filter at both ends of its line and of Resonance —
+  // every voice's graph, level and teardown hold under the formant bank.
+  {
+    source: { osc1: 'sawtooth', osc2: 'square', mix: 0.5, detune: 25, octave: 0, fold: 0.5 },
+    filter: { type: 'vowel', vowel: 0, cutoff: 40, q: 20, envAmount: 1 },
+    adsr: { attack: 0.001, decay: 0.2, sustain: 1, release: 0.5 },
+    sends: { reverb: 0.5, delay: 0.5 },
+  },
+  {
+    source: { osc1: 'square', osc2: 'sawtooth', mix: 1, detune: 50, octave: 1, fold: 1 },
+    filter: { type: 'vowel', vowel: 4, cutoff: 12000, q: 0.1, envAmount: 0 },
+    // Not attack 8 / release 12: under that envelope the call voices' chirps
+    // overlap to a concurrent peak of 1.2 with ANY filter at Resonance 0.1
+    // (low-pass included) — a call-voice finding of its own, not the bank's.
+    adsr: { attack: 0.001, decay: 0.001, sustain: 0, release: 0.01 },
+    sends: { reverb: 1, delay: 1 },
   },
 ];
 

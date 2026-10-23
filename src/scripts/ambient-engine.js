@@ -25,6 +25,10 @@ import { PARAM_REGISTRY, RESERVED_TOKENS as REGISTRY_TOKENS, patchSectionRows, p
 // Re-exported so the page (and anything else driving the engine) reads the
 // SAME table the sanitiser above is built from — the phase-1 contract.
 export { PARAM_REGISTRY, RESERVED_TOKENS, paramRow, isRangeable } from './param-registry.js';
+// v0.0.251: which Filter dials each type listens to, and the Vowel filter's
+// letters — the page's editors read both from here rather than restating them.
+export { FILTER_TYPE_DIALS } from './param-registry.js';
+export { VOWELS as PATCH_VOWELS } from './vowel-formants.js';
 
 // The recipe schema (TODO.md "Reconstructible Ambi4"): a pure module, no
 // import of this one, so getRecipe()/applyRecipe() below are read/write seams

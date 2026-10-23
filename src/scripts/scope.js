@@ -151,6 +151,8 @@
  * always matches what this module's own trace — and the real voices — play).
  */
 
+import { VOWEL_HOME, vowelBank, bankMagnitude } from './vowel-formants.js';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -161,7 +163,9 @@ const GRID_ROWS = 4;
 const TRACE_HEIGHT = 0.42; // fraction of canvas height for full amplitude
 const OFFLINE_SR = 44100;
 const FALLBACK_SAMPLES = 512;
-const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch'];
+// v0.0.257: 'vowel' is the formant bank (vowel-formants.js), drawn from the
+// same design the voices build, so the trace shows the vowel that plays.
+const FILTER_TYPES = ['lowpass', 'highpass', 'bandpass', 'notch', 'vowel'];
 const SHAPE_NAMES = { sine: 0, triangle: 1, sawtooth: 2, square: 3 };
 // v20: the triangle→saw dial segment (shape 1..2) is a variable-skew
 // triangle, not a coefficient crossfade — see shapeCoefficients() below.
@@ -372,6 +376,7 @@ function sanitisePatch(patch) {
       type: FILTER_TYPES.includes(filter.type) ? filter.type : 'lowpass',
       cutoff: inRange(rangeMid(filter.cutoff), 40, 12000, 12000),
       q: inRange(rangeMid(filter.q), 0.1, 20, 0.7),
+      vowel: inRange(rangeMid(filter.vowel), 0, 4, VOWEL_HOME),
     },
   };
 }
@@ -435,6 +440,9 @@ function addNoiseBurst(patch, fBase, samples, durationSeconds) {
 
 /** Second-order filter magnitude approximation at frequency f. */
 function filterMagnitude(filter, f) {
+  if (filter.type === 'vowel') {
+    return bankMagnitude(f, vowelBank(filter.vowel, filter.q), OFFLINE_SR);
+  }
   const r = f / filter.cutoff;
   const denom = Math.sqrt((1 - r * r) * (1 - r * r) + (r / filter.q) * (r / filter.q));
   let mag;
@@ -523,15 +531,34 @@ async function offlineRenderSamples(patch, freq) {
   const length = Math.max(2048, Math.ceil(period * 10));
   const ctx = new AC(1, length, OFFLINE_SR);
 
-  const filter = ctx.createBiquadFilter();
-  try {
-    filter.type = patch.filter.type;
-  } catch {
-    // ignore — default lowpass
+  let filter;
+  if (patch.filter.type === 'vowel') {
+    // The voices' own bank: parallel formant band-passes at the design's
+    // gains, summed into one input node the oscillators feed.
+    const bank = vowelBank(patch.filter.vowel, patch.filter.q);
+    filter = ctx.createGain();
+    bank.freqs.forEach((centre, k) => {
+      const formant = ctx.createBiquadFilter();
+      formant.type = 'bandpass';
+      formant.frequency.value = centre;
+      formant.Q.value = bank.Q;
+      const level = ctx.createGain();
+      level.gain.value = bank.gains[k];
+      filter.connect(formant);
+      formant.connect(level);
+      level.connect(ctx.destination);
+    });
+  } else {
+    filter = ctx.createBiquadFilter();
+    try {
+      filter.type = patch.filter.type;
+    } catch {
+      // ignore — default lowpass
+    }
+    filter.frequency.value = patch.filter.cutoff;
+    filter.Q.value = patch.filter.q;
+    filter.connect(ctx.destination);
   }
-  filter.frequency.value = patch.filter.cutoff;
-  filter.Q.value = patch.filter.q;
-  filter.connect(ctx.destination);
 
   const single = patch.source.shape2 === null;
   const mix = single ? 0 : patch.source.mix;

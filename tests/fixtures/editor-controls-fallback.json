@@ -74,6 +74,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -266,6 +277,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -417,6 +439,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -566,6 +599,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -728,6 +772,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -894,6 +949,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -1042,6 +1108,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -1173,6 +1250,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -1324,6 +1412,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -1490,6 +1589,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -1649,6 +1759,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -1751,6 +1872,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -1888,6 +2020,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -2067,6 +2210,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -2202,6 +2356,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -2353,6 +2518,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -2515,6 +2691,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -2698,6 +2885,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -2851,6 +3049,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -3002,6 +3211,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -3133,6 +3353,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -3284,6 +3515,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -3448,6 +3690,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -3579,6 +3832,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -3743,6 +4007,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -3893,6 +4168,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -3995,6 +4281,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -4141,6 +4438,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -4250,6 +4558,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -4477,6 +4796,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -4691,6 +5021,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -4868,6 +5209,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -4996,6 +5348,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -5120,6 +5483,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",
@@ -5248,6 +5622,17 @@
     "unit": "Hz"
    },
    {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
+   },
+   {
     "field": "filter.q",
     "label": "Resonance",
     "kind": "range",
@@ -5372,6 +5757,17 @@
      "0.001"
     ],
     "unit": "Hz"
+   },
+   {
+    "field": "filter.vowel",
+    "label": "Vowel",
+    "kind": "range",
+    "range": [
+     "0",
+     "4",
+     "0.01"
+    ],
+    "unit": ""
    },
    {
     "field": "filter.q",

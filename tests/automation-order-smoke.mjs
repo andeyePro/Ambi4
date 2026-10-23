@@ -115,7 +115,11 @@ let notes = 0;
 for (const [set, voices] of Object.entries(VOICES)) {
   for (const [id, voice] of Object.entries(voices)) {
     const kinds = set === 'percussion' ? ['low', 'mid', 'high'] : [undefined];
-    for (const patch of [null, voice.defaults]) {
+    // v0.0.251: and under the Vowel filter, whose bank stands in for the
+    // voice's main filter — the voice still schedules its own sweep on the
+    // bank's input, so that timeline is held to the same law.
+    const vowel = { ...voice.defaults, filter: { ...voice.defaults.filter, type: 'vowel', vowel: 3.4 } };
+    for (const patch of [null, voice.defaults, vowel]) {
       for (const duration of DURATIONS) {
         for (const kind of kinds) {
           timelines.length = 0;
@@ -130,7 +134,7 @@ for (const [set, voices] of Object.entries(VOICES)) {
           notes += 1;
           for (const line of timelines) {
             for (const b of line.bad) {
-              failures.push(`${set}/${id}${kind ? `:${kind}` : ''} (${patch ? 'patched' : 'as shipped'}) ${duration}s: ${line.owner}.${line.name} ${b.kind} at ${b.start.toFixed(3)} s before the previous event ends at ${b.previousEnd.toFixed(3)} s (${b.last ? b.last.kind : '?'})`);
+              failures.push(`${set}/${id}${kind ? `:${kind}` : ''} (${patch === vowel ? 'vowel' : patch ? 'patched' : 'as shipped'}) ${duration}s: ${line.owner}.${line.name} ${b.kind} at ${b.start.toFixed(3)} s before the previous event ends at ${b.previousEnd.toFixed(3)} s (${b.last ? b.last.kind : '?'})`);
             }
           }
         }
