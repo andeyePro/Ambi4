@@ -287,6 +287,25 @@ const test = (name, fn) => tests.push([name, fn]);
 
 const seededRng = (seed) => () => ((seed = (seed * 48271) % 2147483647) / 2147483647);
 
+/**
+ * Five fixed seeds for a law that is about what a random piece DOES (a track
+ * joins, percussion stays sparse), not about one piece. An unseeded engine made
+ * these pass or fail on the draw; now every seed must hold the law, and a
+ * failure names its seed. The seeds are round numbers chosen before looking at
+ * any result — a seed that fails is a finding, not something to swap out.
+ */
+const LAW_SEEDS = [101, 202, 303, 404, 505];
+const overSeeds = (body) => async () => {
+  for (const seed of LAW_SEEDS) {
+    try {
+      await body(seed);
+    } catch (error) {
+      error.message = `[seed ${seed}] ${error.message}`;
+      throw error;
+    }
+  }
+};
+
 // --------------------------------------------------------------------------
 // Pure music logic
 // --------------------------------------------------------------------------
@@ -1845,7 +1864,7 @@ test('arp honours the manual step mask', () => hiddenTab(async () => {
     'the arp sounded before its staged entry');
 }));
 
-test('percussion stays sparse when it plays', async () => {
+test('percussion stays sparse when it plays', overSeeds(async (seed) => {
   const engine = createEngine({
     bpm: 120,
     speed: 2,
@@ -1854,7 +1873,7 @@ test('percussion stays sparse when it plays', async () => {
     structure: 'custom',
     customStructure: [{ label: 'D', bars: 4, intensity: 1 }],
     tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'percussion' ? 'on' : 'off' }])),
-  });
+  }, { rng: seededRng(seed) });
   const bars = [];
   const notes = [];
   engine.on('bar', (e) => bars.push(e));
@@ -1893,13 +1912,13 @@ test('percussion stays sparse when it plays', async () => {
     return n.time - owner.time < 0.05;
   });
   assert.ok(nearStart.length >= lows.length / 2, 'low pulses should sit near bar starts');
-});
+}));
 
-test('auto tracks join in order as intensity and complexity rise', () => hiddenTab(async () => {
+test('auto tracks join in order as intensity and complexity rise', overSeeds((seed) => hiddenTab(async () => {
   // Every track on 'auto' — the v8 defaults ship melody and bass 'off', which
   // would take them out of the auto decision this test exists to check.
   const played = async (params, seconds) => {
-    const engine = createEngine({ ...params, tracks: tracksAll('auto') });
+    const engine = createEngine({ ...params, tracks: tracksAll('auto') }, { rng: seededRng(seed) });
     const tracks = new Set();
     engine.on('note', (n) => tracks.add(n.track));
     await engine.start();
@@ -1927,7 +1946,7 @@ test('auto tracks join in order as intensity and complexity rise', () => hiddenT
   for (const track of TRACK_ORDER) {
     assert.ok(busy.has(track), `${track} never joined at full intensity and complexity`);
   }
-}));
+})));
 
 test('an unknown voice id falls back instead of going silent', async () => {
   const engine = createEngine({
@@ -3100,7 +3119,7 @@ test('all six tracks are eligible by bar 5, forced on or on auto', () => hiddenT
   }
 }));
 
-test('bass ships off and stays silent at the defaults; melody ships auto (v14) and sounds', () => hiddenTab(async () => {
+test('bass ships off and stays silent at the defaults; melody ships auto (v14) and sounds', overSeeds((seed) => hiddenTab(async () => {
   // v14: melody passed the user's "catchy" gate and now defaults to auto.
   // Bass failed its own gate ("it's a rhythm instrument, not a low-pitch
   // random") and stays off until its groove rework passes it too.
@@ -3110,7 +3129,7 @@ test('bass ships off and stays silent at the defaults; melody ships auto (v14) a
     assert.equal(DEFAULT_PARAMS.tracks[track].state, 'auto', `${track} still ships on auto`);
   }
 
-  const engine = createEngine();   // the shipped defaults, 60 bpm, nothing overridden
+  const engine = createEngine({}, { rng: seededRng(seed) });   // the shipped defaults, 60 bpm, nothing overridden
   const log = record(engine);
   await engine.start();
   await advance(45, FAST);
@@ -3121,7 +3140,7 @@ test('bass ships off and stays silent at the defaults; melody ships auto (v14) a
     'bass must be silent until the user switches it on');
   assert.ok(log.notes.some((n) => n.track === 'melody'),
     'melody ships auto now — it must actually sound at the defaults, not just default to the state');
-}));
+})));
 
 // --------------------------------------------------------------------------
 // v6 — hold and randomise()
@@ -5184,10 +5203,10 @@ function v14Shipped() {
     && Array.isArray(DEFAULT_PARAMS.tracks.melody.sequencers);
 }
 
-test('the silence floor: nothing is silent after staging at the defaults; a solo pad still gets its one bar of breath', () => hiddenTab(async () => {
+test('the silence floor: nothing is silent after staging at the defaults; a solo pad still gets its one bar of breath', overSeeds((seed) => hiddenTab(async () => {
   if (!v14Shipped()) { console.log('SKIP v14 silence floor: v14 params not present yet'); return; }
 
-  const engine = createEngine();   // the shipped defaults, nothing overridden
+  const engine = createEngine({}, { rng: seededRng(seed) });   // the shipped defaults, nothing overridden
   const log = record(engine);
   await engine.start();
   await advance(245, FAST);        // >60 bars at the default 60 bpm, 4/4
@@ -5200,7 +5219,7 @@ test('the silence floor: nothing is silent after staging at the defaults; a solo
   const solo = createEngine({
     bpm: 120, speed: 2, structure: 'waves', complexity: 0.5, repetition: 0.5,
     tracks: { ...tracksAll('off'), pad: { state: 'on', randomness: 0.5, vary: { timing: 0, voice: 0 } } },
-  }, { rng: seededRng(9003) });
+  }, { rng: seededRng(seed) });
   const soloLog = record(solo);
   await solo.start();
   await advance(96, FAST);
@@ -5209,14 +5228,14 @@ test('the silence floor: nothing is silent after staging at the defaults; a solo
   assert.ok(soloBars.length >= 60, `only ${soloBars.length} post-staging bars to judge`);
   assert.ok(isContinuouslyAudible(soloLog.notes, soloBars, { maxSilentBars: 1 }),
     `a solo pad should never rest more than 1 bar in a row (longest run: ${longestSilentRun(soloLog.notes, soloBars)})`);
-}));
+})));
 
-test('percussion activates at the defaults within the first waves cycle', () => hiddenTab(async () => {
+test('percussion activates at the defaults within the first waves cycle', overSeeds((seed) => hiddenTab(async () => {
   if (!v14Shipped()) { console.log('SKIP v14 percussion activation: v14 params not present yet'); return; }
   // Full shipped defaults: complexity 0.5 resolves structure to 'waves', and
   // the v14 threshold retune means the peak of that cycle now actually
   // reaches percussion's activation energy — it is still the last track in.
-  const engine = createEngine();
+  const engine = createEngine({}, { rng: seededRng(seed) });
   const log = record(engine);
   await engine.start();
   await advance(100, FAST);
@@ -5228,7 +5247,7 @@ test('percussion activates at the defaults within the first waves cycle', () => 
   assert.ok(first >= STAGE, `percussion sounded in bar ${first}, before its own staged entry (bar ${STAGE})`);
   const N = 20; // generous: percussion only reaches threshold near the waves peak
   assert.ok(first <= N, `percussion first sounded in bar ${first}, later than the ${N}-bar bound`);
-}));
+})));
 
 test("emitChord: a 'chord' event fires every bar, and nameChord's own reading of its midis matches the name it published",
   () => hiddenTab(async () => {
@@ -10424,8 +10443,27 @@ test('v28 record-arm: an empty take writes nothing, and a kit take lands on its 
   engine.stop();
 });
 
+// Math.random is the engine's (and every pure generator's) DEFAULT rng, so a
+// test that builds `createEngine()` without `{ rng }` played a different random
+// piece on every run and a rare draw failed it (percussion activation and
+// sparsity, 2026-10). Each test now starts from a Math.random replayed from a
+// seed derived from its own name: the whole suite is the same piece every run,
+// and one test's draws never shift another's. AMBI_SMOKE_SEED (a number) moves
+// every test to a different stream, to hunt for a law that only held by luck.
+const realRandom = Math.random;
+const SUITE_SEED = Number(process.env.AMBI_SMOKE_SEED) || 0;
+const seedFromName = (name) => {
+  let h = 2166136261 + SUITE_SEED * 7919;
+  for (let i = 0; i < name.length; i += 1) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return (h >>> 0) % 2147483646 + 1;
+};
+
 let failures = 0;
+let skipped = 0;
+const ONLY = process.env.AMBI_SMOKE_ONLY;   // substring filter, for running one test
 for (const [name, fn] of tests) {
+  if (ONLY && !name.includes(ONLY)) { skipped += 1; continue; }
+  Math.random = seededRng(seedFromName(name));
   try {
     await fn();
     console.log(`ok   ${name}`);
@@ -10441,6 +10479,7 @@ for (const [name, fn] of tests) {
     liveContexts.length = 0;
   }
 }
-console.log(`\n${tests.length - failures}/${tests.length} passed`);
+Math.random = realRandom;
+console.log(`\n${tests.length - skipped - failures}/${tests.length - skipped} passed`);
 console.log(`(${nodesCreated} mock nodes, ${oscillatorsStarted} oscillators started)`);
 process.exit(failures ? 1 : 0);

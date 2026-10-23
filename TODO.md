@@ -40,7 +40,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ## Test hygiene found 2026-10-23
 
-- [ ] **engine-smoke: seed the two unseeded probabilistic tests** — "percussion activates at the defaults within the first waves cycle" and "percussion stays sparse" build `createEngine()` with no rng, so each run is a different random piece and a rare draw fails them (seen twice on 2026-10-23, solo and under load). Seed them (`{ rng: seededRng(n) }`) over several fixed seeds instead, so a red means a regression.
+- [x] *(DONE v0.0.258 — per-test seeds, five fixed seeds on the five law tests)* **engine-smoke: seed the two unseeded probabilistic tests** — "percussion activates at the defaults within the first waves cycle" and "percussion stays sparse" build `createEngine()` with no rng, so each run is a different random piece and a rare draw fails them (seen twice on 2026-10-23, solo and under load). Seed them (`{ rng: seededRng(n) }`) over several fixed seeds instead, so a red means a regression.
 
 ## Owner reports, 2026-10-03 (evening)
 
