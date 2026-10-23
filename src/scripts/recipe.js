@@ -59,6 +59,8 @@ function trackFields(track) {
     rows.push({ path: `tracks.${track}.dissonance`, label: `${label} dissonance`, kind: 'range' });
   }
   rows.push({ path: `tracks.${track}.density`, label: `${label} density`, kind: 'range' });
+  // v0.0.254: the track's own saturation — sparse like the master's.
+  rows.push({ path: `tracks.${track}.drive`, label: `${label} drive`, kind: 'number' });
   // v0.0.203: the bass groove — feel, articulation, anchor and cells — as a rule.
   if (track === 'bass') {
     rows.push({ path: 'tracks.bass.grooveRule', label: 'Bass groove rule', kind: 'grooveRule' });
@@ -105,6 +107,9 @@ export const RECIPE_FIELDS = Object.freeze([
   { path: 'complexity', label: 'Complexity', kind: 'number' },
   { path: 'repetition', label: 'Repetition', kind: 'number' },
   { path: 'reverbTail', label: 'Reverb tail', kind: 'number' },
+  // v0.0.254: the master's tape-style saturation. Sparse: absent (0, no
+  // stage at all) on every piece that never turns it up.
+  { path: 'drive', label: 'Master drive', kind: 'number' },
   { path: 'harmony.seed', label: 'Chord loop', kind: 'json' },
   // "Chord loop as voiced": per slot the inversion and colour (Now), then how
   // and when the loop may move, and the voicings a move picks from.

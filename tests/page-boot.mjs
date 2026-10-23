@@ -1171,6 +1171,67 @@ try {
     }
   }
 
+  // v0.0.254 — opt-in saturation: a Drive dial on the master (Advanced →
+  // Sound, behind its "more") and in every track editor's feel row. Typed in
+  // through the readout as a person would, and asserted at the ENGINE — a
+  // dial drawing a value the engine never received is the failure this
+  // house has hit twice.
+  {
+    const engine = window.__ambi4Engine;
+    const takesDrive = (() => {
+      try {
+        const probed = sanitise({ drive: 0.5 });
+        return Boolean(probed && probed.drive === 0.5);
+      } catch {
+        return false;
+      }
+    })();
+    const near = (a, b) => typeof a === 'number' && Math.abs(a - b) < 1e-9;
+    const master = doc.getElementById('dial-drive');
+    if (!takesDrive) {
+      failures.push('the engine sanitiser drops a master drive');
+    } else if (!engine) {
+      failures.push('no engine seam to check the Drive dials against');
+    } else if (!master || master.hidden) {
+      failures.push('the master Drive dial (#dial-drive) is missing or hidden');
+    } else {
+      if (!doc.getElementById('adv-more-box-sound')?.contains(master)) {
+        failures.push('the master Drive dial is not behind the Sound "more"');
+      }
+      const cell = doc.getElementById('drive-dial');
+      if (!typeIntoKnob(cell, '40')) {
+        failures.push('the master Drive dial has no typable readout');
+      } else {
+        if (!near(engine.getParams().drive, 0.4)) {
+          failures.push(`master Drive typed 40% but the engine holds ${JSON.stringify(engine.getParams().drive)}`);
+        }
+        typeIntoKnob(cell, '0');
+        if ('drive' in engine.getParams()) failures.push('master Drive back at 0 left a drive stored in the engine');
+      }
+      for (const track of ['pad', 'bass']) {
+        const editor = await openEditor(track);
+        const has = await waitUntil(() => !!editor.querySelector(`.drive-knob, #drive-${track}`));
+        if (!has) {
+          failures.push(`the ${track} editor has no Drive dial`);
+          continue;
+        }
+        const knob = editor.querySelector('.drive-knob');
+        if (!knob) continue;
+        if (!typeIntoKnob(knob, '30')) {
+          failures.push(`the ${track} Drive dial has no typable readout`);
+          continue;
+        }
+        const got = engine.getParams().tracks[track]?.drive;
+        if (!near(got, 0.3)) failures.push(`${track} Drive typed 30% but the engine holds ${JSON.stringify(got)}`);
+        for (const other of ['pad', 'bass', 'melody'].filter((t) => t !== track)) {
+          if ('drive' in (engine.getParams().tracks[other] || {})) failures.push(`${track}'s Drive leaked onto ${other}`);
+        }
+        typeIntoKnob(knob, '0');
+        if ('drive' in (engine.getParams().tracks[track] || {})) failures.push(`${track} Drive back at 0 left a drive stored`);
+      }
+    }
+  }
+
   // v0.0.219 — UI review fixes 15, 16, 17.
   // 16: the scope legend solos on Alt/Option-click and on a press-and-hold,
   // not only a double-click. The legend is drawn from the page's

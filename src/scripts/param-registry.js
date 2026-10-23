@@ -27,7 +27,9 @@
  * - `curve`    — 'linear' | 'log', the UI's mapping hint
  * - `unit`     — display unit ('' | 'ct' | 'st' | 'oct' | 'Hz' | 's')
  * - `scope`    — where in the D7 inheritance chain the parameter lives
- *                (every patch field is 'voice' today; track/bus/master rows
+ *                (every patch field is 'voice'; v0.0.249 added the first
+ *                'master' and 'track' rows, `master.drive` and `track.drive`,
+ *                keyed by their own prefix rather than `patch.` — bus rows
  *                join the table as their phases land)
  * - `sampling` — when a stepped modulation source fires for this parameter
  *                ('bar' is the walk every build has had; the four legal
@@ -179,6 +181,16 @@ export const PARAM_REGISTRY = Object.freeze({
   'patch.pluck.position': number(0.05, 0.5, { hint: 'Where the string is plucked: near the bridge at the left is thin and nasal, the middle at the right is round and hollow.' }),
   'patch.sends.reverb': number(0, 1, { hint: 'How much of this voice goes to the shared reverb: dry and close at the left, in a hall at the right.' }),
   'patch.sends.delay': number(0, 1, { hint: 'How much of this voice goes to the shared echo: none at the left, repeating in time at the right.' }),
+  // v0.0.254 — opt-in saturation (TODO.md "saturation on track and master").
+  // The first rows OUTSIDE the patch namespace: `master.drive` is a top-level
+  // param, `track.drive` the same field on every track (params.tracks.<id>).
+  // Both are sparse — absent and 0 are the same value, and neither builds a
+  // single node — so a piece that never turns one up keeps today's graph.
+  // Not rangeable: a spread would re-drive the stage every bar, and the stage
+  // has no walk of its own yet; a span is refused rather than played as its
+  // midpoint, which would be a lying control.
+  'master.drive': number(0, 1, { scope: 'master', rangeable: false, hint: 'Tape-style warmth on the whole mix: off at the left, a gentle glow a little way in, thick and saturated at the right. The level holds as it rises.' }),
+  'track.drive': number(0, 1, { scope: 'track', rangeable: false, hint: 'Tape-style warmth on this track alone: off at the left, a gentle glow a little way in, thick and saturated at the right. Its level holds as it rises.' }),
 });
 
 /** The rows of one patch section, as [field, row] pairs in table order. */
@@ -195,6 +207,8 @@ export function patchSectionRows(section) {
 export function patchSections() {
   const seen = [];
   for (const path of Object.keys(PARAM_REGISTRY)) {
+    // Only the patch namespace has sections; master/track rows are not one.
+    if (!path.startsWith('patch.')) continue;
     const [, section] = path.split('.');
     if (!seen.includes(section)) seen.push(section);
   }

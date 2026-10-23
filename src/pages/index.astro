@@ -907,6 +907,15 @@ const VOICES: Record<string, [string, string][]> = {
             </div>
             <div class="dial-slot" id="reverb-tail-dial"></div>
           </div>
+
+          <!-- v0.0.254: tape-style saturation on the whole mix. Shown only
+               where the engine sanitiser keeps a drive (probe below). -->
+          <div class="control simple-dial" id="dial-drive" hidden>
+            <div class="control-label-row">
+              <label for="drive" class="panel-label">Drive</label>
+            </div>
+            <div class="dial-slot" id="drive-dial"></div>
+          </div>
           </div>
         </div>
         <div class="dial-info-row" id="advanced-dials-info"></div>
@@ -2328,6 +2337,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      */
     function normaliseV6Tracks(s) {
       s.swing = clamp(typeof s.swing === 'number' && Number.isFinite(s.swing) ? s.swing : 0, 0, 1);
+      // v0.0.254: the master Drive — sparse, present only while above 0.
+      if (typeof s.drive === 'number' && Number.isFinite(s.drive) && s.drive > 0) s.drive = clamp(s.drive, 0, 1);
+      else delete s.drive;
       s.harmony = isPlainObject(s.harmony) ? s.harmony : {};
       s.harmony.rhythm = CHORD_LENGTHS.includes(s.harmony.rhythm) ? s.harmony.rhythm : 'auto';
       // v0.0.241: chord length in beats — sparse, a whole number of beats.
@@ -2397,6 +2409,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         } else {
           delete t.padBreath;
         }
+        // v0.0.254: the track's Drive — sparse, as the engine stores it:
+        // present only while above 0.
+        if (typeof t.drive === 'number' && Number.isFinite(t.drive) && t.drive > 0) t.drive = clamp(t.drive, 0, 1);
+        else delete t.drive;
         const vary = isPlainObject(t.vary) ? t.vary : {};
         t.vary = defaultVary();
         for (const [key] of VARY_KEYS) {
@@ -2657,7 +2673,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * wrong fix — it would warn on every link minted from here on, including
      * the ones nothing was added to.
      */
-    const SHARE_SCHEMA_LATEST = 2;
+    // v0.0.254: 3 — a link carrying a Drive (master or any track). A pre-249
+    // build would play it clean and say nothing; the stamp makes it say so.
+    const SHARE_SCHEMA_LATEST = 3;
+    /** The stamp the v0.0.171 keys (and a carried genre, v0.0.181) take. */
+    const SHARE_SCHEMA_ROUTED = 2;
     const SHARE_VERSION_KEY = 'v';
 
     /**
@@ -2686,7 +2706,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // link would play with only the chord rules — so it carries the stamp.
       const essenceRuled = isPlainObject(params.genreRules)
         && ['bpm', 'swing', 'timeSignatures', 'modes', 'harmonicRhythm', 'energyArc', 'extensionBias', 'dissonanceRange', 'densityBias', 'reverbTail', 'perTrack'].some((k) => params.genreRules[k] !== undefined);
-      return routed || sampled || lfoSet || macroSet || essenceRuled ? SHARE_SCHEMA_LATEST : SHARE_SCHEMA;
+      const driven = (typeof params.drive === 'number' && params.drive > 0)
+        || (isPlainObject(params.tracks) && Object.values(params.tracks)
+          .some((t) => isPlainObject(t) && typeof t.drive === 'number' && t.drive > 0));
+      if (driven) return SHARE_SCHEMA_LATEST;
+      return routed || sampled || lfoSet || macroSet || essenceRuled ? SHARE_SCHEMA_ROUTED : SHARE_SCHEMA;
     }
 
     /** True when the link this visit arrived on was minted by a newer build. */
@@ -3288,6 +3312,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             enginePadBreath = clamp(p.padBreath, 0, 1);
           }
         } catch {}
+      }
+
+      // v0.0.254: opt-in saturation. A sanitiser that keeps a master drive
+      // AND a track drive is an engine that builds the stage; one that drops
+      // either renders no Drive dial rather than a dial that does nothing.
+      {
+        const probed = probeParams({ drive: 0.5, tracks: { [TRACK_IDS[0]]: { drive: 0.5 } } });
+        engineCaps.drive = isPlainObject(probed) && probed.drive === 0.5
+          && isPlainObject(probed.tracks) && probed.tracks[TRACK_IDS[0]]?.drive === 0.5;
       }
 
       const { prefs, consentPrompt } = await loadPrefsModule();
@@ -3949,6 +3982,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       let volumeDial = null;
       let swingDial = null;
       let reverbTailDial = null;
+      let driveDial = null;
       let processorDial = null;
       const rootSelect = document.getElementById('root');
       const modeSelect = document.getElementById('mode');
@@ -4003,6 +4037,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           for (const t of Object.values(p.tracks)) {
             if (!t || typeof t !== 'object') continue;
             t.sequencerAdvance = t.sequencerAdvance === 'chain' ? 'chain' : null;
+            // v0.0.254: Drive is sparse in the engine too — absent keeps a
+            // stored one — so a load without it says 0 out loud, or the last
+            // piece's saturation would ride along under this one.
+            t.drive = typeof t.drive === 'number' && t.drive > 0 ? t.drive : 0;
           }
           // The motif rule is sparse in the engine, which KEEPS a stored one
           // when the key is missing - so a load of a piece without one (a
@@ -4017,6 +4055,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // through the governor's tier cap (same policy as the density scale
         // on track levels — never overwrite what the user chose).
         if (typeof p.reverbTail === 'number') p.reverbTail = cappedReverbTail();
+        // v0.0.254: the master Drive, by the same law as the track ones.
+        p.drive = typeof p.drive === 'number' && p.drive > 0 ? p.drive : 0;
         // "Chord loop as voiced": the voicing and the loop rule are stated on
         // EVERY push, as the genre tag is — the sanitiser keeps a stored one
         // when the key is missing, so a preset or link without them would
@@ -6381,6 +6421,56 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             'Vary the tail')
         );
         applyReverbTail();
+      }
+
+      // ---- v0.0.254 Drive: the words and readout both Drive dials share ------
+      // (declared here, ahead of the master dial, so neither reads them early).
+      const DRIVE_REFUSED_WORDS = 'Drive holds one steady value — a saturation that wandered bar to bar ' +
+        'would pump the tone. Drag it up or down to set how warm it is.';
+      const driveFormat = (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off');
+
+      /** A master/track registry row's words, or '' when the bundle has none. */
+      function registryRowHint(path) {
+        const table = engineModule && engineModule.PARAM_REGISTRY;
+        const row = table ? table[path] : null;
+        return row && typeof row.hint === 'string' ? row.hint : '';
+      }
+
+      // ---- v0.0.254 master Drive (global; Advanced → Sound, behind "more") --
+      // Tape-style saturation on the whole mix. 0 is off and builds nothing in
+      // the engine; turning it up fades the stage in (the engine ramps every
+      // move — see ambient-engine.js § opt-in saturation). One value, not a
+      // spread: a drive that wandered bar to bar would pump the tone, and the
+      // dial SAYS so when it is dragged sideways rather than silently refusing.
+      if (engineCaps.drive) {
+        const control = document.getElementById('dial-drive');
+        if (control) control.hidden = false;
+        const stored = typeof settings.drive === 'number' && Number.isFinite(settings.drive)
+          ? clamp(settings.drive, 0, 1) : 0;
+        driveDial = buildSimpleDial(
+          'drive-dial',
+          {
+            id: 'drive',
+            label: 'Drive',
+            min: 0,
+            max: 1,
+            step: 0.01,
+            value: stored,
+            format: driveFormat,
+            parse: pctParse,
+            defaultValue: 0,
+            allowRange: false,
+            onRangeRefused: () => sayUnderDials(DRIVE_REFUSED_WORDS, undefined, { hold: true }),
+          },
+          (value) => {
+            const v = clamp(rangeMid(value), 0, 1);
+            if (v > 0) settings.drive = v;
+            else delete settings.drive;
+            engine.setParams({ drive: v });
+            persistSettings();
+          }
+        );
+        describe(driveDial.el, dialHint('Saturated', 'Off', null, registryRowHint('master.drive'), null));
       }
 
       // ---- v21 chord length (harmony.rhythm; Advanced tab, near Structure) --
@@ -8995,6 +9085,80 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         wrap.append(labelRow, input);
         row.append(wrap);
         describe(input, PAD_BREATH_HINT);
+      }
+
+      // ---- v0.0.254 Drive (every track's editor, in its feel row) ---------
+      // The same dial as the master's, on this track alone: 0 is off (no
+      // stage built), and the engine fades the saturation in and out. Sparse
+      // in settings exactly as in the engine — opening an editor writes
+      // nothing, so it can never read as an edit.
+      function buildDriveControl(row, track, knobs) {
+        if (!engineCaps.drive || !isPlainObject(settings.tracks[track])) return;
+        const stored = typeof settings.tracks[track].drive === 'number' && Number.isFinite(settings.tracks[track].drive)
+          ? clamp(settings.tracks[track].drive, 0, 1) : 0;
+        const hint = dialHint('Saturated', 'Off', null, registryRowHint('track.drive'), null);
+        const commitDrive = (value) => {
+          const v = clamp(rangeMid(value), 0, 1);
+          if (!isPlainObject(settings.tracks[track])) return;
+          if (v > 0) settings.tracks[track].drive = v;
+          else delete settings.tracks[track].drive;
+          engine.setParams({ tracks: { [track]: { drive: v } } });
+          persistSettings();
+        };
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = 'knob-cell drive-knob';
+          cell.dataset.trackField = 'drive';
+          row.append(cell);
+          try {
+            const handle = knobApi.createKnob(cell, {
+              label: 'Drive',
+              min: 0,
+              max: 1,
+              step: 0.01,
+              value: stored,
+              format: driveFormat,
+              parse: pctParse,
+              defaultValue: 0,
+              allowRange: false,
+              onRangeRefused: () => sayUnderDials(DRIVE_REFUSED_WORDS, undefined, { hold: true }),
+              onInput: commitDrive,
+            });
+            describe(handle.el, hint);
+            if (knobs) knobs.push(handle);
+            return;
+          } catch {
+            cell.remove();
+          }
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'control ve-control';
+        wrap.dataset.trackField = 'drive';
+        const id = `drive-${track}`;
+        const labelRow = document.createElement('div');
+        labelRow.className = 'control-label-row';
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = 'Drive';
+        const readout = document.createElement('span');
+        readout.className = 'value-readout';
+        readout.textContent = driveFormat(stored);
+        labelRow.append(label, readout);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.id = id;
+        input.min = '0';
+        input.max = '1';
+        input.step = '0.01';
+        input.value = String(stored);
+        input.addEventListener('input', () => {
+          const v = parseFloat(input.value);
+          readout.textContent = driveFormat(v);
+          commitDrive(v);
+        });
+        wrap.append(labelRow, input);
+        row.append(wrap);
+        describe(input, hint);
       }
 
       // ---- v6: shared step sequencer ------------------------------------
@@ -13896,6 +14060,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // per-track copy already hidden, not hide it a frame later.
         applyScopeVisibility();
         buildPadBreathControl(feelRow, track, ed.knobs);
+        // v0.0.254: the track's saturation, a dial like the others in its row.
+        buildDriveControl(feelRow, track, ed.knobs);
         if (!feelRow.childElementCount) feelRow.remove();
 
         // v6 step sequencer at the top of the pulsed tracks' panels. Arp
@@ -23758,9 +23924,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const payload = sharePayload();
           // v0.0.181: a link carrying a genre takes the latest stamp — a
           // pre-181 build reads past the genre and plays the diff on defaults.
+          const schemaOfParams = shareSchemaFor(paramsSnapshot(), engineModule && engineModule.DEFAULT_PARAMS);
           const schema = payload[SHARE_GENRE_KEY]
-            ? SHARE_SCHEMA_LATEST
-            : shareSchemaFor(paramsSnapshot(), engineModule && engineModule.DEFAULT_PARAMS);
+            ? Math.max(SHARE_SCHEMA_ROUTED, schemaOfParams)
+            : schemaOfParams;
           const fragment = `${SHARE_PARAM}=${encodeShareParams(payload, schema)}`;
           url = `${SHARE_BASE}#${fragment}`;
           // The same fragment the receiver's browser will hash on arrival, so
@@ -24273,6 +24440,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           reverbTailDial.set(settings.reverbTail);
           applyReverbTail();
         }
+        driveDial?.set(typeof settings.drive === 'number' ? settings.drive : 0);
         rootSelect.value = settings.root;
         modeSelect.value = settings.mode;
         {

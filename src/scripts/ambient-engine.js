@@ -2638,6 +2638,10 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
     // inherits the stored value) decides what that number is.
     const autoThreshold = nullableNumber(partial, baseTrack, 'autoThreshold', [0, 1]);
     if (autoThreshold !== null) track.autoThreshold = autoThreshold;
+    // v0.0.254: the track's Drive — sparse like the master's (0/null is off
+    // and never stored; a sent number replaces; junk or absence inherits).
+    const drive = driveOf(partial ? partial.drive : undefined, driveOf(baseTrack.drive));
+    if (drive > 0) track.drive = drive;
     // The motif rule (melody only): sparse like the voice rule — the key
     // (even null) replaces, its absence inherits, so a piece that never set
     // either reads back byte-identical.
@@ -3363,6 +3367,13 @@ export function sanitiseParams(partial, base = DEFAULT_PARAMS, order = TRACK_ORD
     const asked = at('tempoLanding');
     const inherited = from.tempoLanding === 'bar' ? 'bar' : 'beat';
     out.tempoLanding = asked === 'beat' || asked === 'bar' ? asked : inherited;
+  }
+  // v0.0.254: master Drive — sparse. 0 (or null) is "off" and is never
+  // stored, so a piece that never touched it reads back byte-identical;
+  // anything unusable keeps the stored value.
+  {
+    const drive = driveOf(at('drive'), driveOf(from.drive));
+    if (drive > 0) out.drive = drive;
   }
   out.root = normaliseRoot(at('root')) ?? normaliseRoot(from.root) ?? DEFAULT_PARAMS.root;
   out.mode = oneOf(at('mode'), Object.keys(SCALES), oneOf(from.mode, Object.keys(SCALES), DEFAULT_PARAMS.mode));
@@ -5116,6 +5127,198 @@ function createImpulseResponse(ctx, seconds = 4, decay = REVERB_DECAY, rng = Mat
   return buffer;
 }
 
+// ---------------------------------------------------------------------------
+// v0.0.254 — opt-in saturation: a tape/console-style waveshaper with a Drive
+// amount on the master and on every track (TODO.md "saturation on track and
+// master"; "default-sound improvements that are actually cheap").
+//
+// SPARSE BY CONTRACT. Drive absent or 0 builds NOTHING: buildGraph and
+// createTrackChain are untouched, so every piece that never turns a Drive up
+// renders the graph — and the samples — it always has (audio-reference holds
+// that line). The stage is built lazily, the first time a Drive goes above 0.
+//
+// THE CURVE. y(u) = tanh(u + b) − tanh(b), b = DRIVE_BIAS. tanh is the smooth
+// odd saturator every console/tape model starts from (odd harmonics); the
+// small bias tilts it so the two halves of the wave flatten at slightly
+// different heights, which is where the even, "warm" harmonics come from. It
+// is strictly monotonic (tanh is) and passes through 0 at 0, so silence stays
+// silence. The WaveShaper's curve spans u in [−DRIVE_CURVE_SPAN, +SPAN]; at
+// the curve's ends tanh is flat to 1e-6, so the clamp the node applies past
+// its input range adds no corner. Oversampled 4x on the master and 2x on a
+// track (a track stage is one of up to six), so the harmonics the curve makes
+// above Nyquist are filtered rather than folded back. The asymmetry also
+// makes a little DC; a 10 Hz high-pass on the wet path takes it out before it
+// reaches the compressor and limiter.
+//
+// THE LAW. Drive d in [0, 1] sets how hard a reference sine (peak
+// DRIVE_REFERENCE = −30 dBFS — where this material actually sits: measured
+// on node-web-audio-api, the stock voices at velocity 0.8 times their track
+// gains land −40 to −28 dBFS at a track's input, and the v0.0.69 bus reading
+// was −33 dBFS peak) is pushed into the curve: u_peak = DRIVE_REFERENCE ·
+// 10^((DRIVE_FLOOR_DB + d · DRIVE_RANGE_DB) / 20), so 0.25 (nearly clean)
+// just above 0 and ~4 (deep saturation) at 1. The pre-gain into the shaper is that push over the
+// curve's span. The POST-gain is the inverse of what the stage does to the
+// reference sine's RMS: post = rms(ref) / rms(y(pushed ref) minus its DC). So
+// a sine at the reference level leaves at the SAME RMS at every drive
+// (tests/saturation-smoke.mjs measures it), which is what "the level must not
+// jump as Drive rises" means for a level-matched saturator. Quieter material
+// is lifted a little and louder material held down a little as drive rises —
+// that is saturation's compression, not a level jump.
+//
+// THE RAMP. The stage never interrupts the dry path. It is built beside it:
+//   from ──────────────────────────────────────────► to   (today's wire)
+//   from ─► pre ─► shaper ─► post ─► dc ─► wet(w) ─► to
+//   from ─► cancel(−w) ───────────────────────────► to
+// so `to` hears x + w·sat(x) − w·x = (1 − w)·x + w·sat(x): a dry/wet
+// crossfade whose dry half is the untouched original wire. w is born 0 and
+// moves only by setTargetAtTime, so the first turn of the dial fades the
+// saturation in; returning the dial to 0 fades it back out (the nodes stay,
+// silent and exact — at w = 0 both branches add zeros). Drive changes while
+// it sounds move pre and post by setTargetAtTime too. No setValueAtTime, no
+// disconnect and no reconnect, ever, on a sounding path.
+// ---------------------------------------------------------------------------
+
+export const DRIVE_REFERENCE = Math.pow(10, -30 / 20);
+export const DRIVE_FLOOR_DB = 18;
+export const DRIVE_RANGE_DB = 24;
+export const DRIVE_BIAS = 0.12;
+export const DRIVE_CURVE_SPAN = 8;
+const DRIVE_CURVE_POINTS = 4097;
+/** setTargetAtTime constant for every drive move: ~95% there in 0.15 s. */
+export const DRIVE_GLIDE = 0.05;
+const DRIVE_DC_HZ = 10;
+
+/** The saturator itself, on the curve's own axis u. */
+export function driveShape(u) {
+  return Math.tanh(u + DRIVE_BIAS) - Math.tanh(DRIVE_BIAS);
+}
+
+let driveCurveCache = null;
+/** The WaveShaper curve: driveShape over u in [−SPAN, SPAN], an odd point count so 0 is a sample. */
+export function driveCurve() {
+  if (driveCurveCache) return driveCurveCache;
+  const curve = new Float32Array(DRIVE_CURVE_POINTS);
+  const half = (DRIVE_CURVE_POINTS - 1) / 2;
+  for (let i = 0; i < DRIVE_CURVE_POINTS; i++) {
+    curve[i] = driveShape(((i - half) / half) * DRIVE_CURVE_SPAN);
+  }
+  driveCurveCache = curve;
+  return curve;
+}
+
+/**
+ * The documented law: the pre-gain into the shaper and the post-gain after
+ * it, for a drive in (0, 1]. Pure and deterministic (a 256-point sine), so
+ * the smoke test recomputes it and the engine cannot quietly drift from it.
+ */
+export function driveLaw(drive) {
+  const d = Math.min(1, Math.max(0, Number(drive) || 0));
+  const push = Math.pow(10, (DRIVE_FLOOR_DB + d * DRIVE_RANGE_DB) / 20);
+  const pre = push / DRIVE_CURVE_SPAN;
+  const N = 256;
+  let sum = 0;
+  let sumSq = 0;
+  for (let i = 0; i < N; i++) {
+    const y = driveShape(push * DRIVE_REFERENCE * Math.sin((2 * Math.PI * i) / N));
+    sum += y;
+    sumSq += y * y;
+  }
+  const mean = sum / N;
+  const rmsOut = Math.sqrt(Math.max(sumSq / N - mean * mean, 1e-30));
+  const rmsIn = DRIVE_REFERENCE / Math.SQRT2;
+  return { pre, post: rmsIn / rmsOut };
+}
+
+/** A drive as stored: a number in [0, 1]; null clears to 0, junk keeps the fallback. */
+function driveOf(value, fallback = 0) {
+  if (value === null) return 0;
+  if (value === undefined || value === '' || typeof value === 'object' || typeof value === 'boolean') return fallback;
+  const num = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(1, Math.max(0, num));
+}
+
+// Keyed by the node a stage hangs off (graph.master, or a chain's input), so
+// a rebuilt context or a dropped chain takes its stage with it.
+const DRIVE_STAGES = new WeakMap();
+
+/** Build a silent stage beside the from → to wire (see THE RAMP above). */
+function createDriveStage(ctx, from, to, oversample, drive) {
+  const law = driveLaw(drive);
+  // Plain .value writes are safe ONLY here: the whole branch is silent until
+  // wet/cancel move, and they are born at 0.
+  const pre = ctx.createGain();
+  pre.gain.value = law.pre;
+  const shaper = ctx.createWaveShaper();
+  shaper.curve = driveCurve();
+  shaper.oversample = oversample;
+  const post = ctx.createGain();
+  post.gain.value = law.post;
+  const dc = ctx.createBiquadFilter();
+  dc.type = 'highpass';
+  dc.frequency.value = DRIVE_DC_HZ;
+  dc.Q.value = Math.SQRT1_2;
+  const wet = ctx.createGain();
+  wet.gain.value = 0;
+  const cancel = ctx.createGain();
+  cancel.gain.value = 0;
+  from.connect(pre);
+  pre.connect(shaper);
+  shaper.connect(post);
+  post.connect(dc);
+  dc.connect(wet);
+  wet.connect(to);
+  from.connect(cancel);
+  cancel.connect(to);
+  const stage = { pre, shaper, post, dc, wet, cancel, drive: 0 };
+  DRIVE_STAGES.set(from, stage);
+  return stage;
+}
+
+/**
+ * Bring one stage into line with a drive: nothing at all while it is 0 and no
+ * stage exists; otherwise every move is a setTargetAtTime glide.
+ */
+function applyDriveStage(ctx, from, to, oversample, drive, time) {
+  let stage = DRIVE_STAGES.get(from);
+  if (!stage) {
+    if (!(drive > 0)) return null;
+    stage = createDriveStage(ctx, from, to, oversample, drive);
+  }
+  if (stage.drive === drive) return stage;
+  if (drive > 0) {
+    const law = driveLaw(drive);
+    stage.pre.gain.setTargetAtTime(law.pre, time, DRIVE_GLIDE);
+    stage.post.gain.setTargetAtTime(law.post, time, DRIVE_GLIDE);
+    stage.wet.gain.setTargetAtTime(1, time, DRIVE_GLIDE);
+    stage.cancel.gain.setTargetAtTime(-1, time, DRIVE_GLIDE);
+  } else {
+    // Out by the same crossfade; pre/post keep their last law, so a dial
+    // turned back up fades in from exactly the colour it faded out with.
+    stage.wet.gain.setTargetAtTime(0, time, DRIVE_GLIDE);
+    stage.cancel.gain.setTargetAtTime(0, time, DRIVE_GLIDE);
+  }
+  stage.drive = drive;
+  return stage;
+}
+
+/**
+ * The stage as a standalone seam — the same function the engine calls — so a
+ * test can render a sine through it on a real (offline) Web Audio context and
+ * measure the harmonics and the level, rather than trusting the arithmetic.
+ */
+export const connectDriveStage = applyDriveStage;
+
+/** Unwire a stage whose host chain is being dropped. */
+function dropDriveStage(from) {
+  const stage = DRIVE_STAGES.get(from);
+  if (!stage) return;
+  for (const key of ['pre', 'shaper', 'post', 'dc', 'wet', 'cancel']) {
+    try { stage[key].disconnect(); } catch { /* already gone */ }
+  }
+  DRIVE_STAGES.delete(from);
+}
+
 /**
  * One track's chain — input → tone → dry, both sends and an analyser — wired
  * into a graph that already exists.
@@ -5159,6 +5362,7 @@ function createTrackChain(ctx, graph, mix) {
 
 /** Unwire a retired track's chain: nothing downstream may still hear it. */
 function dropTrackChain(chain) {
+  if (chain && chain.input) dropDriveStage(chain.input);
   for (const node of Object.values(chain)) {
     try {
       node.disconnect();
@@ -6860,10 +7064,30 @@ export function createEngine(initialParams, options = {}) {
 
     applyTracks(rampSeconds);
     applySends(rampSeconds);
+    applyDrive(now);
 
     // Feedback rises a little with complexity but never past the safe ceiling.
     const feedback = 0.18 + params.complexity * 0.17;
     graph.feedback.gain.setTargetAtTime(clamp(feedback, 0, 0.35), now, 0.2);
+  }
+
+  /**
+   * v0.0.254: every Drive stage into line with params — the master's between
+   * the headroom trim and the glue compressor (so the compressor and limiter
+   * still catch what it adds), each track's between its input and its tone
+   * filter (so the track's own brightness tames the harmonics, as tape's
+   * roll-off does). A Drive of 0 with no stage built is a no-op.
+   */
+  function applyDrive(time) {
+    if (!ctx || !graph) return;
+    const at = time ?? ctx.currentTime;
+    applyDriveStage(ctx, graph.master, graph.compressor, '4x', driveOf(params.drive), at);
+    for (const name of trackOrder()) {
+      const chain = graph.tracks[name];
+      const track = params.tracks[name];
+      if (!chain || !track) continue;
+      applyDriveStage(ctx, chain.input, chain.tone, '2x', driveOf(track.drive), at);
+    }
   }
 
   function retuneDelay(time, secPerBeat) {

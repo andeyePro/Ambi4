@@ -127,6 +127,7 @@ node tests/power-smoke.mjs         # the governor
 node tests/prefs-smoke.mjs         # consent + persistence
 node tests/share-name-smoke.mjs    # three-word link names
 node tests/energy-measure.mjs      # the Energy dial's own measurements
+node tests/saturation-smoke.mjs    # opt-in Drive: no nodes at 0, the curve, the law, the ramps
 node tests/content-check.mjs       # playlist frontmatter against the schema
 node tests/wav-export-smoke.mjs    # Save as WAV: the encoder's bytes and the tap
 npm run build && node tests/tutorial-smoke.mjs   # the guided tour
@@ -1416,3 +1417,28 @@ ruling). To see it: `localStorage.setItem('ambi4:dev','1')`, then refresh.
       ScriptProcessor" rather than throwing). That a real AudioWorklet hands
       over the same samples is the manual pass above: nothing in Node or jsdom
       runs an audio thread.
+## v0.0.254 delta — opt-in saturation (Drive, master and track)
+
+- [ ] Any piece, playing: Advanced → Sound → more shows a Drive dial beside
+      Reverb tail, reading "Off". Every voice editor's feel row has its own
+      Drive dial, also "Off". At Off nothing about the sound has changed.
+- [ ] Turn the master Drive up slowly from Off while it plays: the mix warms
+      and thickens; there is no click, thump or jump in level as it engages
+      (it fades in over ~0.15 s), and the overall level stays roughly where
+      it was as it rises. Back to Off fades it out the same way.
+- [ ] One track's Drive (the bass is easiest to hear): only that track
+      changes; the others are untouched. Back to Off, same fade.
+- [ ] Drag either Drive dial sideways: it does not spread, and the line under
+      the dials says why (a wandering drive would pump the tone).
+- [ ] Share a link with a Drive set, open it in a fresh tab: both Drive
+      values arrive. Load a preset afterwards: its Drives read Off again.
+- [ ] Recipe: with a Drive set the recipe names "Master drive" / "<Track>
+      drive"; at Off it names neither.
+- [ ] Automated: `node tests/saturation-smoke.mjs` (the whole graph is
+      identical at 0; a 4x/2x waveshaper beside the original wire above 0;
+      the compensation law re-measured off the curve the node holds; every
+      move a setTargetAtTime with no step or disconnect) and page-boot (both
+      dials reach the ENGINE, and 0 clears). The level and harmonics table in
+      docs/engine-v2-contract.md § Opt-in saturation is measured on real Web
+      Audio.
+

@@ -46,6 +46,34 @@ function readPatch(sanitised, section, field) {
   return sanitised.patches?.[TRACK]?.[VOICE]?.[section]?.[field];
 }
 
+/**
+ * v0.0.249: the registry grew its first rows outside the patch namespace —
+ * `master.<field>` (a top-level param) and `track.<field>` (the same field on
+ * every track). The partial each path lives at, and its value read back.
+ */
+function partialFor(path, value) {
+  const [scope, a, b] = path.split('.');
+  if (scope === 'patch') return patchPartial(a, b, value);
+  if (scope === 'master') return { [a]: value };
+  if (scope === 'track') return { tracks: { [TRACK]: { [a]: value } } };
+  throw new Error(`${path}: no partial for scope '${scope}'`);
+}
+
+/**
+ * `raw` is what is stored. Without it, a master/track row reads its SPARSE
+ * meaning: those rows are absent at 0 (nothing stored, nothing built), so an
+ * absent key reads as the row's domain floor.
+ */
+function readBack(sanitised, path, { raw = false } = {}) {
+  const [scope, a, b] = path.split('.');
+  let got;
+  if (scope === 'patch') return readPatch(sanitised, a, b);
+  if (scope === 'master') got = sanitised[a];
+  else if (scope === 'track') got = sanitised.tracks?.[TRACK]?.[a];
+  if (got === undefined && !raw) return PARAM_REGISTRY[path].domain[0];
+  return got;
+}
+
 // --------------------------------------------------------------------------
 // 1 + 3 + 4 — every registry row, driven through sanitiseParams: domain
 // round-trip, both-direction clamp, span legality (real, via isRangeable —
@@ -53,31 +81,30 @@ function readPatch(sanitised, section, field) {
 // --------------------------------------------------------------------------
 
 for (const [path, row] of Object.entries(PARAM_REGISTRY)) {
-  const [, section, field] = path.split('.');
 
   if (row.kind === 'number') {
     const [lo, hi] = row.domain;
 
     test(`${path}: a mid-domain value round-trips unchanged`, () => {
       const mid = row.integer ? Math.round((lo + hi) / 2) : (lo + hi) / 2;
-      const out = sanitiseParams(patchPartial(section, field, mid));
-      const got = readPatch(out, section, field);
+      const out = sanitiseParams(partialFor(path, mid));
+      const got = readBack(out, path);
       assert.equal(got, mid,
         `${path}: mid-domain value ${mid} (domain [${lo}, ${hi}]) must survive sanitiseParams unchanged, got ${got}`);
     });
 
     test(`${path}: a value above domain[1] clamps to ${hi}`, () => {
       const over = hi + 1;
-      const out = sanitiseParams(patchPartial(section, field, over));
-      const got = readPatch(out, section, field);
+      const out = sanitiseParams(partialFor(path, over));
+      const got = readBack(out, path);
       assert.equal(got, hi,
         `${path}: ${over} is above the domain [${lo}, ${hi}] and must clamp to ${hi}, got ${got}`);
     });
 
     test(`${path}: a value below domain[0] clamps to ${lo}`, () => {
       const under = lo - 1;
-      const out = sanitiseParams(patchPartial(section, field, under));
-      const got = readPatch(out, section, field);
+      const out = sanitiseParams(partialFor(path, under));
+      const got = readBack(out, path);
       assert.equal(got, lo,
         `${path}: ${under} is below the domain [${lo}, ${hi}] and must clamp to ${lo}, got ${got}`);
     });
@@ -85,8 +112,8 @@ for (const [path, row] of Object.entries(PARAM_REGISTRY)) {
     test(`${path}: rangeable (${isRangeable(path)}) decides whether a {min,max} span is legal`, () => {
       const spanMin = lo + (hi - lo) * 0.25;
       const spanMax = lo + (hi - lo) * 0.75;
-      const out = sanitiseParams(patchPartial(section, field, { min: spanMin, max: spanMax }));
-      const got = readPatch(out, section, field);
+      const out = sanitiseParams(partialFor(path, { min: spanMin, max: spanMax }));
+      const got = readBack(out, path, { raw: true });
       if (isRangeable(path)) {
         assert.ok(got && typeof got === 'object',
           `${path}: rangeable is true (domain [${lo}, ${hi}]) so a span [${spanMin}, ${spanMax}] must survive, got ${JSON.stringify(got)}`);
@@ -111,8 +138,8 @@ for (const [path, row] of Object.entries(PARAM_REGISTRY)) {
         // shipping without that same rounding.
         const rawMin = lo + 0.4;
         const rawMax = hi - 0.4;
-        const out = sanitiseParams(patchPartial(section, field, { min: rawMin, max: rawMax }));
-        const got = readPatch(out, section, field);
+        const out = sanitiseParams(partialFor(path, { min: rawMin, max: rawMax }));
+        const got = readBack(out, path);
         assert.deepEqual(got, { min: Math.round(rawMin), max: Math.round(rawMax) },
           `${path}: span ends [${rawMin}, ${rawMax}] (domain [${lo}, ${hi}]) must round to [${Math.round(rawMin)}, ${Math.round(rawMax)}], got ${JSON.stringify(got)}`);
       });
@@ -120,8 +147,8 @@ for (const [path, row] of Object.entries(PARAM_REGISTRY)) {
   } else if (row.kind === 'enum') {
     test(`${path}: every one of its own enum values round-trips`, () => {
       for (const value of row.domain) {
-        const out = sanitiseParams(patchPartial(section, field, value));
-        const got = readPatch(out, section, field);
+        const out = sanitiseParams(partialFor(path, value));
+        const got = readBack(out, path);
         assert.equal(got, value,
           `${path}: enum value '${value}' (legal values [${row.domain.join(', ')}]) must survive sanitiseParams, got ${JSON.stringify(got)}`);
       }
@@ -129,8 +156,8 @@ for (const [path, row] of Object.entries(PARAM_REGISTRY)) {
 
     test(`${path}: a value outside its enum is dropped`, () => {
       const bogus = '__registry_contract_not_a_real_value__';
-      const out = sanitiseParams(patchPartial(section, field, bogus));
-      const got = readPatch(out, section, field);
+      const out = sanitiseParams(partialFor(path, bogus));
+      const got = readBack(out, path);
       assert.equal(got, undefined,
         `${path}: '${bogus}' is not one of [${row.domain.join(', ')}] and must be dropped, got ${JSON.stringify(got)}`);
     });
@@ -139,8 +166,8 @@ for (const [path, row] of Object.entries(PARAM_REGISTRY)) {
       // An enum has no numeric axis for a span's own bounds to mean anything
       // along, so the values chosen here are arbitrary — what matters is that
       // the sanitiser drops the field entirely rather than storing something.
-      const out = sanitiseParams(patchPartial(section, field, { min: 0, max: 1 }));
-      const got = readPatch(out, section, field);
+      const out = sanitiseParams(partialFor(path, { min: 0, max: 1 }));
+      const got = readBack(out, path);
       assert.equal(isRangeable(path), false,
         `${path}: D9 says every enum row is non-rangeable, but isRangeable() disagrees`);
       assert.equal(got, undefined,

@@ -47,6 +47,9 @@ Six tracks, fixed order and ids: `pad`, `bass`, `melody`, `texture`, `arp`, `per
                            // the law shorter metres have always had.
   bpm: 60,                 // 20–220 (widened at v0.0.71 when tempo left Energy)
   volume: 0.8,             // 0–1
+  // drive: 0.3,           // v0.0.254, SPARSE: master saturation 0–1 (absent/0/null =
+                           // off, no node built); tracks.<id>.drive the same per track.
+                           // See "Opt-in saturation" below.
   structure: 'auto',       // 'auto'|'drone'|'waves'|'build'|'abab'|'journey'|'custom'
                            // 'auto' = engine picks a preset from complexity
   customStructure: [       // used only when structure === 'custom'
@@ -3101,3 +3104,93 @@ transforms its LENGTH, in one direction, audibly, on purpose.
   the arp's pitches, the phase copy stays inside the cell, null stops it, and
   no stock genre compiles it. `tests/page-boot.mjs` types into the dial and
   picks the Shape and reads both off the ENGINE.
+
+## Opt-in saturation (v0.0.254)
+
+TODO.md "Later — saturation on track and master" and "Default-sound
+improvements that are actually cheap": a tape/console-style waveshaper with a
+Drive amount on the master and on every track. Deterministic DSP, a few nodes,
+no download.
+
+- **Params.** `drive` (top level, the master) and `tracks.<id>.drive` (any
+  track, user tracks included): a number 0–1. **Sparse**: 0, null and
+  absence are the same value and none of them is stored, so a piece that
+  never turns a Drive up reads back byte-identical. A sent number clamps and
+  replaces; null or 0 clears; junk (a string, a boolean, a `{min,max}` span)
+  keeps the stored value. Not rangeable (registry rows `master.drive` and
+  `track.drive`, `rangeable: false` — the first rows outside the patch
+  namespace): a drive that wandered bar to bar would pump the tone, and a
+  span played as its midpoint would be a lying control. Both dials refuse
+  the sideways drag and SAY why, as Simple's Tempo does.
+- **No nodes at 0.** `buildGraph` and `createTrackChain` are untouched. A
+  stage is built lazily the first time its Drive goes above 0 on a live
+  context, and the graph of a piece at 0 is node-for-node and edge-for-edge
+  today's (`tests/saturation-smoke.mjs` compares the whole recorded graph,
+  voices included). `tests/audio-reference.mjs` is unmoved.
+- **Where.** The master stage sits between `master` (the headroom trim) and
+  the glue compressor, so the compressor and limiter still catch what it
+  adds; oversample `'4x'`. A track's sits between its `input` and its `tone`
+  filter, so the track's own brightness rolls the new harmonics off as tape
+  does; oversample `'2x'` (a track stage is one of up to six).
+- **The curve.** `y(u) = tanh(u + b) − tanh(b)`, `b = 0.12`, over `u ∈ [−8,
+  8]` in 4097 points (odd, so 0 is a sample). tanh is the smooth odd
+  saturator (odd harmonics); the bias flattens the two half-waves at
+  slightly different heights, which is the even, "warm" second harmonic.
+  Strictly monotonic, `y(0) = 0`, the halves mirror within 25%, and flat at
+  both ends so the shaper's clamp past ±1 adds no corner. A 10 Hz high-pass
+  on the wet path takes out the DC the asymmetry makes.
+- **The level law.** Drive `d` pushes a reference sine of peak −30 dBFS
+  (`DRIVE_REFERENCE` — where this material sits: the stock voices at
+  velocity 0.8 times their track gains land −40 to −28 dBFS at a track's
+  input) to `u_peak = ref · 10^((18 + 24·d)/20)`: 0.25 (nearly clean) just
+  above 0, ~4 at 1. pre-gain = that push ÷ 8 (the curve's span); post-gain =
+  rms(ref) ÷ rms(y(pushed ref) minus its DC), so the reference leaves at the
+  level it arrived at, at every drive. `driveLaw(d)` is the law as code.
+  Measured on real Web Audio (node-web-audio-api, OfflineAudioContext, 375 Hz
+  sine through `connectDriveStage`, 4x):
+
+  | drive | −30 dBFS (ref) level · THD | −40 dBFS level · THD | −20 dBFS level · THD |
+  |---|---|---|---|
+  | 0.01 | 0.00 dB · 1.6% | +0.13 dB · 0.5% | −1.1 dB · 6.0% |
+  | 0.25 | 0.00 dB · 3.3% | +0.45 dB · 1.0% | −3.0 dB · 13.8% |
+  | 0.5 | 0.01 dB · 7.8% | +1.5 dB · 2.0% | −6.2 dB · 26.2% |
+  | 0.75 | 0.01 dB · 17.7% | +4.0 dB · 4.4% | −8.5 dB · 36.1% |
+  | 1 | 0.01 dB · 30.0% | +7.1 dB · 10.4% | −9.4 dB · 40.8% |
+
+  THD rises monotonically with drive at every level, and the second harmonic
+  is present throughout (1.5–4.5% at the reference). Off the reference the
+  stage compresses: quieter material is lifted and louder held down, more as
+  drive rises — saturation's character, not a level jump, and the glue
+  compressor sits after the master stage in any case. No static post-gain
+  can hold more than one level still.
+- **The ramp.** The stage is built BESIDE the original wire, never in it:
+  `from → to` stays connected; `from → pre → shaper → post → dc → wet → to`
+  and `from → cancel → to` are added, with `wet` and `cancel` born at 0 and
+  moved together (`cancel = −wet`). The destination hears `(1 − w)·x +
+  w·sat(x)`: a dry/wet crossfade whose dry half is the untouched wire. Every
+  move — fading in, fading out, a new Drive while it sounds (pre and post) —
+  is `setTargetAtTime` with τ = 0.05 s (~95% in 0.15 s). No `setValueAtTime`,
+  no disconnect, no reconnect on a sounding path; the only plain `.value`
+  writes are at creation, on a branch that is silent until `wet` moves.
+  Back at 0 the nodes stay, adding exact zeros (pre/post keep their last law,
+  so a dial turned back up fades in from the colour it faded out with); a
+  dropped track takes its stage with it. On real Web Audio a 0 → 1 switch
+  mid-sine has no sample-to-sample step larger than the steady saturated
+  sine's own.
+- **UI.** Master: a Drive dial in Advanced → Sound, behind its "more", beside
+  Reverb tail. Track: a Drive dial in every voice editor's feel row (beside
+  Dissonance, Drift, Swing, Density, Breath). Both read their tooltip from
+  the registry row, show "Off" at 0, and are hidden on an engine whose
+  sanitiser drops either drive. Settings keep drive sparse as the engine
+  does, and every whole-settings push states it (0 when unset), so a load
+  without one clears the last piece's.
+- **Share links** carry it like any track/master setting; a link carrying a
+  Drive is stamped schema 3, so a pre-249 build says it came from a newer
+  build rather than playing it clean in silence.
+- **Recipe.** `drive` ("Master drive") and `tracks.<id>.drive` ("<Track>
+  drive"), numbers, named only when non-zero.
+- Gated by `tests/saturation-smoke.mjs` (7 checks, 6 red on the v0.0.248
+  engine; the seventh, the identical graph at 0, is the invariant and passes
+  on both) and page-boot (both dials type a value that the
+  ENGINE then holds, and 0 clears it).
+
