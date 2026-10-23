@@ -13785,6 +13785,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           choose.className = 'secondary-button ve-sample-choose';
           choose.textContent = 'Choose a sound file…';
           describe(choose, 'Pick a recording of ONE note — a pluck, a pad, a whistle, a bell. The app measures its pitch, how it starts and fades, and its tone, then tries every voice on this track at that pitch and turns their dials until one measures closest. The file never leaves your browser and is not kept; only the dial settings are.');
+          const record = document.createElement('button');
+          record.type = 'button';
+          record.className = 'secondary-button ve-sample-record';
+          record.textContent = 'Record a note';
+          record.setAttribute('aria-pressed', 'false');
+          describe(record, 'Records one note from your microphone — up to four seconds, or press again to stop — and matches it exactly as a file is matched. The browser asks before it listens; nothing is kept or sent anywhere.');
           const stop = document.createElement('button');
           stop.type = 'button';
           stop.className = 'secondary-button ve-sample-stop';
@@ -13821,10 +13827,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           };
           stop.addEventListener('click', () => { if (running) running.cancelled = true; });
           choose.addEventListener('click', () => fileInput.click());
-          fileInput.addEventListener('change', async () => {
-            const file = fileInput.files && fileInput.files[0];
-            fileInput.value = '';
-            if (!file || running) return;
+          // One path for a chosen file and a recorded note: `source` names it
+          // and hands over its encoded bytes; the decoder does the rest.
+          const matchFrom = async (source) => {
+            if (!source || running) return;
             if (typeof OfflineAudioContext !== 'function') {
               matchAnswer.textContent = 'This browser cannot render sound offline, which the match needs. A current Chrome, Firefox or Safari can.';
               return;
@@ -13839,17 +13845,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const job = { cancelled: false };
             running = job;
             choose.disabled = true;
+            record.disabled = true;
             stop.hidden = false;
             try {
-              matchAnswer.textContent = `Listening to ${file.name}…`;
-              const bytes = await file.arrayBuffer();
+              matchAnswer.textContent = `Listening to ${source.name}…`;
+              const bytes = await source.bytes();
               const decoder = new OfflineAudioContext(1, 1, 44100);
               const decoded = await decoder.decodeAudioData(bytes);
               const channels = [];
               for (let c = 0; c < decoded.numberOfChannels; c++) channels.push(decoded.getChannelData(c));
               const target = sampleMatchApi.analyseSample(sampleMatchApi.mixDown(channels), decoded.sampleRate);
               if (!target) {
-                matchAnswer.textContent = 'That file is silent — nothing to match.';
+                matchAnswer.textContent = `That ${source.kind} is silent — nothing to match.`;
                 return;
               }
               const hidden = new Set(hiddenPrefs.voices || []);
@@ -13905,17 +13912,65 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               renderVoiceEditor(track);
               sayUnderDials(line);
             } catch (error) {
-              matchAnswer.textContent = 'That file could not be read as audio. WAV, MP3, OGG, FLAC and M4A all work in most browsers.';
+              matchAnswer.textContent = source.kind === 'file'
+                ? 'That file could not be read as audio. WAV, MP3, OGG, FLAC and M4A all work in most browsers.'
+                : 'This browser recorded the note in a form it cannot read back. Choose a sound file instead.';
             } finally {
               if (running === job) running = null;
               choose.disabled = false;
+              record.disabled = false;
               stop.hidden = true;
             }
+          };
+          fileInput.addEventListener('change', () => {
+            const file = fileInput.files && fileInput.files[0];
+            fileInput.value = '';
+            if (file) matchFrom({ name: file.name, kind: 'file', bytes: () => file.arrayBuffer() });
+          });
+
+          // Record a note: the microphone for up to four seconds (press again
+          // to stop sooner), then the same match. The browser asks first, as
+          // it always does; the stream is closed the moment the take ends,
+          // and the take is matched and dropped like a file.
+          let take = null;
+          const stopTake = () => { if (take && take.recorder.state === 'recording') take.recorder.stop(); };
+          record.addEventListener('click', async () => {
+            if (take) { stopTake(); return; }
+            if (running) return;
+            if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || typeof MediaRecorder !== 'function') {
+              matchAnswer.textContent = 'This browser cannot record from a microphone here. Choose a sound file instead.';
+              return;
+            }
+            let stream;
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+            } catch {
+              matchAnswer.textContent = 'No microphone — the browser was refused it, or there is none. Choose a sound file instead.';
+              return;
+            }
+            const chunks = [];
+            const recorder = new MediaRecorder(stream);
+            take = { recorder, timer: 0 };
+            recorder.addEventListener('dataavailable', (event) => { if (event.data && event.data.size) chunks.push(event.data); });
+            recorder.addEventListener('stop', () => {
+              clearTimeout(take && take.timer);
+              for (const t of stream.getTracks()) t.stop();
+              take = null;
+              record.textContent = 'Record a note';
+              record.setAttribute('aria-pressed', 'false');
+              const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+              matchFrom({ name: 'your note', kind: 'recording', bytes: () => blob.arrayBuffer() });
+            });
+            recorder.start();
+            take.timer = setTimeout(stopTake, 4000);
+            record.textContent = 'Stop recording';
+            record.setAttribute('aria-pressed', 'true');
+            matchAnswer.textContent = 'Recording — play or sing one note now. It stops by itself after four seconds.';
           });
           if (lastSampleMatch.has(track)) matchAnswer.textContent = lastSampleMatch.get(track);
           const matchButtons = document.createElement('div');
           matchButtons.className = 've-finder-words';
-          matchButtons.append(choose, stop);
+          matchButtons.append(choose, record, stop);
           matcher.append(matchLabel, fileInput, matchButtons, matchAnswer);
           moreBox.append(matcher);
         }

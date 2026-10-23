@@ -1858,6 +1858,17 @@ try {
           const said = await waitUntil(() => /cannot render sound offline/.test(row.querySelector('.ve-sample-answer').textContent));
           if (!said) failures.push(`with no OfflineAudioContext the sample row said ${JSON.stringify(row.querySelector('.ve-sample-answer').textContent)}`);
         }
+        // The microphone half: the harness has no mediaDevices, so pressing
+        // Record must say so rather than throw or hang in a recording state.
+        const record = row.querySelector('.ve-sample-record');
+        if (!record || !/Record a note/.test(record.textContent)) {
+          failures.push('the sample row has no Record a note button');
+        } else {
+          record.click();
+          const refused = await waitUntil(() => /cannot record from a microphone/.test(row.querySelector('.ve-sample-answer').textContent));
+          if (!refused) failures.push(`with no microphone API, Record a note said ${JSON.stringify(row.querySelector('.ve-sample-answer').textContent)}`);
+          if (record.getAttribute('aria-pressed') !== 'false') failures.push('Record a note was left pressed with nothing recording');
+        }
       }
       const kit = await openEditor('percussion');
       await waitUntil(() => kit.querySelector('.ve-finder-word'));

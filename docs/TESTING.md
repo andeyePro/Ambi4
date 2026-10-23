@@ -1030,6 +1030,10 @@ Match a sample (v0.0.229)
 - [ ] Press Stop part-way: the best so far lands and the line says it stopped
       early. A silent file says so; a file that is not audio says which
       formats work. The kit editor has no Match a sample row.
+- [ ] (v0.0.230) Record a note: the browser asks for the microphone; allow it,
+      play or sing one note, and the take is matched like a file (the button
+      reads Stop recording while it listens and stops itself after four
+      seconds). Refuse the prompt: a plain sentence, nothing left recording.
 
 Automated
 - [ ] `npm run build && node tests/all.mjs` — 24 suites, including
