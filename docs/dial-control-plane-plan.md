@@ -217,6 +217,19 @@ A dial fed its resolved value prints "now X" beneath it (`knob.js`, v0.0.198),
 and `aria-valuetext` reads it. A spread dial therefore shows both its layers at
 once: the span (Pool) and where the walk has taken the value (Now).
 
+The one `engine.getResolved()` poll (4 Hz while playing, `applyResolved` in
+index.astro) feeds every one of those marks: the globals, each row's Level and
+Randomness (the row copy as well as the editor's), and each editor's Swing and
+Density, whose 22-position Auto-detent scale is mapped from the engine's units
+by the handle's `liveMap`. That is why the per-track summary line under each row
+("level 55% · random 15% · swing 2% · density 1×", which printed the same poll)
+retired in v0.0.272: every number on it is on its own dial now. Its last item,
+the energy an Auto track joins at, is not a walk and has no dial on the row; it
+moved to the lamp that sets Auto, in its label and tooltip ("Joins when Energy
+reaches 24%"). A dial that is not spread needs no mark: its main pointer is the
+value playing. A per-track Swing or Density on its Auto detent reads "Auto"; the
+value it then plays is the global Swing dial's, or Complexity's own rate (1×).
+
 ---
 
 ## 3. Chance and When — how a value is redrawn

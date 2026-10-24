@@ -1297,11 +1297,10 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       tune-over-chords block (the line reaches the melody's stored
       sequencers at the ENGINE, one bar per chord, chord tones on every
       downbeat, ending home, the melody switched on, a second press a new
-      tune); `node tests/tune-from-chords-smoke.mjs` pins the derivation.
-      pad on; an imported file is hand-written and enters at bar 0), and
-      the v0.0.262 leftovers block (Tap onto a user kit writes that kit's
+      tune), and the v0.0.262 leftovers block (Tap onto a user kit writes that kit's
       stored grid at the engine and Re-fit follows it; Write → Melody onto
-      texture stores a manual C6 E6 G6 grid that enters at bar 0).
+      texture stores a manual C6 E6 G6 grid that enters at bar 0);
+      `node tests/tune-from-chords-smoke.mjs` pins the derivation.
       Layout unmeasured until `.vibe/measure.sh local overlaps` runs on it,
       at desktop and 390×844.
 
@@ -1466,6 +1465,7 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       before; under chord-length-in-beats the whole next bar; letting go
       carries on) and page-boot (the toggle exists, boots off, and three held
       keys and three held MIDI notes reach the engine's stored follow degree).
+
 ## Save as WAV delta — the music as an uncompressed file
 
 Hidden before launch, like Record (wav recording is Plus in the pricing
@@ -1501,6 +1501,17 @@ ruling). To see it: `localStorage.setItem('ambi4:dev','1')`, then refresh.
       ScriptProcessor" rather than throwing). That a real AudioWorklet hands
       over the same samples is the manual pass above: nothing in Node or jsdom
       runs an audio thread.
+
+## v0.0.253 delta – each step says what its note is, and why
+
+- [ ] Playing, open the melody's step grid and hover a lit step: the tooltip
+      names the note, its role against the chord and its source, for example
+      "E4 (its third — from the motif, transposed)". The same words are the
+      step's screen-reader label. Try the bass and the arp too.
+- [ ] The grid's legend says that hovering tells you what each note is.
+- [ ] Automated: page-boot (every engine source has words; a driven note's
+      title and label carry role and source) and tutorial-smoke.
+
 ## v0.0.254 delta — opt-in saturation (Drive, master and track)
 
 - [ ] Any piece, playing: Advanced → Sound → more shows a Drive dial beside
@@ -1525,7 +1536,6 @@ ruling). To see it: `localStorage.setItem('ambi4:dev','1')`, then refresh.
       dials reach the ENGINE, and 0 clears). The level and harmonics table in
       docs/engine-v2-contract.md § Opt-in saturation is measured on real Web
       Audio.
-
 
 ## v0.0.257 delta — the Vowel filter
 

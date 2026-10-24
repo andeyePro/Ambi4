@@ -45,6 +45,14 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] Late in page-boot an editor's Edit button stopped opening — the harness, fixed v0.0.270.
 - [x] Reverb tail: Full now gives the whole 6 s (v0.0.271); Med 4, Low 2, Eco 1, all named in the hint.
 
+## Review 3 findings, 2026-10-24 00:45 (v0.0.267–272)
+
+- [ ] **HIGH — the refusal lines are written where nobody sees them.** `sayUnderDials` writes to `#dial-confirm`, which lives in `#panel-simple`; the voice editors are on `#panel-advanced` and `activateTab` hides the other panel, so every "cannot spread, because…" line from v0.0.268–269 (Loop chance, Drift rate, arp, kit/fill Chance, Breath, Groove/Motif chance) is invisible and the aria-live region is hidden too. Only the Simple-tab Tempo refusal shows. Tests read textContent, so they pass. Fix: a confirm line inside the active panel (or beside the editor's dials); page-boot proof: `#dial-confirm.closest('[hidden]') === null` after a refused spread on Advanced. Agent dispatched 00:48.
+- [ ] An ⓘ box can stay docked in the tutorial panel after a resize below 1100 px (no matchMedia change listener) or after its editor closes; neither case is tested.
+- [ ] Phone with the editor closed: a track's Swing and Density live values are visible only on the editor's dials since v0.0.272 (Level and Randomness stay on the row).
+- [ ] `public/logo/` ships to ambi4.work (unreferenced, nothing 404s); decide whether to keep it there or publish it only from andeye.com. The two "Ambi4 Logo - Rough*.png" files at the repo root are untracked and unreferenced.
+- [ ] Pre-existing: `cancel()` in engine-voices.js reads `out.gain.value` now and sets it at a future `from`, which can step the gain on a mono hand-off — the same instant-change rule.
+
 ## Test hygiene found 2026-10-23
 
 - [x] *(DONE v0.0.258 — per-test seeds, five fixed seeds on the five law tests)* **engine-smoke: seed the two unseeded probabilistic tests** — "percussion activates at the defaults within the first waves cycle" and "percussion stays sparse" build `createEngine()` with no rng, so each run is a different random piece and a rare draw fails them (seen twice on 2026-10-23, solo and under load). Seed them (`{ rng: seededRng(n) }`) over several fixed seeds instead, so a red means a regression.
@@ -587,7 +595,7 @@ The brief: everything the author could do in code when writing the stock genres 
 - [ ] **Modulation graph** — serialisable `{source, destination}` edges, no depth field since spread is depth. Sources are per-voice envelopes, global LFOs and macros, and any parameter patched out. One slot per destination, so patching replaces the internal randomiser. Patch in/out sockets, ENV/LFO/MACRO panels
 - [ ] **Utility (maths) modules** — Sample & hold clocked by note/bar/chord/section, Mix (signed sum), Multiply, Slew. Keeps one-slot-per-dial while allowing sources to be merged upstream
 - [!] *(pointer only — the work lives in the gesture-rebuild row, shipped v0.0.56)* *(moved earlier — see the gesture-rebuild version.)* The live-value pointer needs only the walk, which has existed since v7, so deferring it here would leave several versions where a span's behaviour is invisible on the dial
-- [ ] **Then** remove the per-track summary line ("level 55% · random 15% · swing 2% · density 1×"). It is not a duplicate of the dials — `applyResolved` (:8756) polls `engine.getResolved()` at 4 Hz and prints what is actually sounding, every range resolved through its walk. Delete it only once the pointer above carries that information
+- [x] *(SHIPPED v0.0.272 — Randomness, Swing and Density dials gained the live pointer first; Joins-at moved to the Auto lamp)* **Then** remove the per-track summary line ("level 55% · random 15% · swing 2% · density 1×"). It is not a duplicate of the dials — `applyResolved` (:8756) polls `engine.getResolved()` at 4 Hz and prints what is actually sounding, every range resolved through its walk. Delete it only once the pointer above carries that information
 - [ ] **Dissolve the Randomise row** — Volume, Timing and Pan become spreads on their own dials; Pitch splits into Passing notes and Octave wander; Voice becomes a probability dial. `vary.*` migrates: `null` to a MACRO patch, an explicit number to a spread. The *write* path may retire after one release, but the **decode-side shim must live forever** — old share links carrying `vary.*` never expire
 - [x] *(SHIPPED v0.0.249 — per-tier budgets 4/8/16/32, a sentence under the genre picker)* Connection-count performance warning wired into the existing governor (`power.js`), which already senses CPU pressure and frame times. Warn on active connections, not LFO count
 

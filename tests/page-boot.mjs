@@ -7174,6 +7174,151 @@ try {
     }
   })();
 
+  // ---- v0.0.272 the per-track summary line retires --------------------------
+  // The line under each row ("level 55% · random 15% · swing 2% · density 1× ·
+  // joins at 24%") printed engine.getResolved() at 4 Hz. It may only go
+  // because every number on it is now on a control of its own: Level and
+  // Randomness on the row's dials, Swing and Density on the editor's, each as
+  // the dial's live "now" (aria-valuetext), and "joins at" on the Auto lamp.
+  // Driven through the real Play button and the real 4 Hz poll, with the
+  // engine's start/finish stubbed (this harness has no audio clock) and its
+  // getResolved() answering KNOWN values inside each spread. Red on v0.0.271:
+  // the line is there, the row's Randomness and the editor's Swing/Density
+  // were never fed, and the lamp said nothing of the ladder.
+  await (async () => {
+    adoptGlobals(window); // see the late-Edit block below: the second boots leave theirs
+    const engine = window.__ambi4Engine;
+    const play = doc.getElementById('toggle-play');
+    if (!engine || typeof engine.getResolved !== 'function' || !play) {
+      failures.push('summary-line retirement: no engine seam, getResolved() or Play button to drive');
+      return;
+    }
+    if (doc.querySelector('.resolved-readout, [id^="resolved-"]')) {
+      failures.push('the per-track summary line (.resolved-readout) is still under the track rows');
+    }
+    const slider = (sel) => doc.querySelector(`${sel} [role="slider"]`);
+    const press = (el, key, shiftKey = false) =>
+      el.dispatchEvent(new window.KeyboardEvent('keydown', { key, shiftKey, bubbles: true }));
+    const isSpan = (v) => v && typeof v === 'object' && Number.isFinite(v.min) && Number.isFinite(v.max) && v.max > v.min;
+    const widen = (el, get) => {
+      for (let i = 0; i < 6 && !isSpan(get()); i++) press(el, 'ArrowRight', true);
+      return isSpan(get());
+    };
+    const mid = (v) => (v.min + v.max) / 2;
+    const tracksP = () => engine.getParams().tracks;
+
+    // Level and Randomness, on the pad's ROW.
+    const level = slider('#track-level-pad');
+    const rand = slider('#track-extras-pad');
+    if (!level || !rand) {
+      failures.push('summary-line retirement: the pad row has no Level or Randomness dial');
+      return;
+    }
+    if (!widen(level, () => tracksP().pad.level)) failures.push(`widening the pad Level dial gave the engine no span (${JSON.stringify(tracksP().pad.level)})`);
+    for (let i = 0; i < 3; i++) press(rand, 'PageUp'); // up off Hold, so the span is a real one
+    if (!widen(rand, () => tracksP().pad.randomness)) failures.push(`widening the pad Randomness dial gave the engine no span (${JSON.stringify(tracksP().pad.randomness)})`);
+
+    // Swing and Density, in the melody editor, Per instrument.
+    const editor = await openEditor('melody');
+    for (const id of ['scope-swing-per', 'scope-complexity-per']) {
+      const radio = doc.getElementById(id);
+      if (radio && !radio.checked) radio.click();
+    }
+    const swing = slider('#voice-editor-melody .track-swing-knob');
+    const density = slider('#voice-editor-melody .track-density-knob');
+    if (!swing || !density) {
+      failures.push('summary-line retirement: the melody editor has no Swing or Density dial');
+      return;
+    }
+    for (let i = 0; i < 6; i++) press(swing, 'ArrowRight'); // off the Auto detent, to a real swing
+    if (!widen(swing, () => tracksP().melody.swing)) failures.push(`widening melody Swing gave the engine no span (${JSON.stringify(tracksP().melody.swing)})`);
+    press(density, 'PageUp'); // off the Auto detent, ten steps up
+    if (!widen(density, () => tracksP().melody.density)) failures.push(`widening melody Density gave the engine no span (${JSON.stringify(tracksP().melody.density)})`);
+
+    // A track on Auto, for "joins at".
+    const autoId = ['texture', 'arp', 'bass', 'percussion', 'melody', 'pad'].find((id) => tracksP()[id]);
+    const lamp = doc.getElementById(`track-lamp-${autoId}`);
+    const stateWas = ((lamp && lamp.getAttribute('aria-label')) || '').match(/state: (\w+)/)?.[1]?.toLowerCase();
+    const lampState = () => ((lamp && lamp.getAttribute('aria-label')) || '').match(/state: (\w+)/)?.[1]?.toLowerCase();
+    for (let i = 0; i < 3 && lamp && lampState() !== 'auto'; i++) lamp.click();
+    if (lampState() !== 'auto' || tracksP()[autoId].state !== 'auto') {
+      failures.push(`summary-line retirement: cycling the ${autoId} lamp did not reach Auto (lamp ${lampState()}, engine ${tracksP()[autoId].state})`);
+    }
+
+    const p = tracksP();
+    const want = {
+      level: isSpan(p.pad.level) ? mid(p.pad.level) : null,
+      randomness: isSpan(p.pad.randomness) ? mid(p.pad.randomness) : null,
+      swing: isSpan(p.melody.swing) ? mid(p.melody.swing) : null,
+      density: isSpan(p.melody.density) ? mid(p.melody.density) : null,
+      joins: 0.37,
+    };
+    const realResolved = engine.getResolved;
+    const realStart = engine.start;
+    const realFinish = engine.finish;
+    const realStop = engine.stop;
+    const runningDesc = Object.getOwnPropertyDescriptor(engine, 'running');
+    let running = false;
+    try {
+      Object.defineProperty(engine, 'running', { configurable: true, get: () => running });
+      engine.start = async () => { running = true; };
+      engine.finish = async () => { running = false; };
+      engine.stop = () => { running = false; };
+      engine.getResolved = function () {
+        const r = realResolved.call(engine);
+        if (want.level !== null) r.tracks.pad.level = want.level;
+        if (want.randomness !== null) r.tracks.pad.randomness = want.randomness;
+        if (want.swing !== null) r.tracks.melody.swing = want.swing;
+        if (want.density !== null) r.tracks.melody.density = want.density;
+        r.tracks[autoId].autoThreshold = want.joins;
+        return r;
+      };
+      play.click();
+      const pct = (v) => `${Math.round(v * 100)}%`;
+      const expect = [
+        ['the pad row\'s Level dial', level, want.level, pct],
+        ['the pad row\'s Randomness dial', rand, want.randomness, pct],
+        ['the melody editor\'s Swing dial', swing, want.swing, pct],
+        ['the melody editor\'s Density dial', density, want.density, (v) => `${Math.round(v * 100) / 100}×`],
+      ];
+      await waitUntil(() => expect.every(([, el]) => /now /.test(el.getAttribute('aria-valuetext') || '')), 3000);
+      for (const [name, el, value, fmt] of expect) {
+        if (value === null) continue;
+        const text = el.getAttribute('aria-valuetext') || '';
+        if (!text.includes(`now ${fmt(value)}`)) {
+          failures.push(`${name} does not carry the engine's resolved value while playing: wanted "now ${fmt(value)}", reads "${text}"`);
+        }
+        const mark = el.querySelector('[data-role="live-pointer"]') || el.parentNode?.querySelector('[data-role="live-pointer"]');
+        if (mark && mark.style.display === 'none') failures.push(`${name} hides its live pointer while its span is walking`);
+      }
+      const joined = await waitUntil(() => (lamp?.getAttribute('aria-label') || '').includes(`Joins at ${pct(want.joins)} of the piece's drive`), 2000);
+      if (!joined) {
+        failures.push(`the ${autoId} lamp, on Auto, does not say the energy it joins at: "${lamp?.getAttribute('aria-label')}"`);
+      }
+      if (doc.querySelector('.resolved-readout, [id^="resolved-"]')) {
+        failures.push('the summary line came back while playing');
+      }
+      play.click(); // Finish: running drops and the poll stops
+      await waitUntil(() => !running);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      engine.getResolved = realResolved;
+      engine.start = realStart;
+      engine.finish = realFinish;
+      engine.stop = realStop;
+      if (runningDesc) Object.defineProperty(engine, 'running', runningDesc);
+      else delete engine.running;
+    }
+    // Put back what this block changed, for the blocks after it.
+    for (const el of [level, rand, swing, density]) press(el, 'Backspace');
+    for (const id of ['scope-swing-universal', 'scope-complexity-universal']) {
+      const radio = doc.getElementById(id);
+      if (radio && !radio.checked) radio.click();
+    }
+    for (let i = 0; i < 3 && lamp && lampState() !== stateWas; i++) lamp.click();
+    if (editor && !editor.hidden) doc.getElementById('voice-edit-toggle-melody')?.click();
+  })();
+
   // ---- 2026-10-23: Edit still opens every editor, late in a long session --
   // Reported: late in this run, clicking a track's Edit stopped opening its
   // editor, with no error. It was the harness, not the page: the second boots

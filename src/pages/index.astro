@@ -973,7 +973,6 @@ const VOICES: Record<string, [string, string][]> = {
                   aria-controls={`voice-editor-${id}`}
                 >Edit</button>
                 <span class="track-foot">
-                  <span class="resolved-readout" id={`resolved-${id}`} aria-hidden="true"></span>
                   <span class="cost-meter" id={`cost-meter-${id}`} hidden>
                     <span class="cost-meter-fill"></span>
                   </span>
@@ -3858,10 +3857,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
         const foot = document.createElement('span');
         foot.className = 'track-foot';
-        const resolved = document.createElement('span');
-        resolved.className = 'resolved-readout';
-        resolved.id = `resolved-${track.id}`;
-        resolved.setAttribute('aria-hidden', 'true');
         const meter = document.createElement('span');
         meter.className = 'cost-meter';
         meter.id = `cost-meter-${track.id}`;
@@ -3869,7 +3864,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const fill = document.createElement('span');
         fill.className = 'cost-meter-fill';
         meter.append(fill);
-        foot.append(resolved, meter);
+        foot.append(meter);
 
         row.append(lamp, select, level, extras, edit, remove, foot);
 
@@ -4574,6 +4569,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // data-track-state attribute also drives the track-row lamp's dot
       // colour (off/auto/on), so the row's aria-label is refreshed here too.
       const TRACK_STATE_TEXT = { off: 'Off', auto: 'Auto', on: 'On' };
+      const LAMP_HINT = 'Off never plays · Auto lets the generator decide · On always plays.';
+      // v0.0.272: the energy each track joins at while on Auto, from the
+      // engine's getResolved() poll (its own override, or the registry
+      // floor). It used to be the last item of the row's summary line; the
+      // lamp is the control that sets Auto, so it is where it is said now.
+      const joinsAt = new Map(); // track -> number | null
 
       function syncTrackOffIndicator(id) {
         const row = document.querySelector(`.track-row[data-track="${id}"]`);
@@ -4581,10 +4582,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (row) row.dataset.trackState = state;
         const lamp = document.getElementById(`track-lamp-${id}`);
         if (lamp) {
+          const at = state === 'auto' ? joinsAt.get(id) : null;
+          const joins = typeof at === 'number' ? ` Joins at ${pctFormat(at)} of the piece's drive (its section intensity and Complexity blended), as the old summary line said.` : '';
           lamp.setAttribute(
             'aria-label',
-            `${TRACK_LABELS[id]} state: ${TRACK_STATE_TEXT[state] || state}. Press to cycle Off, Auto, On.`
+            `${TRACK_LABELS[id]} state: ${TRACK_STATE_TEXT[state] || state}.${joins} Press to cycle Off, Auto, On.`
           );
+          if (lamp.dataset.described === '1') describe(lamp, `${LAMP_HINT}${joins}`, { replace: true });
         }
       }
 
@@ -4670,7 +4674,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const voiceSelect = document.getElementById(`track-voice-${id}`);
         const lamp = document.getElementById(`track-lamp-${id}`);
         describe(voiceSelect, VOICE_HINTS[voiceSetOf(id)]);
-        if (lamp) describe(lamp, 'Off never plays · Auto lets the generator decide · On always plays.');
+        if (lamp) describe(lamp, LAMP_HINT);
 
         if (lamp) {
           lamp.addEventListener('click', () => {
@@ -7713,7 +7717,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // kept for power use behind a small dice icon, and only inside the Edit
       // panel header (`withDice`), never in the row.
       function buildTrackExtras(container, track, { knobs = null, withDice = false } = {}) {
-        const inst = { setRand: null };
+        // setLive: where a spread Randomness walk is right now (v0.0.272 —
+        // fed for the ROW copy as well as the editor's, since the row's
+        // summary line that used to print it is gone).
+        const inst = { setRand: null, setLive: null };
         if (withDice && engineCaps.randomise) {
           const btn = document.createElement('button');
           btn.type = 'button';
@@ -7770,10 +7777,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 onInput: onValue,
               });
               describe(handle.el, RANDOMNESS_HINT);
-              // v0.0.70: names the field in getResolved().tracks that this dial
-              // is a view of, so the live mark can be fed without the poller
-              // having to know what any given dial is.
-              handle.liveField = 'randomness';
+              // The live mark is fed through the instance (applyResolvedTracks
+              // walks extrasInstances), so the row copy, which sits in no
+              // editor's knob list, gets it too. Not a liveField: that would
+              // feed the editor copy twice.
+              inst.setLive = (v) => {
+                try {
+                  handle.setLive?.(v);
+                } catch {}
+              };
               if (knobs) knobs.push(handle);
               inst.setRand = (v) => {
                 try {
@@ -8993,7 +9005,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         };
         const stored = settings.tracks[track][key];
         const raw = feelRawFromStored(stored, max);
-        const rawFormat = (v) => (Math.round(v) <= 0 ? 'Auto' : format(feelStepValue(Math.round(v), max)));
+        // Unrounded between the steps (v0.0.272): the stored value is always a
+        // whole step, but the live "now" a walk reports falls between them,
+        // and rounding it would print a value the engine is not playing.
+        const rawFormat = (v) => (Math.round(v) <= 0 ? 'Auto' : format(clamp(((v - 1) / (FEEL_STEPS - 1)) * max, 0, max)));
         if (knobApi) {
           const cell = document.createElement('div');
           cell.className = `knob-cell ${className}`;
@@ -9016,6 +9031,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               onInput: commitFeel,
             });
             describe(handle.el, hint);
+            // v0.0.272: the live mark on a spread Swing/Density. The engine
+            // reports the value in the param's own units; this dial's are the
+            // 22-position raw scale, so liveMap carries it across (unrounded
+            // — a walk sits between steps).
+            handle.liveField = key;
+            handle.liveMap = (v) => 1 + (clamp(v, 0, max) / max) * (FEEL_STEPS - 1);
             if (knobs) knobs.push(handle);
             return;
           } catch {
@@ -16847,9 +16868,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // engine.getResolved() reports what is ACTUALLY being played right now:
       // every RangeValue resolved through its walk, and the voice that is
       // really sounding (voice wander included). Polled at 4 Hz while
-      // running; the numbers land as secondary text beside the row's dials,
-      // and a wander to a different voice re-renders the open editor so the
-      // dial set follows the voice you can hear.
+      // running; each number lands on the dial it belongs to as that dial's
+      // live pointer and "now X" (knob.js setLive), and a wander to a
+      // different voice re-renders the open editor so the dial set follows
+      // the voice you can hear. v0.0.272: the per-track summary line that
+      // also printed them under each row ("level 55% · random 15% · swing
+      // 2% · density 1×") is gone — every one of its numbers is on a dial.
       let resolvedTimer = null;
 
       /**
@@ -16889,7 +16913,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (!isPlainObject(tracks)) return;
         for (const [id, control] of levelControls) {
           const live = tracks[id];
-          control?.setLive?.(live && typeof live.level === 'number' ? live.level : null);
+          control?.setLive?.(live && typeof live.level === 'number' ? levelDialFromParam(id, live.level) : null);
+        }
+        // v0.0.272: Randomness on the ROW as well as in the editor — every
+        // registered copy of the cluster, so the row's own dial says where a
+        // spread walk is without the editor being open.
+        for (const [id, set] of extrasInstances) {
+          const live = tracks[id];
+          const value = live && typeof live.randomness === 'number' ? live.randomness : null;
+          for (const inst of set) inst?.setLive?.(value);
         }
         for (const [id, ed] of openEditors) {
           const live = tracks[id];
@@ -16899,9 +16931,34 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const field = handle.liveField;
             if (!field) continue;
             const value = live[field];
-            handle.setLive(typeof value === 'number' ? value : null);
+            if (typeof value !== 'number') {
+              handle.setLive(null);
+              continue;
+            }
+            handle.setLive(typeof handle.liveMap === 'function' ? handle.liveMap(value) : value);
           }
         }
+        // The auto ladder: the energy an Auto track joins at, on the lamp that
+        // sets Auto (its label and tooltip). Static rather than walked, so it
+        // only rewrites the lamp when it changes.
+        for (const id of TRACK_IDS) {
+          const live = tracks[id];
+          const at = live && typeof live.autoThreshold === 'number' ? live.autoThreshold : null;
+          if (joinsAt.get(id) === at) continue;
+          joinsAt.set(id, at);
+          syncTrackOffIndicator(id);
+        }
+      }
+
+      /**
+       * The level dial's units from the engine's: the power governor scales
+       * a texture/arp level down on a weak device (scaledLevel), and a live
+       * mark fed the scaled number would sit below the span the user set.
+       */
+      function levelDialFromParam(track, v) {
+        const scale = powerBudget ? powerBudget.textureDensityScale : 1;
+        if (scale >= 1 || scale <= 0 || !POWER_SCALED_TRACKS.includes(track)) return v;
+        return clamp(v / scale, 0, 1);
       }
 
       function applyResolved(resolved) {
@@ -16923,30 +16980,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         applyResolvedArpPhase(resolved && resolved.arpPhase);
         applyResolvedArpAdditive(resolved && resolved.arpAdditive);
         const tracks = resolved && isPlainObject(resolved.tracks) ? resolved.tracks : null;
-        for (const id of TRACK_IDS) {
-          const readout = document.getElementById(`resolved-${id}`);
-          if (!readout) continue;
-          const entry = tracks ? tracks[id] : null;
-          if (!entry) {
-            readout.textContent = '';
-            continue;
-          }
-          const bits = [`level ${pctFormat(entry.level ?? 0)}`];
-          bits.push(entry.held ? 'held' : `random ${pctFormat(entry.randomness ?? 0)}`);
-          // Iteration 4: swing/density resolved values, feature-detected on
-          // the live payload itself — this engine may report them on some
-          // tracks and not others (swing on the pulsed ones, density on the
-          // tuned ones), exactly like `dissonance` above already does.
-          if (typeof entry.swing === 'number') bits.push(`swing ${pctFormat(entry.swing)}`);
-          if (typeof entry.density === 'number') bits.push(`density ${plainFormat(entry.density)}×`);
-          // v0.0.198: the auto ladder, read-only here — while a track is on
-          // Auto, this is the energy it joins at (its own override, or the
-          // registry floor). Off/On tracks have no "joins" to report.
-          if (entry.state === 'auto' && typeof entry.autoThreshold === 'number') {
-            bits.push(`joins at ${pctFormat(entry.autoThreshold)}`);
-          }
-          readout.textContent = bits.join(' · ');
-        }
         // v0.0.203: the Groove rule's Now follows the groove actually playing.
         applyResolvedGroove(tracks ? tracks.bass : null);
         // v18: the row's <select> follows the SOUNDING voice too (through its
@@ -24977,7 +25010,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#panel-simple .sliders-module',
-          text: 'These dials are the whole instrument for most people. Drag up and down for the value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type one. Double-click restores the default, and the pointer thickens while a dial is still following your drag. Change at zero means hold: the generator loops exactly what it is playing. Most dials take a range the same way. Right-click a dial (hold on touch, or P) to pin it here.',
+          text: 'These dials are the whole instrument for most people. Drag up and down for the value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type one. Double-click restores the default, and the pointer thickens while a dial is still following your drag. Change at zero means hold: the generator loops exactly what it is playing. Spread, a dial shows \'now\' as it plays. Right-click a dial (hold on touch, or P) to pin it here.',
         },
         {
           tab: 'simple',
@@ -27418,24 +27451,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       transition: width 0.4s linear;
     }
 
-    /* Status strip under the row's controls: what the engine is actually
-       resolving to right now, plus the cost meter. Its height covers both
-       (14px read-out + a 5px meter) at all times — the meter only exists
-       while the engine reports stats, and a row that grew when Play was
-       pressed would move every row below it. */
+    /* Strip under the row's controls: the cost meter. Its height (a 3px bar
+       + 2px margin) is held at all times — the meter only exists while the
+       engine reports stats, and a row that grew when Play was pressed would
+       move every row below it. It used to hold a 14px read-out of what each
+       track was resolving to ("level 55% · random 15% · …"); that retired in
+       v0.0.272, the dials' own live pointers carry it now. */
     .track-foot {
       display: block;
       flex-basis: 100%;
-      min-height: 19px;
-    }
-
-    .resolved-readout {
-      display: block;
-      color: var(--secondary);
-      font-size: 12px;
-      font-family: var(--label-font, inherit);
-      letter-spacing: 0.04em;
-      min-height: 14px;
+      min-height: 5px;
     }
 
     /* v0.0.46: was 84px, which is narrower than the content it has to hold.
