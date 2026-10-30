@@ -6634,6 +6634,34 @@ test('v21: a reverbTail change rebuilds the IR asynchronously and crossfades the
   engine.stop();
 });
 
+test('2026-10-30: a Reverb tail drag never cuts an outgoing tail and builds one tail, not one per step', async () => {
+  const engine = createEngine({ reverbTail: 4 });
+  assert.equal(engine.arm(), true);
+  const ctx = liveContexts[liveContexts.length - 1];
+  engine.setParams({ reverbTail: 3 });
+  await reverbBuilt();
+  const [first, second] = reverbTails(ctx);
+  assert.ok(second, 'the first step never built a tail');
+  // Mid-crossfade, the drag goes on: two more steps.
+  engine.setParams({ reverbTail: 2 });
+  await reverbBuilt();
+  assert.equal(first.convolver.disconnects.length, 0,
+    'a second change cut the outgoing tail a frame into its fade');
+  assert.equal(first.ret.disconnects.length, 0, 'a second change cut the outgoing return mid-fade');
+  assert.equal(reverbTails(ctx).length, 2, 'a step mid-crossfade rebuilt at once instead of waiting for the dial to rest');
+  engine.setParams({ reverbTail: 1.5 });
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  const tails = reverbTails(ctx);
+  assert.equal(tails.length, 3, `the drag built ${tails.length - 1} tails, not one per rest`);
+  assert.ok(Math.abs(tails[2].seconds - 1.5) < 0.01, `the rested tail is ${tails[2].seconds} s, not 1.5`);
+  await reverbFaded();
+  for (const old of tails.slice(0, 2)) {
+    assert.ok(old.convolver.disconnects.length > 0, 'a faded-out tail was left connected');
+  }
+  assert.equal(tails[2].convolver.disconnects.length, 0, 'the live tail was unwired');
+  engine.stop();
+});
+
 test('v21: the governor tier caps the tail without overwriting it', async () => {
   const engine = createEngine({ reverbTail: 6 });
   assert.equal(typeof engine.setReverbSeconds, 'function',
@@ -9339,12 +9367,25 @@ test('v26: pause() holds the piece where it stands, and resume() continues it ex
     const ctx = liveContexts[liveContexts.length - 1];
     assert.ok(bars.length > 1, 'the piece never got going');
 
-    const clock = engine.now();
     const lastBar = bars[bars.length - 1].bar;
     const heard = notes.length;
+    const limiter = ctx.nodes.find((node) => node.connections.includes(ctx.destination));
+    const output = limiter && ctx.nodes.filter((node) => node.kind === 'gain').find((node) => node.connections.includes(limiter));
+    const targets = [];
+    if (output) {
+      const original = output.gain.setTargetAtTime;
+      output.gain.setTargetAtTime = function (v, at, k) { targets.push(v); return original.call(this, v, at, k); };
+    }
     engine.pause();
     assert.equal(engine.paused, true);
     assert.equal(engine.running, true, 'a pause is not a stop: the piece is still running');
+    // 2026-10-30: the mix fades out BEFORE the context suspends — a suspend
+    // straight away cut it on whatever sample it was on.
+    assert.equal(ctx.state, 'running', 'pause() suspended at once, cutting the mix instead of fading it');
+    assert.ok(output, 'the output gain feeding the destination was not found');
+    assert.ok(targets.some((v) => v <= 0.0001), 'pause() did not fade the output to silence before suspending');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const clock = engine.now();
     assert.equal(ctx.state, 'suspended', 'pause() must suspend the context, which stops its clock');
     assert.equal(MockTickerWorker.live.size, 0, 'pause() must stop the ticker');
     assert.deepEqual(states[states.length - 1], { running: true, paused: true });
@@ -9361,9 +9402,11 @@ test('v26: pause() holds the piece where it stands, and resume() continues it ex
     engine.pause(); // idempotent
     assert.equal(MockTickerWorker.live.size, 0);
 
+    targets.length = 0;
     await engine.resume();
     assert.equal(engine.paused, false);
     assert.equal(ctx.state, 'running', 'resume() must wake the context it paused');
+    assert.ok(targets.some((v) => v > 0.0001), 'resume() did not bring the output back up from the pause fade');
     assert.equal(MockTickerWorker.live.size, 1, 'resume() must put exactly one ticker back');
     assert.deepEqual(states[states.length - 1], { running: true, paused: false });
 

@@ -84,8 +84,18 @@ function makeParam(name, initial) {
       return this;
     },
   };
+  // Every browser but Firefox has it; a test sets NO_CANCEL_AND_HOLD to play
+  // the part of Firefox (2026-10-30, the click audit's legato finding).
+  if (!NO_CANCEL_AND_HOLD.on) {
+    param.cancelAndHoldAtTime = function (t) {
+      checkTime(name, 'cancelAndHoldAtTime', t);
+      automation.push({ name, paramId: id, kind: 'hold', value: current, time: t });
+      return this;
+    };
+  }
   return param;
 }
+const NO_CANCEL_AND_HOLD = { on: false };
 
 function checkTime(name, op, t) {
   assert.ok(Number.isFinite(t) && t >= 0, `${name}.${op}: bad time ${t}`);
@@ -1062,6 +1072,35 @@ test('audit: a legato takeover carries a voice\'s parallel layers, not just its 
       `${track}.${id}: a slur re-held ${touched.size} gain envelope(s) — the parallel `
       + `layer was abandoned (touched: ${[...touched].join(', ')})`);
     for (const source of startedSources) source.onended?.();
+  }
+});
+
+test('2026-10-30: without cancelAndHoldAtTime (Firefox) a mono takeover is refused, so it re-strikes instead of stepping the gain', () => {
+  // The fallback cancelled the envelope and SET the held level at the
+  // takeover instant — the v0.0.140 click (0.147 of full scale on breath)
+  // wherever the method is missing. Refusing the takeover hands the note to
+  // the click-free cancel() and a fresh strike.
+  NO_CANCEL_AND_HOLD.on = true;
+  try {
+    for (const [track, id] of [['melody', 'flute'], ['bass', 'breath']]) {
+      const voice = VOICES[track][id];
+      const ctx = new MockAudioContext();
+      const destination = makeNode('gain');
+      created = []; startedSources = []; automation.length = 0;
+      const note1 = {
+        midi: track === 'bass' ? 33 : 69, freq: null, kind: null,
+        when: 0.5, duration: 0.5, velocity: 0.8, pan: 0,
+      };
+      const handle1 = voice.play(ctx, destination, note1);
+      ctx.currentTime = 0.6;
+      const note2 = { ...note1, midi: note1.midi + 2, when: 0.62, glide: 0.3 };
+      const handle2 = tryLegatoShapes(voice, ctx, destination, handle1, note2);
+      assert.ok(!(handle2 && handle2.legato === true),
+        `${track}.${id}: took the note over with no cancelAndHoldAtTime — the gain steps to the held level`);
+      for (const source of startedSources) source.onended?.();
+    }
+  } finally {
+    NO_CANCEL_AND_HOLD.on = false;
   }
 });
 

@@ -670,6 +670,12 @@ function createRig(ctx, destination, note) {
     // Past the hold the envelope is already releasing: re-opening it there
     // would step the gain back up, which is a click, not a slur.
     if (at > held.until + 1e-6) return null;
+    // 2026-10-30 (click audit): without cancelAndHoldAtTime (Firefox) there is
+    // no way to keep the value the envelope HAS at `at` — cancelling drops it
+    // back to the last completed event and setting the held level steps there,
+    // the v0.0.140 click. Refused, the engine re-strikes and releases this
+    // note through cancel(), which fades its own output gain and never steps.
+    if (typeof held.amp.cancelAndHoldAtTime !== 'function') return null;
 
     // setTargetAtTime is asymptotic, so a third of the asked-for glide as the
     // time constant lands the pitch ~95 % of the way there in the time asked.
@@ -701,16 +707,10 @@ function createRig(ctx, destination, note) {
     // last completed event, and the level is then reached by a short ramp over
     // the same glide the pitch is taking. A slur is one continuous sound; its
     // amplitude should arrive the way its pitch does. Where the method is
-    // missing the old behaviour stands, because a bare cancel with no anchor is
-    // worse than a step.
+    // missing, glide() has already refused the takeover (above).
     const settle = Math.min(constant * 3, 0.03);
-    if (typeof held.amp.cancelAndHoldAtTime === 'function') {
-      held.amp.cancelAndHoldAtTime(at);
-      held.amp.linearRampToValueAtTime(held.level, at + settle);
-    } else {
-      held.amp.cancelScheduledValues(at);
-      held.amp.setValueAtTime(held.level, at);
-    }
+    held.amp.cancelAndHoldAtTime(at);
+    held.amp.linearRampToValueAtTime(held.level, at + settle);
     held.amp.setValueAtTime(held.level, sustainEnd);
     // An RC release rather than a ramp to a floor: the envelope is being
     // re-held here, not re-struck, and a target decay cannot collide with
@@ -721,13 +721,10 @@ function createRig(ctx, destination, note) {
     // slurred phrase keeps its breath, air or shimmer instead of playing the
     // bare tone from the second note on.
     for (const layer of alsoHeld) {
-      if (typeof layer.param.cancelAndHoldAtTime === 'function') {
-        layer.param.cancelAndHoldAtTime(at);
-        layer.param.linearRampToValueAtTime(layer.level, at + settle);
-      } else {
-        layer.param.cancelScheduledValues(at);
-        layer.param.setValueAtTime(layer.level, at);
-      }
+      // A layer param lacking the method in a browser that has it on the main
+      // amp does not exist; the guard keeps a stand-in param from throwing.
+      if (typeof layer.param.cancelAndHoldAtTime === 'function') layer.param.cancelAndHoldAtTime(at);
+      layer.param.linearRampToValueAtTime(layer.level, at + settle);
       layer.param.setValueAtTime(layer.level, sustainEnd);
       layer.param.setTargetAtTime(SILENCE, sustainEnd, layer.release / 5);
     }

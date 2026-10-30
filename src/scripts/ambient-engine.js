@@ -4902,6 +4902,24 @@ const FINISH_FADE = 8;       // finish() default outro fade
 const FINISH_FADE_RANGE = [1, 30];
 const FINISH_TAIL = 0.6;     // reverb/delay allowance after the outro fade
 const SILENCE = 0.0001;      // exponential ramps cannot reach zero
+// 2026-10-30: how long pause() takes to fade the mix out before it suspends,
+// and resume() to bring it back. Short enough to feel instant on the button.
+const PAUSE_FADE = 0.06;
+
+/**
+ * Freeze a param at the value it HAS at `at`, dropping whatever was scheduled
+ * after. cancelAndHoldAtTime where it exists; elsewhere the cancel anchored at
+ * the value read now, which is exact when `at` is now (one render quantum at
+ * worst) — never use the fallback with a future `at`.
+ */
+function holdParam(param, at) {
+  if (typeof param.cancelAndHoldAtTime === 'function') {
+    param.cancelAndHoldAtTime(at);
+  } else {
+    param.cancelScheduledValues(at);
+    param.setValueAtTime(Math.max(param.value, SILENCE), at);
+  }
+}
 const MASTER_HEADROOM = 0.7; // keeps the compressor's input where it was
 // v0.0.69: +24 dB after the compressor. Sized from a measurement, not a guess
 // — the mix peaked at −32.6 dBFS, so this lands it near −9 dBFS with the
@@ -4932,8 +4950,12 @@ function fallbackVoice(config) {
       panner.pan.value = clamp(note.pan ?? 0, -1, 1);
       panner.connect(destination);
 
+      // cancel() fades `out`, a gain nothing else automates, so it never has
+      // to cut into the envelope on `amp` (2026-10-30, the click audit).
+      const out = ctx.createGain();
+      out.connect(panner);
       const amp = ctx.createGain();
-      amp.connect(panner);
+      amp.connect(out);
       amp.gain.setValueAtTime(SILENCE, when);
       amp.gain.exponentialRampToValueAtTime(peak, when + attack);
       amp.gain.setValueAtTime(peak, when + sustain);
@@ -4951,19 +4973,26 @@ function fallbackVoice(config) {
       osc.onended = () => {
         osc.disconnect();
         amp.disconnect();
+        out.disconnect();
         panner.disconnect();
       };
       osc.start(when);
       osc.stop(end + 0.02);
 
+      let cancelled = false;
       return {
-        cancel() {
-          // Click-free hard stop: ~50 ms fade from wherever the envelope is,
-          // never stopping before the note was due to start.
-          const at = Math.max(ctx.currentTime, when);
-          amp.gain.cancelScheduledValues(at);
-          amp.gain.setTargetAtTime(SILENCE, at, 0.015);
-          osc.stop(at + 0.06);
+        cancel(at) {
+          // Click-free hard stop: a fade from wherever the envelope is, at the
+          // instant asked for (a mono hand-off passes the next note's onset)
+          // and never before the note was due to start. The envelope on `amp`
+          // is left alone — cancelling it dropped the gain back to the last
+          // completed event, a step down mid-attack or up mid-release.
+          if (cancelled) return;
+          cancelled = true;
+          const from = Math.max(Number.isFinite(at) ? at : ctx.currentTime, ctx.currentTime, when);
+          out.gain.setValueAtTime(1, from);
+          out.gain.setTargetAtTime(SILENCE, from, 0.015);
+          if (from + 0.1 < end + 0.02) osc.stop(from + 0.1);
         },
       };
     },
@@ -5133,6 +5162,9 @@ export function isSupported() {
 
 /** How long a reverb tail swap takes to crossfade (v21). */
 const REVERB_CROSSFADE = 0.5;
+// 2026-10-30: how long the Reverb tail dial must rest before a rebuild that
+// would land on a crossfade still running (a drag sends a change per step).
+const REVERB_SETTLE_MS = 200;
 const REVERB_DECAY = 3.2;
 const REVERB_RETURN_LEVEL = 0.9;
 
@@ -5598,17 +5630,17 @@ export function createEngine(initialParams, options = {}) {
   let ctxSampleRate = 0;       // hardware rate at context creation (iOS can change it)
   let idleSuspended = false;   // the engine suspended the context itself to save power
   let paused = false;          // v26: held mid-piece — the clock is suspended, nothing cleared
+  let pauseTimer = null;       // 2026-10-30: the suspend waiting out pause()'s fade
   let output = null;           // { mode: 'element', streamDest, el } | { mode: 'direct' }
   const liveNotes = new Set(); // { handle, end } cancel handles for sounding notes
 
   // v21 reverbTail. `reverbBudget` is the governor's cap (Infinity = uncapped);
-  // `reverbTarget` is the tail the live or in-flight IR is for; `reverbFade` is
-  // the outgoing convolver waiting for its crossfade to finish.
+  // `reverbTarget` is the tail the live or in-flight IR is for; `reverbFades`
+  // are the outgoing convolvers, each waiting out its own crossfade.
   let reverbBudget = Infinity;
   let reverbTarget = null;
   let reverbBuildTimer = null;
-  let reverbFade = null;
-  let reverbFadeTimer = null;
+  const reverbFades = new Set();   // { convolver, ret, timer }
   // v12 mono: the note each monophonic track currently has sounding, so the
   // next one can either slur into it or replace it.
   const monoNotes = new Map(); // track → { entry, handle, freq, until, voice }
@@ -7017,13 +7049,19 @@ export function createEngine(initialParams, options = {}) {
     const wanted = effectiveReverbSeconds();
     if (reverbTarget !== null && Math.abs(wanted - reverbTarget) < 1e-6) return;
     reverbTarget = wanted;
+    // 2026-10-30 (click audit): a dial drag sends a change every step. While a
+    // rebuild is pending or a crossfade is still running, the next one waits
+    // for the dial to rest, so a drag builds one tail, not one per step — each
+    // new convolver starts empty, and a swap per step left the reverb
+    // collapsed for the whole drag.
+    const settling = reverbBuildTimer !== null || reverbFades.size > 0;
     if (reverbBuildTimer !== null) clearTimeout(reverbBuildTimer);
     reverbBuildTimer = setTimeout(() => {
       reverbBuildTimer = null;
       if (!ctx || !graph || reverbTarget === null) return;
       const seconds = reverbTarget;
       swapReverb(createImpulseResponse(ctx, seconds, REVERB_DECAY), seconds);
-    }, 0);
+    }, settling ? REVERB_SETTLE_MS : 0);
   }
 
   /**
@@ -7034,7 +7072,6 @@ export function createEngine(initialParams, options = {}) {
    * is ringing dead.
    */
   function swapReverb(buffer, seconds) {
-    endReverbFade();      // a change mid-crossfade lands the previous one first
     const next = ctx.createConvolver();
     next.normalize = true;
     next.buffer = buffer;
@@ -7049,32 +7086,34 @@ export function createEngine(initialParams, options = {}) {
     const level = REVERB_RETURN_LEVEL;
     nextReturn.gain.setValueAtTime(0, time);
     nextReturn.gain.linearRampToValueAtTime(level, time + REVERB_CROSSFADE);
-    previous.gain.cancelScheduledValues(time);
-    previous.gain.setValueAtTime(previous.gain.value, time);
-    // Linear, not exponential: this ramp ends at true zero, which an
-    // exponential one cannot reach.
+    // Held at the value it HAS (it may itself be mid fade-in), never the last
+    // completed event. Linear, not exponential: this ramp ends at true zero,
+    // which an exponential one cannot reach.
+    if (typeof previous.gain.cancelAndHoldAtTime === 'function') {
+      previous.gain.cancelAndHoldAtTime(time);
+    } else {
+      previous.gain.cancelScheduledValues(time);
+      previous.gain.setValueAtTime(previous.gain.value, time);
+    }
     previous.gain.linearRampToValueAtTime(0, time + REVERB_CROSSFADE);
 
-    reverbFade = { convolver: graph.convolver, ret: previous };
+    // 2026-10-30 (click audit): every outgoing tail is retired by its OWN
+    // timer once its own fade has reached zero. A second swap used to unwire
+    // the previous outgoing one at once, a frame into its fade, at ~95% of
+    // the return level — a hard cut of the whole wet signal per dial step.
+    const fade = { convolver: graph.convolver, ret: previous, timer: null };
+    fade.timer = setTimeout(() => endReverbFade(fade), REVERB_CROSSFADE * 1000 + 20);
+    reverbFades.add(fade);
     graph.convolver = next;
     graph.reverbReturn = nextReturn;
     graph.reverbSeconds = seconds;
-    reverbFadeTimer = setTimeout(endReverbFade, REVERB_CROSSFADE * 1000);
   }
 
-  /**
-   * Unwire the outgoing tail once it is silent. Called early only by a second
-   * swap, whose own fade then starts from the same silence — so an early call
-   * is never audible either.
-   */
-  function endReverbFade() {
-    if (reverbFadeTimer !== null) {
-      clearTimeout(reverbFadeTimer);
-      reverbFadeTimer = null;
-    }
-    if (!reverbFade) return;
-    const { convolver, ret } = reverbFade;
-    reverbFade = null;
+  /** Unwire one outgoing tail; its fade has reached zero. */
+  function endReverbFade(fade) {
+    if (!reverbFades.delete(fade)) return;
+    clearTimeout(fade.timer);
+    const { convolver, ret } = fade;
     try { graph?.reverbBus.disconnect(convolver); } catch { /* already gone */ }
     try { convolver.disconnect(); } catch { /* already gone */ }
     try { ret.disconnect(); } catch { /* already gone */ }
@@ -7083,10 +7122,9 @@ export function createEngine(initialParams, options = {}) {
   /** Forget every reverb node — the context that owned them has gone. */
   function resetReverbState() {
     if (reverbBuildTimer !== null) clearTimeout(reverbBuildTimer);
-    if (reverbFadeTimer !== null) clearTimeout(reverbFadeTimer);
     reverbBuildTimer = null;
-    reverbFadeTimer = null;
-    reverbFade = null;
+    for (const fade of reverbFades) clearTimeout(fade.timer);
+    reverbFades.clear();
     reverbTarget = null;
   }
 
@@ -10994,8 +11032,17 @@ export function createEngine(initialParams, options = {}) {
     outroStarted = true;
     const fade = finishRequest.fadeSeconds;
     const gain = graph.output.gain;
-    gain.cancelScheduledValues(time);
-    gain.setValueAtTime(Math.max(gain.value, SILENCE), time);
+    // 2026-10-30 (click audit): `time` is the closing bar, in the future. A
+    // cancel there drops a volume ramp spanning it back to its start value and
+    // the anchor (read NOW) steps to another — two steps of a ranged master
+    // volume's span. cancelAndHoldAtTime keeps the value the ramp HAS at
+    // `time`; without it (Firefox) the old anchor stands.
+    if (typeof gain.cancelAndHoldAtTime === 'function') {
+      gain.cancelAndHoldAtTime(time);
+    } else {
+      gain.cancelScheduledValues(time);
+      gain.setValueAtTime(Math.max(gain.value, SILENCE), time);
+    }
     gain.exponentialRampToValueAtTime(SILENCE, time + fade);
     // Pad and bass may have been an inactive auto track a moment ago.
     applyTracks(0.6, time);
@@ -11245,6 +11292,14 @@ export function createEngine(initialParams, options = {}) {
       // own next pulse rather than from a re-anchored one. Never a rebuild —
       // that re-anchors, which is precisely what a pause exists to avoid.
       paused = false;
+      cancelPauseSuspend();
+      // pause() faded the output to silence; the mix comes back the same way
+      // rather than starting again at full level on the first sample.
+      if (graph && !outroStarted) {
+        const now = ctx.currentTime;
+        holdParam(graph.output.gain, now);
+        graph.output.gain.setTargetAtTime(Math.max(params.volume, SILENCE), now, PAUSE_FADE / 4);
+      }
       if (isRunning) {
         startScheduler();
         tick();
@@ -11271,14 +11326,38 @@ export function createEngine(initialParams, options = {}) {
     // Nothing may suspend-for-idle underneath a pause: that path cancels the
     // sounding notes a pause is holding.
     clearSuspend();
-    if (ctx && ctx.state === 'running') {
-      const suspended = ctx.suspend();
-      if (suspended && typeof suspended.catch === 'function') suspended.catch(() => {});
-    }
-    if (output && output.mode === 'element') {
-      try { output.el.pause(); } catch { /* an unplayable sink can't pause */ }
+    // 2026-10-30 (click audit): suspending stops rendering on whatever sample
+    // the mix is on — a step from up to -9 dBFS to nothing, and the same step
+    // back up on resume. The output fades first and the context suspends once
+    // it is silent; the audio clock runs on for those few milliseconds, which
+    // is inaudible next to a cut. During an ending the outro owns the output
+    // gain, so a pause there suspends at once as it always did.
+    const suspendNow = () => {
+      pauseTimer = null;
+      if (!paused) return;
+      if (ctx && ctx.state === 'running') {
+        const suspended = ctx.suspend();
+        if (suspended && typeof suspended.catch === 'function') suspended.catch(() => {});
+      }
+      if (output && output.mode === 'element') {
+        try { output.el.pause(); } catch { /* an unplayable sink can't pause */ }
+      }
+    };
+    if (ctx && graph && ctx.state === 'running' && !outroStarted) {
+      const now = ctx.currentTime;
+      holdParam(graph.output.gain, now);
+      graph.output.gain.setTargetAtTime(SILENCE, now, PAUSE_FADE / 6);
+      cancelPauseSuspend();
+      pauseTimer = setTimeout(suspendNow, PAUSE_FADE * 1000 + 20);
+    } else {
+      suspendNow();
     }
     emit('state', { running: true, paused: true });
+  }
+
+  function cancelPauseSuspend() {
+    if (pauseTimer !== null) clearTimeout(pauseTimer);
+    pauseTimer = null;
   }
 
   async function start() {
@@ -11450,6 +11529,7 @@ export function createEngine(initialParams, options = {}) {
     stopScheduler();
     // A stop ends the piece a pause was holding: the next start() is a new one.
     paused = false;
+    cancelPauseSuspend();
     // A stop during an ending cuts the outro short but still keeps its promise.
     settleFinish();
     // Cancel every sounding note (each voice's ~50 ms cancel fade is
