@@ -25066,11 +25066,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       /** `restore`: give focus back to the dial the menu was opened from. */
       function closePinMenu(restore = false) {
         if (!pinMenuEl) return;
-        const had = pinMenuEl.contains(document.activeElement);
+        const menu = pinMenuEl;
+        const had = menu.contains(document.activeElement);
         const opener = pinMenuOpener;
         pinMenuOpener = null;
-        pinMenuEl.remove();
+        // The reference goes BEFORE the node does. The item has focus, so
+        // removing it fires focusout, whose handler closed the menu AGAIN
+        // while this remove() was still running — and Chrome then threw
+        // NotFoundError out of the outer remove ("moved in a 'blur' event
+        // handler"), uncaught, from the document's pointerdown listener.
+        // Found closing the menu by a tap outside (tests/mobile-touch-drive);
+        // the mouse path is the same code.
         pinMenuEl = null;
+        menu.remove();
         if (restore && had && opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
       }
       /** The dial's menu: one item, Pin to Simple or Unpin. */
