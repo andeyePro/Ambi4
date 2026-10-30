@@ -141,11 +141,24 @@ function barSeconds(bpm, timeSignature = '4/4') {
   const beats = (TIME_SIGNATURES[timeSignature] || TIME_SIGNATURES['4/4']).beats || 4;
   return (60 / bpm) * beats;
 }
-async function advance(seconds, { step = 0.12, sleep = 4 } = {}) {
+// 2026-10-30: the scheduler is ticked BY HAND, once per clock step, through a
+// stand-in for the engine's ticker Worker. On real timers a starved interval
+// let the mock clock run far ahead of the scheduler under load, and ABSENT
+// once saw "the stream moved" in a full gate while passing alone.
+const handTickers = new Set();
+globalThis.Worker = class {
+  constructor() { this.onmessage = null; handTickers.add(this); }
+  postMessage() {}
+  terminate() { handTickers.delete(this); }
+};
+
+async function advance(seconds, { step = 0.12 } = {}) {
   const steps = Math.ceil(seconds / step);
+  assert.ok(handTickers.size > 0, 'the engine did not take the hand ticker (no Worker path), so the run is on real timers again');
   for (let i = 0; i < steps; i++) {
     for (const ctx of liveContexts) ctx.currentTime += step;
-    await new Promise((resolve) => setTimeout(resolve, sleep));
+    for (const ticker of [...handTickers]) ticker.onmessage?.({ data: 0 });
+    await new Promise((resolve) => setImmediate(resolve));
   }
 }
 
