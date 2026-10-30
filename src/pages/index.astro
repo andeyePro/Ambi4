@@ -21741,6 +21741,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
         recorder.addEventListener('stop', () => {
           const blob = new Blob(recordChunks, { type: recorder.mimeType || 'audio/webm' });
+          // 2026-10-30 (webkit-drive): the extension follows the container the
+          // browser actually wrote. Safari's MediaRecorder has no WebM — it
+          // writes audio/mp4 (AAC) — and a .webm name on an MP4 file is one
+          // nothing on an iPhone will open. Chromium and Firefox still get
+          // .webm; an unknown or empty mimeType keeps the old name.
+          const mime = recorder.mimeType || '';
+          const extension = /mp4|aac|m4a/i.test(mime) ? 'm4a' : /ogg|opus/i.test(mime) ? 'ogg' : 'webm';
           recordChunks = [];
           recorder = null;
           if (recordTimer !== null) {
@@ -21753,7 +21760,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
-          link.download = `ambi4-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+          link.download = `ambi4-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
           link.click();
           setTimeout(() => URL.revokeObjectURL(url), 10000);
         });
@@ -21780,7 +21787,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(
           recordButton,
           canRecord
-            ? 'Records the mix to a .webm file on this device. Needs the engine to publish its output stream — arriving with the next engine update.'
+            ? 'Records the mix to an audio file on this device (.webm here; .m4a in Safari, which has no WebM). Needs the engine to publish its output stream — arriving with the next engine update.'
             : 'This browser has no MediaRecorder, so recording is unavailable here.'
         );
         if (canRecord) {
