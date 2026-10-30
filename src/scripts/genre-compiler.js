@@ -91,9 +91,10 @@
  * own extension nudges from, and repetition still sets how often the loop
  * mutates and how long the recall cycle runs. The seed is an establishment,
  * not a freeze — the hook mutates, banks and recalls it as it does any loop.
- * A seed the engine cannot play in the mode it drew (a degree outside a
- * pentatonic) is dropped whole by the sanitiser, and that genre walks its own
- * loop from the shape params, exactly as it did before the seed existed.
+ * A degree the drawn mode does not have (a VII under a pentatonic) is folded
+ * an octave up before it leaves here (foldChordToken), so the loop reaches
+ * the engine in every mode the genre lists; the sanitiser's whole-or-nothing
+ * refusal now only meets a seed longer than the hook can hold.
  *
  * THE GROOVE GRAMMAR, AND THE TWO PATHS.
  *
@@ -227,6 +228,33 @@ export function parseChordToken(token) {
     minor: match[1] === match[1].toLowerCase(),
     suffix: match[2],
   };
+}
+
+/**
+ * A parsed chord symbol folded into a mode of `scaleLength` degrees — the
+ * octave-up wrap parseChordToken's note promises, done where it was not.
+ *
+ * Every grammar is written in seven ordinals, and five genres also list a
+ * five- or six-note mode (two pentatonics, the whole-tone scale). Until
+ * v0.0.287 a VII drawn under a pentatonic went to the engine as written, the
+ * hook-seed sanitiser refused the whole loop ("a degree the mode cannot
+ * play") and the genre walked a loop of its own: a tenth of Ambient's,
+ * Deep House's and New Age's draws and a fifth of Techno Tools' pentatonic
+ * ones — the genre whose one line is "a dry machine loop on ONE chord" —
+ * played chords no grammar of theirs wrote. The engine's own
+ * scaleDegreeToMidi already reads degree 6 of a five-note scale as degree 1
+ * an octave up, so VII in a pentatonic IS II: the numeral is rewritten to
+ * that ordinal, case (the director's colour hint) and suffix kept. A degree
+ * the mode has is returned as written, so every draw that compiled before
+ * compiles to the same bytes.
+ */
+const ORDINAL_NUMERALS = Object.freeze(['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii']);
+
+function foldChordToken(chord, scaleLength) {
+  const length = Number.isInteger(scaleLength) && scaleLength > 0 ? scaleLength : 7;
+  if (chord.degree < length) return chord.token;
+  const numeral = ORDINAL_NUMERALS[chord.degree % length];
+  return (chord.minor ? numeral : numeral.toUpperCase()) + chord.suffix;
 }
 
 /**
@@ -909,10 +937,13 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
   if (swing !== undefined) partial.swing = round3(swing);
   if (structure) partial.structure = structure;
   // The expanded loop itself, in the engine's own hook-seed grammar: the
-  // symbols that parsed, in the order the grammar wrote them.
+  // symbols that parsed, in the order the grammar wrote them — each folded
+  // into the mode the draw chose (foldChordToken), so a grammar written in
+  // seven degrees still reaches the engine when draw 2 lands on five or six.
+  const scaleLength = (SCALES[mode] ?? SCALES.ionian).length;
   partial.harmony = {
     rhythm: rhythm ?? 'auto',
-    seed: progression.chords.map((chord) => chord.token),
+    seed: progression.chords.map((chord) => foldChordToken(chord, scaleLength)),
   };
 
   // The hook's loop length, inverted out of buildHook's own law, and the colour

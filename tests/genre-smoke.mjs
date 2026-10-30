@@ -607,10 +607,16 @@ test('the expanded progression reaches the engine as harmony.seed', () => {
     { degree: 0, extension: 1 },
     { degree: 4, extension: 1 },
   ]);
-  // A degree the drawn mode does not have takes the WHOLE seed with it: half a
-  // progression is not the progression, and the engine walks its own loop from
-  // the shape params instead — which is what every genre did before the seed.
-  assert.equal(seedOf('i VI III VII', 'minorPentatonic'), null);
+  // v0.0.287: a degree the drawn mode does not have is folded an octave up
+  // (the sixth degree of a five-note scale IS its root; the seventh its
+  // second), so the loop reaches the engine instead of being refused whole
+  // and replaced by a walk of the engine's own.
+  assert.deepEqual(seedOf('i VI III VII', 'minorPentatonic'), [
+    { degree: 0, extension: -1 },
+    { degree: 0, extension: -1 },
+    { degree: 2, extension: -1 },
+    { degree: 1, extension: -1 },
+  ]);
   assert.deepEqual(seedOf('i iv v', 'minorPentatonic'), [
     { degree: 0, extension: -1 },
     { degree: 3, extension: -1 },
@@ -628,21 +634,54 @@ test('every genre emits the loop it expanded, or none at all', () => {
       const replay = seededRng(seed);
       for (let i = 0; i < 6; i++) replay();
       const { degrees } = expandProgression(genre, replay);
-      const playable = degrees.length && degrees.length <= HOOK_MAX_CHORDS
-        && degrees.every((degree) => degree < SCALES[params.mode].length);
+      const playable = degrees.length && degrees.length <= HOOK_MAX_CHORDS;
       if (!playable) {
         assert.equal(params.harmony.seed, null,
-          `${genre.slug} @${seed}: seeded a loop ${params.mode} cannot play`);
+          `${genre.slug} @${seed}: seeded a loop the hook cannot hold`);
         continue;
       }
-      assert.deepEqual(params.harmony.seed.map((slot) => slot.degree), degrees,
-        `${genre.slug} @${seed}: the compiled seed is not the expanded progression`);
+      // v0.0.287: a degree past the end of a short mode is folded an octave
+      // up (VII in a pentatonic is II), never refused whole.
+      const length = SCALES[params.mode].length;
+      assert.deepEqual(params.harmony.seed.map((slot) => slot.degree), degrees.map((degree) => degree % length),
+        `${genre.slug} @${seed}: the compiled seed is not the expanded progression folded into ${params.mode}`);
       for (const slot of params.harmony.seed) {
         assert.ok([-1, 0, 1].includes(slot.extension),
           `${genre.slug} @${seed}: extension ${slot.extension} is not a colour nudge`);
       }
     }
   }
+});
+
+test('a genre\'s chord loop reaches the engine in EVERY mode it lists — short ones fold, never drop', () => {
+  // Found by tests/genre-measure-drive.mjs (2026-10-30): with harmony.seed
+  // refused, the engine walked its own loop, so Techno Tools ("on one chord")
+  // changed chords in a fifth of its minor-pentatonic draws, and Ambient,
+  // Deep House, Downtempo and New Age lost their grammar in a tenth of theirs.
+  for (const genre of GENRES) {
+    const dropped = [];
+    const modesSeen = new Set();
+    for (let seed = 1; seed <= 400; seed++) {
+      const params = compileGenre(genre, { rng: seededRng(seed * 31 + 7) });
+      modesSeen.add(params.mode);
+      if (!Array.isArray(params.harmony.seed) || !params.harmony.seed.length) dropped.push(`${seed}:${params.mode}`);
+      else for (const slot of params.harmony.seed) {
+        assert.ok(slot.degree < SCALES[params.mode].length,
+          `${genre.slug} @${seed}: degree ${slot.degree} is past the end of ${params.mode}`);
+      }
+    }
+    assert.deepEqual(dropped, [], `${genre.slug}: the loop was dropped on ${dropped.length}/400 draws (${dropped.slice(0, 5).join(' ')})`);
+    for (const entry of genre.essence.modes) if (entry.weight > 0) {
+      assert.ok(modesSeen.has(entry.value), `${genre.slug}: 400 draws never reached ${entry.value}`);
+    }
+  }
+  // The fold itself, on a hand-built grammar: VII under a pentatonic is II,
+  // suffix and case kept; a degree the mode has is untouched.
+  const folded = compileGenre({
+    slug: 'fold', essence: { modes: [{ value: 'minorPentatonic', weight: 1 }],
+      chordLanguage: { progressionGrammar: ['i VII7 vi IV'] } },
+  }, { rng: () => 0.5 });
+  assert.deepEqual(folded.harmony.seed.map((slot) => [slot.degree, slot.extension]), [[0, -1], [1, 0], [0, -1], [3, -1]]);
 });
 
 // ---------------------------------------------------------------------------
