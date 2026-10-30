@@ -26515,6 +26515,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       text-align: right;
       white-space: nowrap;
     }
+    /* Phone widths: the readout takes a line of its own under the picker
+       instead of pushing the row past the viewport. At 390 wide the nowrap
+       row (select + two buttons + a 145px readout) measured 468px and the
+       whole page panned sideways under a thumb (tests/layout-states-drive.mjs,
+       v0.0.284). Still one reserved line, still right-aligned. */
+    @media (max-width: 520px) {
+      .genre-row {
+        flex-wrap: wrap;
+      }
+      .genre-row .processor-readout {
+        flex: 0 0 100%;
+      }
+    }
     /* v0.0.249 (D10): wraps, unlike the readout above it — it is a sentence,
        shown only while the connections are over the tier's budget. */
     .processor-warning {
@@ -29711,6 +29724,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .seq-res-bar {
       align-items: center;
       gap: 6px;
+      /* Wraps: at 360 wide the editor's row is 260px and ×2 + a 16ch readout
+         + ÷2 + Triplets is 330px, so Triplets hung 20px past the viewport and
+         the whole page panned sideways (tests/layout-states-drive.mjs,
+         v0.0.284). On a row with room nothing moves. */
+      flex-wrap: wrap;
     }
 
     .seq-res-readout {
