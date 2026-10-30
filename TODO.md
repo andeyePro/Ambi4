@@ -57,6 +57,11 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [ ] Each reverb swap dips the wet level: the new convolver starts with no history while the old fades over 0.5 s, and a linear crossfade of two uncorrelated reverbs is about -3 dB at its midpoint. With a ranged Reverb tail this happens every bar and may read as pumping. Candidate: an equal-power crossfade with the old return's fade stretched to min(old tail, 2 s). Needs a render measurement before and after (wet RMS through a swap).
 - [ ] The rig's CANCEL_FADE (50 ms exponential to 1e-4) loses ~8 dB in its first 5 ms, under a quarter cycle of a 40 Hz sub: continuous, but may thump on bass. Measure a sub-bass cancel with onset-render tooling before changing it.
 
+## Share round trip, 2026-10-30
+
+- [x] *(SHIPPED v0.0.277)* tests/share-roundtrip.mjs opens page-minted links end to end (untouched and edited compact, whole tree, own genre with g, stamps 1-5) and compares sender and receiver engines whole; all 66 registry rows set on every track and voice; every field arrives, no exclusions. Red on a diff missing the melody's octaveWander.
+- [ ] Decide whether parked voice edits travel: a share link carries `voiceDrafts` (the edits parked under Edited by the leave-guard), seen in the own-genre link's diff. Arguably session bookkeeping like `lastTake`, which paramsSnapshot strips; the link opens identically either way, so this is a size/privacy question, not a sound one.
+
 ## Review 3 findings, 2026-10-24 00:45 (v0.0.267–272)
 
 - [x] **HIGH — the refusal lines are written where nobody sees them.** `sayUnderDials` writes to `#dial-confirm`, which lives in `#panel-simple`; the voice editors are on `#panel-advanced` and `activateTab` hides the other panel, so every "cannot spread, because…" line from v0.0.268–269 (Loop chance, Drift rate, arp, kit/fill Chance, Breath, Groove/Motif chance) is invisible and the aria-live region is hidden too. Only the Simple-tab Tempo refusal shows. Tests read textContent, so they pass. Fix: a confirm line inside the active panel (or beside the editor's dials); page-boot proof: `#dial-confirm.closest('[hidden]') === null` after a refused spread on Advanced. **SHIPPED v0.0.273** (8afd2df merged).
