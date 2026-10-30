@@ -238,8 +238,9 @@ const isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // The caps the page applies (index.astro, cleanPresets beside cleanUserGenres).
-const PRESET_CAP = 100;
-const PRESET_NAME_MAX = 60;
+const PRESET_CAP = 100;          // Save refuses a NEW name past this
+const PRESET_NAME_MAX = 60;      // Save cuts a NEW name to this
+const PRESET_READ_CAP = 1000;    // the read stops here (a damaged blob)
 
 // --------------------------------------------------------------------------
 // The page, read
@@ -266,12 +267,12 @@ function storedProblems(list) {
   const seen = new Set();
   list.forEach((entry, i) => {
     if (!isPlain(entry)) out.push(`entry ${i} is ${String(JSON.stringify(entry)).slice(0, 40)}`);
-    else if (typeof entry.name !== 'string' || !entry.name.trim() || entry.name.length > PRESET_NAME_MAX) out.push(`entry ${i} name ${String(JSON.stringify(entry.name)).slice(0, 40)}`);
+    else if (typeof entry.name !== 'string' || !entry.name.trim()) out.push(`entry ${i} name ${String(JSON.stringify(entry.name)).slice(0, 40)}`);
     else if (!isPlain(entry.params)) out.push(`entry ${i} (${entry.name}) params ${String(JSON.stringify(entry.params)).slice(0, 40)}`);
     else if (seen.has(entry.name)) out.push(`entry ${i} repeats the name ${entry.name}`);
     if (isPlain(entry) && typeof entry.name === 'string') seen.add(entry.name);
   });
-  if (list.length > PRESET_CAP) out.push(`${list.length} entries stored (cap ${PRESET_CAP})`);
+  if (list.length > PRESET_READ_CAP) out.push(`${list.length} entries stored (read cap ${PRESET_READ_CAP})`);
   return out;
 }
 
@@ -406,19 +407,26 @@ for (const [label, entry] of CORRUPT_ENTRIES.slice(0, 3)) {
 }
 // A later entry repeating a name is dropped: the first one is what loads.
 await judgePresets('[good, {name:"good",params:{}}]', [good, { name: 'good', params: {} }], { expected: ['good'], load: 'good' });
-// A name longer than any the page mints is cut, not refused.
+// A stored name longer than Save now mints is KEPT as it is: the read never
+// renames a preset somebody already has (2026-10-30, chair review of v0.0.279).
 {
   const long = 'L'.repeat(500);
-  await judgePresets('[{name:"L"x500,params:{}}]', [{ name: long, params: {} }], { expected: [long.slice(0, PRESET_NAME_MAX)] });
+  await judgePresets('[{name:"L"x500,params:{}}]', [{ name: long, params: {} }], { expected: [long] });
+}
+// More presets than Save now allows a new one past are all kept, and survive
+// a Save over one of them — no preset anyone has is dropped by the cap.
+{
+  const lots = Array.from({ length: 150 }, (_, i) => ({ name: `q${i}`, params: {} }));
+  await judgePresets('150 entries', lots, { expected: lots.map((p) => p.name), load: 'q0', saveName: 'q1' });
 }
 // Not a list at all.
 await judgePresets('{}', {}, { expected: [] });
 await judgePresets('"x"', 'x', { expected: [] });
-// Ten thousand entries: the list stops at the cap. Save over one that is
+// Ten thousand entries: the read stops at its guard. Save over one that is
 // listed (a NEW name at the cap is refused, as a layout is).
 {
   const many = Array.from({ length: 10000 }, (_, i) => ({ name: `p${i}`, params: {} }));
-  const expected = many.slice(0, PRESET_CAP).map((p) => p.name);
+  const expected = many.slice(0, PRESET_READ_CAP).map((p) => p.name);
   await judgePresets('10k entries', many, { expected, load: 'p0', saveName: 'p1' });
 }
 // At the cap, a NEW name is refused and says so; the stored list is untouched.

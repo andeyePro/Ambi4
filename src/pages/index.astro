@@ -1823,25 +1823,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * `[null]` threw in refreshPresetSelect at boot, a null entry broke Save,
      * and an entry whose params were a string or array was listed and, loaded,
      * deep-merged to DEFAULTS — the setup silently wiped. Kept: a plain object
-     * with a non-empty string name (trimmed, cut to PRESET_NAME_MAX) and
-     * plain-object params; a later entry repeating a name is dropped; the list
-     * stops at PRESET_CAP. The params' own values are left to the load path
+     * with a non-empty string name, kept exactly as stored, and plain-object
+     * params; a later entry repeating a name is dropped (it could never be
+     * picked: the list loads by name). The READ never trims or caps a sound
+     * list — a name or a preset someone already has is not taken away on the
+     * next Save — beyond PRESET_READ_CAP, a guard against a pathological
+     * blob. Save's own limits (PRESET_NAME_MAX, PRESET_CAP) apply only to a
+     * NEW name. The params' own values are left to the load path
      * (loadParamsSnapshot → normaliseV6Tracks, which adopts the engine's
      * sanitised answer, v0.0.278).
      */
-    const PRESET_CAP = 100;
-    const PRESET_NAME_MAX = 60;
+    const PRESET_CAP = 100;          // a NEW name past this is refused at Save
+    const PRESET_NAME_MAX = 60;      // a NEW name is cut to this at Save
+    const PRESET_READ_CAP = 1000;    // the read stops here: only a damaged blob is this long
     function cleanPresets(list) {
       if (!Array.isArray(list)) return [];
       const out = [];
       const names = new Set();
       for (const entry of list) {
         if (!isPlainObject(entry) || typeof entry.name !== 'string' || !isPlainObject(entry.params)) continue;
-        const name = entry.name.trim().slice(0, PRESET_NAME_MAX);
-        if (!name || names.has(name)) continue;
+        const name = entry.name;
+        if (!name.trim() || names.has(name)) continue;
         names.add(name);
-        out.push({ ...entry, name });
-        if (out.length >= PRESET_CAP) break;
+        out.push({ ...entry });
+        if (out.length >= PRESET_READ_CAP) break;
       }
       return out;
     }
