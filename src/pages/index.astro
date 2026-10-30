@@ -27282,6 +27282,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         width: auto;
         min-width: 0;
       }
+      /* An ⓘ inside that popover: its box hung under the anchor at
+         max-content width, so an ⓘ on the right opened 273px of a 328px
+         box past the screen's edge — and once the popover scrolls itself,
+         the popover clips it too. Fixed and inset like the popover. top:auto
+         is the static position, which for a flex item is its container's
+         start — the ⓘ's own top — so the margin is what puts the box UNDER
+         the ⓘ (22px button + the 6px gap) rather than over it, where it
+         would have eaten the tap that closes it. */
+      .popover .info-box {
+        position: fixed;
+        top: auto;
+        margin-top: 28px;
+        left: 16px;
+        right: 16px;
+        width: auto;
+        max-width: none;
+      }
     }
     .popover-title {
       display: block;

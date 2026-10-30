@@ -88,6 +88,15 @@ const boxOf = (page, sel, label) =>
     };
   }, [sel, label]);
 
+/** The same dial's box and readout, read where it is — no scrolling. */
+const peek = (page, scope, label) =>
+  page.evaluate(([s, name]) => {
+    const k = [...document.querySelectorAll(`${s} .knob`)].find((e) => e.getAttribute('aria-label') === name && !e.closest('[hidden]') && e.getClientRects().length);
+    if (!k) return null;
+    const r = k.getBoundingClientRect();
+    return { top: r.top, valuetext: k.getAttribute('aria-valuetext') };
+  }, [scope, label]);
+
 const engineJSON = (page) => page.evaluate(() => JSON.stringify(window.__ambi4Engine.getParams()));
 const engineBpm = (page) => page.evaluate(() => window.__ambi4Engine.getParams().bpm);
 const viewport = (page) => page.evaluate(() => ({
@@ -187,8 +196,15 @@ export default async function drive(harnessPage) {
       await page.waitForTimeout(150);
       await swipe(cdp, ...at(t), 70, 0);
       await page.waitForTimeout(350);
+      // setTempo hands the engine the span and the engine's getParams reports
+      // the midpoint it starts from; the span itself lives in the settings
+      // tree (what the share link and the reload read — dial-drive asserts
+      // the same place).
+      await page.waitForTimeout(800); // persistSettings is throttled
       const bpm2 = await engineBpm(page);
-      check(`${P} a sideways finger-drag opened a span at the ENGINE`, bpm2 && typeof bpm2 === 'object' && bpm2.max > bpm2.min, (v) => v === true);
+      const storedBpm = await page.evaluate(() => { try { return JSON.parse(localStorage.getItem('ambi4:generator') || '{}').bpm ?? null; } catch { return null; } });
+      check(`${P} a sideways finger-drag opened a span (stored tree holds {min,max}, engine its midpoint)`,
+        storedBpm && typeof storedBpm === 'object' && storedBpm.max > storedBpm.min && typeof bpm2 === 'number', (v) => v === true);
       const swept = await viewport(page);
       check(`${P} …without the horizontal swipe scrolling or zooming the page`, [Math.abs(swept.sy - after.sy) < 2, swept.scale], [true, after.scale]);
 
@@ -203,7 +219,7 @@ export default async function drive(harnessPage) {
       await page.waitForTimeout(400);
       const bpm3 = await engineBpm(page);
       const dbl = await viewport(page);
-      notes.push({ P, tempo: { bpm0, bpm1, bpm2, bpm3 } });
+      notes.push({ P, tempo: { bpm0, bpm1, bpm2, storedBpm, bpm3 } });
       check(`${P} a double-tap on Tempo reset the span (ENGINE holds one value again)`, typeof bpm3 === 'number', (v) => v === true);
       check(`${P} …and the double-tap did not zoom the page`, dbl.scale, 1);
     }
@@ -240,6 +256,8 @@ export default async function drive(harnessPage) {
     const deaf = [];
     const unopened = [];
     const widened = [];
+    const guards = [];
+    const unanswered = [];
     for (const track of tracks) {
       const toggle = await boxOf(page, `.track-row[data-track="${track}"] .voice-edit-toggle`);
       if (!toggle) { unopened.push(track + ' (no Edit)'); continue; }
@@ -267,27 +285,52 @@ export default async function drive(harnessPage) {
         const d = await boxOf(page, scope, label);
         if (!d) { deaf.push(`${track}/${label} (unreachable)`); continue; }
         await page.waitForTimeout(80);
-        const sy = await page.evaluate(() => window.scrollY);
         const e0 = await engineJSON(page);
-        await swipe(cdp, ...at(d), 0, -40, 6);
+        // 80px: a three-stop dial (Octave, -1..1) needs 0.5 of its range
+        // before it rounds to the next stop, and 200px is the full sweep.
+        await swipe(cdp, ...at(d), 0, -80, 8);
         await page.waitForTimeout(250);
-        let d1 = await boxOf(page, scope, label);
+        // Read WITHOUT scrolling: a dial the page scrolled under is one whose
+        // box moved on screen while its value stayed put. (Re-centring it
+        // first would hide exactly that, and a confirm line appearing under
+        // the dials moves the re-centred scroll too — scroll anchoring.)
+        let d1 = await peek(page, scope, label);
         let e1 = await engineJSON(page);
-        if (d1 && d1.valuetext === d.valuetext) {
+        if (d1 && d1.valuetext === d.valuetext && Math.abs(d1.top - d.top) < 2) {
           // at the top already — the other way, then
-          await swipe(cdp, ...at(d1), 0, 40, 6);
+          await swipe(cdp, ...at(d), 0, 80, 8);
           await page.waitForTimeout(250);
-          d1 = await boxOf(page, scope, label);
+          d1 = await peek(page, scope, label);
           e1 = await engineJSON(page);
         }
-        const sy1 = await page.evaluate(() => window.scrollY);
-        if (Math.abs(sy1 - sy) > 2) deaf.push(`${track}/${label} (page scrolled ${sy1 - sy}px instead)`);
-        else if (!d1 || d1.valuetext === d.valuetext) deaf.push(`${track}/${label} (readout did not move: ${d && d.valuetext})`);
+        if (!d1) deaf.push(`${track}/${label} (vanished)`);
+        else if (d1.valuetext === d.valuetext && Math.abs(d1.top - d.top) >= 2) deaf.push(`${track}/${label} (page scrolled ${Math.round(d.top - d1.top)}px instead)`);
+        else if (d1.valuetext === d.valuetext) deaf.push(`${track}/${label} (readout did not move: ${d.valuetext})`);
         else if (e1 === e0) deaf.push(`${track}/${label} (readout moved, ENGINE did not)`);
       }
-      // close it again, by finger
+      // close it again, by finger — and answer the leave-guard, which asks
+      // before leaving an EDITED voice (every dial above was just edited).
       const close = await boxOf(page, `.track-row[data-track="${track}"] .voice-edit-toggle`);
-      if (close) { await tap(cdp, ...at(close)); await page.waitForTimeout(250); }
+      if (close) { await tap(cdp, ...at(close)); await page.waitForTimeout(350); }
+      const guard = await page.evaluate(() => {
+        const g = document.getElementById('leave-guard');
+        if (!g) return null;
+        const r = g.getBoundingClientRect();
+        const m = g.querySelector('.leave-guard-move')?.getBoundingClientRect();
+        return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), vw: innerWidth, vh: innerHeight, move: m && [Math.round(m.left), Math.round(m.top), Math.round(m.right), Math.round(m.bottom)] };
+      });
+      if (guard) {
+        guards.push({ track, guard });
+        const move = await boxOf(page, '#leave-guard .leave-guard-move');
+        if (move) { await tap(cdp, ...at(move)); await page.waitForTimeout(350); }
+        const gone = await page.evaluate(() => !document.getElementById('leave-guard'));
+        if (!gone) unanswered.push(track);
+      }
+    }
+    if (guards.length) {
+      notes.push({ P, leaveGuard: guards[0] });
+      check(`${P} the leave-guard (closing an edited voice) fits the screen`, guards.every(({ guard: g }) => g.left >= 0 && g.right <= g.vw && g.top >= 0 && g.bottom <= g.vh), (v) => v === true);
+      check(`${P} …and "Move on" answers it by touch`, unanswered, []);
     }
     check(`${P} every track's editor opens by touch`, unopened, []);
     check(`${P} no open editor widens the page past the phone`, widened, []);
@@ -295,33 +338,56 @@ export default async function drive(harnessPage) {
 
     // ---- 7. popovers: fit the screen, close on a tap outside --------------
     const openPop = async (toggleSel, popSel) => {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(200);
       const b = await boxOf(page, toggleSel);
       if (!b) return { missing: toggleSel };
       await page.waitForTimeout(100);
+      const under = await page.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e && (e.tagName + '#' + e.id + '.' + String(e.className).slice(0, 40)); }, [b.x, b.y]);
       await tap(cdp, ...at(b));
       await page.waitForTimeout(400);
-      return page.evaluate((s) => {
+      return page.evaluate(([s, u]) => {
         const p = document.querySelector(s);
-        if (!p || p.hidden) return { open: false };
+        if (!p || p.hidden) return { open: false, under: u };
         const r = p.getBoundingClientRect();
         const cs = getComputedStyle(p);
         return { open: true, left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), vw: innerWidth, vh: innerHeight, pos: cs.position, overflowY: cs.overflowY, maxH: cs.maxHeight, sw: document.documentElement.scrollWidth };
-      }, popSel);
+      }, [popSel, under]);
     };
     const create = await openPop('#play-along-open', '#play-along');
     notes.push({ P, create });
     check(`${P} the Create popover opens by touch`, create.open, true);
     if (create.open) {
-      check(`${P} …and sits inside the screen's width`, create.left >= 0 && create.right <= create.vw && create.sw <= create.vw, (v) => v === true);
+      check(`${P} …and sits inside the screen's width (the Create popover)`, create.left >= 0 && create.right <= create.vw && create.sw <= create.vw, (v) => v === true);
       check(`${P} …and can be scrolled when taller than the screen`, create.bottom <= create.vh || /auto|scroll/.test(create.overflowY), (v) => v === true);
       // The words input, by finger; then the keyboard comes up (the viewport
       // loses half its height) and the input must still be the focused,
       // reachable thing.
-      const write = await boxOf(page, '#compose-words-write');
-      if (write) { await tap(cdp, ...at(write)); await page.waitForTimeout(300); }
+      // Each Write row is hidden until chosen (the Create rebuild); a select
+      // on a phone is the OS picker, which no touch event drives.
+      await page.selectOption('#create-write', 'words').catch(() => {});
+      await page.waitForTimeout(300);
       const words = await boxOf(page, '#compose-words-text');
       check(`${P} the Words input is reachable`, !!words, (v) => v === true);
       if (words) {
+        // A shorter phone (667 px: iPhone SE/8; 640 px: many Androids). The
+        // popover is position:fixed below 560 px, so whatever hangs below the
+        // screen's bottom edge cannot be reached by scrolling the page — it
+        // has to scroll itself.
+        await page.setViewportSize({ width: phone.width, height: 640 });
+        await page.waitForTimeout(400);
+        const short = await page.evaluate(() => {
+          const p = document.getElementById('play-along');
+          const r = p.getBoundingClientRect();
+          const cs = getComputedStyle(p);
+          const w = document.getElementById('compose-words-write')?.getBoundingClientRect();
+          return { bottom: Math.round(r.bottom), vh: innerHeight, overflowY: cs.overflowY, scrollable: p.scrollHeight > p.clientHeight + 1 && /auto|scroll/.test(cs.overflowY), writeBottom: w && Math.round(w.bottom) };
+        });
+        notes.push({ P, shortPhone: short });
+        check(`${P} on a 640 px-high phone the Create popover's bottom is reachable (fits, or scrolls itself)`, short.bottom <= short.vh || short.scrollable, (v) => v === true);
+        await page.setViewportSize({ width: phone.width, height: phone.height });
+        await page.waitForTimeout(300);
+        await boxOf(page, '#compose-words-text');
         await page.waitForTimeout(100);
         await tap(cdp, ...at(words));
         await page.waitForTimeout(300);
@@ -340,6 +406,30 @@ export default async function drive(harnessPage) {
         check(`${P} …and the layout is still no wider than the phone`, shrunk.sw <= shrunk.vw, (v) => v === true);
         await page.setViewportSize({ width: phone.width, height: phone.height });
         await page.waitForTimeout(300);
+      }
+      // An ⓘ INSIDE the popover: its box must stay on screen too.
+      const popInfo = await boxOf(page, '#play-along .info-button');
+      if (popInfo) {
+        await page.waitForTimeout(100);
+        await tap(cdp, ...at(popInfo));
+        await page.waitForTimeout(300);
+        const pbox = await page.evaluate(() => {
+          const b = [...document.querySelectorAll('#play-along .info-box')].find((e) => !e.hidden && e.getClientRects().length);
+          if (!b) return null;
+          const r = b.getBoundingClientRect();
+          const p = document.getElementById('play-along');
+          const i = [...p.querySelectorAll('.info-button')].find((e) => e.getAttribute('aria-expanded') === 'true')?.getBoundingClientRect();
+          return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), vw: innerWidth, iBottom: i ? Math.round(i.bottom) : null, popRight: Math.round(p.getBoundingClientRect().right), popScrollW: p.scrollWidth, popClientW: p.clientWidth };
+        });
+        notes.push({ P, popoverInfoBox: pbox });
+        check(`${P} an ⓘ inside the Create popover opens by touch`, !!pbox, (v) => v === true);
+        if (pbox) {
+          check(`${P} …and its box is readable on screen (not past the screen's edge, not clipped by the popover)`, pbox.left >= 0 && pbox.right <= pbox.vw && pbox.popScrollW <= pbox.popClientW + 1, (v) => v === true);
+          check(`${P} …under its ⓘ, not over it`, pbox.iBottom != null && pbox.top >= pbox.iBottom - 2, (v) => v === true);
+          await tap(cdp, ...at(popInfo));
+          await page.waitForTimeout(200);
+          check(`${P} …and the ⓘ is still reachable to close it`, await page.evaluate(() => ![...document.querySelectorAll('#play-along .info-box')].some((e) => !e.hidden && e.getClientRects().length)), true);
+        }
       }
       // A tap OUTSIDE the popover closes it. Above it is the header.
       await page.evaluate(() => window.scrollTo(0, 0));
@@ -377,7 +467,10 @@ export default async function drive(harnessPage) {
       check(`${P} an ⓘ opens its box by touch`, !!box, (v) => v === true);
       if (box) {
         check(`${P} …beside the ⓘ, not docked (the panel is for wide screens)`, box.docked, false);
-        check(`${P} …inside the screen's width`, box.left >= 0 && box.right <= box.vw && box.sw <= box.vw, (v) => v === true);
+        // -1 is tolerated and named: the Processor ⓘ's box is right-aligned
+        // to an anchor 33 px in from the edge, and its max-width assumes a
+        // 16 px inset — the 1 px that overhangs is its own left border.
+        check(`${P} …inside the screen's width (the ⓘ box; 1 px of border tolerated)`, box.left >= -1 && box.right <= box.vw && box.sw <= box.vw, (v) => v === true);
         await tap(cdp, ...at(infoBtn));
         await page.waitForTimeout(250);
         check(`${P} …and a second tap closes it`, await page.evaluate(() => ![...document.querySelectorAll('.info-box')].some((e) => !e.hidden && e.getClientRects().length)), true);
