@@ -11171,7 +11171,18 @@ export function createEngine(initialParams, options = {}) {
       gain.cancelScheduledValues(time);
       gain.setValueAtTime(Math.max(gain.value, SILENCE), time);
     }
-    gain.exponentialRampToValueAtTime(SILENCE, time + fade);
+    // 2026-10-30 (live click audit, tests/live-click-drive.mjs): NOT an
+    // exponentialRampToValueAtTime. A ramp is measured from the PREVIOUS
+    // event, and cancelAndHoldAtTime inserts none when nothing is scheduled
+    // past `time` — the steady case, every outro — so the fade was anchored
+    // on the fade-in that ended seconds ago: it had "already" run for most of
+    // its length, and the output stepped to that level the moment the closing
+    // bar was planned (a lone step of 0.08–0.17 full scale, −17 dB in one
+    // sample, measured in Chromium). setTargetAtTime starts from whatever the
+    // gain IS at `time`, held ramp or steady value, and needs no anchor; the
+    // constant lands it at SILENCE × the start level after `fade` seconds,
+    // exactly where the ramp ended.
+    gain.setTargetAtTime(SILENCE, time, fade / Math.log(1 / SILENCE));
     // Pad and bass may have been an inactive auto track a moment ago.
     applyTracks(0.6, time);
     finishDeadline = time + fade + FINISH_TAIL;
