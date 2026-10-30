@@ -27699,8 +27699,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     }
 
     .info-button {
-      width: 22px;
-      height: 22px;
+      /* 24px: the smallest target a thumb is owed (WCAG 2.5.8); 22px was the
+         one primary control under it at phone widths. */
+      width: 24px;
+      height: 24px;
       font-size: 12px;
       font-style: italic;
     }
@@ -29629,8 +29631,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     .seq-lane-move,
     .seq-lane-remove {
-      width: 22px;
-      height: 22px;
+      /* 24px: the smallest target a thumb is owed (WCAG 2.5.8). */
+      width: 24px;
+      height: 24px;
       min-width: 0;
       padding: 0;
       font-size: 11px;
