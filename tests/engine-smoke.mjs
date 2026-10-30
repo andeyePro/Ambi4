@@ -6700,6 +6700,18 @@ test('2026-10-30: a reverb fade caught by a suspend is not cut; it retires once 
   engine.stop();
 });
 
+test('2026-10-30: Passing notes is kept only on the tracks that draw it', () => {
+  const sane = sanitiseParams({ tracks: Object.fromEntries(
+    ['pad', 'bass', 'melody', 'arp', 'texture', 'percussion'].map((id) => [id, { passingNotes: 0.5 }])) });
+  for (const id of ['melody', 'texture']) {
+    assert.equal(sane.tracks[id].passingNotes, 0.5, `${id} lost the Passing notes it draws`);
+  }
+  for (const id of ['pad', 'bass', 'arp', 'percussion']) {
+    assert.equal(sane.tracks[id].passingNotes, undefined,
+      `${id} kept a Passing notes value nothing draws and no dial shows`);
+  }
+});
+
 test('v21: the governor tier caps the tail without overwriting it', async () => {
   const engine = createEngine({ reverbTail: 6 });
   assert.equal(typeof engine.setReverbSeconds, 'function',

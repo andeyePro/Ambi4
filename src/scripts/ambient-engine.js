@@ -37,7 +37,7 @@ import { recipeFromParams } from './recipe.js';
 import {
   VARY_ASPECTS as LEGACY_VARY_ASPECTS, MACRO_DIALS, DIAL_DOMAIN, DIAL_WALK_KEY,
   PAN_SPREAD as DIAL_PAN_SPREAD, TIMING_SPREAD as DIAL_TIMING_SPREAD,
-  foldLegacyVary, cleanMacroPatch, spreadOf,
+  foldLegacyVary, cleanMacroPatch, spreadOf, spreadDialsFor,
 } from './spread-dials.js';
 
 // ---------------------------------------------------------------------------
@@ -2277,7 +2277,11 @@ function sanitiseDissolved(partial, baseTrack, name, shape) {
   }
   if (sentPatch !== undefined) macro = sentPatch;
   const out = { ...fields, macroPatch: macro };
-  if (shape.tuned) {
+  // 2026-10-30 (bug hunt): Passing notes is kept only where it is drawn —
+  // melody, texture and a melodic user line call dissonanceDraw, and only
+  // they show its dial (spreadDialsFor). On pad, bass and arp it was stored,
+  // carried in links and raised their schema stamp while nothing played it.
+  if (spreadDialsFor(name, shape.percussive ? 'percussive' : shape.tuned ? 'melodic' : null).includes('passingNotes')) {
     const [lo, hi] = DIAL_DOMAIN.passingNotes;
     const sent = partial && 'passingNotes' in partial
       ? (partial.passingNotes === null ? 0 : sanitiseRangeValue(partial.passingNotes, lo, hi))

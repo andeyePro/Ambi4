@@ -25,6 +25,7 @@ import {
   RESERVED_TOKENS,
   isRangeable,
 } from '../src/scripts/ambient-engine.js';
+import { spreadDialsFor } from '../src/scripts/spread-dials.js';
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -35,6 +36,10 @@ const test = (name, fn) => tests.push([name, fn]);
 // than a literal, so a track-order rename does not need this file touched.
 const TRACK = TRACK_ORDER[0];
 const VOICE = 'registryContractProbe';
+// A track row is probed on the first track that keeps the field: Passing
+// notes lives only where it is drawn (melody, texture, melodic user lines;
+// 2026-10-30), so on TRACK it is refused by design.
+const trackFor = (field) => TRACK_ORDER.find((id) => spreadDialsFor(id).includes(field)) ?? TRACK;
 
 /** The `patches` partial one row's field lives at, for `sanitiseParams`. */
 function patchPartial(section, field, value) {
@@ -55,7 +60,7 @@ function partialFor(path, value) {
   const [scope, a, b] = path.split('.');
   if (scope === 'patch') return patchPartial(a, b, value);
   if (scope === 'master') return { [a]: value };
-  if (scope === 'track') return { tracks: { [TRACK]: { [a]: value } } };
+  if (scope === 'track') return { tracks: { [trackFor(a)]: { [a]: value } } };
   throw new Error(`${path}: no partial for scope '${scope}'`);
 }
 
@@ -69,7 +74,7 @@ function readBack(sanitised, path, { raw = false } = {}) {
   let got;
   if (scope === 'patch') return readPatch(sanitised, a, b);
   if (scope === 'master') got = sanitised[a];
-  else if (scope === 'track') got = sanitised.tracks?.[TRACK]?.[a];
+  else if (scope === 'track') got = sanitised.tracks?.[trackFor(a)]?.[a];
   if (got === undefined && !raw) return PARAM_REGISTRY[path].domain[0];
   return got;
 }

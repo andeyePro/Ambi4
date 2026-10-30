@@ -2519,7 +2519,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         t.macroPatch = macro;
         // Passing notes: sparse, as the engine stores it — above 0 or spanned.
         const passing = sanitiseRangeValueIn(t.passingNotes, 0, 1, 0);
-        if (isTuned(id) && (isPlainObject(passing) || passing > 0)) t.passingNotes = passing;
+        // Only where it is drawn (2026-10-30): melody, texture, a melodic user line.
+        if (spreadDialsFor(id, userById.has(id) ? (isPerc(id) ? 'percussive' : 'melodic') : null).includes('passingNotes')
+          && (isPlainObject(passing) || passing > 0)) t.passingNotes = passing;
         else delete t.passingNotes;
       }
       // Lanes first: a kit's step map is keyed by lane id, so the list has to
