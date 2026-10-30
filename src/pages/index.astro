@@ -24076,7 +24076,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const focusWasInside = idleEl.contains(document.activeElement) || activeEl.contains(document.activeElement);
         idleEl.hidden = isActive;
         activeEl.hidden = !isActive;
-        if (focusWasInside && document.activeElement === document.body) {
+        // v0.0.285: this used to wait for document.activeElement to have
+        // fallen to <body> before refocusing. Chromium moves focus off a
+        // just-hidden element a frame LATER, not synchronously, so the test
+        // was always false: a press on 15 min, Set alarm or Cancel dropped
+        // focus out of the dialog, and Escape (listened for on the popover)
+        // no longer closed it. Focus was inside; keep it inside.
+        if (focusWasInside) {
           const visible = isActive ? activeEl : idleEl;
           const target = visible.querySelector(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
