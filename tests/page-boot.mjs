@@ -941,6 +941,85 @@ try {
     }
   })();
 
+  // v0.0.275 (D8) — the Randomise row dissolved. No editor has a row titled
+  // Randomise; each track's feel row leads with the dials it became, only
+  // where they act (no Pan or Octave wander on the bass); a spread drawn on
+  // Pan reaches the ENGINE as {min, max} and unpatches Pan from the
+  // Randomness macro; a reset patches it back; the voice rule keeps its
+  // Voice chance knob.
+  await (async () => {
+    const engine = window.__ambi4Engine;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const openEditor = async (track) => {
+      const editor = doc.getElementById(`voice-editor-${track}`);
+      if (!editor || editor.hidden) doc.getElementById(`voice-edit-toggle-${track}`)?.click();
+      return waitUntil(() => {
+        const el = doc.getElementById(`voice-editor-${track}`);
+        return Boolean(el && !el.hidden && el.querySelector('.feel-row .knob'));
+      });
+    };
+    const dialsIn = (track) => [...doc.querySelectorAll(`#voice-editor-${track} .feel-row .spread-dial .knob`)]
+      .map((k) => k.getAttribute('aria-label'));
+    const WANT = {
+      melody: ['Pan', 'Timing', 'Dynamics', 'Octave wander', 'Passing notes'],
+      bass: ['Timing', 'Dynamics'],
+      pad: ['Pan', 'Timing', 'Dynamics'],
+    };
+    for (const [track, want] of Object.entries(WANT)) {
+      if (!(await openEditor(track))) {
+        failures.push(`dissolved row: the ${track} editor did not open`);
+        continue;
+      }
+      const titles = [...doc.querySelectorAll(`#voice-editor-${track} .panel-label`)].map((el) => el.textContent.trim());
+      if (titles.includes('Randomise')) failures.push(`dissolved row: the ${track} editor still has a Randomise row`);
+      const got = dialsIn(track);
+      if (JSON.stringify(got) !== JSON.stringify(want)) {
+        failures.push(`dissolved row: the ${track} feel row leads with [${got.join(', ')}], not [${want.join(', ')}]`);
+      }
+      if (track === 'melody') {
+        const chance = doc.querySelector('#voice-editor-melody .knob[aria-label="Voice chance"]');
+        if (!chance) failures.push('dissolved row: the melody editor lost its Voice chance knob');
+      }
+    }
+    if (!(await openEditor('melody'))) return;
+    const pan = doc.querySelector('#voice-editor-melody .spread-dial-pan .knob');
+    if (!pan) {
+      failures.push('dissolved row: no Pan dial on the melody');
+      return;
+    }
+    pan.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    await sleep(60);
+    const before = engine.getParams().tracks.melody;
+    if (!before.macroPatch.includes('pan')) {
+      failures.push(`dissolved row: after a reset the melody's Pan is not patched to Randomness (macroPatch ${JSON.stringify(before.macroPatch)})`);
+    }
+    if (!(pan.getAttribute('aria-valuetext') || '').includes('Auto')) {
+      failures.push(`dissolved row: a patched Pan does not read Auto (${pan.getAttribute('aria-valuetext')})`);
+    }
+    for (let i = 0; i < 6; i += 1) {
+      pan.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+    }
+    const spread = await waitUntil(() => {
+      const v = engine.getParams().tracks.melody.pan;
+      return Boolean(v && typeof v === 'object' && Number.isFinite(v.min) && Number.isFinite(v.max) && v.min < v.max);
+    }, 1000);
+    const after = engine.getParams().tracks.melody;
+    if (!spread) {
+      failures.push(`dissolved row: a spread on Pan reached the engine as ${JSON.stringify(after.pan)}, not {min, max}`);
+    } else if (after.macroPatch.includes('pan')) {
+      failures.push('dissolved row: a spread drawn on Pan left it patched to Randomness');
+    }
+    pan.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    const back = await waitUntil(() => {
+      const t = engine.getParams().tracks.melody;
+      return t.pan === 0 && t.macroPatch.includes('pan');
+    }, 1000);
+    if (!back) {
+      const t = engine.getParams().tracks.melody;
+      failures.push(`dissolved row: a reset left Pan at ${JSON.stringify(t.pan)} with macroPatch ${JSON.stringify(t.macroPatch)}, not 0 patched to Randomness`);
+    }
+  })();
+
   // 2026-10-23 — every dial that DRAWS a range hands the engine a range.
   // A dial that takes the sideways gesture (data-spread="yes") and then reads
   // "drifting" must have left a {min, max} in the engine's params — CLAUDE.md:
@@ -4915,6 +4994,48 @@ try {
             voiceSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
           }
         }
+        // v0.0.275 — the spread stamp, both halves. The plain link above is
+        // the negative: a genre draw's own bass pocket and a preset's voice
+        // wander are rebuilt by any older build from the origin, so they do
+        // not stamp 5 (they did, on 8d4192c: the predicate read the settings
+        // against the page defaults). The positive: a spread the person DREW
+        // on the melody's Pan rides the link and a v0.0.274 build would play
+        // it centred, so the link says it is newer.
+        {
+          const engine = window.__ambi4Engine;
+          const toggle = doc.getElementById('voice-edit-toggle-melody');
+          const editor = () => doc.getElementById('voice-editor-melody');
+          if (toggle && (!editor() || editor().hidden)) toggle.click();
+          await waitUntil(() => Boolean(editor() && !editor().hidden && editor().querySelector('.spread-dial-pan .knob')));
+          const pan = editor() && editor().querySelector('.spread-dial-pan .knob');
+          if (!pan) {
+            failures.push('spread stamp: no Pan dial on the melody to draw a spread with');
+          } else {
+            for (let i = 0; i < 6; i += 1) {
+              pan.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+            }
+            await waitUntil(() => {
+              const v = engine.getParams().tracks.melody.pan;
+              return Boolean(v && typeof v === 'object' && v.min < v.max);
+            }, 1000);
+            clipboard.text = '';
+            shareButton.click();
+            await waitUntil(() => clipboard.text.includes('#'));
+            const spreadLink = decodeCopiedLink();
+            const carriedPan = spreadLink && ((spreadLink.d && spreadLink.d.tracks && spreadLink.d.tracks.melody)
+              || (spreadLink.tracks && spreadLink.tracks.melody) || {}).pan;
+            if (!spreadLink || spreadLink.v !== 5) failures.push(`a link carrying a drawn Pan spread is stamped schema ${JSON.stringify(spreadLink && spreadLink.v)}, not 5 — a v0.0.274 build would play it centred without a word`);
+            if (!carriedPan || typeof carriedPan !== 'object') failures.push(`the spread link does not carry the melody's Pan spread (${JSON.stringify(carriedPan)})`);
+            pan.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+            await waitUntil(() => engine.getParams().tracks.melody.pan === 0);
+            clipboard.text = '';
+            shareButton.click();
+            await waitUntil(() => clipboard.text.includes('#'));
+            const back = decodeCopiedLink();
+            if (!back || back.v !== 1) failures.push(`with the Pan spread handed back to Randomness the link is stamped ${JSON.stringify(back && back.v)}, not 1`);
+          }
+          if (toggle && editor() && !editor().hidden) toggle.click();
+        }
         // Deterministic: the same settings, shared again, is the same name.
         clipboard.text = '';
         shareButton.click();
@@ -6718,9 +6839,13 @@ try {
   // bundle in a second jsdom, against a URL that carries a share link. It runs
   // LAST because it swaps the DOM globals the bundle reads.
   await (async () => {
-    const payload = Buffer.from(JSON.stringify({ bpm: 71, reverb: 0.42, harmony: { beats: 5 } }), 'utf8').toString(
-      'base64url'
-    );
+    // v0.0.275: the link also carries a pre-dissolve `vary` block on the
+    // melody, which the page's decode shim must fold into the new dials.
+    const payload = Buffer.from(JSON.stringify({
+      bpm: 71, reverb: 0.42, harmony: { beats: 5 },
+      tracks: { melody: { vary: { pan: 0.6, timing: 0, volume: null, pitch: 0.4 } } },
+      v: 1,
+    }), 'utf8').toString('base64url');
     const expected = shareNameModule.shareNameFor(`p=${payload}`, SHARE_POOL);
     const arrivalDom = new JSDOM(html, {
       url: `https://ambi4.work/#p=${payload}`,
@@ -6785,6 +6910,18 @@ try {
         }
         if (arrivalWindow.location.hash) {
           failures.push('the share fragment was left in the URL after it was applied');
+        }
+        // v0.0.275: the old vary block, decoded into the dissolved dials.
+        const arrivedMelody = arrivalWindow.__ambi4Engine?.getParams().tracks.melody;
+        if (!arrivedMelody
+          || JSON.stringify(arrivedMelody.pan) !== JSON.stringify({ min: -0.3, max: 0.3 })
+          || arrivedMelody.timing !== 0 || arrivedMelody.octaveWander !== 0.4
+          || arrivedMelody.macroPatch.includes('pan') || arrivedMelody.macroPatch.includes('timing')
+          || !arrivedMelody.macroPatch.includes('dynamics') || 'vary' in arrivedMelody) {
+          failures.push(`a schema-1 link's vary block did not decode into the dissolved dials: melody ${JSON.stringify(arrivedMelody && {
+            pan: arrivedMelody.pan, timing: arrivedMelody.timing, octaveWander: arrivedMelody.octaveWander,
+            macroPatch: arrivedMelody.macroPatch, vary: arrivedMelody.vary,
+          })}`);
         }
         // Review follow-up: the link carries chord length 5 beats, which the
         // sanitiser keeps (1-8) and the engine plays, but the select listed

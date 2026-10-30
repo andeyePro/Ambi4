@@ -606,6 +606,64 @@ UI: a "Randomise" row of five mini knobs (Voice/Volume/Pitch/Timing/Pan) in each
 Edit panel beside the existing Random/Hold/Randomness controls; each knob has an Auto
 detent representing null (left end position, labelled in aria-valuetext); slider fallback.
 
+**Superseded v0.0.275 — the row dissolved (D8).** The section above is the
+record of what `vary` was; what a track stores now is below. `vary.*` is
+still READ, forever (old share links never expire), and never written.
+
+## v0.0.275 — the Randomise row dissolves into the dials themselves (D8)
+
+`src/scripts/spread-dials.js` is the one table the engine and the page both
+read: the field map, the domains and the decode shim.
+
+| Was | Is now | Domain | Law (unchanged) |
+|---|---|---|---|
+| `vary.pan` a | `tracks[t].pan` — a spread on the **Pan** dial, a → `{min:-a/2, max:a/2}` | [-1, 1] | per note: centre + U(-0.5, 0.5) × width |
+| `vary.timing` a | `tracks[t].timing` — a spread on the **Timing** dial, units of 25 ms, a → `{min:-a, max:a}` | [-1, 1] | per note: centre × 25 ms + U(-25, 25 ms) × half-width; on the bass the half-width is the pocket depth and the centre moves the whole line |
+| `vary.volume` a | `tracks[t].dynamics` — the **Dynamics** dial | [0, 1] | the ±6 dB volume walk × a and ±15 % velocity jitter × a |
+| `vary.pitch` a | `tracks[t].octaveWander` — the **Octave wander** dial | [0, 1] | 18 % × a octave jump per note (per bar on the motif) |
+| `vary.voice` a | `tracks[t].voiceWander` — the wander law the **Voice chance** knob (the voice rule's Chance) falls back to | [0, 1] | 25 % × a per bar |
+| (new) | `tracks[t].passingNotes` — the **Passing notes** dial, tuned tracks, sparse | [0, 1] | after a Dissonance draw that left a note alone: 45 % × p an in-mode step |
+| `null` | the dial's id in `tracks[t].macroPatch` — the track's Randomness MACRO patched to it | subset of `dynamics, timing, pan, octaveWander, voiceWander` | the dial's amount (or width) IS the macro's value |
+
+**Rangeable.** All six are rangeable (registry rows `track.pan`, `track.timing`,
+`track.dynamics`, `track.octaveWander`, `track.voiceWander`, `track.passingNotes`).
+On Pan and Timing the spread IS the randomisation — it is drawn per note and
+never walked, the v7 "per-note-natured" case. On the amount dials a span walks
+per bar like any other dial, under the walk keys vary used (`vary.volume`,
+`vary.pitch`, `vary.voice`) — walk keys are wire (walkHold, sampling and routing
+name them), and serialised keys never rename.
+
+**Defaults** are the old defaults moved: every dial patched to the macro, except
+the engine's explicit voice wander on pad and texture (0.15) and the bass (0).
+The page has always sent its own all-null vary, so the page's defaults patch
+all five on every track.
+
+**Precedence** in the sanitiser, newest first: a field the partial sends; the
+partial's `vary` block (the shim); the base's fields, or the base's own `vary`
+when the base predates this build; the defaults. A field sent without a
+`macroPatch` beside it unpatches its dial (the old "an explicit number overrides
+the macro"); a sent `macroPatch` is the whole list.
+
+**Exactness.** Halving and doubling are exact in floating point, so every
+mapping above renders to the byte: `tests/vary-migration-smoke.mjs` holds two
+frozen schema-1 links and every shipped preset and genre against digests taken
+from the v0.0.271 engine — notes at full precision, per-note pan, and every
+ramp the static graph (track gains included) was given. The one lossy case: a
+SPAN on `vary.pan` or `vary.timing` was an amount that walked; a spread's width
+is fixed, so it lands on its middle.
+
+**Wire.** A link that CARRIES any of these is stamped schema 5: a
+v0.0.274-or-older build reads only `vary` and would play it with every aspect
+following Randomness, so it must say the link is newer. "Carries" is read off
+the payload, not the settings: a compact link (origin plus diff) carries a
+field only when its diff does — the receiver rebuilds the origin with its own
+presets and compiler, so a preset's pad voice wander or a genre's bass pocket
+arrives as the `vary` it always was — and a whole-tree link carries every
+field away from the page's defaults. Stamping from the settings instead put
+5 on nearly every link (v0.0.275's fix, page-boot's plain-link check). The
+`getResolved().tracks[t].vary` readout is `spreads` now, the same five amounts
+under their new names. Note events carry `pan` (telemetry).
+
 ---
 
 # v7 addendum (range dials: min/max randomisable values; screws removed)
@@ -631,7 +689,9 @@ record of why each field first became rangeable.
 
 Rangeable + DEFAULT RANGE mode (ships as {min,max} in defaults where marked *):
 filter cutoff*, sends reverb/delay, sequencer step prob, track randomness macro.
-Rangeable + default SINGLE: mix, detune, Q, envAmount, ADSR (all four), vary aspects,
+Rangeable + default SINGLE: mix, detune, Q, envAmount, ADSR (all four), vary aspects
+(since v0.0.275 the dials they dissolved into — Pan, Timing, Dynamics, Octave wander,
+the voice wander and Passing notes, all `track.*` registry rows),
 volume knobs. Every dial that DRAWS a range must hand the engine one:
 page-boot's range sweep spreads every dial that takes the sideways gesture
 (`data-spread="yes"`) and asserts a {min, max} lands in `getParams()` — or,
@@ -1923,7 +1983,7 @@ beat 4½ of a 7/8 bar).
   — `anchorPatterns` set the auto kit's density against four-on-the-floor
   (bounded 0.5–1.5, so a sixteenth-grid anchor cannot compile to a machine-gun),
   and no grid is faked from masks the director wrote for a kit.
-- Both paths: `pocketMs` → `tracks.bass.vary.timing` against the engine's own
+- Both paths (v0.0.275: the bass Timing spread's half-width, `tracks.bass.timing`): `pocketMs` → `tracks.bass.vary.timing` against the engine's own
   22 ms lay-back ceiling (0 ms = machine-tight); `syncopationCells` → a small
   bass-density uplift (`buildBassGroove` only reaches for a second cell above
   density 0.6); the declared `articulation` set → a bass-density nudge into the

@@ -2785,20 +2785,26 @@ test('level and randomness take a number or a {min,max} range', () => {
   assert.equal(engine.getParams().tracks.pad.level.min, 0.3, 'getParams leaked the live range object');
 });
 
-test('hold is a boolean and the five vary aspects are 0–1 or null', () => {
+test('hold is a boolean, and the dissolved Randomise dials ship patched to Randomness', () => {
+  // v0.0.275 (D8): vary.* dissolved into pan / timing / dynamics /
+  // octaveWander / voiceWander, with `macroPatch` the dials the track's
+  // Randomness drives (the old null). tests/vary-migration-smoke.mjs holds
+  // the decode shim and the byte-identical render.
   const base = sanitiseParams({});
+  assert.deepEqual([...VARY_ASPECTS], ['voice', 'volume', 'pitch', 'timing', 'pan']);
   for (const name of TRACK_ORDER) {
-    assert.equal(base.tracks[name].hold, false, `${name} must not ship held`);
-    assert.deepEqual(Object.keys(base.tracks[name].vary), [...VARY_ASPECTS]);
-    assert.deepEqual([...VARY_ASPECTS], ['voice', 'volume', 'pitch', 'timing', 'pan']);
-    for (const aspect of VARY_ASPECTS) {
-      // v11: the two sustained tracks ship an explicit small voice wander so
-      // auto never sits on one timbre forever. Everything else still defaults
-      // to null — "follow this track's randomness".
-      const expected = aspect === 'voice' && (name === 'pad' || name === 'texture') ? 0.15 : aspect === 'voice' && name === 'bass' ? 0 : null;
-      assert.equal(base.tracks[name].vary[aspect], expected,
-        `${name}.${aspect} must default to ${expected}`);
-    }
+    const t = base.tracks[name];
+    assert.equal(t.hold, false, `${name} must not ship held`);
+    assert.equal('vary' in t, false, `${name} still stores vary`);
+    for (const field of ['pan', 'timing', 'dynamics', 'octaveWander']) assert.equal(t[field], 0, `${name}.${field}`);
+    // v11: the two sustained tracks ship an explicit small voice wander so
+    // auto never sits on one timbre forever, and the bass (v12) an explicit
+    // 0. Everything else follows this track's randomness — the patch.
+    const voice = name === 'pad' || name === 'texture' ? 0.15 : 0;
+    assert.equal(t.voiceWander, voice, `${name}.voiceWander must default to ${voice}`);
+    const patched = ['pad', 'texture', 'bass'].includes(name)
+      ? ['dynamics', 'timing', 'pan', 'octaveWander'] : ['dynamics', 'timing', 'pan', 'octaveWander', 'voiceWander'];
+    assert.deepEqual(t.macroPatch, patched, `${name}.macroPatch`);
   }
 
   const set = (patch) => sanitiseParams({ tracks: { melody: patch } }).tracks.melody;
@@ -2807,22 +2813,34 @@ test('hold is a boolean and the five vary aspects are 0–1 or null', () => {
   assert.equal(set({ hold: 0 }).hold, false);
   assert.equal(set({ hold: '' }).hold, false);
 
-  const vary = set({ vary: { voice: 0.25, volume: 2, pitch: -1, timing: null, pan: 'nope' } }).vary;
-  assert.equal(vary.voice, 0.25);
-  assert.equal(vary.volume, 1, 'an aspect clamps to 0–1');
-  assert.equal(vary.pitch, 0);
-  assert.equal(vary.timing, null, 'null is a legal value, not a missing one');
-  assert.equal(vary.pan, null, 'an unusable aspect falls back to its default');
-  assert.equal('nonsense' in set({ vary: { nonsense: 1 } }).vary, false);
+  // The legacy block still reads, forever, by the same clamps it always had.
+  const legacy = set({ vary: { voice: 0.25, volume: 2, pitch: -1, timing: null, pan: 'nope' } });
+  assert.equal(legacy.voiceWander, 0.25);
+  assert.equal(legacy.dynamics, 1, 'an aspect clamps to 0–1');
+  assert.equal(legacy.octaveWander, 0);
+  assert.ok(legacy.macroPatch.includes('timing'), 'null is a legal value: the macro patch');
+  assert.ok(legacy.macroPatch.includes('pan'), 'an unusable aspect leaves its default standing');
+  assert.deepEqual(set({ vary: { nonsense: 1 } }).macroPatch, ['dynamics', 'timing', 'pan', 'octaveWander', 'voiceWander']);
 
-  // deep merge, aspect by aspect
-  const stored = sanitiseParams({ tracks: { melody: { vary: { pan: 0.6, timing: 0.2 } } } });
-  const merged = sanitiseParams({ tracks: { melody: { vary: { timing: 0.9 } } } }, stored).tracks.melody.vary;
+  // The new fields: clamped to their domains, rangeable, and a sent field
+  // unpatches its dial unless a macroPatch is sent beside it.
+  const fresh = set({ pan: { min: -2, max: 0.5 }, timing: 3, dynamics: { min: 0.2, max: 0.4 } });
+  assert.deepEqual(fresh.pan, { min: -1, max: 0.5 });
+  assert.equal(fresh.timing, 1);
+  assert.deepEqual(fresh.dynamics, { min: 0.2, max: 0.4 });
+  assert.deepEqual(fresh.macroPatch, ['octaveWander', 'voiceWander']);
+  const kept = set({ pan: 0.3, macroPatch: ['pan', 'nonsense', 'pan'] });
+  assert.equal(kept.pan, 0.3);
+  assert.deepEqual(kept.macroPatch, ['pan'], 'a sent list is the whole list, cleaned');
+
+  // deep merge, field by field
+  const stored = sanitiseParams({ tracks: { melody: { pan: 0.6, timing: 0.2 } } });
+  const merged = sanitiseParams({ tracks: { melody: { timing: 0.9 } } }, stored).tracks.melody;
   assert.equal(merged.timing, 0.9);
-  assert.equal(merged.pan, 0.6, 'an unmentioned aspect keeps its stored value');
-  assert.equal(merged.voice, null);
-  assert.equal(sanitiseParams({ tracks: { melody: { vary: 'nope' } } }, stored).tracks.melody.vary.pan, 0.6,
-    'a junk vary block leaves the stored aspects alone');
+  assert.equal(merged.pan, 0.6, 'an unmentioned field keeps its stored value');
+  assert.ok(!merged.macroPatch.includes('pan'), 'and its stored unpatching');
+  assert.equal(sanitiseParams({ tracks: { melody: { pan: 'nope' } } }, stored).tracks.melody.pan, 0.6,
+    'a junk value leaves the stored field alone');
 });
 
 test('every pulsed track gets a step grid, and no other track does', () => {
@@ -2967,7 +2985,7 @@ test('DEFAULT_PARAMS stays deeply frozen through merges', () => {
     'DEFAULT_PARAMS': DEFAULT_PARAMS,
     'tracks': DEFAULT_PARAMS.tracks,
     'tracks.pad': DEFAULT_PARAMS.tracks.pad,
-    'tracks.pad.vary': DEFAULT_PARAMS.tracks.pad.vary,
+    'tracks.pad.macroPatch': DEFAULT_PARAMS.tracks.pad.macroPatch,
     'tracks.melody.sequencer': DEFAULT_PARAMS.tracks.melody.sequencer,
     'tracks.melody.sequencer.steps': DEFAULT_PARAMS.tracks.melody.sequencer.steps,
     'tracks.melody.sequencer.steps[0]': DEFAULT_PARAMS.tracks.melody.sequencer.steps[0],
@@ -2986,12 +3004,14 @@ test('DEFAULT_PARAMS stays deeply frozen through merges', () => {
   assert.notEqual(merged.tracks.melody.sequencer.steps[0], DEFAULT_PARAMS.tracks.melody.sequencer.steps[0]);
   merged.tracks.melody.sequencer.steps[0].on = false;
   merged.tracks.percussion.sequencer.steps.low[0].prob = 0;
-  merged.tracks.pad.vary.pan = 1;
+  merged.tracks.pad.pan = 1;
+  merged.tracks.pad.macroPatch.push('voiceWander');
   merged.arp.steps[0] = false;
   merged.customStructure[0].bars = 3;
   assert.equal(DEFAULT_PARAMS.tracks.melody.sequencer.steps[0].on, true);
   assert.equal(DEFAULT_PARAMS.tracks.percussion.sequencer.steps.low[0].prob, 1);
-  assert.equal(DEFAULT_PARAMS.tracks.pad.vary.pan, null);
+  assert.equal(DEFAULT_PARAMS.tracks.pad.pan, 0);
+  assert.equal(DEFAULT_PARAMS.tracks.pad.macroPatch.includes('voiceWander'), false);
   assert.equal(DEFAULT_PARAMS.arp.steps[0], true);
   assert.equal(DEFAULT_PARAMS.customStructure[0].bars, 8);
 
@@ -5544,9 +5564,9 @@ test("getResolved() reports the shape and values the v14 live-readout contract p
     assert.ok(t.level >= 0 && t.level <= 1, `${name}: resolved level ${t.level} out of range`);
     assert.ok(t.randomness >= 0 && t.randomness <= 1, `${name}: resolved randomness ${t.randomness} out of range`);
     assert.equal(typeof t.held, 'boolean');
-    assert.deepEqual(Object.keys(t.vary).sort(), [...VARY_ASPECTS].sort());
-    for (const aspect of VARY_ASPECTS) {
-      assert.ok(t.vary[aspect] >= 0 && t.vary[aspect] <= 1, `${name}.vary.${aspect} out of range`);
+    assert.deepEqual(Object.keys(t.spreads).sort(), ['dynamics', 'octaveWander', 'pan', 'timing', 'voiceWander']);
+    for (const [dial, amount] of Object.entries(t.spreads)) {
+      assert.ok(amount >= 0 && amount <= 1, `${name}.spreads.${dial} out of range`);
     }
     if (TUNED_TRACKS.includes(name)) {
       assert.ok('dissonance' in t, `${name}: TUNED_TRACKS member has no resolved dissonance`);
@@ -8051,7 +8071,8 @@ test('v23 userTracks: the track entry is built by the same code paths as a built
   assert.equal(drone.glide, 0);
   // The pad/texture voice wander is a built-in-specific ruling, not a default
   // a new track inherits.
-  assert.deepEqual(drone.vary, Object.fromEntries(VARY_ASPECTS.map((a) => [a, null])));
+  assert.deepEqual(drone.macroPatch, ['dynamics', 'timing', 'pan', 'octaveWander', 'voiceWander']);
+  assert.equal(drone.voiceWander, 0);
   assert.equal(drone.dissonance, 0, 'melodic ⇒ tuned ⇒ it has a dissonance dial');
   assert.equal('lanes' in drone, false, 'a melodic track has one grid, not a kit');
   // EVERY user track is sequenced: its step grid is its whole material.
@@ -8370,7 +8391,7 @@ test('v23 userTracks: level, sequencer and patches round-trip and apply', () => 
       drone: {
         level: { min: 0.2, max: 0.4 }, randomness: 0.5, driftRate: 0.5,
         swing: 0.3, density: 1.5, hold: true, mono: true, glide: 0.5, dissonance: 0.25,
-        vary: { volume: 0.2 },
+        dynamics: 0.2,
         sequencer: { mode: 'manual', steps: seqLane({ prob: 0.5 }) },
       },
     },
@@ -8386,7 +8407,8 @@ test('v23 userTracks: level, sequencer and patches round-trip and apply', () => 
   assert.equal(stored.mono, true);
   assert.equal(stored.glide, 0.5);
   assert.equal(stored.dissonance, 0.25);
-  assert.equal(stored.vary.volume, 0.2);
+  assert.equal(stored.dynamics, 0.2);
+  assert.ok(!stored.macroPatch.includes('dynamics'));
   assert.equal(stored.sequencer.steps[0].prob, 0.5);
   assert.equal(engine.getParams().patches.drone.warm.filter.cutoff, 900);
   assert.equal(engine.getParams().patches.drone.warm.adsr.release, 1.5);
@@ -8614,7 +8636,7 @@ test('v23 addTrack: the new track arrives on every surface, with a built-in\'s d
   assert.equal(track.mono, false);
   assert.equal(track.glide, 0);
   assert.equal(track.dissonance, 0);
-  assert.deepEqual(track.vary, Object.fromEntries(VARY_ASPECTS.map((a) => [a, null])));
+  assert.deepEqual(track.macroPatch, ['dynamics', 'timing', 'pan', 'octaveWander', 'voiceWander']);
 
   // An absent voiceSet follows the family, so a control that asks for a name
   // and a kind is a complete caller.

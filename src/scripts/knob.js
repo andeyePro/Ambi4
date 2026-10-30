@@ -3,7 +3,7 @@
  * plus the v7 dual-range addendum).
  *
  * export function createKnob(container, { label, min, max, value, step?, marks?,
- *   format?, onInput, allowRange?, rangeDefault?, defaultValue?, ghostValue? }) =>
+ *   format?, onInput, onReset?, allowRange?, rangeDefault?, defaultValue?, ghostValue? }) =>
  *   { el, set(value), setGhost(value), destroy() }
  *
  * 270° sweep (-135°..+135°) with a tick ring (minor ticks plus major marks at
@@ -253,6 +253,12 @@ export function createKnob(container, options) {
   const keyStep = step || range / 200;
   const wheelStep = step || range / 100;
   const onInput = typeof opts.onInput === 'function' ? opts.onInput : null;
+  // v0.0.275: told on EVERY reset (double-click, Backspace/Delete), after the
+  // onInput a reset that moved the value emits — and even when it moved
+  // nothing. A dial whose default is a STATE rather than a number (Pan
+  // patched back to the Randomness macro) cannot read that from the value,
+  // which a reset to 0 shares with a drag to 0.
+  const onReset = typeof opts.onReset === 'function' ? opts.onReset : null;
   // Called (once per gesture) when a spread gesture lands on a dial with
   // allowRange:false — so the page can SAY why nothing happened instead of
   // silently refusing. v0.0.102: the owner's Tempo ruling ("the one dial that
@@ -1593,9 +1599,17 @@ export function createKnob(container, options) {
     valueMax = resetValueMax;
     activeThumb = 'min';
     dragRaw = value;
-    if (!changed) return;
-    updateView();
-    emit();
+    if (changed) {
+      updateView();
+      emit();
+    }
+    if (onReset) {
+      try {
+        onReset();
+      } catch {
+        // a listener error must never break the knob
+      }
+    }
   }
 
   listen('pointerdown', onPointerDown);

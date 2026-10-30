@@ -315,12 +315,21 @@ rate is patched.
 
 ### D8 — The Randomise row dissolves into ordinary dials
 
-*Status: the Voice row is shipped as the voice rule (v0.0.195): its Chance
-is the Voice chance dial (0 = Hold, Auto follows Randomness), its When and Pool
-sit beside it, and the Randomise row's Voice knob is that Chance. The other
-four rows (Volume, Timing, Pan, Pitch) are not yet dissolved. In the new
-vocabulary, "becomes a Voice change probability dial" below reads "is the
-voice rule's Chance".*
+*Status: SHIPPED v0.0.275 — the row is gone. The Voice row shipped first as
+the voice rule (v0.0.195): its Chance is the Voice chance dial (0 = Hold, Auto
+follows Randomness), its When and Pool sit beside it. v0.0.275 dissolved the
+other four: Pan and Timing are spreads on dials of their own, Volume is the
+Dynamics dial, Pitch is Octave wander (all it ever did at the engine — the
+passing-note half was never wired) plus a new Passing notes dial, and `null`
+is the track's Randomness patched to the dial (`tracks[t].macroPatch`). Each
+dial shows only on the tracks it acts on. Field map, shim and exactness:
+`docs/engine-v2-contract.md` § v0.0.275 and `src/scripts/spread-dials.js`.
+One departure from the table below: **Volume did not become the spread on the
+Level dial.** Level already had a spread (v7, a linear walk between two levels)
+with a different law from the volume vary (a ±6 dB walk plus per-note accent
+jitter); folding one into the other changes how every stored piece with a
+Level span sounds, so Volume is the Dynamics dial beside it, and merging the
+two laws waits on his ruling.*
 
 The five Voice/Volume/Pitch/Timing/Pan dials are a *second* randomness system
 with different semantics from the min-max walk. They are not hidden — they are
@@ -629,6 +638,11 @@ Six phases. Phases 1-2 are the foundation and ship no visible change.
    becomes a probability dial. `vary.*` migrates: `null` becomes a MACRO patch,
    an explicit number becomes a spread. Do not delete the old params until a
    release has passed with both paths live.
+   **SHIPPED v0.0.275** (Volume as the Dynamics dial — see D8's status). The
+   READ path is the forever shim (`foldLegacyVary`, engine and page); the
+   write path retired at once rather than after a release, because a v0.0.274
+   build reading a dual-written link would still lose Pan's and Timing's
+   centres and Passing notes — the schema-5 stamp tells it so instead.
 
 The Studio-tier "build your own instrument and assign dials to anything" work
 extends the same registry with user-authored bindings — it is the phase after

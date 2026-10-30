@@ -7,8 +7,8 @@
  * could follow with a pen (`recipeToText` / `recipeFromText`).
  *
  * PURE MODULE: no DOM, no audio, no import of ambient-engine.js. The track
- * list, which tracks are tuned/sequenced, and the vary aspects are therefore
- * copied here as literals rather than imported — the same shape param-
+ * list, which tracks are tuned/sequenced, and the dissolved Randomise dials
+ * are therefore copied here as literals rather than imported — the same shape param-
  * registry.js already keeps for the patch namespace. A drift between this
  * copy and the engine's own tables is what tests/recipe-roundtrip.mjs (which
  * imports both) would catch, not a design goal of this file.
@@ -31,8 +31,23 @@ const TUNED_TRACKS = Object.freeze(['pad', 'bass', 'melody', 'texture', 'arp']);
 /** Tracks with a step grid of their own (ambient-engine.js SEQUENCED_TRACKS, membership only). */
 const SEQUENCED_TRACKS = Object.freeze(['melody', 'bass', 'arp', 'percussion']);
 
-/** ambient-engine.js VARY_ASPECTS. */
+/** ambient-engine.js VARY_ASPECTS — read from old sheets only (see LEGACY_ROWS). */
 const VARY_ASPECTS = Object.freeze(['voice', 'volume', 'pitch', 'timing', 'pan']);
+
+/**
+ * v0.0.275 (D8): the Randomise row dissolved into dials of their own
+ * (spread-dials.js) — Pan and Timing spreads, Dynamics, Octave wander, the
+ * voice wander, the Randomness macro patch, and Passing notes (tuned tracks,
+ * sparse). The labels name the dial a person turns.
+ */
+const DISSOLVED_ROWS = Object.freeze([
+  ['pan', 'pan', 'range'],
+  ['timing', 'timing', 'range'],
+  ['dynamics', 'dynamics', 'range'],
+  ['octaveWander', 'octave wander', 'range'],
+  ['voiceWander', 'voice wander', 'range'],
+  ['macroPatch', 'follows Randomness', 'json'],
+]);
 
 const trackLabel = (track) => track[0].toUpperCase() + track.slice(1);
 
@@ -65,8 +80,11 @@ function trackFields(track) {
   if (track === 'bass') {
     rows.push({ path: 'tracks.bass.grooveRule', label: 'Bass groove rule', kind: 'grooveRule' });
   }
-  for (const aspect of VARY_ASPECTS) {
-    rows.push({ path: `tracks.${track}.vary.${aspect}`, label: `${label} vary ${aspect}`, kind: 'range' });
+  for (const [field, words, kind] of DISSOLVED_ROWS) {
+    rows.push({ path: `tracks.${track}.${field}`, label: `${label} ${words}`, kind });
+  }
+  if (TUNED_TRACKS.includes(track)) {
+    rows.push({ path: `tracks.${track}.passingNotes`, label: `${label} passing notes`, kind: 'range' });
   }
   if (SEQUENCED_TRACKS.includes(track)) {
     rows.push({ path: `tracks.${track}.sequencers`, label: `${label} sequencers`, kind: 'sequencers' });
@@ -498,6 +516,16 @@ function parseValue(row, text) {
   }
 }
 
+/**
+ * v0.0.275: the lines a sheet printed before the Randomise row dissolved
+ * ("Pad vary pan: 0.45"). Read, never written: they land at the old
+ * `vary.*` path, and the engine's sanitiser folds that into the new dials —
+ * the same shim every old share link goes through, forever.
+ */
+const LEGACY_ROWS = Object.freeze(TRACK_ORDER.flatMap((track) => VARY_ASPECTS.map((aspect) => Object.freeze({
+  path: `tracks.${track}.vary.${aspect}`, label: `${trackLabel(track)} vary ${aspect}`, kind: 'range',
+}))));
+
 /** The recipe as text: one "Label: value" line per present field, in order. */
 export function recipeToText(recipe) {
   const lines = [];
@@ -516,7 +544,7 @@ export function recipeToText(recipe) {
  * thrown at, which is what lets a person annotate a printed sheet.
  */
 export function recipeFromText(text) {
-  const byLabel = new Map(RECIPE_FIELDS.map((row) => [row.label, row]));
+  const byLabel = new Map([...LEGACY_ROWS, ...RECIPE_FIELDS].map((row) => [row.label, row]));
   const recipe = {};
   for (const rawLine of String(text).split('\n')) {
     if (!rawLine.trim()) continue;

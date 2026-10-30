@@ -467,10 +467,15 @@ Preset URLs
 - [ ] A junk slug (e.g. `/not-a-preset`) → the normal 404 page.
 
 Min-max dials
-- [ ] "Randomise" dials in a track's Edit panel (Voice / Pitch / Timing / …) can
-      now be clicked to switch to a drifting min–max range, like Level and
-      Randomness. The left detent (Auto — "follows Randomness") is a single
-      value only: collapse a range onto it and the dial reads Auto again.
+- [ ] The feel row of a track's Edit panel leads with the dials the Randomise
+      row dissolved into (v0.0.275): Pan and Timing take a sideways spread —
+      each note lands somewhere inside it — and Dynamics, Octave wander and
+      Passing notes take a single amount or a drifting min–max range. Only
+      the dials that act are there: the bass has Timing and Dynamics, no Pan.
+      A dial reading Auto follows the track's Randomness; turn it to set your
+      own, double-click to hand it back (it reads Auto again). There is no
+      row titled Randomise anywhere. An old share link carrying the row's
+      settings still arrives with them on these dials.
 - [ ] Clicking Tempo, Complexity, Repetition, Volume, Swing, Processor, Octave,
       Filter type or the Shape dials does NOTHING — those params take a single
       value engine-side, so they deliberately have no range affordance.

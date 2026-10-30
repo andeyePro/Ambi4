@@ -42,6 +42,8 @@
  *                refuses a row without, and a bare label never ships.
  */
 
+import { DIAL_DOMAIN } from './spread-dials.js';
+
 const OSC_TYPES = Object.freeze(['sine', 'triangle', 'sawtooth', 'square']);
 // v0.0.257: 'vowel' is the formant bank (src/scripts/vowel-formants.js),
 // positioned by its own row, patch.filter.vowel — not a fifth biquad type.
@@ -231,6 +233,19 @@ export const PARAM_REGISTRY = Object.freeze({
   // midpoint, which would be a lying control.
   'master.drive': number(0, 1, { scope: 'master', rangeable: false, hint: 'Tape-style warmth on the whole mix: off at the left, a gentle glow a little way in, thick and saturated at the right. The level holds as it rises.' }),
   'track.drive': number(0, 1, { scope: 'track', rangeable: false, hint: 'Tape-style warmth on this track alone: off at the left, a gentle glow a little way in, thick and saturated at the right. Its level holds as it rises.' }),
+  // v0.0.275 (D8) — the Randomise row dissolved into dials of their own
+  // (spread-dials.js holds the field map and the decode shim). Every one is
+  // rangeable, and on Pan and Timing the spread IS the randomisation: each
+  // note lands somewhere between its two ends, drawn per note (never walked
+  // per bar — v7's per-note-natured case). The three amount dials walk a
+  // span per bar like any other dial. Domains are spread-dials.js's, so the
+  // sanitiser and these rows cannot disagree.
+  'track.pan': number(...DIAL_DOMAIN.pan, { scope: 'track', hint: 'Where the track sits, left to right. A spread scatters each note between its two ends; at Auto the spread follows the track\'s Randomness.' }),
+  'track.timing': number(...DIAL_DOMAIN.timing, { scope: 'track', hint: 'Pushes the track ahead of the beat or drags it behind, up to 25 ms. A spread scatters each note inside it, which is the human feel; at Auto it follows the track\'s Randomness.' }),
+  'track.dynamics': number(...DIAL_DOMAIN.dynamics, { scope: 'track', hint: 'How much the track\'s loudness breathes: a slow swing of up to 6 dB around its Level, and an accent on every note. At Auto it follows the track\'s Randomness.' }),
+  'track.octaveWander': number(...DIAL_DOMAIN.octaveWander, { scope: 'track', hint: 'How often a note jumps an octave up or down. At Auto it follows the track\'s Randomness.' }),
+  'track.voiceWander': number(...DIAL_DOMAIN.voiceWander, { scope: 'track', hint: 'How likely the track is to wander to another of its voices at each bar, when no voice rule says otherwise. At Auto it follows the track\'s Randomness.' }),
+  'track.passingNotes': number(...DIAL_DOMAIN.passingNotes, { scope: 'track', hint: 'How often a note steps to its neighbour in the scale on the way: a passing tone, always in key. Dissonance decides first; this adds in-key steps to the notes it leaves alone.' }),
 });
 
 /** The rows of one patch section, as [field, row] pairs in table order. */

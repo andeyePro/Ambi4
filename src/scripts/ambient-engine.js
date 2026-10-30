@@ -34,6 +34,11 @@ export { VOWELS as PATCH_VOWELS } from './vowel-formants.js';
 // import of this one, so getRecipe()/applyRecipe() below are read/write seams
 // over it rather than a second copy of what a recipe is.
 import { recipeFromParams } from './recipe.js';
+import {
+  VARY_ASPECTS as LEGACY_VARY_ASPECTS, MACRO_DIALS, DIAL_DOMAIN, DIAL_WALK_KEY,
+  PAN_SPREAD as DIAL_PAN_SPREAD, TIMING_SPREAD as DIAL_TIMING_SPREAD,
+  foldLegacyVary, cleanMacroPatch, spreadOf,
+} from './spread-dials.js';
 
 // ---------------------------------------------------------------------------
 // 1. Music theory
@@ -777,7 +782,14 @@ function uniqueTrackId(label, taken) {
   return null;
 }
 
-export const VARY_ASPECTS = Object.freeze(['voice', 'volume', 'pitch', 'timing', 'pan']);
+/**
+ * v0.0.275: the legacy Randomise aspects — no longer a stored field (D8: the
+ * row dissolved into Pan, Timing, Dynamics, Octave wander and the voice
+ * wander, see spread-dials.js), still the vocabulary every old share link and
+ * stored piece speaks, which the sanitiser folds into the new fields forever.
+ */
+export const VARY_ASPECTS = LEGACY_VARY_ASPECTS;
+export { MACRO_DIALS };
 
 const DEFAULT_TRACK_LEVEL = 0.8;
 
@@ -1252,10 +1264,22 @@ const DEFAULT_VARY_VOICE = Object.freeze({
   bass: 0,
 });
 
-function defaultVary(track) {
-  return Object.fromEntries(VARY_ASPECTS.map((aspect) => [
-    aspect, aspect === 'voice' ? DEFAULT_VARY_VOICE[track] ?? null : null,
-  ]));
+/**
+ * v0.0.275: a track's dissolved Randomise row as it ships — the old defaults,
+ * moved. Every aspect followed the Randomness macro, so every dial is in the
+ * macro patch, except where a track shipped an explicit voice wander (pad and
+ * texture 0.15, the bass 0 since v12): that one is the number it was.
+ */
+function defaultDissolved(track) {
+  const voice = DEFAULT_VARY_VOICE[track];
+  return {
+    pan: 0,
+    timing: 0,
+    dynamics: 0,
+    octaveWander: 0,
+    voiceWander: voice ?? 0,
+    macroPatch: MACRO_DIALS.filter((id) => id !== 'voiceWander' || voice === undefined),
+  };
 }
 
 function defaultTracks() {
@@ -1275,7 +1299,7 @@ function defaultTracks() {
       hold: false,
       mono: shape.mono,
       glide: shape.glide,
-      vary: defaultVary(name),
+      ...defaultDissolved(name),
     };
     if (shape.tuned) track.dissonance = DEFAULT_TRACK_DISSONANCE;
     if (shape.percussive) track.lanes = defaultPercussionLanes();
@@ -2215,25 +2239,52 @@ function sanitiseSequencerList(percussive, partial, base, laneIds = PERCUSSION_L
 /** More than this many alternates per track is a UI accident, not a sequence. */
 const MAX_SEQUENCERS = 8;
 
+const DISSOLVED_FIELDS = Object.freeze(['pan', 'timing', 'dynamics', 'octaveWander', 'voiceWander']);
+
 /**
- * Per-aspect randomisation targets. `null` is meaningful — "follow this track's
- * randomness macro" — so it is preserved rather than defaulted, and an explicit
- * number (including 0) overrides the macro for that aspect.
+ * v0.0.275 (D8): the dissolved Randomise row — Pan and Timing as spreads,
+ * Dynamics, Octave wander and the voice wander as amounts, and `macroPatch`,
+ * the dials the track's Randomness macro is patched to (the old `null`).
+ *
+ * Precedence, newest first: a field the partial sends; the partial's legacy
+ * `vary` block (THE SHIM — it lives forever, because share links carrying
+ * vary.* never expire); the base's fields, or the base's own legacy vary
+ * when the base predates this build; the defaults. A field sent without a
+ * `macroPatch` beside it unpatches that dial — the old "an explicit number
+ * overrides the macro" — and a sent `macroPatch` is the whole list.
+ * `passingNotes` is sparse: present only while above 0 (or spanned).
  */
-function sanitiseVary(value, base) {
-  const from = base && typeof base === 'object' ? base : null;
-  const v = value && typeof value === 'object' ? value : null;
-  const out = {};
-  for (const aspect of VARY_ASPECTS) {
-    const raw = v && aspect in v ? v[aspect] : undefined;
-    if (raw === null) {
-      out[aspect] = null;
-      continue;
-    }
-    const cleaned = sanitiseRangeValue(raw, 0, 1);
-    out[aspect] = cleaned !== undefined
-      ? cleaned
-      : sanitiseRangeValue(from ? from[aspect] : undefined, 0, 1) ?? null;
+function sanitiseDissolved(partial, baseTrack, name, shape) {
+  const defaults = defaultDissolved(name);
+  const fields = {};
+  const legacyBase = Boolean(baseTrack && !Array.isArray(baseTrack.macroPatch) && baseTrack.vary);
+  for (const field of DISSOLVED_FIELDS) {
+    const [lo, hi] = DIAL_DOMAIN[field];
+    const stored = legacyBase ? undefined : sanitiseRangeValue(baseTrack ? baseTrack[field] : undefined, lo, hi);
+    fields[field] = stored !== undefined ? stored : defaults[field];
+  }
+  let macro = legacyBase ? defaults.macroPatch
+    : cleanMacroPatch(baseTrack && baseTrack.macroPatch) ?? defaults.macroPatch;
+  if (legacyBase) macro = foldLegacyVary(baseTrack.vary, fields, macro);
+  if (partial && partial.vary !== undefined) macro = foldLegacyVary(partial.vary, fields, macro);
+  const sentPatch = partial ? cleanMacroPatch(partial.macroPatch) : undefined;
+  for (const field of DISSOLVED_FIELDS) {
+    const [lo, hi] = DIAL_DOMAIN[field];
+    const sent = sanitiseRangeValue(partial ? partial[field] : undefined, lo, hi);
+    if (sent === undefined) continue;
+    fields[field] = sent;
+    if (sentPatch === undefined) macro = macro.filter((id) => id !== field);
+  }
+  if (sentPatch !== undefined) macro = sentPatch;
+  const out = { ...fields, macroPatch: macro };
+  if (shape.tuned) {
+    const [lo, hi] = DIAL_DOMAIN.passingNotes;
+    const sent = partial && 'passingNotes' in partial
+      ? (partial.passingNotes === null ? 0 : sanitiseRangeValue(partial.passingNotes, lo, hi))
+      : undefined;
+    const value = sent !== undefined ? sent
+      : sanitiseRangeValue(baseTrack ? baseTrack.passingNotes : undefined, lo, hi);
+    if (value !== undefined && (typeof value === 'object' || value > 0)) out.passingNotes = value;
   }
   return out;
 }
@@ -2624,7 +2675,7 @@ function sanitiseTracks(value, base, order = TRACK_ORDER, userById = null) {
       glide: sanitiseRangeValue(partial && partial.glide, 0, 1)
         ?? sanitiseRangeValue(baseTrack.glide, 0, 1)
         ?? shape.glide,
-      vary: sanitiseVary(partial && partial.vary, baseTrack.vary),
+      ...sanitiseDissolved(partial, baseTrack, name, shape),
     };
     // v0.0.162: sparse — present only while a blend is set. Supplying the key
     // (even null) replaces; omitting it inherits, like every other field.
@@ -3483,10 +3534,14 @@ function copyTrack(track) {
     glide: copyRangeValue(track.glide),
     swing: copyRangeValue(track.swing),
     density: copyRangeValue(track.density),
-    vary: Object.fromEntries(
-      Object.entries(track.vary).map(([aspect, value]) => [aspect, copyRangeValue(value)]),
-    ),
+    pan: copyRangeValue(track.pan),
+    timing: copyRangeValue(track.timing),
+    dynamics: copyRangeValue(track.dynamics),
+    octaveWander: copyRangeValue(track.octaveWander),
+    voiceWander: copyRangeValue(track.voiceWander),
+    macroPatch: Array.isArray(track.macroPatch) ? track.macroPatch.slice() : [],
   };
+  if ('passingNotes' in track) out.passingNotes = copyRangeValue(track.passingNotes);
   if ('dissonance' in track) out.dissonance = copyRangeValue(track.dissonance);
   // The motif and its rule are objects inside the track: copied, never lent.
   if (track.motif) out.motif = cloneMotif(track.motif);
@@ -6176,20 +6231,46 @@ export function createEngine(initialParams, options = {}) {
   }
 
   /**
-   * How much variation one aspect of one track wants, 0–1.
-   *
-   * SPEC-CRITIC [vary-off] → ruling 6/amendment 2: `null` means "follow this
-   * track's randomness macro" and an explicit number OVERRIDES the macro — so
-   * an explicit 0 is a real "leave this aspect alone", distinct from null, even
-   * when randomness is high.
+   * v0.0.275 (D8): is this dial patched to the track's Randomness macro —
+   * the old `null`, "follow this track's randomness"? An unpatched dial's own
+   * value rules, so an explicit 0 is a real "leave this alone" even when
+   * Randomness is high (SPEC-CRITIC [vary-off], ruling 6/amendment 2).
    */
-  function varyAmount(track, aspect) {
-    const config = params.tracks[track];
-    const explicit = config.vary[aspect];
-    const value = explicit === null || explicit === undefined
-      ? resolveRange(track, 'randomness', config.randomness)
-      : resolveRange(track, `vary.${aspect}`, explicit);
+  function macroPatched(track, dial) {
+    const list = params.tracks[track].macroPatch;
+    return Array.isArray(list) && list.includes(dial);
+  }
+
+  /** The Randomness macro's value as a patched dial reads it, 0–1. */
+  function macroAmount(track) {
+    return clamp(resolveRange(track, 'randomness', params.tracks[track].randomness) ?? 0, 0, 1);
+  }
+
+  /**
+   * A scalar dissolved dial's amount, 0–1: Dynamics, Octave wander, the voice
+   * wander. The macro when patched; else the dial, walked under its legacy
+   * walk key when spanned — the exact law vary.* had.
+   */
+  function dialAmount(track, dial) {
+    if (macroPatched(track, dial)) return macroAmount(track);
+    const value = resolveRange(track, DIAL_WALK_KEY[dial], params.tracks[track][dial]);
     return clamp(value ?? 0, 0, 1);
+  }
+
+  /**
+   * A spread dial's scatter — Pan's full width, Timing's half-width — or the
+   * macro when patched. The two old laws (±PAN_SPREAD·a, ±TIMING_SPREAD·a)
+   * are this width times the same draw, so a migrated spread is exact.
+   */
+  function spreadAmount(track, dial) {
+    if (macroPatched(track, dial)) return macroAmount(track);
+    const { width } = spreadOf(params.tracks[track][dial]);
+    return dial === 'timing' ? width / 2 : width;
+  }
+
+  /** A spread dial's centre: where Pan sits, how far Timing pushes or drags. */
+  function spreadCentre(track, dial) {
+    return spreadOf(params.tracks[track][dial]).centre;
   }
 
   /** A track's randomness macro as a number, resolving a v7 range via its walk. */
@@ -6282,15 +6363,18 @@ export function createEngine(initialParams, options = {}) {
     return lane ? lane.id : kind;
   }
 
-  /** Per-note velocity jitter: ±15 % of the note's own velocity at aspect 1. */
+  /** Per-note velocity jitter: ±15 % of the note's own velocity at Dynamics 1. */
   function velocityJitter(track) {
-    return 1 + varyAmount(track, 'volume') * between(-0.15, 0.15, rng);
+    return 1 + dialAmount(track, 'dynamics') * between(-0.15, 0.15, rng);
   }
 
-  const TIMING_SPREAD = 0.025;       // seconds of humanisation at vary.timing = 1
-  const PAN_SPREAD = 0.5;            // extra stereo width at vary.pan = 1
-  const VOICE_WANDER_CHANCE = 0.25;  // per-bar wander probability at vary.voice = 1
-  const OCTAVE_WANDER_CHANCE = 0.18; // per-note register jump at vary.pitch = 1
+  const TIMING_SPREAD = DIAL_TIMING_SPREAD; // seconds of humanisation at Timing half-width 1
+  const PAN_SPREAD = DIAL_PAN_SPREAD;       // per-note scatter at Pan width 1
+  const VOICE_WANDER_CHANCE = 0.25;  // per-bar wander probability at voice wander 1
+  const OCTAVE_WANDER_CHANCE = 0.18; // per-note register jump at Octave wander 1
+  // v0.0.275: the Passing notes dial — at 1, 45 % of the notes a Dissonance
+  // draw left alone step to a neighbouring degree inside the mode.
+  const PASSING_NOTE_CHANCE = 0.45;
 
   /**
    * Seconds to nudge one note off its grid position (v6 amendment 2). Drawn in
@@ -6298,12 +6382,18 @@ export function createEngine(initialParams, options = {}) {
    * — that clamp is what stops a negative nudge breaching the lookahead.
    */
   function timingNudge(track) {
-    return between(-TIMING_SPREAD, TIMING_SPREAD, rng) * varyAmount(track, 'timing');
+    // The draw first, then the amount: the order vary.timing made them in,
+    // because a patched amount can open the Randomness walk (one rng draw).
+    const nudge = between(-TIMING_SPREAD, TIMING_SPREAD, rng) * spreadAmount(track, 'timing');
+    const centre = spreadCentre(track, 'timing');
+    return centre === 0 ? nudge : centre * TIMING_SPREAD + nudge;
   }
 
-  /** Per-note stereo widening, added on top of a track's own placement. */
+  /** Per-note stereo placement: the Pan dial's centre plus its spread's scatter. */
   function panSpread(track) {
-    return between(-PAN_SPREAD, PAN_SPREAD, rng) * varyAmount(track, 'pan');
+    const scatter = between(-PAN_SPREAD, PAN_SPREAD, rng) * spreadAmount(track, 'pan');
+    const centre = spreadCentre(track, 'pan');
+    return centre === 0 ? scatter : centre + scatter;
   }
 
   /**
@@ -6313,7 +6403,7 @@ export function createEngine(initialParams, options = {}) {
    */
   function octaveWander(track) {
     const direction = rng() < 0.5 ? -1 : 1;
-    return rng() < OCTAVE_WANDER_CHANCE * varyAmount(track, 'pitch') ? direction : 0;
+    return rng() < OCTAVE_WANDER_CHANCE * dialAmount(track, 'octaveWander') ? direction : 0;
   }
 
   /**
@@ -6328,10 +6418,24 @@ export function createEngine(initialParams, options = {}) {
    */
   function dissonanceDraw(track) {
     const amount = trackDissonance(track);
-    if (amount <= 0) return 0;
-    if (rng() >= amount * 0.45) return 0;
-    const dir = rng() < 0.5 ? -1 : 1;
-    return { chromatic: rng() < amount * 0.7, dir };
+    const passing = trackPassingNotes(track);
+    if (amount <= 0 && passing <= 0) return 0;
+    if (amount > 0 && rng() < amount * 0.45) {
+      const dir = rng() < 0.5 ? -1 : 1;
+      return { chromatic: rng() < amount * 0.7, dir };
+    }
+    // v0.0.275: Passing notes — an in-mode step for a note Dissonance left
+    // alone. At 0 (every stored piece) nothing here draws, so the stream is
+    // the one every earlier version made.
+    if (passing <= 0 || rng() >= passing * PASSING_NOTE_CHANCE) return 0;
+    return { chromatic: false, dir: rng() < 0.5 ? -1 : 1 };
+  }
+
+  /** The Passing notes dial, 0–1 (sparse: absent is 0). */
+  function trackPassingNotes(track) {
+    const config = params.tracks[track];
+    if (!config || config.passingNotes === undefined) return 0;
+    return clamp(resolveRange(track, DIAL_WALK_KEY.passingNotes, config.passingNotes) ?? 0, 0, 1);
   }
 
   /** A sequencer step's firing probability, resolving a v7 range via its walk. */
@@ -6876,7 +6980,7 @@ export function createEngine(initialParams, options = {}) {
   function trackGain(name) {
     const mix = mixFor(name).level;
     const level = resolveRange(name, 'level', params.tracks[name].level);
-    const amount = varyAmount(name, 'volume');
+    const amount = dialAmount(name, 'dynamics');
     const swing = Math.pow(2, 0.5 * amount * (walk(name, 'volumeWalk') * 4 - 2));
     return mix * clamp(level * swing, SILENCE, 1);
   }
@@ -7215,7 +7319,7 @@ export function createEngine(initialParams, options = {}) {
   /** The chance a redraw fires at this `when`: explicit, or the old wander law. */
   function ruleChance(track, rule) {
     return rule.chance === null
-      ? clamp(VOICE_WANDER_CHANCE * varyAmount(track, 'voice'), 0, 1)
+      ? clamp(VOICE_WANDER_CHANCE * dialAmount(track, 'voiceWander'), 0, 1)
       : rule.chance;
   }
 
@@ -7349,7 +7453,7 @@ export function createEngine(initialParams, options = {}) {
         if (wanderedVoice.delete(name)) changed = true;
         continue;
       }
-      const amount = varyAmount(name, 'voice');
+      const amount = dialAmount(name, 'voiceWander');
       if (amount <= 0) {
         if (wanderedVoice.delete(name)) changed = true;
         continue;
@@ -7797,6 +7901,10 @@ export function createEngine(initialParams, options = {}) {
       velocity: full.velocity,
       time: full.when,
       duration: full.duration,
+      // v0.0.275: where in the stereo field the note sits, its track's Pan
+      // spread drawn — telemetry like the fields below, and the half of a
+      // dissolved Randomise aspect a note stream could not otherwise show.
+      pan: full.pan,
     };
     // The motif-derivation flag rides on the notes it describes, which is the
     // only place outside the engine it could honestly be observed.
@@ -9124,8 +9232,11 @@ export function createEngine(initialParams, options = {}) {
    * no groove, draws its own on the same terms.
    */
   function bassPocketFor() {
-    if (bassPocket === null) bassPocket = bassPocketSeconds(varyAmount('bass', 'timing'), rng);
-    return bassPocket;
+    if (bassPocket === null) bassPocket = bassPocketSeconds(spreadAmount('bass', 'timing'), rng);
+    // v0.0.275: the Timing dial's centre moves the whole line; its spread is
+    // the pocket's depth, as vary.timing was.
+    const centre = spreadCentre('bass', 'timing');
+    return centre === 0 ? bassPocket : bassPocket + centre * TIMING_SPREAD;
   }
 
   /**
@@ -9175,7 +9286,7 @@ export function createEngine(initialParams, options = {}) {
       complexity: params.complexity,
       lowLane: percussionLowBeats(),
       densityScale: trackDensity('bass'),
-      timingVary: varyAmount('bass', 'timing'),
+      timingVary: spreadAmount('bass', 'timing'),
       rng,
       choice: grooveChoiceForBuild(),
     });
@@ -11791,7 +11902,15 @@ export function createEngine(initialParams, options = {}) {
         swing: trackSwing(name),
         density: trackDensity(name),
         held: held.has(name) || isFrozenTrack(name),
-        vary: Object.fromEntries(VARY_ASPECTS.map((aspect) => [aspect, varyAmount(name, aspect)])),
+        // v0.0.275: the dissolved row, resolved — in the legacy aspect order,
+        // because resolving can open a walk and the walks open in call order.
+        spreads: {
+          voiceWander: dialAmount(name, 'voiceWander'),
+          dynamics: dialAmount(name, 'dynamics'),
+          octaveWander: dialAmount(name, 'octaveWander'),
+          timing: spreadAmount(name, 'timing'),
+          pan: spreadAmount(name, 'pan'),
+        },
       };
       if (config.dissonance !== undefined) resolved.dissonance = trackDissonance(name);
       // The kit as the grid is currently keyed: a dynamic lane list is the one

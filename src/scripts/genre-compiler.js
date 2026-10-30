@@ -111,8 +111,9 @@
  *   sixteenth-grid anchor cannot compile to a machine-gun), and nothing fakes a
  *   grid the director did not write.
  *
- *   Both paths: pocketMs → tracks.bass.vary.timing against the engine's own
- *   lay-back ceiling (BASS_POCKET seconds at vary.timing 1), syncopationCells →
+ *   Both paths: pocketMs → the bass's Timing spread (tracks.bass.timing, a
+ *   half-width against the engine's own lay-back ceiling, BASS_POCKET seconds
+ *   at half-width 1 — vary.timing until v0.0.275), syncopationCells →
  *   a small bass-density uplift (buildBassGroove only reaches for a second cell
  *   above density 0.6), and the declared articulation set → a bass-density
  *   nudge into the band whose articulation menu matches it (buildBassGroove
@@ -603,7 +604,7 @@ function percussionDensityDrive(groove, timeSignature) {
 
 /**
  * The genre's pocket as the engine's own lay-back dial. `BASS_POCKET` seconds
- * is what vary.timing 1 buys, so a genre asking for the full 22 ms gets 1 and a
+ * is what a Timing half-width of 1 buys, so a genre asking for the full 22 ms gets 1 and a
  * genre asking for none gets a machine-tight line — which is what a 0 ms pocket
  * means in every one of the four straight genres that declares one.
  */
@@ -996,7 +997,9 @@ export function compileGenre(genreJson, { rng = Math.random, defiance = {}, kitC
         ? 1 : clamp(numberOr(spec.densityScale, 1), 0, 2);
       track.density = round3(clamp(bias * drive * share, 0, 2));
     }
-    if (name === 'bass' && timing !== null) track.vary = { timing };
+    // v0.0.275: the pocket is the bass Timing dial's spread — the exact
+    // amount vary.timing carried, as a half-width (spread-dials.js).
+    if (name === 'bass' && timing !== null) track.timing = timing === 0 ? 0 : { min: -timing, max: timing };
     if (name === 'percussion' && kit) track.sequencers = kit;
     if (Object.keys(track).length) tracks[name] = track;
   }

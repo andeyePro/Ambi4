@@ -1213,6 +1213,10 @@ const VOICES: Record<string, [string, string][]> = {
     // Follow my chords: pure arithmetic over held notes, no imports of its own.
     import { followDegree } from '../scripts/chord-follow.js';
     import { whyWords } from '../scripts/note-words.js';
+    // v0.0.275 (D8): the dissolved Randomise row — its field map and the
+    // decode-side shim every stored piece and old share link goes through.
+    // Pure data and arithmetic, needed the instant a shared link lands.
+    import { MACRO_DIALS, DIAL_DOMAIN, foldLegacyVary, cleanMacroPatch, spreadDialsFor } from '../scripts/spread-dials.js';
     // The Energy dial's knot table: one copy, shared with tests/energy-measure.mjs
     // so the suite measures the mapping that ships (it had a stale private copy).
     import {
@@ -1589,13 +1593,6 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const lanes = Array.isArray(t && t.lanes) ? t.lanes : defaultPercLanes();
       return lanes.map((lane) => ({ key: lane.id, label: lane.label, kind: lane.kind }));
     }
-    const VARY_KEYS = [
-      ['voice', 'Voice'],
-      ['volume', 'Volume'],
-      ['pitch', 'Pitch'],
-      ['timing', 'Timing'],
-      ['pan', 'Pan'],
-    ];
 
     // Melodic lanes default all-on (gates nothing out); percussion lanes get
     // a sparse, musical starting pattern for the first flip to Manual.
@@ -1618,9 +1615,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }));
     }
 
-    function defaultVary() {
-      // null = "follow this track's randomness" (the Auto detent).
-      return { voice: null, volume: null, pitch: null, timing: null, pan: null };
+    /**
+     * v0.0.275 (D8): the dissolved Randomise row as the page ships it — the
+     * page's OLD defaults moved, so nothing a stored piece plays changes:
+     * every aspect here followed the track's Randomness (the old all-null
+     * vary), so every dial is in the macro patch. The engine's own defaults
+     * keep its pad/texture 0.15 voice wander; the page has always sent its
+     * own, which is what reached the speakers.
+     */
+    const SPREAD_FIELDS = ['pan', 'timing', 'dynamics', 'octaveWander', 'voiceWander'];
+    function defaultSpreads() {
+      return { pan: 0, timing: 0, dynamics: 0, octaveWander: 0, voiceWander: 0, macroPatch: [...MACRO_DIALS] };
     }
 
     /**
@@ -1911,7 +1916,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         level: 0.8,
         hold: false,
         randomness: 0.5,
-        vary: defaultVary(),
+        ...defaultSpreads(),
         ...(percussive ? {} : { dissonance: 0 }),
         ...(percussive ? { lanes: defaultPercLanes() } : {}),
         ...USER_MONO_DEFAULT,
@@ -1979,7 +1984,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           hold: false,
           randomness: 0.5,
           dissonance: 0,
-          vary: defaultVary(),
+          ...defaultSpreads(),
           ...defaultFeel('pad'),
           ...MONO_DEFAULTS.pad,
         },
@@ -1990,7 +1995,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           hold: false,
           randomness: 0.5,
           dissonance: 0,
-          vary: defaultVary(),
+          ...defaultSpreads(),
           ...defaultFeel('arp'),
           ...MONO_DEFAULTS.arp,
           ...withSequencers('arp'),
@@ -2004,7 +2009,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           hold: false,
           randomness: 0.5,
           dissonance: 0,
-          vary: defaultVary(),
+          ...defaultSpreads(),
           ...defaultFeel('melody'),
           ...MONO_DEFAULTS.melody,
           ...withSequencers('melody'),
@@ -2016,7 +2021,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           hold: false,
           randomness: 0.5,
           dissonance: 0,
-          vary: defaultVary(),
+          ...defaultSpreads(),
           ...defaultFeel('bass'),
           ...MONO_DEFAULTS.bass,
           ...withSequencers('bass'),
@@ -2028,7 +2033,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           hold: false,
           randomness: 0.5,
           dissonance: 0,
-          vary: defaultVary(),
+          ...defaultSpreads(),
           ...defaultFeel('texture'),
           ...MONO_DEFAULTS.texture,
         },
@@ -2038,7 +2043,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           level: 0.8,
           hold: false,
           randomness: 0.5,
-          vary: defaultVary(),
+          ...defaultSpreads(),
           ...defaultFeel('percussion'),
           lanes: defaultPercLanes(),
           ...MONO_DEFAULTS.percussion,
@@ -2464,14 +2469,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // present only while above 0.
         if (typeof t.drive === 'number' && Number.isFinite(t.drive) && t.drive > 0) t.drive = clamp(t.drive, 0, 1);
         else delete t.drive;
-        const vary = isPlainObject(t.vary) ? t.vary : {};
-        t.vary = defaultVary();
-        for (const [key] of VARY_KEYS) {
-          // Rangeable since v7 (the engine resolves vary.* through the same
-          // per-bar walk as randomness), so a {min,max} must survive the load —
-          // null stays null, which is the "follow Randomness" detent.
-          t.vary[key] = sanitiseRangeValueIn(vary[key], 0, 1, null);
+        // v0.0.275 (D8): the Randomise row dissolved into dials of their own.
+        // A stored or shared tree from before this build carries `vary`; it
+        // is folded into the new fields HERE, on every load, forever — old
+        // share links never expire — and then dropped, so it is never
+        // written again. Every field stays rangeable (a {min,max} survives).
+        const fallback = defaultSpreads();
+        let macro = cleanMacroPatch(t.macroPatch) ?? fallback.macroPatch;
+        if (isPlainObject(t.vary)) macro = foldLegacyVary(t.vary, t, macro);
+        delete t.vary;
+        for (const field of SPREAD_FIELDS) {
+          const [lo, hi] = DIAL_DOMAIN[field];
+          t[field] = sanitiseRangeValueIn(t[field], lo, hi, fallback[field]);
         }
+        t.macroPatch = macro;
+        // Passing notes: sparse, as the engine stores it — above 0 or spanned.
+        const passing = sanitiseRangeValueIn(t.passingNotes, 0, 1, 0);
+        if (isTuned(id) && (isPlainObject(passing) || passing > 0)) t.passingNotes = passing;
+        else delete t.passingNotes;
       }
       // Lanes first: a kit's step map is keyed by lane id, so the list has to
       // be repaired before the sequencers that follow it are. Every percussive
@@ -2746,7 +2761,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // type falls back to a biquad) or a texture grid (v0.0.262; the texture
     // drifts instead). Those builds read a schema-3 link as their own, so
     // only a new number makes them say the link is newer than they are.
-    const SHARE_SCHEMA_LATEST = 4;
+    const SHARE_SCHEMA_VOICED = 4;
+    // 5 (v0.0.275) — a link carrying the dissolved Randomise row: Pan, Timing,
+    // Dynamics, Octave wander, the voice wander, the Randomness patch or
+    // Passing notes that the LINK carries (in a compact link's diff, or away
+    // from the page's defaults in a whole tree). A v0.0.274-or-older build
+    // reads `vary` and nothing else, so it would play such a link with every
+    // aspect following Randomness; the stamp makes it say the link is newer.
+    const SHARE_SCHEMA_SPREAD = 5;
+    const SHARE_SCHEMA_LATEST = SHARE_SCHEMA_SPREAD;
     /** The stamp the v0.0.171 keys (and a carried genre, v0.0.181) take. */
     const SHARE_SCHEMA_ROUTED = 2;
     const SHARE_VERSION_KEY = 'v';
@@ -2759,8 +2782,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * them), and a compact link carries only a diff, so presence says nothing
      * either way. What matters is whether a value an older build would drop is
      * actually set.
+     *
+     * `carried` (v0.0.275) is the payload the link will hold, compact or whole;
+     * the spread stamp reads it (see below). Omitted, the settings are read as
+     * a whole-tree link.
      */
-    function shareSchemaFor(params, engineDefaults) {
+    function shareSchemaFor(params, engineDefaults, carried = null) {
       // The defaults are handed IN: this scope is outside the block that holds
       // engineModule, and reaching for it here threw at click time — which the
       // share handler's own catch turned into a link that silently never
@@ -2789,7 +2816,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         && Object.values(bank).some((patch) => isPlainObject(patch) && isPlainObject(patch.filter) && patch.filter.type === 'vowel'));
       const textureGrid = isPlainObject(tracks.texture) && ((Array.isArray(tracks.texture.sequencers) && tracks.texture.sequencers.length > 0)
         || isPlainObject(tracks.texture.sequencer));
-      if (voiced || vowelled || textureGrid) return SHARE_SCHEMA_LATEST;
+      // v0.0.275: the spread stamp reads what the link CARRIES, not what the
+      // settings hold. A compact link names an origin the receiver rebuilds
+      // with its own compiler and presets — an older build rebuilds a
+      // factory preset's pad voice wander 0.15 or a genre's bass pocket as
+      // the vary it always was — so only a spread the DIFF carries is one an
+      // older build would drop. The settings-against-page-defaults test this
+      // replaces stamped 5 on every link from a genre draw or a preset with
+      // a wander or pocket, which is nearly every link. A whole-tree link has
+      // no origin, so there the page's defaults ARE what the receiver starts
+      // from, and any departure from them is carried.
+      const compact = isCompactShare(carried);
+      const spreadTracks = compact
+        ? (isPlainObject(carried[SHARE_DIFF_KEY]) && isPlainObject(carried[SHARE_DIFF_KEY].tracks) ? carried[SHARE_DIFF_KEY].tracks : {})
+        : tracks;
+      const fresh = defaultSpreads();
+      const spread = Object.values(spreadTracks).some((t) => isPlainObject(t) && (compact
+        ? ['passingNotes', 'macroPatch', ...SPREAD_FIELDS].some((field) => field in t)
+        : (t.passingNotes !== undefined
+          || SPREAD_FIELDS.some((field) => t[field] !== undefined && JSON.stringify(t[field]) !== JSON.stringify(fresh[field]))
+          || (Array.isArray(t.macroPatch) && JSON.stringify(t.macroPatch) !== JSON.stringify(fresh.macroPatch)))));
+      if (spread) return SHARE_SCHEMA_SPREAD;
+      if (voiced || vowelled || textureGrid) return SHARE_SCHEMA_VOICED;
       // The plucked string (v0.0.251) predates schema 3, so 3 announces it to
       // every build that cannot play it.
       const plucked = ['melody', 'arp'].some((id) => isPlainObject(tracks[id]) && (tracks[id].voice === 'string'
@@ -3068,7 +3116,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         grooveRule: false,
         randomness: {},
         dissonance: {},
-        vary: {},
+        spreads: {},
         sequencer: {},
         sequencers: {},
         level: {},
@@ -3113,7 +3161,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // number — a range-shipping engine must not make the knob vanish.
         engineCaps.randomness[id] = isNumberOrRange(entry.randomness);
         engineCaps.dissonance[id] = isNumberOrRange(entry.dissonance);
-        engineCaps.vary[id] = isPlainObject(entry.vary);
+        // v0.0.275: the dissolved Randomise row — an engine that stores the
+        // macro patch stores the dials it routes.
+        engineCaps.spreads[id] = Array.isArray(entry.macroPatch);
         engineCaps.sequencer[id] = isPlainObject(entry.sequencer);
         engineCaps.sequencers[id] = Array.isArray(entry.sequencers);
         engineCaps.level[id] = isNumberOrRange(entry.level);
@@ -4132,6 +4182,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // stored one — so a load without it says 0 out loud, or the last
             // piece's saturation would ride along under this one.
             t.drive = typeof t.drive === 'number' && t.drive > 0 ? t.drive : 0;
+            // v0.0.275: Passing notes is sparse in the engine too — absent
+            // keeps a stored one — so a load without it says null (off).
+            if (t.passingNotes === undefined) t.passingNotes = null;
           }
           // v0.0.262: the texture's grid is sparse in the engine too — absent
           // keeps a stored one — so a piece without one says null out loud,
@@ -8027,7 +8080,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * Edit… that opens the pool editor.
        */
       function buildVoiceRule(container, track) {
-        if (!ruleApi || !engineCaps.vary[track]) return null;
+        if (!ruleApi || !engineCaps.spreads[track]) return null;
         const t = settings.tracks[track];
         const derived = deriveVoiceRule(track);
         const stored = isPlainObject(t.voiceRule) ? t.voiceRule : null;
@@ -8636,29 +8689,49 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return handle;
       }
 
-      function buildVaryRow(container, track, knobs) {
-        if (!engineCaps.vary[track]) return;
+      /**
+       * v0.0.275 (D8): the Randomise row is gone. Four of its dials are
+       * ordinary dials in the feel row now (buildSpreadDials, below); the
+       * fifth, Voice, was already the voice rule's Chance (v0.0.195), and
+       * that is all this builds — the knob, mounted in the rule's Chance slot.
+       * Its Auto detent is the voice wander patched to the Randomness macro.
+       */
+      function buildVoiceChance(container, track, knobs) {
+        if (!engineCaps.spreads[track]) return;
         const voiceRule = buildVoiceRule(container, track);
-        const row = document.createElement('div');
-        row.className = 'vary-row';
-        const title = document.createElement('span');
-        title.className = 'panel-label';
-        title.textContent = 'Randomise';
-        const cells = document.createElement('div');
-        cells.className = 'vary-cells';
-        row.append(title, cells);
-        container.append(row);
-
-        // v0.0.195: with a rule, the Voice knob's 0 reads "Hold", not "0%".
-        for (const [key, label] of VARY_KEYS.map(([k, l]) => [k, k === 'voice' ? 'Voice chance' : l])) {
+        let cells = null;
+        if (!voiceRule) {
+          // No rule primitive: the knob and its When / Pool… get a row of
+          // their own, labelled for what they are.
+          const row = document.createElement('div');
+          row.className = 'vary-row voice-chance-row';
+          const title = document.createElement('span');
+          title.className = 'panel-label';
+          title.textContent = 'Voice';
+          cells = document.createElement('div');
+          cells.className = 'vary-cells';
+          row.append(title, cells);
+          container.append(row);
+        }
+        const key = 'voice';
+        const label = 'Voice chance';
+        {
           const commitVary = (value) => {
-            settings.tracks[track].vary[key] = value;
-            const partial = { vary: { [key]: value } };
+            const t = settings.tracks[track];
+            // Auto (null) is the voice wander patched to Randomness; a number
+            // is the wander's own amount, unpatched — exactly vary.voice.
+            if (value === null) {
+              if (!t.macroPatch.includes('voiceWander')) t.macroPatch = cleanMacroPatch([...t.macroPatch, 'voiceWander']);
+            } else {
+              t.voiceWander = value;
+              t.macroPatch = t.macroPatch.filter((id) => id !== 'voiceWander');
+            }
+            const partial = { voiceWander: structuredClone(t.voiceWander), macroPatch: t.macroPatch.slice() };
             // v0.0.195: the Voice knob is the voice rule's CHANCE — the first
             // Now / Chance / Pool. Auto (null) follows Randomness at the old
             // wander law; 0 holds the pick for good. The pool, if none was
             // built, is every voice this track can play, in bank order.
-            if (key === 'voice') {
+            {
               const chance = value === null ? null : (isPlainObject(value) ? rangeMid(value) : value);
               const rule = ensureVoiceRule(track);
               rule.chance = chance === null ? null : clamp(Number(chance) || 0, 0, 1);
@@ -8672,9 +8745,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             engine.setParams({ tracks: { [track]: partial } });
             persistSettings();
           };
-          const stored = key === 'voice' && isPlainObject(settings.tracks[track].voiceRule)
-            ? settings.tracks[track].voiceRule.chance
-            : settings.tracks[track].vary[key];
+          const t = settings.tracks[track];
+          const stored = isPlainObject(t.voiceRule)
+            ? t.voiceRule.chance
+            : (t.macroPatch.includes('voiceWander') ? null : t.voiceWander);
           const raw = varyRawFromValue(stored);
           // Which shape the value currently has, so the readout can tell the
           // Auto detent (single mode, raw 0) from a range whose min thumb
@@ -8682,7 +8756,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           let ranged = isPlainObject(stored);
           let built = false;
           // v0.0.196: the voice knob is the rule's Chance layer.
-          const parent = key === 'voice' && voiceRule ? voiceRule.chanceSlot : cells;
+          const parent = voiceRule ? voiceRule.chanceSlot : cells;
           if (knobApi) {
             const cell = document.createElement('div');
             cell.className = 'vary-knob';
@@ -8695,10 +8769,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 step: 1,
                 value: raw,
                 marks: [0],
-                format: (v) => (ranged ? pctFormat(varyPct(Math.max(1, v))) : key === 'voice' && Math.round(v) === 1 ? 'Hold' : varyFormat(v)),
+                format: (v) => (ranged ? pctFormat(varyPct(Math.max(1, v))) : Math.round(v) === 1 ? 'Hold' : varyFormat(v)),
                 allowRange: true,
-                // DEFAULTS.tracks[*].vary is all-null (the Auto detent, raw 0)
-                // for every track/key — dblclick returns to "follows Randomness".
+                // The page's default voice wander is the Auto detent (raw 0):
+                // dblclick returns to "follows Randomness".
                 defaultValue: 0,
                 onInput: (v) => {
                   const value = varyValueFromRaw(v);
@@ -8708,9 +8782,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               });
               describe(
                 handle.el,
-                key === 'voice'
-                  ? `Chance: how likely ${TRACK_LABELS[track]} is to move to another voice from its pool, at each bar, section or piece (the When beside it). 0 reads Hold and keeps the voice you picked for good; at the left detent it follows this track's Randomness dial.`
-                  : `How much ${TRACK_LABELS[track]}'s ${label.toLowerCase()} varies. At the left detent it follows this track's Randomness dial; anywhere else overrides it.`
+                `Chance: how likely ${TRACK_LABELS[track]} is to move to another voice from its pool, at each bar, section or piece (the When beside it). 0 reads Hold and keeps the voice you picked for good; at the left detent it follows this track's Randomness dial.`
               );
               if (knobs) knobs.push(handle);
               built = true;
@@ -8752,10 +8824,181 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             wrap.append(lrow, input);
             parent.append(wrap);
           }
-          if (key === 'voice' && !voiceRule) appendVoiceRuleControls(cells, track);
+          if (!voiceRule) appendVoiceRuleControls(cells, track);
         }
-        // v0.0.203: the bass's groove rule sits under its Randomise row.
+        // v0.0.203: the bass's groove rule sits under its voice rule.
         buildGrooveRule(container, track);
+      }
+
+      // ---- v0.0.275 (D8): the dissolved Randomise row ----------------------
+      // Pan, Timing, Dynamics, Octave wander and Passing notes: ordinary dials
+      // in the track's feel row, each shown only on the tracks it acts on
+      // (spread-dials.js spreadDialsFor) — the Randomise row showed all five
+      // everywhere, and on the bass Pan and Pitch moved nothing. Pan and
+      // Timing take the sideways gesture as what they ARE: a spread, each
+      // note landing somewhere between its two ends. "Auto" on any of the
+      // first four is that dial patched to the track's Randomness macro (the
+      // old null): any turn sets the dial's own value, a double-click gives it
+      // back to Randomness.
+      const panText = (v) => {
+        const n = Math.round(clamp(v, -1, 1) * 100);
+        return n === 0 ? 'C' : n < 0 ? `L${-n}` : `R${n}`;
+      };
+      const panParse = (n) => clamp(Math.abs(n) > 1 ? n / 100 : n, -1, 1);
+      const timingText = (v) => {
+        const ms = Math.round(clamp(v, -1, 1) * 25);
+        return ms === 0 ? '0ms' : `${ms > 0 ? '+' : ''}${ms}ms`;
+      };
+      const timingParse = (n) => clamp(Math.abs(n) > 1 ? n / 25 : n, -1, 1);
+      const SPREAD_DIAL_SPECS = {
+        pan: {
+          label: 'Pan', min: -1, max: 1, step: 0.01, spread: true, format: panText, parse: panParse,
+          hint: (name) => `Where ${name} sits, left to right. Drag sideways for a spread: each note lands somewhere between its two ends. At Auto the spread follows this track's Randomness; turn it to set your own, double-click to hand it back.`,
+        },
+        timing: {
+          label: 'Timing', min: -1, max: 1, step: 0.02, spread: true, format: timingText, parse: timingParse,
+          hint: (name, track) => (track === 'bass'
+            ? `Pushes the bass ahead of the beat or drags it behind, up to 25 ms. Its spread is the pocket: how far the whole line lays back behind the kick, steady all section. At Auto the pocket follows this track's Randomness; double-click to hand it back.`
+            : `Pushes ${name} ahead of the beat or drags it behind, up to 25 ms. Drag sideways for a spread: each note lands somewhere inside it, which is the human feel. At Auto the spread follows this track's Randomness; turn it to set your own, double-click to hand it back.`),
+        },
+        dynamics: {
+          label: 'Dynamics', min: 0, max: 1, step: 0.01, spread: false, format: pctFormat, parse: pctParse,
+          hint: (name) => `How much ${name}'s loudness breathes: a slow swing of up to 6 dB around its Level, and an accent on every note. At Auto it follows this track's Randomness; turn it to set your own, double-click to hand it back.`,
+        },
+        octaveWander: {
+          label: 'Octave wander', min: 0, max: 1, step: 0.01, spread: false, format: pctFormat, parse: pctParse,
+          hint: (name, track) => `How often ${track === 'melody' ? 'a bar of the motif' : 'a note'} jumps an octave up or down. At Auto it follows this track's Randomness; turn it to set your own, double-click to hand it back.`,
+        },
+        passingNotes: {
+          label: 'Passing notes', min: 0, max: 1, step: 0.01, spread: false, format: pctFormat, parse: pctParse, macro: false,
+          hint: (name) => `How often a note of ${name} steps to its neighbour in the scale on the way — a passing tone, always in key. Dissonance decides first; this adds in-key steps to the notes it leaves alone. Off at the left.`,
+        },
+      };
+
+      function buildSpreadDials(row, track, knobs) {
+        if (!engineCaps.spreads[track]) return;
+        const user = USER_TRACK_BY_ID.get(track);
+        const dials = spreadDialsFor(track, user ? user.family : null)
+          .filter((dial) => dial !== 'passingNotes' || TUNED_TRACKS.includes(track) || (user && user.family === 'melodic'));
+        for (const dial of dials) buildSpreadDial(row, track, dial, knobs);
+      }
+
+      function buildSpreadDial(row, track, dial, knobs) {
+        const spec = SPREAD_DIAL_SPECS[dial];
+        const name = TRACK_LABELS[track] || track;
+        const t = settings.tracks[track];
+        const macroable = spec.macro !== false;
+        let patched = macroable && t.macroPatch.includes(dial);
+        const stored = () => (dial === 'passingNotes' ? (t.passingNotes ?? 0) : t[dial]);
+        // A patched dial shows its own value (Pan's and Timing's centre, a
+        // scalar's 0) and reads Auto, never "Auto – Auto".
+        const shown = () => {
+          const v = stored();
+          if (!patched) return v;
+          return spec.spread ? (isPlainObject(v) ? (v.min + v.max) / 2 : v) : 0;
+        };
+        const format = (v) => {
+          if (!patched) return spec.format(v);
+          return spec.spread && Math.abs(v) >= spec.step / 2 ? `${spec.format(v)} Auto` : 'Auto';
+        };
+        const commit = () => {
+          const partial = dial === 'passingNotes'
+            ? { passingNotes: t.passingNotes === undefined ? 0 : structuredClone(t.passingNotes) }
+            : { [dial]: structuredClone(t[dial]), macroPatch: t.macroPatch.slice() };
+          engine.setParams({ tracks: { [track]: partial } });
+          persistSettings();
+        };
+        let handle = null;
+        const refresh = () => { try { handle?.set?.(shown()); } catch {} };
+        const onValue = (v) => {
+          const value = sanitiseRangeValueIn(v, spec.min, spec.max, 0);
+          if (dial === 'passingNotes') {
+            if (isPlainObject(value) || value > 0) t.passingNotes = value;
+            else delete t.passingNotes;
+            commit();
+            return;
+          }
+          // A vertical move on a patched SPREAD dial moves its centre and
+          // leaves the spread with Randomness; anything else is the dial's
+          // own value now, and unpatches it.
+          if (patched && spec.spread && typeof value === 'number') {
+            t[dial] = value;
+          } else {
+            t[dial] = value;
+            if (patched) {
+              patched = false;
+              t.macroPatch = t.macroPatch.filter((id) => id !== dial);
+              queueMicrotask(refresh);
+            }
+          }
+          commit();
+        };
+        const onReset = () => {
+          if (!macroable) return;
+          t[dial] = 0;
+          if (!patched) {
+            patched = true;
+            t.macroPatch = cleanMacroPatch([...t.macroPatch, dial]);
+          }
+          commit();
+          queueMicrotask(refresh);
+        };
+        const hint = spec.hint(name, track);
+        if (knobApi) {
+          const cell = document.createElement('div');
+          cell.className = `knob-cell spread-dial spread-dial-${dial}`;
+          cell.dataset.spreadDial = dial;
+          row.append(cell);
+          try {
+            handle = knobApi.createKnob(cell, {
+              label: spec.label,
+              min: spec.min,
+              max: spec.max,
+              step: spec.step,
+              value: shown(),
+              format,
+              parse: spec.parse,
+              allowRange: true,
+              defaultValue: 0,
+              onInput: onValue,
+              onReset,
+            });
+            describe(handle.el, hint);
+            if (knobs) knobs.push(handle);
+            return;
+          } catch {
+            cell.remove();
+            handle = null;
+          }
+        }
+        // Slider fallback (no knob.js): single-valued, the midpoint of a span.
+        const wrap = document.createElement('div');
+        wrap.className = 'control ve-control';
+        const id = `spread-${track}-${dial}`;
+        const labelRow = document.createElement('div');
+        labelRow.className = 'control-label-row';
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = spec.label;
+        const readout = document.createElement('span');
+        readout.className = 'value-readout';
+        readout.textContent = format(rangeMid(shown()));
+        labelRow.append(label, readout);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.id = id;
+        input.min = String(spec.min);
+        input.max = String(spec.max);
+        input.step = String(spec.step);
+        input.value = String(rangeMid(shown()));
+        input.addEventListener('input', () => {
+          const v = parseFloat(input.value);
+          onValue(v);
+          readout.textContent = format(v);
+        });
+        wrap.append(labelRow, input);
+        row.append(wrap);
+        describe(input, hint);
       }
 
       // ---- v12 mono + glide (melodic tracks; engine params since v12) -----
@@ -14677,16 +14920,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // state lamp rather than among the patch dials — and only on the
         // melodic tracks: a kit has no pitch to slur between.
         if (TUNED_TRACKS.includes(track)) buildMonoGlide(extrasBox, track, ed.knobs);
-        buildVaryRow(container, track, ed.knobs);
+        buildVoiceChance(container, track, ed.knobs);
         // The melody's motif as a rule, on the same primitive as its voice.
         if (track === 'melody') ed.motifRule = buildMotifRule(container, ed.knobs);
         refreshRuleChapterHighlight();
         // v26: ONE aligned row for this track's feel dials — Dissonance,
         // Drift rate, Swing, Density, Breath — however few of them this
-        // track and this engine build actually have.
+        // track and this engine build actually have. v0.0.275: led by the
+        // dials the Randomise row dissolved into (Pan, Timing, Dynamics,
+        // Octave wander, Passing notes), each only where it acts.
         const feelRow = document.createElement('div');
         feelRow.className = 'dissonance-row feel-row';
         container.append(feelRow);
+        buildSpreadDials(feelRow, track, ed.knobs);
         buildDissonanceControl(feelRow, track, ed.knobs);
         buildDriftRateControl(feelRow, track, ed.knobs);
         // Beside the rate, because the two are one idea: what the spread does,
@@ -17715,7 +17961,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       };
       const TRACK_FIELD_LABELS = {
         state: 'Off / Auto / On', voice: 'Voice', level: 'Level', randomness: 'Randomness',
-        dissonance: 'Dissonance', vary: 'Randomise', sequencer: 'Steps', sequencers: 'Steps',
+        dissonance: 'Dissonance', sequencer: 'Steps', sequencers: 'Steps',
+        pan: 'Pan', timing: 'Timing', dynamics: 'Dynamics', octaveWander: 'Octave wander',
+        voiceWander: 'Voice chance', macroPatch: 'Follows Randomness', passingNotes: 'Passing notes',
         voiceRule: 'Voice rule', voiceWeights: 'Voice pool', grooveRule: 'Groove rule',
         variantRule: 'Kit tabs', fillRule: 'Fills', userVoice: 'Your voice',
       };
@@ -18354,7 +18602,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           : edited && !(mineTag && sounding === chosen)
           ? `${voiceLabel(track, sounding)}${engineType ? ` (${engineType})` : ''}, with its dials moved from the stock sound. ↺ Factory on its row brings the stock sound back.`
           : ruled
-          ? 'This track draws its voice by its rule — Voice chance and its pool, in the Randomise row of its editor. Chance 0 holds it; picking a voice holds it too.'
+          ? 'This track draws its voice by its rule — Voice chance and its pool, in the voice rule of its editor. Chance 0 holds it; picking a voice holds it too.'
           : blended
             ? 'Several voices share this track by weight; each new section draws one. Pool…, in the voice rule of its editor, changes the weights; picking a voice ends the blend.'
             : wandering
@@ -24994,7 +25242,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const payload = sharePayload();
           // v0.0.181: a link carrying a genre takes the latest stamp — a
           // pre-181 build reads past the genre and plays the diff on defaults.
-          const schemaOfParams = shareSchemaFor(paramsSnapshot(), engineModule && engineModule.DEFAULT_PARAMS);
+          const schemaOfParams = shareSchemaFor(paramsSnapshot(), engineModule && engineModule.DEFAULT_PARAMS, payload);
           const schema = payload[SHARE_GENRE_KEY]
             ? Math.max(SHARE_SCHEMA_ROUTED, schemaOfParams)
             : schemaOfParams;
@@ -25108,7 +25356,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#voice-edit-toggle-percussion',
-          text: 'Edit opens a track\'s panel: the button in its head takes the sound back to factory, the step sequencer sits at the top, then the dials that build the sound. \u00d72 / \u00f72 set what one cell is worth; Triplets puts three in the time of two. Drag across cells to tie them into one note. An outlined cell is a step the app chose, not one you typed; on a tuned track a line inside it shows how high the note is. Hover a cell for note names.',
+          text: 'Edit opens a track\'s panel: its head\'s button goes back to factory, the step sequencer sits on top, then the sound\'s dials. Pan and Timing take a sideways spread, each note landing inside it; a dial at Auto follows the track\'s Randomness. \u00d72 / \u00f72 set what a cell is worth; Triplets fits three in two. Drag across cells to tie them. An outlined cell is the app\'s step, not yours; on a tuned track a line in it shows the pitch. Hover a cell for note names.',
         },
         {
           tab: 'advanced',

@@ -713,7 +713,11 @@ test('a kit in an odd metre truncates rather than rescaling', () => {
 });
 
 test('the groove grammar sets the bass pocket against the engine\'s own ceiling', () => {
-  const pocket = (slug) => compileGenre(bySlug(slug), { rng: seededRng(3) }).tracks.bass.vary.timing;
+  // v0.0.275: the pocket is the bass Timing spread's half-width (was vary.timing).
+  const pocket = (slug) => {
+    const timing = compileGenre(bySlug(slug), { rng: seededRng(3) }).tracks.bass.timing;
+    return typeof timing === 'object' ? (timing.max - timing.min) / 2 : timing;
+  };
   // 0 ms means machine-tight, and four genres ask for exactly that.
   assert.equal(pocket('ambient'), 0);
   assert.equal(pocket('minimalism'), Math.round(1.5 / 1000 / BASS_POCKET * 1000) / 1000);

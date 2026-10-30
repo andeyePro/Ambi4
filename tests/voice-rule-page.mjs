@@ -299,7 +299,7 @@ async function ensureTrackEditorOpen(win, doc, track) {
   clickEl(win, doc.getElementById(`voice-edit-toggle-${track}`));
   await waitUntil(() => {
     const ed = doc.getElementById(`voice-editor-${track}`);
-    return Boolean(ed && !ed.hidden && ed.querySelector('.vary-cells'));
+    return Boolean(ed && !ed.hidden && ed.querySelector('.vary-cells, .rule-chance-slot .knob'));
   });
   return doc.getElementById(`voice-editor-${track}`);
 }
