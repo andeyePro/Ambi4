@@ -60,6 +60,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 ## Share round trip, 2026-10-30
 
 - [x] *(SHIPPED v0.0.277)* tests/share-roundtrip.mjs opens page-minted links end to end (untouched and edited compact, whole tree, own genre with g, stamps 1-5) and compares sender and receiver engines whole; all 66 registry rows set on every track and voice; every field arrives, no exclusions. Red on a diff missing the melody's octaveWander.
+- [x] *(SHIPPED v0.0.278)* A link that decodes but carries wrongly-typed values no longer reaches the page's settings: normaliseV6Tracks adopts the engine's own sanitiseParams answer for every scalar slot (top level, arp, every track); a value of the wrong JS kind lands on the engine's default. tests/hostile-link.mjs: 124 fields x 7 junk values, 18 boots; on v0.0.277 a null or {} tempo-row value took the boot down and 47 fields stayed junk in the page (and in Save).
 - [ ] Decide whether parked voice edits travel: a share link carries `voiceDrafts` (the edits parked under Edited by the leave-guard), seen in the own-genre link's diff. Arguably session bookkeeping like `lastTake`, which paramsSnapshot strips; the link opens identically either way, so this is a size/privacy question, not a sound one.
 
 ## Review 3 findings, 2026-10-24 00:45 (v0.0.267–272)

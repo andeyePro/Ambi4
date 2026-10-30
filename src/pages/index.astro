@@ -2517,6 +2517,86 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // Legacy boolean mask follows the arp's FIRST sequencer (kept for older
       // engines and for the combined-complexity estimate).
       s.arp.steps = s.tracks.arp.sequencers[0].steps.slice(0, 16).map((st) => !!st.on);
+      reconcileWithEngine(s);
+    }
+
+    // ---- v0.0.278: the engine's sanitiser is the page's type authority ----
+    // A share link that DECODES, or a stored generator blob somebody edited,
+    // reached the page's settings with only the fields above repaired:
+    // deepMerge hands a scalar back as whatever arrived, so `bpm: "fast"` or a
+    // track's `state: {}` stayed in settings while the engine's sanitiser
+    // defaulted ITS copy. Page and engine disagreed (the Tempo dial computed
+    // NaN), a null tempo took the whole boot down, and the next Save persisted
+    // the bad value. tests/hostile-link.mjs holds the line.
+    //
+    // There is no second sanitiser here. The engine's own sanitiseParams is
+    // run over the settings and its answer ADOPTED for every scalar slot the
+    // page holds (number, string, boolean, null, or a {min,max} RangeValue —
+    // a valid span survives as itself), top level, arp and every track. A
+    // value whose JS kind is not the engine's (a string where it keeps a
+    // number, a boolean where it keeps a string, any array or bare object) is
+    // taken out of the probe first, so it lands on the engine's DEFAULT —
+    // never on what Number() makes of it (true is not a tempo of 1 bpm).
+    // The binding is filled in once init() has imported the engine; until
+    // then, and on a build whose engine has no sanitiser, this does nothing.
+    let engineSanitiser = null;
+
+    /** 'num' (finite number or {min,max}), 'string', 'boolean', 'null', or 'other'. */
+    function slotKind(v) {
+      if (v === null) return 'null';
+      if (isNumberOrRange(v)) return 'num';
+      if (typeof v === 'string' || typeof v === 'boolean') return typeof v;
+      return 'other';
+    }
+    const isScalarSlot = (v) => slotKind(v) !== 'other';
+
+    function reconcileWithEngine(s) {
+      if (typeof engineSanitiser !== 'function' || !isPlainObject(s)) return;
+      let fresh;
+      let sane;
+      try {
+        fresh = engineSanitiser({});
+        const probe = structuredClone(s);
+        delete probe.ui;
+        // A wrongly-kinded value goes to the engine's default, not through
+        // its coercion. `fresh` null means the field is nullable there (a
+        // track's swing, density): the engine's own rules decide those.
+        const unkind = (target, defaults) => {
+          if (!isPlainObject(target) || !isPlainObject(defaults)) return;
+          for (const key of Object.keys(target)) {
+            if (!(key in defaults)) continue;
+            const want = slotKind(defaults[key]);
+            const got = slotKind(target[key]);
+            if (want === 'other' || want === 'null' || got === 'null') continue;
+            if (got !== want) delete target[key];
+          }
+        };
+        unkind(probe, fresh);
+        unkind(probe.arp, fresh.arp);
+        if (isPlainObject(probe.tracks)) {
+          for (const id of Object.keys(probe.tracks)) unkind(probe.tracks[id], fresh.tracks?.[id]);
+        }
+        sane = engineSanitiser(probe);
+      } catch {
+        return;
+      }
+      // Adopt the engine's answer wherever the page holds a scalar slot the
+      // engine also keeps as one. A top-level spread is the engine's `spans`
+      // entry (its field holds the plain number beside it).
+      const adopt = (target, answer, spans) => {
+        if (!isPlainObject(target) || !isPlainObject(answer)) return;
+        for (const key of Object.keys(target)) {
+          if (!(key in answer)) continue;
+          const value = spans && spans[key] ? spans[key] : answer[key];
+          if (!isScalarSlot(value)) continue;
+          target[key] = isPlainObject(value) ? { ...value } : value;
+        }
+      };
+      adopt(s, sane, sane.spans);
+      adopt(s.arp, sane.arp);
+      if (isPlainObject(s.tracks) && isPlainObject(sane.tracks)) {
+        for (const id of Object.keys(s.tracks)) adopt(s.tracks[id], sane.tracks[id]);
+      }
     }
 
     // ---- tempo mapping (one tempo, two views) ---------------------------
@@ -2990,6 +3070,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       try {
         engineModule = await import('../scripts/ambient-engine.js');
         ({ createEngine, sanitiseParams } = engineModule);
+        // v0.0.278: every load path's normaliser adopts the engine's answer.
+        if (typeof sanitiseParams === 'function') engineSanitiser = sanitiseParams;
       } catch {
         unavailable.hidden = false;
         return;
@@ -3659,9 +3741,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // as my genre keeps it. Not persisted by arriving: that is the
         // person's Save, as it is for any setup a link brings.
         const carried = carriedGenreFor(payload[SHARE_ORIGIN_KEY]?.id, payload[SHARE_GENRE_KEY]);
-        try { base = baseFromOrigin(payload[SHARE_ORIGIN_KEY], carried); } catch { base = null; }
-        if (base && carried && !USER_GENRES.some((genre) => genre.slug === carried.slug) && USER_GENRES.length < USER_GENRE_CAP) {
+        // v0.0.278: the carried genre joins the engine's genre table BEFORE
+        // its base is built — the normaliser adopts the engine's sanitised
+        // genre tag, and a tag the table does not hold yet sanitises to null.
+        // Taken out again if no base could be built from it.
+        const joins = Boolean(carried) && !USER_GENRES.some((genre) => genre.slug === carried.slug)
+          && USER_GENRES.length < USER_GENRE_CAP;
+        if (joins) {
           USER_GENRES.push({ ...structuredClone(carried), transient: true });
+          registerGenreTable();
+        }
+        try { base = baseFromOrigin(payload[SHARE_ORIGIN_KEY], carried); } catch { base = null; }
+        if (joins && !base) {
+          USER_GENRES = USER_GENRES.filter((genre) => genre.slug !== carried.slug);
           registerGenreTable();
         }
         if (!base) {

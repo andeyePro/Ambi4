@@ -133,6 +133,7 @@ node tests/content-check.mjs       # playlist frontmatter against the schema
 node tests/doc-drift.mjs           # no retired control named in README, the open release pass, the page's words or registry hints
 node tests/wav-export-smoke.mjs    # Save as WAV: the encoder's bytes and the tap
 npm run build && node tests/share-roundtrip.mjs  # a page-minted link opened on a second page: every engine field arrives
+npm run build && node tests/hostile-link.mjs     # a page-minted link (and a stored setup) with every scalar set to junk: page and engine agree, nothing NaN, nothing junk saved
 npm run build && node tests/tutorial-smoke.mjs   # the guided tour
 npm run build && node tests/page-boot.mjs        # the built page in jsdom (above)
 ```
