@@ -19006,6 +19006,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const t = titleInput.value.trim().slice(0, 24).trim();
             if (t) blocksNow()[index].title = t;
             else delete blocksNow()[index].title;
+            // Reflect the cut, as the bars box does, so what is shown is
+            // what the engine kept.
+            if (titleInput.value !== t) titleInput.value = t;
             commitCustomStructure();
           });
 

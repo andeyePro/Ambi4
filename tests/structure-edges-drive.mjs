@@ -132,8 +132,8 @@ export default async function drive(page) {
     engine: window.__ambi4Engine.getParams().customStructure[0].title,
     shown: document.querySelectorAll('.structure-block')[0].querySelector('.block-title').value,
   }));
-  check('a unicode title reaches the engine, cut to 24 characters', title.engine, longTitle.slice(0, 24));
-  check('…and the box shows the same text the engine holds', title.shown.slice(0, 24), title.engine);
+  check('a unicode title reaches the engine, cut to 24 characters', title.engine, longTitle.slice(0, 24).trim());
+  check('…and the box shows the same text the engine holds', title.shown, title.engine);
 
   // The label select: the engine follows, and the per-instrument buttons
   // beside it must name the NEW section — a tooltip naming the old one is
