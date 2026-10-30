@@ -23080,7 +23080,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           let beat = 0;
           let lastRef = null; // { bar, slot } of the previous NOTE, for holds
           let written = 0;
-          const dropped = [];
+          const overflow = []; // tokens past the eight-bar cap
+          const unread = []; // tokens that are not note names
           const barBeat = () => beat % beats;
           const barIndex = () => Math.floor(beat / beats);
           const ensureBar = () => {
@@ -23090,7 +23091,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             return barIndex() < MAX_BARS;
           };
           for (const token of tokens) {
-            if (!ensureBar()) { dropped.push(token); continue; }
+            if (!ensureBar()) { overflow.push(token); continue; }
             const steps = bars[barIndex()];
             if (token === '.' || token.toLowerCase() === 'r') {
               lastRef = null;
@@ -23120,7 +23121,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               continue;
             }
             const midi = parseNoteNameToMidi(token);
-            if (midi === null) { dropped.push(token); continue; }
+            // Not a note name: reported as such, never as "past the cap"
+            // (tests/structure-edges-drive.mjs).
+            if (midi === null) { unread.push(token); continue; }
             const slot = barBeat() * 4;
             steps[slot] = { ...blank(), on: true, midi };
             // v0.0.196: a plain note fills its whole BEAT, not one sixteenth —
@@ -23174,7 +23177,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               `${TRACK_LABELS[target] || target} written: ${written} note${written === 1 ? '' : 's'} across ` +
               `${bars.length} bar${bars.length === 1 ? '' : 's'}` +
               (bars.length > 1 ? ' (played in order)' : '') +
-              (dropped.length ? ` — dropped: ${dropped.join(' ')} (eight bars is the cap)` : '') +
+              (unread.length ? ` — not understood: ${unread.join(' ')} (note names are like C4, E♭4, G3)` : '') +
+              (overflow.length ? ` — dropped: ${overflow.join(' ')} (eight bars is the cap)` : '') +
               (engine.running ? ' — it plays from the next bar.' : '.');
           }
           startAfterWriting();
