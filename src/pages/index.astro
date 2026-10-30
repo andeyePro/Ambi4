@@ -16559,9 +16559,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /** spec: 'auto' | tier | '<min>-<max>' — stored as given, applied by power.js. */
-      function setProcessorTier(spec) {
+      function setProcessorTier(spec, { persist = true } = {}) {
         settings.ui.processor = spec;
-        persistSettings();
+        // The init call below applies the tier with persist:false on a visit
+        // that arrived on a share link (or a /[slug] route): persisting there
+        // wrote the LINK's whole setup over the person's stored one the moment
+        // the page opened — before any Save, against the arrival note's own
+        // "Save to keep it" (2026-10-30, browser bug hunt,
+        // tests/share-browser-drive). The consent question is still asked at
+        // boot, as it always was; only the write is withheld.
+        if (persist) persistSettings();
+        else if (prefs.consent() === null && !deniedThisSession) ensureConsent();
         if (governor) governor.setTier(spec);
         // Always redrawn, governor or not: a new span that still holds the
         // tier in force moves nothing, so the governor emits nothing, and the
@@ -16632,7 +16640,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           processorDial.el,
           'How hard the generator may work. Left as Eco–Full it watches CPU pressure and frame times and picks a tier inside that span for you; drag sideways to narrow the span, or set one tier to pin it. Eco is the coolest, Full the busiest.'
         );
-        setProcessorTier(settings.ui.processor);
+        setProcessorTier(settings.ui.processor, { persist: !sharedParams });
         reportConnections();
         if (typeof engine.on === 'function') engine.on('bar', reportConnections);
       } else {
