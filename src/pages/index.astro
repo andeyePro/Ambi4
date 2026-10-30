@@ -1624,6 +1624,25 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * own, which is what reached the speakers.
      */
     const SPREAD_FIELDS = ['pan', 'timing', 'dynamics', 'octaveWander', 'voiceWander'];
+
+    // The names a setup change line uses: the words on screen, not the wire
+    // keys. Declared up here because the first change listing runs from the
+    // track rows' build (refreshVoiceSelect → syncSetupEditedMark), long
+    // before the listing code itself.
+    const SETUP_FIELD_LABELS = {
+      bpm: 'Tempo', root: 'Key', mode: 'Scale', timeSignature: 'Time signature',
+      swing: 'Swing', complexity: 'Complexity', repetition: 'Recall', randomness: 'Variation',
+      volume: 'Volume', reverbTail: 'Reverb tail', structure: 'Structure',
+      customStructure: 'Structure blocks', arp: 'Arp', harmony: 'Chords', userTracks: 'Your tracks',
+    };
+    const TRACK_FIELD_LABELS = {
+      state: 'Off / Auto / On', voice: 'Voice', level: 'Level', randomness: 'Randomness',
+      dissonance: 'Dissonance', sequencer: 'Steps', sequencers: 'Steps',
+      pan: 'Pan', timing: 'Timing', dynamics: 'Dynamics', octaveWander: 'Octave wander',
+      voiceWander: 'Voice chance', macroPatch: 'Follows Randomness', passingNotes: 'Passing notes',
+      voiceRule: 'Voice rule', voiceWeights: 'Voice pool', grooveRule: 'Groove rule',
+      variantRule: 'Kit tabs', fillRule: 'Fills', userVoice: 'Your voice',
+    };
     function defaultSpreads() {
       return { pan: 0, timing: 0, dynamics: 0, octaveWander: 0, voiceWander: 0, macroPatch: [...MACRO_DIALS] };
     }
@@ -18234,21 +18253,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return o && o.kind === 'preset' && typeof o.id === 'string' ? factoryPresetBySlug(o.id) : null;
       }
 
-      // The names a change line uses: the words on screen, not the wire keys.
-      const SETUP_FIELD_LABELS = {
-        bpm: 'Tempo', root: 'Key', mode: 'Scale', timeSignature: 'Time signature',
-        swing: 'Swing', complexity: 'Complexity', repetition: 'Recall', randomness: 'Variation',
-        volume: 'Volume', reverbTail: 'Reverb tail', structure: 'Structure',
-        customStructure: 'Structure blocks', arp: 'Arp', harmony: 'Chords', userTracks: 'Your tracks',
-      };
-      const TRACK_FIELD_LABELS = {
-        state: 'Off / Auto / On', voice: 'Voice', level: 'Level', randomness: 'Randomness',
-        dissonance: 'Dissonance', sequencer: 'Steps', sequencers: 'Steps',
-        pan: 'Pan', timing: 'Timing', dynamics: 'Dynamics', octaveWander: 'Octave wander',
-        voiceWander: 'Voice chance', macroPatch: 'Follows Randomness', passingNotes: 'Passing notes',
-        voiceRule: 'Voice rule', voiceWeights: 'Voice pool', grooveRule: 'Groove rule',
-        variantRule: 'Kit tabs', fillRule: 'Fills', userVoice: 'Your voice',
-      };
+      // The names a change line uses (SETUP_FIELD_LABELS, TRACK_FIELD_LABELS)
+      // are declared beside SPREAD_FIELDS, far above: the first
+      // syncSetupEditedMark runs from the track rows' build, long before this
+      // point, and on a preset-origin link with a diff it reached them here
+      // before their `const` had run — a TDZ throw at boot on every such link
+      // (2026-10-30, browser bug hunt, tests/share-browser-drive).
       function setupFieldLabel(path) {
         const words = (head, table, rest) => [table[head] || head, ...rest].join(' ');
         if (path[0] === 'tracks' && path.length > 2) {
