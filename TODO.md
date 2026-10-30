@@ -30,7 +30,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
-## Browser sweep, 2026-10-30 (seven area agents in headless Chromium; 22 fixed in v0.0.285)
+## Browser sweep, 2026-10-30 (nine area agents in headless Chromium; 22 fixed in v0.0.285, 5 in v0.0.286)
 
 - [ ] **Add track accepts a name already in use** (built-in or own); the engine suffixes the id and two rows share a label. fromClaude 33. Built default: refuse and say so, pending.
 - [ ] **MIDI import merges every note track onto one grid** — v0.0.285 says so; a track chooser is one more control on Create. fromClaude 34.
@@ -40,7 +40,11 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [ ] **Collapsed-range readout** — rangeDefault dials show "900 Hz – 900 Hz" for one value; aria already says "(range collapsed)". fromClaude 38.
 - [ ] **6/8 typed melody** at semiquavers places three tokens per bar at slots 0/4/8 (unchanged; the words writer uses the metre's pulses). Needs a ruling on 6/8 beat semantics before changing.
 - [ ] **Processor ⓘ box 1px off the left edge** at 390/360 (`.head-info-end` max-width assumes a 16px inset). Cosmetic; named in `mobile-touch-drive`.
-- [ ] **Backspace reset on Simple's Tempo sets 60**, the dial's default, where the genre drew 72, and says nothing. Is "reset" the dial default or the draw? (docs/dial-control-plane-plan.md) Being probed by the sound-shaping agent.
+- [ ] **A dial reset on a drawn setup goes to the APP default** (Tempo 60 where the genre drew 89; Reverb 4 s where it drew 2.8 s) and says nothing. Documented behaviour (dial-control-plane-plan D2/§8, the keyboard help row, the tour); the question is whether "default" should be the origin's value. fromClaude 39.
+- [ ] **A typed number into a collapsed range moves one end** — Cutoff 440–440, type 220 → a 220–440 sweep. knob.js documents it; fromClaude 40.
+- [ ] **Back to factory on a User voice goes to the last save** (by design, v0.0.206) but the row button and editor head still say factory. Words only; fromClaude 41.
+- [ ] **Reverb tail parity, one sighting**: after six quick drags while playing the engine held 2 and the readout 2.1 (old build, once; not reproduced in two reruns nor a sampled probe). `sound-edges-drive` now records every `reverbTail` the page sent to `setParams` when parity fails, so a recurrence carries its evidence.
+- [ ] **Typing a percentage into the Advanced Volume readout mutes the piece** — the dB view parses "73" as 73 dB of attenuation (documented); the Simple view takes a percentage. A user crossing views will hit it. Say so in the dB view's tooltip?
 - [ ] **`.vibe/measure.sh` is gitignored** — the bridge every browser test depends on has no tracked copy; a fresh clone must copy it from a sibling checkout. Track it under `tests/bridge/`? Its 2026-10-30 changes (MBP08L auto-pick, `AMBI4_SHOT_SLOT`, `AMBI4_REPO_ROOT`) are documented in docs/rendering-host.md.
 - [ ] **`tempoLanding` is engine state that looks like a setting** ('bar' after an Advanced Tempo drag, 'beat' after reload). Both link drives exclude it with the reason; a `transient:` mark in the registry would make the exclusion unnecessary.
 - [ ] **`dials-everywhere-drive` runs ~8 min and `layout-states-drive` ~4 min** — the sweep is now ~70 min on a shared Mac. Split by editor / viewport if that starts to hurt.

@@ -187,6 +187,8 @@ a sweep that cries wolf is a sweep that stops being run.
 | transport2-drive | pause/resume inside the fade, grid playhead through a pause, mediaSession keys, outro |
 | mobile-touch-drive | real touch contexts at 390 and 360: finger-drags reach the engine without scrolling, long-press, popovers, keyboard-height viewport |
 | dials-everywhere-drive | every dial in every editor (225) × drag, spread, typed value, reset — engine diffed after each; ~8 min |
+| voices-edges-drive | voice drafts and the leave-guard at the engine's patch bank, Save/Revert/Forget, user-track drafts across remove/re-add and reload; ~4 min |
+| sound-edges-drive | Reverb/Drive/Tempo typed extremes and rapid drags while sounding, the Timers popover's focus and caps, genre/key/scale while playing, the resolution ladder |
 | share-browser-drive, presets-drive | a minted link re-opened and compared at the engine, every path; presets save/overwrite/load/delete/caps/full storage |
 | chosen-drive, pitch-drive, section-drive | the grid's engine readouts |
 | loudness-drive, scope-drive, fullscreenbar-drive, driftshape-drive | output level, scope, fullscreen chrome, spread shapes |
