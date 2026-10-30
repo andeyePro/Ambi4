@@ -26557,12 +26557,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       text-align: right;
       white-space: nowrap;
     }
-    /* Phone widths: the readout takes a line of its own under the picker
-       instead of pushing the row past the viewport. At 390 wide the nowrap
-       row (select + two buttons + a 145px readout) measured 468px and the
-       whole page panned sideways under a thumb (tests/layout-states-drive.mjs,
-       v0.0.284). Still one reserved line, still right-aligned. */
-    @media (max-width: 520px) {
+    /* Below 560px that row has no room right of the picker and its two
+       buttons: at 390px the nowrap readout ran 78px past the panel, widened
+       the DOCUMENT to 468px and made a phone zoom the whole page out to 83%
+       to fit it — every dial and button smaller than designed, on the screen
+       with the least room (tests/mobile-touch-drive.mjs and tests/layout-states-drive.mjs, both
+       red on v0.0.284). The row wraps and
+       the readout takes a line of its own, still right-aligned under its
+       column. */
+    @media (max-width: 560px) {
       .genre-row {
         flex-wrap: wrap;
       }
