@@ -18989,7 +18989,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
       {
         const slot = document.getElementById('sleep-timer-info');
-        if (slot) infoButton(slot, 'the sleep timer', 'Pick 15 min, 30 min, 1 h, 2 h, or type any number of minutes (up to 720) and Start. While it counts down a chip shows the time left; when it reaches zero a playing piece finishes musically \u2014 it resolves and fades \u2014 instead of cutting off. Cancel stops the countdown.');
+        if (slot) infoButton(slot, 'the sleep timer', 'Pick 15 min, 30 min, 1 h, 2 h, or type any number of minutes (1 to 720 \u2014 a larger number is held to 720) and Start. While it counts down a chip shows the time left; when it reaches zero a playing piece finishes musically \u2014 it resolves and fades \u2014 instead of cutting off. Cancel stops the countdown.');
       }
       {
         const slot = document.getElementById('alarm-timer-info');
@@ -21796,7 +21796,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(
           recordButton,
           canRecord
-            ? 'Records the mix to an audio file on this device (.webm in Chrome and Edge, .ogg in Firefox, .m4a in Safari, which has no WebM). Needs the engine to publish its output stream — arriving with the next engine update.'
+            ? 'Records the mix to an audio file on this device: .webm in Chrome and Edge, .ogg in Firefox, .m4a in Safari, which has no WebM. Greyed until the piece has started, when the engine has an output to tap.'
             : 'This browser has no MediaRecorder, so recording is unavailable here.'
         );
         if (canRecord) {
@@ -24563,7 +24563,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // to list the preset and say nothing: it lived in session memory and
         // a reload lost it (2026-10-30, browser bug hunt, tests/presets-drive).
         if (!kept && prefs.consent() === 'granted') {
-          sayUnderDials(`${name} is listed for this visit only \u2014 this device's storage is full, so it could not be kept. Delete a preset or a layout to make room, then Save again.`, 9000, { hold: true });
+          sayUnderDials(`${name} is listed for this visit only \u2014 this device\u2019s storage is full, so it could not be kept. Delete a preset or a layout to make room, then Save again.`, 9000, { hold: true });
         } else if (!kept && (prefs.consent() === 'denied' || deniedThisSession)) {
           // Save under No thanks listed the preset and said nothing, and the
           // next visit had no such preset (2026-10-30, browser bug hunt,
