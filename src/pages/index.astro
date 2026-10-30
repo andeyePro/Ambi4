@@ -17323,6 +17323,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // with a grid is open) — a DOM class swap at step rate, never a rAF
       // loop and nothing at all while the grids are closed.
       let playheadTimers = [];
+      let playheadHeld = false; // a pause dropped the timers; resume re-arms them
 
       function clearPlayheadTimers() {
         for (const timer of playheadTimers) clearTimeout(timer);
@@ -17330,6 +17331,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       function clearPlayhead() {
+        playheadHeld = false;
         clearPlayheadTimers();
         for (const ed of openEditors.values()) ed.seq?.setPlayhead(-1);
       }
@@ -17344,6 +17346,28 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         lastBarTime = barTime;
         lastBarIndex += 1;
         currentBeatsPerBar = beatsPerBar || 4;
+        armPlayheadTimers(barTime, currentBeatsPerBar);
+      }
+
+      // 2026-10-30 (bug hunt, tests/transport2-drive.mjs): a pause freezes the
+      // audio clock but not these wall-clock timers, so the white step ran on
+      // to the end of the bar while the piece stood still, then sat there
+      // after the resume until the next barline — a readout saying the music
+      // was somewhere it was not. Hold drops the timers where they are; resume
+      // re-arms the announced bar against the clock, which stood still through
+      // the hold, so the step lights where the music actually is.
+      function holdPlayhead() {
+        playheadHeld = true;
+        clearPlayheadTimers();
+      }
+
+      function resumePlayhead() {
+        if (!playheadHeld) return;
+        playheadHeld = false;
+        armPlayheadTimers(lastBarTime, currentBeatsPerBar);
+      }
+
+      function armPlayheadTimers(barTime, beatsPerBar) {
         clearPlayheadTimers();
         // AUDIT FIX: the playhead timed its sweep from a 40–120 clamp that
         // predates the 20–220 tempo range (desyncing above 120), and read
@@ -22403,6 +22427,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             if (exactPause) clearPaused();
           } else if (typeof enginePaused === 'boolean') {
             paused = enginePaused;
+            if (enginePaused) holdPlayhead();
+            else resumePlayhead();
           }
           if (running) {
             setupMediaSession();
