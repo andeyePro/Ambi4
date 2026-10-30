@@ -51,6 +51,8 @@ const RETIRED = [
   // v0.0.273: the sequencer tabs' order toggle uses the Pool's words.
   { re: /\bShuffle\b.*\bIn order\b/, retired: 'v0.0.273', now: 'By weight / In turn' },
   { re: /\bShuffle weights\b/i, retired: 'v0.0.273', now: 'By weight' },
+  // v0.0.40: the sleep and alarm icons became one clock button and one Timers popover.
+  { re: /\bbehind the alarm icon\b/i, retired: 'v0.0.40', now: 'the Timers popover behind the one clock icon by Play (Sleep timer and Schedule start)' },
   // v0.0.272: the 4 Hz line under each track row; its numbers are on the dials' live pointers.
   { re: /\bsummary line\b/i, retired: 'v0.0.272', now: 'the dials\' live pointers' },
   { re: /\blevel \d+ ?% · random\b/i, retired: 'v0.0.272', now: 'the dials\' live pointers' },
