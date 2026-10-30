@@ -27840,6 +27840,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       animation: lamp-flash 0.45s ease 2;
     }
 
+    /* Under prefers-reduced-motion the lamp still marks the flip, without
+       moving: it holds bright for the second the class is on, then returns.
+       The voice picker's flash takes the same route (an outline, no motion). */
+    @media (prefers-reduced-motion: reduce) {
+      .lamp-dot.lamp-flash {
+        animation: none;
+        filter: brightness(1.7);
+      }
+    }
+
     @keyframes lamp-flash {
       50% {
         transform: scale(1.55);
