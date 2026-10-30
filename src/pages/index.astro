@@ -19488,8 +19488,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // v26: the hardware pause key holds the piece where a real pause
             // exists, and stops it where one does not — which is what the
             // page's own Pause button does either way.
+            // 2026-10-30 (bug hunt, tests/transport2-drive.mjs): on a piece
+            // ALREADY held the old else-branch stopped it — a second press of
+            // an earbud's pause key threw the position away. The page's own
+            // Pause key never stops a held piece, and neither does this now.
             if (engine.running && !paused) pauseButton.click();
-            else engine.stop();
+            else if (!paused) engine.stop();
           });
           navigator.mediaSession.setActionHandler('stop', () => {
             clearPaused();

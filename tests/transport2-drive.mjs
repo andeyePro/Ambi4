@@ -144,6 +144,20 @@ export default async function drive(page) {
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   page.on('pageerror', (err) => errors.push('pageerror: ' + (err && err.message ? err.message : String(err))));
 
+  // The lock-screen transport registers through setActionHandler, which no
+  // script can fire back. Capture the handlers at registration so the drive
+  // can press the hardware keys itself.
+  await page.addInitScript(() => {
+    window.__msHandlers = {};
+    const ms = navigator.mediaSession;
+    if (!ms || typeof ms.setActionHandler !== 'function') return;
+    const orig = ms.setActionHandler.bind(ms);
+    ms.setActionHandler = (name, fn) => {
+      window.__msHandlers[name] = fn;
+      try { orig(name, fn); } catch { /* an action this browser lacks */ }
+    };
+  });
+
   // A fresh boot with the listeners attached. Same-URL goto is a reload here
   // (no fragment), but about:blank first removes all doubt.
   const url = page.url();
@@ -468,6 +482,46 @@ export default async function drive(page) {
   check('grid playhead: moves on again after the resume', new Set(afterHead.filter((v) => v >= 0)).size > 2, (v) => v === true);
   note('playhead after resume', afterHead);
   await page.click('#voice-edit-toggle-arp').catch(() => {});
+  await page.click('#toggle-play');
+  await page.waitForTimeout(200);
+  await page.click('#toggle-play');
+  await page.waitForTimeout(300);
+
+  // ---- 14. The lock-screen keys (mediaSession) ------------------------------
+  const press = (name) => page.evaluate((n) => {
+    const h = window.__msHandlers && window.__msHandlers[n];
+    if (!h) return 'none';
+    h({ action: n });
+    return 'fired';
+  }, name);
+  await page.click('#toggle-play');
+  await page.waitForFunction(() => window.__ambi4Engine?.running === true, { timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(800);
+  check('lock screen: play, pause and stop are registered', await page.evaluate(() => ['play', 'pause', 'stop'].filter((n) => !window.__msHandlers?.[n])), []);
+  await press('pause');
+  await page.waitForTimeout(400);
+  const msPaused = await snap(page);
+  check('lock screen: pause holds the piece', [msPaused.running, msPaused.paused, msPaused.ctxState, msPaused.pauseLabel, msPaused.mediaState], [true, true, 'suspended', 'Resume', 'paused']);
+  // A second press of the same key (earbuds, a keyboard's media key) on a
+  // piece already held must not throw its position away: the page's own
+  // Pause key never stops a held piece.
+  await press('pause');
+  await page.waitForTimeout(400);
+  const msPausedTwice = await snap(page);
+  check('lock screen: pause on a held piece keeps holding it', [msPausedTwice.running, msPausedTwice.paused, msPausedTwice.ctxState, msPausedTwice.pauseLabel], [true, true, 'suspended', 'Resume']);
+  await press('play');
+  await page.waitForTimeout(600);
+  const msResumed = await snap(page);
+  check('lock screen: play on a held piece resumes it', [msResumed.running, msResumed.paused, msResumed.ctxState, msResumed.pauseLabel, msResumed.mediaState], [true, false, 'running', 'Pause', 'playing']);
+  await press('stop');
+  await page.waitForTimeout(400);
+  const msStopped = await snap(page);
+  check('lock screen: stop stops, and the page shows it', [msStopped.running, msStopped.paused, msStopped.label, msStopped.pauseDisabled, msStopped.mediaState], [false, false, 'Play', true, 'paused']);
+  await press('play');
+  await page.waitForFunction(() => window.__ambi4Engine?.running === true, { timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  const msStarted = await snap(page);
+  check('lock screen: play from idle starts a piece, and the page shows it', [msStarted.running, msStarted.paused, msStarted.ctxState, msStarted.label, msStarted.pauseDisabled], [true, false, 'running', 'Finish', false]);
   await page.click('#toggle-play');
   await page.waitForTimeout(200);
   await page.click('#toggle-play');
