@@ -115,6 +115,31 @@ export default async function drive(page) {
   await page.waitForTimeout(400);
   check('typing in a field does not trigger the app undo', await state(page), beforeTyping);
 
+  // 7. Add track — a REGISTRY change, not a param: cmd-z takes the track
+  // out of the engine and its row out of the page; redo brings both back.
+  await openFoldFor(page, '#add-track');
+  await page.evaluate(() => document.getElementById('add-track')?.scrollIntoView({ block: 'center' }));
+  const tracksBefore = await page.evaluate(() => Object.keys(window.__ambi4Engine.getParams().tracks));
+  await page.click('#add-track');
+  await page.fill('#add-track-name', 'Undo me');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(700);
+  const added = await page.evaluate((before) => Object.keys(window.__ambi4Engine.getParams().tracks).filter((k) => !before.includes(k)), tracksBefore);
+  check('Add track put a track in the engine', added.length, 1);
+  await page.evaluate(() => document.body.focus());
+  await undo(page);
+  check('cmd-z takes the added track out of the engine and the page', await page.evaluate((id) => ({
+    inEngine: id in window.__ambi4Engine.getParams().tracks,
+    row: !!document.querySelector(`.track-row[data-track="${id}"]`),
+  }), added[0]), { inEngine: false, row: false });
+  await page.keyboard.press('Control+Shift+z');
+  await page.waitForTimeout(700);
+  check('and redo brings it back, engine and row', await page.evaluate((id) => ({
+    inEngine: id in window.__ambi4Engine.getParams().tracks,
+    row: !!document.querySelector(`.track-row[data-track="${id}"]`),
+  }), added[0]), { inEngine: true, row: true });
+  await undo(page);
+
   // 6. The floor. Undoing past the beginning says so rather than throwing.
   await undo(page, 12);
   check('undoing past the start leaves a usable page', await page.evaluate(() =>

@@ -206,6 +206,35 @@ export default async function drive(page) {
   await page.waitForTimeout(300);
   check('P again unpins it', await page.evaluate(() => ({ mirrors: document.querySelectorAll('#pinned-row .knob').length, stored: window.__ambi4Layout.pins.length })), { mirrors: 0, stored: 0 });
 
+  // ---- 3b. Favourites take the first number ----------------------------
+  await page.evaluate(() => document.getElementById('genre-favourites-toggle').scrollIntoView({ block: 'center' }));
+  await page.click('#genre-favourites-toggle');
+  await page.waitForTimeout(250);
+  const fav = await page.evaluate(() => {
+    const box = document.querySelector('#genre-favourites-list input[type="checkbox"]:not(:checked)');
+    if (!box) return null;
+    box.click();
+    return { slug: box.value, name: box.parentElement.textContent.trim() };
+  });
+  check('the ☆ panel offers a genre to favourite', !!fav, (v) => v === true);
+  await page.waitForTimeout(200);
+  await page.click('#genre-favourites-done');
+  await page.waitForTimeout(200);
+  check('Done closes the ☆ panel and returns focus', await page.evaluate(() => ({ hidden: document.getElementById('genre-favourites').hidden, focus: document.activeElement?.id })), { hidden: true, focus: 'genre-favourites-toggle' });
+  await page.keyboard.press('?');
+  await page.waitForTimeout(200);
+  check('the sheet now names the favourite on key 1', await page.evaluate(() => document.querySelector('#shortcut-sheet dd')?.textContent), (v) => fav && v === `${fav.name} ☆`);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  await page.keyboard.press('1');
+  await page.waitForTimeout(800);
+  check('1 loads the favourite genre into the picker and the ENGINE', await page.evaluate(() => ({ picker: document.getElementById('genre-select').value, genre: window.__ambi4Engine.getParams().genre ?? document.getElementById('genre-select').value })), (v) => fav && v.picker === `g:${fav.slug}` && v.genre === fav.slug);
+  await page.click('#genre-favourites-toggle');
+  await page.waitForTimeout(250);
+  await page.evaluate((slug) => document.querySelector(`#genre-favourites-list input[value="${slug}"]`)?.click(), fav?.slug);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+
   // ---- 4. Layouts -------------------------------------------------------
   await page.evaluate(() => [...document.querySelectorAll('#panel-simple .knob')].find((el) => el.getAttribute('aria-label') === 'Tempo')?.focus());
   await page.keyboard.press('p');
