@@ -25624,7 +25624,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           text: 'Processor decides how hard this runs. Left alone it spans Eco to Full and picks inside that span itself, backing off when the machine gets warm; drag sideways to narrow the span, or set one tier to pin it. Eco is the coolest setting. If a patch uses more modulation connections than the tier in force is budgeted for, a line under the genre picker says so.',
         },
         {
-          target: '#play-along',
+          // The ICON, not the popover it opens: #play-along is hidden until the
+          // icon is pressed, and a hidden target resolves (tutorial-smoke and
+          // page-boot both passed on it) but rings nothing on the page.
+          target: '#play-along-open',
           text: 'The orange piano icon — Create — is the app\'s second main door, with two doors of its own. Start: Blank slate, Help me start, Strip a layer. Write: Melody, Chords, Beat, Words, Tap a rhythm or MIDI file; Write a tune over these chords sets a melody on yours. Musical typing gives a track your keyboard, touch keys or MIDI; Capture records it; Follow my chords lets held notes pick chords. The ⓘs say more.',
         },
         {
