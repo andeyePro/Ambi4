@@ -7385,7 +7385,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (unreadable.length) {
             progressionHint.textContent =
               `${unreadable.join(' ')} ${unreadable.length === 1 ? 'is not a chord' : 'are not chords'} this scale can play, ` +
-              'so the loop was kept as it was. Write scale numbers like i VI III VII' +
+              `so the loop was kept as it was. Write scale numbers like ${length < 6 ? 'i IV III V' : 'i VI III VII'}` +
               (length < 7 ? ` \u2014 this scale has ${length} notes, so up to ${NUMERALS[length - 1].toUpperCase()}` : '') + '.';
           } else if (typed.length > PROGRESSION_MAX) {
             progressionHint.textContent =
@@ -16484,6 +16484,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (isPlainObject(settings.patches)) delete settings.patches[id];
           if (isPlainObject(settings.voiceDrafts)) delete settings.voiceDrafts[id];
         }
+        // Unset is absent, never {}: the stored-setup comparison is byte-exact.
+        if (gone.length) {
+          if (isPlainObject(settings.patches) && !Object.keys(settings.patches).length) delete settings.patches;
+          if (isPlainObject(settings.voiceDrafts) && !Object.keys(settings.voiceDrafts).length) delete settings.voiceDrafts;
+        }
         for (const id of fresh) {
           // The ENGINE's own entry for the track, not a second guess at it: it
           // has already seeded the opening grid, the level and the state, and a
@@ -21747,7 +21752,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // nothing on an iPhone will open. Chromium and Firefox still get
           // .webm; an unknown or empty mimeType keeps the old name.
           const mime = recorder.mimeType || '';
-          const extension = /mp4|aac|m4a/i.test(mime) ? 'm4a' : /ogg|opus/i.test(mime) ? 'ogg' : 'webm';
+          // The CONTAINER decides the name: Chromium's default is
+          // audio/webm;codecs=opus, so a test on the whole string read the
+          // codec and called every Chrome recording .ogg (review of v0.0.286).
+          const container = String(mime).split(';')[0].trim();
+          const extension = /mp4|aac|m4a/i.test(container) ? 'm4a' : /ogg/i.test(container) ? 'ogg' : 'webm';
           recordChunks = [];
           recorder = null;
           if (recordTimer !== null) {
@@ -21787,7 +21796,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         describe(
           recordButton,
           canRecord
-            ? 'Records the mix to an audio file on this device (.webm here; .m4a in Safari, which has no WebM). Needs the engine to publish its output stream — arriving with the next engine update.'
+            ? 'Records the mix to an audio file on this device (.webm in Chrome and Edge, .ogg in Firefox, .m4a in Safari, which has no WebM). Needs the engine to publish its output stream — arriving with the next engine update.'
             : 'This browser has no MediaRecorder, so recording is unavailable here.'
         );
         if (canRecord) {
@@ -24119,7 +24128,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // focus to <body>, breaking Esc/Tab-wrap in the still-open popover.
       // If that happened, move focus into the newly-visible counterpart.
       function swapTimerRow(idleEl, activeEl, isActive) {
-        const focusWasInside = idleEl.contains(document.activeElement) || activeEl.contains(document.activeElement);
+        // Only when the row HOLDING focus is the one going away: updateTimerUI
+        // calls this once a second from tick() while a timer runs, and a
+        // refocus on every call pulled focus out of the minutes field as you
+        // typed (review of v0.0.286).
+        const hiding = isActive ? idleEl : activeEl;
+        const focusWasInside = !hiding.hidden && hiding.contains(document.activeElement);
         idleEl.hidden = isActive;
         activeEl.hidden = !isActive;
         // v0.0.285: this used to wait for document.activeElement to have
@@ -24340,9 +24354,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // 720") and then took anything typed: 99999 counted down from
         // 1666:39:00. Hold a typed number to the cap the control advertises.
         const minutes = parseInt(sleepCustom.value, 10);
-        if (!Number.isFinite(minutes)) return;
+        if (!Number.isFinite(minutes) || minutes < 1) return; // 0 or a typo starts nothing, as before
         const top = Number(sleepCustom.max) || 720;
-        startSleepTimer(clamp(minutes, 1, top));
+        startSleepTimer(Math.min(minutes, top));
       });
 
       document.getElementById('sleep-cancel').addEventListener('click', () => {
