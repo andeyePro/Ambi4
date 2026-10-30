@@ -4637,7 +4637,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const lamp = document.getElementById(`track-lamp-${id}`);
         if (lamp) {
           const at = state === 'auto' ? joinsAt.get(id) : null;
-          const joins = typeof at === 'number' ? ` Joins at ${pctFormat(at)} of the piece's drive (its section intensity and Complexity blended), as the old summary line said.` : '';
+          const joins = typeof at === 'number' ? ` Joins at ${pctFormat(at)} of the piece's drive (its section intensity and Complexity blended).` : '';
           lamp.setAttribute(
             'aria-label',
             `${TRACK_LABELS[id]} state: ${TRACK_STATE_TEXT[state] || state}.${joins} Press to cycle Off, Auto, On.`
@@ -5862,7 +5862,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // both jobs. 0 means "hold" — the engine keeps looping the material it
       // is playing now — and re-rolls scale in as the dial rises.
       const HOLD_EPSILON = 0.0001;
-      const RANDOMNESS_HINT = '0 = hold: loops the current bars exactly. Higher re-rolls more often.';
+      const RANDOMNESS_HINT = '0 = hold: loops the current bars exactly. Higher re-rolls more often, and every dial in the track\'s editor that reads Auto (Pan, Timing, Dynamics, Octave wander, Voice chance) follows it.';
       const VARIATION_HINT =
         'How much each track changes its own material. 0 holds — the bars loop exactly and nothing re-rolls or drifts. Higher re-draws plans, patches and voices more often.';
       const REPRISE_HINT =
@@ -8991,10 +8991,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         input.max = String(spec.max);
         input.step = String(spec.step);
         input.value = String(rangeMid(shown()));
+        // The readout, spoken: a bare range input reads its raw number.
+        input.setAttribute('aria-valuetext', readout.textContent);
         input.addEventListener('input', () => {
           const v = parseFloat(input.value);
           onValue(v);
           readout.textContent = format(v);
+          input.setAttribute('aria-valuetext', readout.textContent);
         });
         wrap.append(labelRow, input);
         row.append(wrap);

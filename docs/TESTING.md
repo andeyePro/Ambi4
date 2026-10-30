@@ -130,6 +130,7 @@ node tests/energy-measure.mjs      # the Energy dial's own measurements
 node tests/saturation-smoke.mjs    # opt-in Drive: no nodes at 0, the curve, the law, the ramps
 node tests/texture-grid-smoke.mjs  # texture's opt-in grid: gridless = dev's stream, a manual grid plays exactly its steps
 node tests/content-check.mjs       # playlist frontmatter against the schema
+node tests/doc-drift.mjs           # no retired control named in README, the open release pass, the page's words or registry hints
 node tests/wav-export-smoke.mjs    # Save as WAV: the encoder's bytes and the tap
 npm run build && node tests/tutorial-smoke.mjs   # the guided tour
 npm run build && node tests/page-boot.mjs        # the built page in jsdom (above)
@@ -467,15 +468,16 @@ Preset URLs
 - [ ] A junk slug (e.g. `/not-a-preset`) → the normal 404 page.
 
 Min-max dials
-- [ ] The feel row of a track's Edit panel leads with the dials the Randomise
-      row dissolved into (v0.0.275): Pan and Timing take a sideways spread —
+- [ ] The feel row of a track's Edit panel leads with its per-track
+      randomness dials (v0.0.275, D8): Pan and Timing take a sideways spread —
       each note lands somewhere inside it — and Dynamics, Octave wander and
       Passing notes take a single amount or a drifting min–max range. Only
       the dials that act are there: the bass has Timing and Dynamics, no Pan.
       A dial reading Auto follows the track's Randomness; turn it to set your
-      own, double-click to hand it back (it reads Auto again). There is no
-      row titled Randomise anywhere. An old share link carrying the row's
-      settings still arrives with them on these dials.
+      own, double-click to hand it back (it reads Auto again); the first turn
+      already reads the new value, not Auto. No editor has a separate row of
+      randomness knobs. An old share link from before v0.0.275 still arrives
+      with its settings on these dials.
 - [ ] Clicking Tempo, Complexity, Repetition, Volume, Swing, Processor, Octave,
       Filter type or the Shape dials does NOTHING — those params take a single
       value engine-side, so they deliberately have no range affordance.
@@ -1202,9 +1204,9 @@ just picks an instrument from that dropdown and plays it then picks another".
 Gated at the engine by `tests/voice-rule-smoke.mjs`; the browser drive is
 owed to the bridge key (fromClaude 13).
 
-- [ ] Synthwave, Advanced, open the Melody editor: the Randomise row's first
-      knob is now Voice chance, with an "each bar / each section / each piece"
-      selector and a Pool… button beside it. Turn Voice chance to the bottom:
+- [ ] Synthwave, Advanced, open the Melody editor: the Voice rule's Chance
+      slot holds the Voice chance knob, with an "each bar / each section / each
+      piece" selector and a Pool… button beside it. Turn Voice chance to the bottom:
       it reads Hold, the melody stays on Keys for the rest of the piece, and
       the picker shows plain Keys (no "· wandering").
 - [ ] Press Next: a fresh Synthwave piece, and the melody is STILL Keys, still
@@ -1231,8 +1233,8 @@ owed to the bridge key (fromClaude 13).
 ## v0.0.196 delta — the rule primitive (2026-09-25)
 
 - [ ] Advanced: a "Rules show" select sits above the dials — what plays / +
-      chance / + pool. Open the Melody editor: above Randomise there is one
-      block, Voice, in three layers: Now (the voice playing, press it to go to
+      chance / + pool. Open the Melody editor: above the feel row's dials there
+      is one block, Voice, in three layers: Now (the voice playing, press it to go to
       the picker), Chance (the knob, Hold at 0, with each bar / section /
       piece), Pool (one line naming the voices in order and by weight or in
       turn, with Edit…). At "what plays" only Now shows; "more" opens Chance,
@@ -1341,8 +1343,8 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 
 ## Motif rule delta — the melody's cell as Now / Chance / Pool
 
-- [ ] Advanced, open the Melody editor: under Randomise there is a second rule
-      block, Motif. Now names the cell playing ("rising · 0 1 2 4" — its shape,
+- [ ] Advanced, open the Melody editor: under the Voice rule there is a second
+      rule block, Motif. Now names the cell playing ("rising · 0 1 2 4" — its shape,
       then its steps from the chord's root) and follows it while it plays.
       Press it: it reads "yours · …", Chance drops to Hold, and the melody keeps
       that idea for the rest of the piece — through every section change.

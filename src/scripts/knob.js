@@ -1651,10 +1651,14 @@ export function createKnob(container, options) {
         activeThumb = 'min';
         updateView();
       } else {
-        const wasRange = mode === 'range';
         mode = 'single';
         commit(v, false);
-        if (wasRange) updateView(); // commit may early-return; the mode switch must still render
+        // commit early-returns on an unchanged value, but the readout must
+        // still re-render: the mode may have switched, and a caller's format
+        // may read state of its own (v0.0.276: a D8 dial's Auto patch flips
+        // on a turn or a reset that leaves the number where it was, and the
+        // dial's refresh is a set() of that same number).
+        updateView();
       }
       dragRaw = value;
     },

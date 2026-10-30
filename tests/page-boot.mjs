@@ -1020,6 +1020,108 @@ try {
     }
   })();
 
+  // v0.0.276 — the D8 dials are dials a screen reader can use. Each of the
+  // dials buildSpreadDials makes (Pan, Timing, Dynamics, Octave wander,
+  // Passing notes) needs an accessible name, an aria-valuetext that says what
+  // its readout says, and its hint reachable (aria-describedby, as describe()
+  // wires every other knob). And the readout must follow the Auto patch both
+  // ways: the first turn of a dial reading Auto took it off the macro but
+  // left "Auto" on screen and in aria-valuetext (knob.set() of an unchanged
+  // value never re-rendered), and a reset of a dial with a value of its own
+  // patched it back but kept reading "0%" / "C". Genre pinned (a fresh visit
+  // draws a random one), every query scoped to #voice-editor-<track>.
+  await (async () => {
+    const engine = window.__ambi4Engine;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const genreSelect = doc.getElementById('genre-select');
+    if (genreSelect && [...genreSelect.options].some((o) => o.value === 'g:synthwave')) {
+      genreSelect.value = 'g:synthwave';
+      genreSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await waitUntil(() => engine.getParams().genre === 'synthwave');
+    } else {
+      failures.push('D8 a11y: cannot pin the genre to Synthwave');
+    }
+    const openEditor = async (track) => {
+      const editor = doc.getElementById(`voice-editor-${track}`);
+      if (!editor || editor.hidden) doc.getElementById(`voice-edit-toggle-${track}`)?.click();
+      return waitUntil(() => {
+        const el = doc.getElementById(`voice-editor-${track}`);
+        return Boolean(el && !el.hidden && el.querySelector('.feel-row .spread-dial .knob'));
+      });
+    };
+    // What the readout says, in the form aria-valuetext says it.
+    const spoken = (knob) => {
+      const shown = (knob.querySelector('.knob-value')?.textContent || '').trim();
+      const ends = shown.split(' – ');
+      return ends.length === 2 ? `min ${ends[0]}, max ${ends[1]}` : shown;
+    };
+    const speaksReadout = (knob) => {
+      const text = knob.getAttribute('aria-valuetext') || '';
+      const want = spoken(knob);
+      return want !== '' && (text === want || text.startsWith(`${want},`) || text === `${want} (range collapsed)`);
+    };
+    for (const track of ['melody', 'bass', 'pad']) {
+      if (!(await openEditor(track))) {
+        failures.push(`D8 a11y: the ${track} editor did not open`);
+        continue;
+      }
+      const editor = doc.getElementById(`voice-editor-${track}`);
+      for (const cell of editor.querySelectorAll('.feel-row .spread-dial')) {
+        const knob = cell.querySelector('.knob');
+        const dial = cell.dataset.spreadDial;
+        const name = knob?.getAttribute('aria-label') || '';
+        const visible = (knob?.querySelector('.knob-label')?.textContent || '').trim();
+        if (!knob || knob.getAttribute('role') !== 'slider') { failures.push(`D8 a11y: ${track} ${dial} is not a slider`); continue; }
+        if (!name || name !== visible) failures.push(`D8 a11y: ${track} ${dial}'s accessible name is "${name}", its label "${visible}"`);
+        if (!speaksReadout(knob)) failures.push(`D8 a11y: ${track} ${name} says "${knob.getAttribute('aria-valuetext')}" while its readout shows "${knob.querySelector('.knob-value')?.textContent}"`);
+        const descId = knob.getAttribute('aria-describedby');
+        const desc = descId ? doc.getElementById(descId) : null;
+        const hint = (desc?.textContent || knob.getAttribute('title') || '').trim();
+        if (hint.length < 20) failures.push(`D8 a11y: ${track} ${name} has no reachable hint (aria-describedby ${descId}, title ${knob.getAttribute('title')})`);
+      }
+    }
+    // The Auto patch, both ways, on the melody's Dynamics and Pan.
+    if (!(await openEditor('melody'))) return;
+    const key = (knob, k, shiftKey = false) => knob.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, shiftKey, bubbles: true }));
+    const readout = (knob) => (knob.querySelector('.knob-value')?.textContent || '').trim();
+    const check = (knob, what, wantAuto) => {
+      const shown = readout(knob);
+      const said = knob.getAttribute('aria-valuetext') || '';
+      if (wantAuto ? shown !== 'Auto' : shown.includes('Auto')) failures.push(`D8 a11y: ${what}, the readout shows "${shown}"`);
+      if (wantAuto ? said !== 'Auto' : said.includes('Auto')) failures.push(`D8 a11y: ${what}, aria-valuetext says "${said}"`);
+      if (!speaksReadout(knob)) failures.push(`D8 a11y: ${what}, aria-valuetext "${said}" does not say the readout "${shown}"`);
+    };
+    const dyn = doc.querySelector('#voice-editor-melody .spread-dial-dynamics .knob');
+    if (!dyn) {
+      failures.push('D8 a11y: no Dynamics dial on the melody');
+    } else {
+      key(dyn, 'Backspace');
+      await sleep(30);
+      if (!engine.getParams().tracks.melody.macroPatch.includes('dynamics')) failures.push('D8 a11y: a reset did not patch Dynamics to Randomness');
+      check(dyn, 'Dynamics patched to Randomness', true);
+      key(dyn, 'ArrowUp');
+      await sleep(30);
+      const t = engine.getParams().tracks.melody;
+      if (t.macroPatch.includes('dynamics') || !(t.dynamics > 0)) failures.push(`D8 a11y: a turn of Dynamics left it ${JSON.stringify(t.dynamics)}, macroPatch ${JSON.stringify(t.macroPatch)}`);
+      check(dyn, 'one turn of Dynamics off Auto', false);
+      key(dyn, 'Backspace');
+      await sleep(30);
+      if (!engine.getParams().tracks.melody.macroPatch.includes('dynamics')) failures.push('D8 a11y: a second reset did not patch Dynamics back');
+      check(dyn, 'Dynamics reset from a value of its own', true);
+    }
+    const pan = doc.querySelector('#voice-editor-melody .spread-dial-pan .knob');
+    if (pan) {
+      key(pan, 'Backspace');
+      for (let i = 0; i < 6; i += 1) key(pan, 'ArrowRight', true);
+      await sleep(30);
+      check(pan, 'a spread drawn on Pan', false);
+      key(pan, 'Backspace');
+      await sleep(30);
+      if (!engine.getParams().tracks.melody.macroPatch.includes('pan')) failures.push('D8 a11y: a reset did not patch Pan back');
+      check(pan, 'Pan reset from a spread of its own', true);
+    }
+  })();
+
   // 2026-10-23 — every dial that DRAWS a range hands the engine a range.
   // A dial that takes the sideways gesture (data-spread="yes") and then reads
   // "drifting" must have left a {min, max} in the engine's params — CLAUDE.md:

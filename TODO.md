@@ -45,6 +45,12 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] Late in page-boot an editor's Edit button stopped opening — the harness, fixed v0.0.270.
 - [x] Reverb tail: Full now gives the whole 6 s (v0.0.271); Med 4, Low 2, Eco 1, all named in the hint.
 
+## Post-D8 coherence audit, 2026-10-30 (v0.0.268–275's renames and removals)
+
+- [x] *(SHIPPED v0.0.276)* Every current description of the Randomise row, Shuffle / In order and the per-track summary line rewritten; tests/doc-drift.mjs fails on any of them in README, the open release pass, the page's words or the registry hints (5 hits red on v0.0.275). A D8 dial reading Auto now re-reads after its first turn and after a reset (page-boot "D8 a11y", 6 reds on v0.0.275).
+- [ ] Real browser: with VoiceOver (or NVDA) on, Tab to a melody editor's Dynamics and Pan reading Auto; one arrow press must be spoken as the new value, Backspace as Auto, and the hint read as the description. jsdom proves the attributes, not what a screen reader announces.
+- [ ] Dated history in docs/engine-v2-contract.md (the v6 amendment 2, v8, v24 and v0.0.195–203 sections) still names vary.* and the Randomise row as they shipped; left alone on purpose. If those sections are ever read as the current contract, add a one-line "superseded by D8" pointer to each rather than rewriting them.
+
 ## Click audit, 2026-10-30 (everything that changes while sound flows)
 
 - [x] *(SHIPPED v0.0.274)* Pause/resume fade, Reverb tail drag (per-fade retirement + rest debounce), Firefox legato refusal, outro hold, fallback voice cancel.

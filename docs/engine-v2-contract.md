@@ -336,7 +336,7 @@ Patch = {
   weights on the engine's own rng (seed-deterministic; a track with no blend spends
   no draw, so blend-free pieces are byte-identical). `getParams` keeps reporting the
   configured `voice`; `getResolved` reports the drawn one — the same seam the
-  vary.voice wander uses, and that wander stands down entirely on a blended track,
+  voice wander (`voiceWander`, v0.0.275) uses, and that wander stands down entirely on a blended track,
   because an authored blend IS the voice policy. Editing a blend re-draws at once.
   BY-REGISTER claiming (his option b) is deliberately later.
 - Kit envelopes (v0.0.159, his 129a): a kit publishes each sound's OWN envelope in
@@ -689,9 +689,9 @@ record of why each field first became rangeable.
 
 Rangeable + DEFAULT RANGE mode (ships as {min,max} in defaults where marked *):
 filter cutoff*, sends reverb/delay, sequencer step prob, track randomness macro.
-Rangeable + default SINGLE: mix, detune, Q, envAmount, ADSR (all four), vary aspects
-(since v0.0.275 the dials they dissolved into — Pan, Timing, Dynamics, Octave wander,
-the voice wander and Passing notes, all `track.*` registry rows),
+Rangeable + default SINGLE: mix, detune, Q, envAmount, ADSR (all four), the per-track
+randomness dials (v0.0.275, D8: Pan, Timing, Dynamics, Octave wander, the voice wander
+and Passing notes, all `track.*` registry rows),
 volume knobs. Every dial that DRAWS a range must hand the engine one:
 page-boot's range sweep spreads every dial that takes the sideways gesture
 (`data-spread="yes"`) and asserts a {min, max} lands in `getParams()` — or,
@@ -1526,14 +1526,17 @@ params.userTracks = [{ id, label, family, voiceSet, colourToken, manifest? }]
   TAIL.
 - `params.tracks[id]` is an ordinary track entry, built by the same
   `defaultTracks()`/`sanitiseTracks()` code paths as a built-in: state, voice,
-  level, randomness, driftRate, swing, density, hold, mono, glide, vary; plus
+  level, randomness, driftRate, swing, density, hold, mono, glide, pan, timing,
+  dynamics, octaveWander, voiceWander, macroPatch (v0.0.275, D8); plus
   `dissonance` when melodic (melodic ⇒ tuned), plus `lanes` when percussive,
   plus `sequencers`/`sequencer` — EVERY user track is sequenced (see below).
 - Defaults for a freshly added track: `state: 'on'` (the user just made it —
   it should sound), `voice: DEFAULT_TRACK_VOICES[voiceSet]`, level 0.8,
   randomness {0.35, 0.65}, driftRate 1, swing null, density null, hold false,
-  mono false, glide 0, vary all null (no voice wander — the pad/texture 0.15
-  is a built-in-specific ruling), dissonance the standard default.
+  mono false, glide 0, the five randomness dials at 0 and every one patched
+  to the Randomness macro (`macroPatch` lists all five — no explicit voice
+  wander: the pad/texture 0.15 is a built-in-specific ruling), dissonance the
+  standard default.
 - SANITISER ORDER: `sanitiseUserTracks(value, base)` runs FIRST and its result
   defines the id set `sanitiseTracks` then iterates (built-ins first, user
   tracks in stored order). `params.userTracks` is AUTHORITATIVE on setParams —
@@ -2917,7 +2920,7 @@ its step grid's tabs, each `{ chance, when, pool: [{ tab, weight }], order }`
 (the voice rule's shape; `tab` is a 0-based index into `sequencers`):
 
 - `variantRule` — which tab plays. Chance 0 holds the tab playing; `null`
-  follows the tabs' own Shuffle weights / In order chain (the old law, to the
+  follows the tabs' own By weight / In turn order (the old law, to the
   byte); a number redraws from the pool at each When — `bar`, `section` (the
   first bar of each section) or `piece` (once, the first bar the kit sounds) —
   by weight (the whole pool, the playing tab included) or in turn. An empty
@@ -3035,7 +3038,7 @@ the cell playing now; `getRecipe()` names the cell the piece opened on when
 none was set), **the compiler** (perTrack pass-through, like voiceRule),
 **rule-control.js** (`whenOptions` / `whenHint` for a rule whose moments are
 not bar/section/piece; `pool.words` for what an empty or null pool means),
-**the page** (the Motif rule in the melody editor under Randomise: Now
+**the page** (the Motif rule in the melody editor, under its Voice rule: Now
 follows the playing cell and a press keeps it as yours at Chance Hold; Chance
 is a knob with an Auto detent; Pool edits in place; Next keeps a held rule;
 Blank slate writes Chance 0 and an empty pool; Save as my genre and the Rules
