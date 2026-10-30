@@ -16450,6 +16450,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         syncTrackViews(settings.userTracks);
         const gone = before.filter((id) => !TRACK_IDS.includes(id));
         const fresh = TRACK_IDS.filter((id) => !before.includes(id));
+        for (const id of gone) {
+          // A removed track takes its stored patches and parked drafts with
+          // it. They used to stay in settings under the old id, so a new track
+          // given the same name (hence the same id) arrived with a "· edited"
+          // draft it never had. Undo restores the whole snapshot, drafts and
+          // all, so nothing is lost that way. tests/voices-edges-drive.mjs.
+          if (isPlainObject(settings.patches)) delete settings.patches[id];
+          if (isPlainObject(settings.voiceDrafts)) delete settings.voiceDrafts[id];
+        }
         for (const id of fresh) {
           // The ENGINE's own entry for the track, not a second guess at it: it
           // has already seeded the opening grid, the level and the state, and a
