@@ -26042,6 +26042,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       // A docked ⓘ box is not the tour: "?" opens the tour over it.
       tutorialToggle.addEventListener('click', () => setTutorialOpen(tutorialPanel.hidden || tutorialPanel.classList.contains('info-mode')));
+      // Esc on the ? itself closes what it opened, as Esc on an ⓘ closes its
+      // box (v0.0.207): a click leaves focus on the ?, so a keyboard user
+      // pressing Esc there was pressing it outside the panel's own listener.
+      tutorialToggle.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || tutorialPanel.hidden) return;
+        event.preventDefault();
+        if (releaseInfoDock(true)) return;
+        setTutorialOpen(false);
+      });
       document.getElementById('tutorial-close').addEventListener('click', () => {
         setTutorialOpen(false);
         tutorialToggle.focus();
