@@ -180,6 +180,29 @@ const SHAPE_SKEW_MIN = 0.5;
 const SHAPE_SKEW_MAX = 0.99;
 const TARGET_FPS = 30;
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+/**
+ * Under prefers-reduced-motion the loops still run (the trace must stay
+ * current) but at the visualiser's reduced cap: 2 frames a second instead of
+ * 30. Measured, not assumed — tests/a11y-drive.mjs counts paint calls on the
+ * front scope with and without the preference; before this it drew 771
+ * frames in two seconds either way. The MediaQueryList's `matches` is live,
+ * so a change of preference takes effect on the next frame with no listener.
+ */
+const REDUCED_MOTION_FPS = 2;
+const REDUCED_MOTION_INTERVAL_MS = 1000 / REDUCED_MOTION_FPS;
+let reducedMotionMedia; // undefined until first asked; null where matchMedia is missing
+function frameIntervalMs() {
+  if (reducedMotionMedia === undefined) {
+    try {
+      reducedMotionMedia = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-reduced-motion: reduce)')
+        : null;
+    } catch {
+      reducedMotionMedia = null;
+    }
+  }
+  return reducedMotionMedia && reducedMotionMedia.matches ? REDUCED_MOTION_INTERVAL_MS : FRAME_INTERVAL_MS;
+}
 // v14 05:4xZ: MAX_DPR=2 rendered soft under browser zoom on retina (effective
 // dpr ~2.5-3). Raised to 3 — this canvas is small (device pixel count stays
 // modest even at dpr 3), and the 30fps frame-rate cap (not backing-store
@@ -1154,8 +1177,9 @@ function isDocumentHidden() {
 }
 
 /**
- * Shared rAF-loop lifecycle: 30fps cap (timestamp-gated, still scheduled
- * every tick so it never falls out of sync with the compositor),
+ * Shared rAF-loop lifecycle: 30fps cap, 2fps under prefers-reduced-motion
+ * (timestamp-gated, still scheduled every tick so it never falls out of sync
+ * with the compositor),
  * IntersectionObserver viewport gating, document.hidden pause, and a
  * resize-triggered redraw while paused/no-rAF so a frozen frame stays
  * current. `onVisible`, if supplied, fires when the tab becomes visible
@@ -1192,7 +1216,7 @@ function createRafLoop(canvas, drawFrame, { onVisible } = {}) {
         rafId = null;
         return;
       }
-      if (ts - lastFrameTs >= FRAME_INTERVAL_MS) {
+      if (ts - lastFrameTs >= frameIntervalMs()) {
         lastFrameTs = ts;
         drawFrame(ts);
       }
