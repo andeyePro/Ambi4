@@ -7205,8 +7205,18 @@ export function createEngine(initialParams, options = {}) {
     // timer once its own fade has reached zero. A second swap used to unwire
     // the previous outgoing one at once, a frame into its fade, at ~95% of
     // the return level — a hard cut of the whole wet signal per dial step.
-    const fade = { convolver: graph.convolver, ret: previous, timer: null };
-    fade.timer = setTimeout(() => endReverbFade(fade), REVERB_CROSSFADE * 1000 + 20);
+    // The fade runs on the audio clock and the timer on the wall clock: while
+    // the context is suspended (a pause) the fade stands still, so the timer
+    // waits rather than cutting a return still near full level (bug hunt).
+    const fade = { convolver: graph.convolver, ret: previous, timer: null, endsAt: time + REVERB_CROSSFADE };
+    const retire = () => {
+      if (ctx && ctx.state === 'suspended' && ctx.currentTime < fade.endsAt) {
+        fade.timer = setTimeout(retire, 250);
+        return;
+      }
+      endReverbFade(fade);
+    };
+    fade.timer = setTimeout(retire, REVERB_CROSSFADE * 1000 + 20);
     reverbFades.add(fade);
     graph.convolver = next;
     graph.reverbReturn = nextReturn;
@@ -7238,8 +7248,11 @@ export function createEngine(initialParams, options = {}) {
     // Headroom now lives on `master`, so this is the raw listening level.
     const target = Math.max(params.volume, SILENCE);
     // The outro fade owns the output gain until it is done; a volume change or
-    // a parameter edit mid-ending must not pull the level back up.
-    if (!outroStarted) {
+    // a parameter edit mid-ending must not pull the level back up. A pause
+    // owns it too (2026-10-30, bug hunt): an edit landing during pause()'s
+    // fade cancelled it and ramped back up, so the suspend cut a sounding
+    // mix after all. resume() brings the level back.
+    if (!outroStarted && !paused) {
       graph.output.gain.cancelScheduledValues(now);
       graph.output.gain.setValueAtTime(Math.max(graph.output.gain.value, SILENCE), now);
       graph.output.gain.exponentialRampToValueAtTime(isRunning ? target : SILENCE, now + rampSeconds);
@@ -11429,6 +11442,9 @@ export function createEngine(initialParams, options = {}) {
    * scheduled stay scheduled and unsounded, the bar the scheduler is in stays
    * that bar, and resume() picks the piece up at the position it left. Nothing
    * is cleared: a pause is not a stop, and only a stop starts a piece over.
+   * Since 2026-10-30 the output fades for PAUSE_FADE before the suspend, and
+   * the clock runs through that fade: a note scheduled to start inside it
+   * plays into the falling level and is spent, rather than held.
    */
   function pause() {
     if (!isRunning || paused) return;

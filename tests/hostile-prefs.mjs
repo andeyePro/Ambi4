@@ -413,6 +413,21 @@ await judgePresets('[good, {name:"good",params:{}}]', [good, { name: 'good', par
   const long = 'L'.repeat(500);
   await judgePresets('[{name:"L"x500,params:{}}]', [{ name: long, params: {} }], { expected: [long] });
 }
+// Saving over that long-named preset overwrites it, never a shortened copy.
+{
+  const long = 'L'.repeat(500);
+  forgetDevice();
+  const { win, failed } = await boot('https://ambi4.work/', `presets-long-save-${boots}`, seedWith({ presets: [{ name: long, params: {} }] }));
+  boots += 1;
+  if (failed) failures.push(`presets long name save: ${failed}`);
+  else {
+    const list = saveAs(win, long);
+    if (!Array.isArray(list) || list.length !== 1 || list[0].name !== long) {
+      failures.push(`presets long name save: saving over a 500-character name stored ${Array.isArray(list) ? list.map((p) => String(p.name).length).join('+') + ' chars' : typeof list} instead of overwriting it`);
+    }
+  }
+  win.close();
+}
 // More presets than Save now allows a new one past are all kept, and survive
 // a Save over one of them — no preset anyone has is dropped by the cap.
 {

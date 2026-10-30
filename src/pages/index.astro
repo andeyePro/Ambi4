@@ -24319,11 +24319,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       presetSave.addEventListener('click', () => {
-        // v0.0.279: cut to the length the stored list keeps, so what is saved
-        // is what reads back; a new name at PRESET_CAP is refused, as a layout is.
-        const name = presetName.value.trim().slice(0, PRESET_NAME_MAX) || 'Untitled';
+        // v0.0.279: a NEW name is cut to PRESET_NAME_MAX and refused at
+        // PRESET_CAP, as a layout is. A name that already exists is looked up
+        // FIRST, as typed (2026-10-30, bug hunt): a stored name longer than
+        // the cut (allowed before v0.0.279), loaded and saved again, made a
+        // second, shortened preset instead of overwriting its own.
+        const typed = presetName.value.trim();
+        let existing = presets.findIndex((p) => p.name === typed);
+        const name = existing >= 0 ? typed : (typed.slice(0, PRESET_NAME_MAX) || 'Untitled');
+        if (existing < 0) existing = presets.findIndex((p) => p.name === name);
         const entry = { name, params: paramsSnapshot() };
-        const existing = presets.findIndex((p) => p.name === name);
         if (existing < 0 && presets.length >= PRESET_CAP) {
           sayUnderDials(`This device holds ${PRESET_CAP} presets already \u2014 delete one to make room.`);
           return;

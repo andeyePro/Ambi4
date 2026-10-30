@@ -6682,6 +6682,24 @@ test('2026-10-30: a Reverb tail drag never cuts an outgoing tail and builds one 
   engine.stop();
 });
 
+test('2026-10-30: a reverb fade caught by a suspend is not cut; it retires once the clock has run it out', async () => {
+  const engine = createEngine({ reverbTail: 4 });
+  assert.equal(engine.arm(), true);
+  const ctx = liveContexts[liveContexts.length - 1];
+  engine.setParams({ reverbTail: 2 });
+  await reverbBuilt();
+  const [old] = reverbTails(ctx);
+  ctx.state = 'suspended';               // a pause lands mid-crossfade
+  await reverbFaded();
+  assert.equal(old.ret.disconnects.length, 0,
+    'the outgoing return was cut while the suspended clock had the fade stood still');
+  ctx.state = 'running';
+  ctx.currentTime += 1;                  // the clock runs the fade out
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.ok(old.ret.disconnects.length > 0, 'the faded return was never retired after the clock moved on');
+  engine.stop();
+});
+
 test('v21: the governor tier caps the tail without overwriting it', async () => {
   const engine = createEngine({ reverbTail: 6 });
   assert.equal(typeof engine.setReverbSeconds, 'function',
@@ -9406,6 +9424,16 @@ test('v26: pause() holds the piece where it stands, and resume() continues it ex
     assert.equal(ctx.state, 'running', 'pause() suspended at once, cutting the mix instead of fading it');
     assert.ok(output, 'the output gain feeding the destination was not found');
     assert.ok(targets.some((v) => v <= 0.0001), 'pause() did not fade the output to silence before suspending');
+    // An edit landing during the fade must not pull the level back up: the
+    // suspend would then cut a sounding mix (2026-10-30 bug hunt).
+    targets.length = 0;
+    const exps = [];
+    const originalExp = output.gain.exponentialRampToValueAtTime;
+    output.gain.exponentialRampToValueAtTime = function (v, at) { exps.push(v); return originalExp.call(this, v, at); };
+    engine.setParams({ complexity: 0.4 });
+    output.gain.exponentialRampToValueAtTime = originalExp;
+    assert.ok(!exps.some((v) => v > 0.0001) && !targets.some((v) => v > 0.0001),
+      'an edit during the pause fade ramped the output back up');
     await new Promise((resolve) => setTimeout(resolve, 150));
     const clock = engine.now();
     assert.equal(ctx.state, 'suspended', 'pause() must suspend the context, which stops its clock');

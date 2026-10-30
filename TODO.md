@@ -51,6 +51,13 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [ ] Real browser: with VoiceOver (or NVDA) on, Tab to a melody editor's Dynamics and Pan reading Auto; one arrow press must be spoken as the new value, Backspace as Auto, and the hint read as the description. jsdom proves the attributes, not what a screen reader announces.
 - [ ] Dated history in docs/engine-v2-contract.md (the v6 amendment 2, v8, v24 and v0.0.195–203 sections) still names vary.* and the Randomise row as they shipped; left alone on purpose. If those sections are ever read as the current contract, add a one-line "superseded by D8" pointer to each rather than rewriting them.
 
+## Bug hunt over v0.0.273–281, 2026-10-30 (read-only opus review; four fixed in v0.0.282)
+
+- [ ] **Mixed `vary` + new fields fold in opposite orders on page and engine.** The engine (sanitiseDissolved) lets a field the partial sends beat its `vary` fold; the page (normaliseV6Tracks) folds `vary` last. No writer emits the mix; after a load the page pushes its own folded tree, so the live engine agrees. The page cannot follow the engine without knowing which fields were explicit, and its DEFAULTS carry every new field. Fix only if a writer ever mixes them.
+- [ ] **The schema-5 stamp over-reports** on a compact link whose diff carries a whole user track (its pan/macroPatch defaults) or a `passingNotes: null` removal — an older build would play either identically but shows "made by a newer version". Compare against the defaults rather than by presence.
+- [ ] **Passing notes is kept on pad, bass and arp** by both sanitisers (shape.tuned) though only melody, texture and user lines draw it and show its dial — a link can carry a value nothing plays, which also raises the stamp. Narrow the sanitisers to the tracks that call dissonanceDraw.
+- [ ] Pre-existing: the bass Timing spread's WIDTH applies from the next Play (bassPocketFor caches the pocket until start()); only its centre is live. Same as `vary.timing` always was, but the dial now draws the spread.
+
 ## Click audit, 2026-10-30 (everything that changes while sound flows)
 
 - [x] *(SHIPPED v0.0.274)* Pause/resume fade, Reverb tail drag (per-fade retirement + rest debounce), Firefox legato refusal, outro hold, fallback voice cancel.
