@@ -18957,6 +18957,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             takeOverStructure();
             blocksNow()[index].label = labelSelect.value;
             commitCustomStructure();
+            // The instrument buttons beside it name the section ("Pad in
+            // section A"); a relabel without a repaint left them naming the
+            // old letter (tests/structure-edges-drive.mjs).
+            renderStructureBlocks();
           });
 
           // v0.0.97: the optional title — B can double as "bridge", C as
@@ -18971,7 +18975,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           titleInput.setAttribute('aria-label', `Block ${index + 1} title`);
           titleInput.addEventListener('change', () => {
             takeOverStructure();
-            const t = titleInput.value.trim().slice(0, 24);
+            // Cut, then trimmed again, exactly as the engine stores it — a
+            // title whose 24th character was a space kept that space here
+            // and lost it there, so the saved copy was not the engine's.
+            const t = titleInput.value.trim().slice(0, 24).trim();
             if (t) blocksNow()[index].title = t;
             else delete blocksNow()[index].title;
             commitCustomStructure();
