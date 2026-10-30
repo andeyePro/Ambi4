@@ -7283,7 +7283,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       function commitProgression(text) {
-        const tokens = String(text || '').trim().split(/[\s,]+/).filter(Boolean).slice(0, PROGRESSION_MAX);
+        const typed = String(text || '').trim().split(/[\s,]+/).filter(Boolean);
+        const tokens = typed.slice(0, PROGRESSION_MAX);
         const seed = tokens.length ? tokens : null;
         settings.harmony = { ...settings.harmony, seed };
         engine.setParams({ harmony: { seed } });
@@ -7309,6 +7310,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           persistSettings();
         }
         renderProgression();
+        // The seed law refuses a loop WHOLE when any chord in it is not one
+        // the scale has, and the box above snaps back to the loop that is
+        // playing — which, with nothing said, looked like the typing was
+        // ignored (tests/structure-edges-drive.mjs). Name the token, and say
+        // when a loop was cut to the cap. Mirrors the engine's own token law
+        // (SEED_TOKEN / SEED_NUMERALS, bounded by the scale's length).
+        if (progressionHint && typed.length) {
+          const scale = currentScale();
+          const length = scale ? scale.length : 7;
+          const unreadable = tokens.filter((token) => {
+            const m = /^([ivIV]+)(.*)$/.exec(token);
+            const degree = m ? NUMERALS.indexOf(m[1].toLowerCase()) : -1;
+            return degree === -1 || degree >= length;
+          });
+          if (unreadable.length) {
+            progressionHint.textContent =
+              `${unreadable.join(' ')} ${unreadable.length === 1 ? 'is not a chord' : 'are not chords'} this scale can play, ` +
+              'so the loop was kept as it was. Write scale numbers like i VI III VII' +
+              (length < 7 ? ` \u2014 this scale has ${length} notes, so up to ${NUMERALS[length - 1].toUpperCase()}` : '') + '.';
+          } else if (typed.length > PROGRESSION_MAX) {
+            progressionHint.textContent =
+              `A loop is up to ${PROGRESSION_MAX} chords, so only the first ${PROGRESSION_MAX} were kept.`;
+          }
+        }
       }
 
       /**
