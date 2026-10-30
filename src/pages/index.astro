@@ -3023,8 +3023,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         ? (isPlainObject(carried[SHARE_DIFF_KEY]) && isPlainObject(carried[SHARE_DIFF_KEY].tracks) ? carried[SHARE_DIFF_KEY].tracks : {})
         : tracks;
       const fresh = defaultSpreads();
-      const spread = Object.values(spreadTracks).some((t) => isPlainObject(t) && (compact
-        ? ['passingNotes', 'macroPatch', ...SPREAD_FIELDS].some((field) => field in t)
+      // A diff entry an older build would play the same is not carried news
+      // (2026-10-30, bug hunt): `passingNotes: null` removes what no older
+      // origin can hold, and a user track arrives whole in a diff — an older
+      // build starts one from no vary, i.e. every dial at its default.
+      const userIds = new Set((Array.isArray(params.userTracks) ? params.userTracks : []).map((u) => u && u.id));
+      const sameAsOld = (id, t, field) => (field === 'passingNotes'
+        ? t[field] === null
+        : userIds.has(id) && (field === 'macroPatch'
+          ? Array.isArray(t[field]) && t[field].length === fresh[field].length && fresh[field].every((d) => t[field].includes(d))
+          : JSON.stringify(t[field]) === JSON.stringify(fresh[field])));
+      const spread = Object.entries(spreadTracks).some(([id, t]) => isPlainObject(t) && (compact
+        ? ['passingNotes', 'macroPatch', ...SPREAD_FIELDS].some((field) => field in t && !sameAsOld(id, t, field))
         : (t.passingNotes !== undefined
           || SPREAD_FIELDS.some((field) => t[field] !== undefined && JSON.stringify(t[field]) !== JSON.stringify(fresh[field]))
           || (Array.isArray(t.macroPatch) && JSON.stringify(t.macroPatch) !== JSON.stringify(fresh.macroPatch)))));

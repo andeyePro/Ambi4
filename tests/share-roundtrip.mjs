@@ -466,6 +466,12 @@ const variants = [
   { want: 3, label: 'master Drive on', edit: (p) => { p.drive = 0.4; } },
   { want: 4, label: 'bass on the Pulse voice', edit: (p) => { p.tracks.bass.voice = 'pulse'; } },
   { want: 5, label: 'one track\'s Octave wander in the diff', edit: (p) => { p.tracks.melody.octaveWander = 0.45; } },
+  // 2026-10-30 (bug hunt): a user track arrives WHOLE in a diff; at its
+  // default dials an older build plays it the same, so it is not stamp 5.
+  { want: 1, label: 'a user line added, every dial at its default', edit: (p) => {
+    p.userTracks = [...(p.userTracks || []), { id: 'u-line', label: 'Line', family: 'melodic', voiceSet: 'melody' }];
+    delete p.tracks['u-line'];
+  } },
 ];
 for (const variant of variants) {
   const params = structuredClone(untouched);
