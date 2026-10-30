@@ -27281,6 +27281,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         top: 84px;
         width: auto;
         min-width: 0;
+        /* A fixed box does not scroll with the page, so on a phone shorter
+           than the popover (iPhone SE/8 at 667px, many Androids at 640) its
+           foot — Create's Write rows, the Words button — hung below the
+           screen with no way to reach it (tests/mobile-touch-drive.mjs). It
+           scrolls itself instead; dvh so the browser's own bars count where
+           the unit exists. */
+        max-height: calc(100vh - 100px);
+        max-height: calc(100dvh - 100px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
       }
       /* An ⓘ inside that popover: its box hung under the anchor at
          max-content width, so an ⓘ on the right opened 273px of a 328px
