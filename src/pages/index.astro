@@ -24284,7 +24284,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       document.getElementById('sleep-start').addEventListener('click', () => {
-        startSleepTimer(parseInt(sleepCustom.value, 10));
+        // v0.0.285: the field says 1–720 (its min/max, and the ⓘ's "up to
+        // 720") and then took anything typed: 99999 counted down from
+        // 1666:39:00. Hold a typed number to the cap the control advertises.
+        const minutes = parseInt(sleepCustom.value, 10);
+        if (!Number.isFinite(minutes)) return;
+        const top = Number(sleepCustom.max) || 720;
+        startSleepTimer(clamp(minutes, 1, top));
       });
 
       document.getElementById('sleep-cancel').addEventListener('click', () => {
