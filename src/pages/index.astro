@@ -5032,7 +5032,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             proceed: ({ settled }) => {
               if (settled.has(id)) settleLeavingVoice(id, leaving);
               // A Stock pick of the same voice parks it itself (step 1).
-              else if (value !== leaving) parkVoiceEdit(id, leaving);
+              else if (value !== leaving) {
+                parkVoiceEdit(id, leaving);
+                // Parked means one pick away, not still in the engine's bank:
+                // the bank kept the edit under the left voice, so a later
+                // draw or wander onto it played the sound the picker called
+                // parked. Next and a genre pick already reset the left voice
+                // (parkEditedVoices + load); this is the pick's own reset.
+                // tests/voices-edges-drive.mjs.
+                if (patchIsEdited(id, leaving)) resetVoiceToFactory(id, leaving, { quiet: true });
+              }
               applyVoicePick(id, value, { settled: settled.has(id) });
             },
             cancel: () => refreshVoiceSelect(id),
