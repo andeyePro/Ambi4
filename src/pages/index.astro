@@ -24518,6 +24518,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // a reload lost it (2026-10-30, browser bug hunt, tests/presets-drive).
         if (!kept && prefs.consent() === 'granted') {
           sayUnderDials(`${name} is listed for this visit only \u2014 this device's storage is full, so it could not be kept. Delete a preset or a layout to make room, then Save again.`, 9000, { hold: true });
+        } else if (!kept && (prefs.consent() === 'denied' || deniedThisSession)) {
+          // Save under No thanks listed the preset and said nothing, and the
+          // next visit had no such preset (2026-10-30, browser bug hunt,
+          // tests/first-visit-drive). The answer was honoured; the Save has
+          // to say what honouring it means.
+          sayUnderDials(`${name} is listed for this visit only \u2014 you chose not to keep settings on this device, so it goes when this tab closes. A share link keeps it anywhere.`, 9000, { hold: true });
         }
       });
 
