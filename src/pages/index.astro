@@ -4225,12 +4225,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function persistKey(key, value) {
         // prefs.set without consent writes to session memory and returns
         // false — so the value survives in-session either way.
-        prefs.set(key, value);
+        // Returns prefs.set's answer: true only when the value reached
+        // localStorage. With consent granted, false means the store refused
+        // it (quota) and the value lives in session memory alone — a caller
+        // that promised to keep something (Save) must say so.
+        const kept = prefs.set(key, value);
         if (prefs.consent() === 'granted') {
           try {
             localStorage.removeItem(LEGACY_STORAGE_KEY);
           } catch {}
-          return;
+          return kept;
         }
         if (prefs.consent() === null && !deniedThisSession) {
           ensureConsent().then((granted) => {
@@ -4242,6 +4246,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
           });
         }
+        return kept;
       }
 
       // Sliders fire an input event per pixel of drag; debounce the storage
@@ -24427,7 +24432,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       function persistPresets() {
-        persistKey('presets', presets);
+        return persistKey('presets', presets);
       }
 
       function refreshPresetSelect(selectedName) {
@@ -24462,8 +24467,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         if (existing >= 0) presets[existing] = entry;
         else presets.push(entry);
-        persistPresets();
+        const kept = persistPresets();
         refreshPresetSelect(name);
+        // A Save the store refused (localStorage's per-site pot is full) used
+        // to list the preset and say nothing: it lived in session memory and
+        // a reload lost it (2026-10-30, browser bug hunt, tests/presets-drive).
+        if (!kept && prefs.consent() === 'granted') {
+          sayUnderDials(`${name} is listed for this visit only \u2014 this device's storage is full, so it could not be kept. Delete a preset or a layout to make room, then Save again.`, 9000, { hold: true });
+        }
       });
 
       /**
