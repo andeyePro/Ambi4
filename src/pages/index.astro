@@ -29925,6 +29925,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       width: calc(var(--knob-size, 72px) + 12px);
     }
 
+    /* Two feel dials carry names wider than that cell — in the label's
+       uppercase "Octave wander" is 108px and "Passing notes" 100px — and a
+       knob label is nowrap and overhangs its face, so side by side the two
+       drew over each other by 12px at every viewport (tests/layout-states-
+       drive.mjs, v0.0.284). Each takes the cell its name needs; the row
+       wraps, so nothing else moves. */
+    .dissonance-row > .spread-dial-octaveWander,
+    .dissonance-row > .spread-dial-passingNotes {
+      width: calc(var(--knob-size, 72px) + 40px);
+    }
+
     /* The slider fallback has no square face to align, so it takes a readable
        width and wraps onto the next line rather than squeezing the dials. */
     .dissonance-row > .ve-control {
