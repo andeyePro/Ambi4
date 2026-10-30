@@ -9015,7 +9015,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 defaultValue: 0,
                 onInput: (v) => {
                   const value = varyValueFromRaw(v);
+                  const was = ranged;
                   ranged = isPlainObject(value);
+                  // The knob PAINTS before it emits, so a gesture that flips
+                  // `ranged` was drawn with the old flag: a span double-clicked
+                  // back to the Auto detent read "0%" over an engine that
+                  // held Auto (tests/dials-everywhere-drive.mjs, 2026-10-30),
+                  // and a span dragged shut onto raw 1 read "0%" for Hold.
+                  // Repaint with the flag the value now has; set() is silent.
+                  if (was !== ranged) queueMicrotask(() => { try { handle.set(v); } catch {} });
                   commitVary(value);
                 },
               });
