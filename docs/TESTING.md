@@ -281,6 +281,7 @@ Worst-first within each section: if a step fails, note it and keep going.
 - [ ] Click "Save on this device" — devtools now shows ONLY cookie `ambi4-consent` + localStorage keys namespaced `ambi4:*`. No third-party cookies anywhere.
 - [ ] Reload — settings persisted.
 - [ ] New private window, repeat, click "No thanks" — settings still work for the session (change a slider, it holds), but nothing lands in storage; reload loses them; not re-asked this session.
+- [ ] Still under "No thanks", Save a preset: it is listed, and the line under the dials says it is listed for this visit only and that a share link keeps it anywhere (v0.0.286). Reload: gone, as it said.
 
 ## 10. Presets
 
@@ -300,6 +301,7 @@ Worst-first within each section: if a step fails, note it and keep going.
 - [ ] Open `/`, tap Play — audio starts. Note silent-switch behaviour (audio with switch on silent: yes/no).
 - [ ] Sliders/tabs/track controls usable with a thumb; nothing overflows or clips off-screen.
 - [ ] Finish works; lock the screen briefly — note whether audio survives (informational, not pass/fail).
+- [ ] (Dev unlock) Record while playing, then stop: the file is `ambi4-<time>.m4a` — Safari writes MP4, not WebM — and the phone opens it. Chrome and Firefox still write `.webm` (v0.0.286).
 
 ## Report back
 
@@ -313,7 +315,7 @@ The six most valuable things to tell the orchestrator:
 6. iPhone: Play worked? silent-switch result? any layout overflow?
 
 ## v6 delta (2026-07-25)
-- [ ] Sleep timer now lives behind the clock icon by Play; "Schedule start" behind the alarm icon (tab-open warning appears only there). Both popovers: Esc closes, countdown chips show when armed.
+- [ ] Sleep timer and "Schedule start" both live behind the one clock icon by Play, in the Timers popover (one popover since v0.0.40; the tab-open warning appears only under Schedule start). Esc closes it, countdown chips show when armed.
 - [ ] Melody and Bass now DEFAULT TO OFF - expected silence from them on a fresh visit; click a track name/state to wake them.
 - [ ] Tracks list: per-track Level knob (click it to switch to a min-max drifting range, double-click resets). Random button, Hold toggle, Randomness knob per track.
 - [ ] Step sequencers at the top of Melody/Bass/Arp/Percussion editors (Auto/Manual): click cells on/off, drag vertically for the velocity band, [ ] or , . for probability. Percussion has three lanes; the Arp lane length follows its rate.
@@ -931,7 +933,9 @@ Pause
 - [ ] Pause, then leave the tab for a minute and come back: it is still
       paused, not quietly resumed.
 - [ ] Pause then Stop: stopped, and the button reads Pause again.
-- [ ] Headphone/lock-screen pause key does the same thing as the button.
+- [ ] Headphone/lock-screen pause key holds the piece as the button does. A
+      second press on a piece already held does nothing — it never stops it
+      or throws the position away (v0.0.285) — and the play key resumes it.
 
 Next (fast-forward)
 - [ ] With a genre set, Next skips to a completely different setup inside that
@@ -1571,3 +1575,85 @@ ruling). To see it: `localStorage.setItem('ambi4:dev','1')`, then refresh.
       table, position law, unity law, automation order, words), voices-smoke's
       two vowel extremes, automation-order-smoke's vowel pass, and page-boot's
       dial fixtures (a hidden Vowel cell beside every Type dial).
+
+## v0.0.285–286 delta — the first real-browser sweep (2026-10-30)
+
+Thirty-odd faults found by driving every area in a headless Chromium (and
+WebKit) on the Mac test account; each has a drive in `tests/` that was red
+before its fix (the table under "The browser drives" lists them). The manual
+pass only needs the ones a person would notice:
+
+Transport and timers
+- [ ] Playing, open a track's step grid and Pause mid-bar: the lit step stays
+      where it is (it used to run on to the end of the bar). Resume: it moves
+      on from that step, not from the next barline.
+- [ ] Earbud or keyboard pause key on a piece already held: nothing happens —
+      it stays held and keeps its place. The play key resumes it.
+- [ ] Timers: press 15 min, then Esc — the popover closes (focus stayed inside
+      it). The same after Set alarm and after either Cancel.
+- [ ] Custom sleep: type 99999 and Start — the chip counts down from 12:00:00.
+      The field says 1–720 and the ⓘ says a larger number is held to 720.
+
+Phone (390 wide or narrower; an iPhone SE/8 height too)
+- [ ] Nothing pans sideways: the processor readout ("Auto (med) · …") takes a
+      line of its own under 560px, and with an editor open the step grid's
+      ×2 / ÷2 / Triplets row wraps rather than hanging past the edge.
+- [ ] Create popover on a 640px-high screen: it scrolls itself — the Write
+      rows and the Words button are reachable — and the page under it stays
+      put.
+- [ ] An ⓘ inside that popover opens its box on screen, under the ⓘ and inset
+      like the popover; the ⓘ is still there to close it.
+- [ ] Every ⓘ and the step grid's lane move/remove buttons are at least 24px
+      square (WCAG 2.5.8).
+- [ ] Melody or Texture editor: "Octave wander" and "Passing notes" no longer
+      draw over each other (those two cells are wider; the row wraps).
+- [ ] iPhone Safari, dev unlock: Record while playing, stop — the file is
+      `ambi4-<time>.m4a` and the phone opens it (section 12).
+
+Tour and help
+- [ ] ? opens the tour; Esc with focus still on the ? closes it (it used to
+      need focus inside the panel).
+- [ ] The tour's Create step rings the orange piano ICON, not an invisible
+      box.
+
+Storage and links
+- [ ] Private window, "No thanks", then Save a preset: listed, and the line
+      under the dials says it is for this visit only and that a share link
+      keeps it anywhere (section 9).
+- [ ] Consented window, fill the store (DevTools console:
+      `for (let i = 0; ; i++) localStorage.setItem('x' + i, 'y'.repeat(1e6))`
+      until it throws), then move a dial: the line under the dials says the
+      change lasts this visit only and why (full, or a private window). Save a
+      preset: it says the preset is listed for this visit only. Remove the
+      junk keys afterwards.
+- [ ] Consented window with a setup of your own: open someone's share link in
+      the same browser, do not Save, then open `/` plain — your own setup is
+      back. The link's setup reaches the store only when you Save.
+- [ ] A share link whose origin is a factory preset (load Deep Focus, move a
+      dial, Share, open the link): boots with no console error.
+
+Voices
+- [ ] Edit Warm on the pad, pick Glass, Move on, then raise the pad's Voice
+      chance until it wanders back onto Warm: it plays the FACTORY Warm; the
+      edit waits under Edited until you pick it.
+- [ ] Add track "Lead", edit its voice, remove the track, Add track "Lead"
+      again: its picker shows no "· edited" draft.
+- [ ] Pick a genre, then "No genre", then another genre: no leave-guard for
+      voices nobody edited.
+- [ ] Voice chance: drag it to a span, then double-click it back: it reads
+      Auto (not 0%), and the engine holds Auto.
+
+Structure, chords, Write
+- [ ] Custom structure: change a block's letter — the instrument buttons'
+      tooltips name the new section at once.
+- [ ] Block title: type 30 characters and leave the box — it shows the 24 the
+      engine kept.
+- [ ] Chords box: type "i xyz III" — the loop stays as it was and the hint
+      names xyz as not a chord this scale can play; in a five-note scale "vii"
+      is refused with the scale's reach named; sixteen chords say only the
+      first eight were kept.
+- [ ] Write → Melody: "C4 X E4" reports X as not understood (with note-name
+      examples), not as past the eight-bar cap. With the grid at ×2 (quavers)
+      "C4 D4 E4 F4" lands one note per beat in ONE bar.
+- [ ] Write → MIDI file with two tracks of notes: the report says both landed
+      on this one grid; the ⓘ says every track's notes are merged.

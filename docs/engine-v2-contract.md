@@ -367,8 +367,8 @@ Patch = {
 
 ## Sleep / schedule (UI-owned, engine-agnostic)
 
-- Sleep timer: duration input (15 m / 30 m / 1 h / 2 h / custom minutes); at expiry call
-  `engine.finish()`. Countdown shown near Play.
+- Sleep timer: duration input (15 m / 30 m / 1 h / 2 h / custom minutes, held to 1–720 —
+  the field's own min/max, v0.0.285); at expiry call `engine.finish()`. Countdown shown near Play.
 - Alarm: time-of-day input; on set: `engine.arm()` (gesture), show armed state + countdown;
   at target call `engine.start()`. Warn inline: works only while this tab stays open and
   the device is awake. Both cancellable. Timers use wall-clock re-check every ≤5 s
@@ -1065,7 +1065,10 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
   of the interpolated Fourier wave, updates on change only); tooltips on the
   four canonical glyph marks explain each shape.
 - Sequencer playhead: the currently-sounding step is highlighted (white) —
-  driven off note/bar events at step rate, DOM update only, no rAF.
+  driven off note/bar events at step rate, DOM update only, no rAF. A pause
+  drops its timers where they are and the resume re-arms the announced bar
+  against the audio clock, which stood still (v0.0.285): the lit step never
+  runs ahead of a held piece.
 - Lamp/state clicks NEVER open the edit accordion (off-toggle expanding the
   editor is a bug); only name-area/Edit affordances open it.
 - Out-of-box goal (product principle): defaults must sound excellent with only
