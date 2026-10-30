@@ -17698,8 +17698,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * a factory Synthwave read as edited. A voice of the person's own (a
        * User voice) has its saved patch as its baseline instead.
        */
+      /**
+       * v0.0.285: the genre a setup GREW from, read from settings.origin, for
+       * a setup whose genre tag has been cleared ("No genre"). Clearing the
+       * tag changes no sound, so the voices the genre compiled are still that
+       * genre's sound — but with currentGenre() null they were measured
+       * against the stock voice, every one read as "edited", and the next
+       * genre pick put up the leave-guard for "5 edited voices" nobody had
+       * touched (tests/sound-edges-drive.mjs). A genre in play still outranks
+       * it, exactly as currentFactoryPreset() is outranked.
+       */
+      function originGenre() {
+        const o = isPlainObject(settings?.origin) ? settings.origin : null;
+        return o && o.kind === 'genre' && typeof o.id === 'string' ? genreBySlug(o.id) || null : null;
+      }
       function genrePatchFor(track, voiceId) {
-        const own = currentGenre()?.essence?.instrumentation?.patches?.[track]?.[voiceId];
+        const own = (currentGenre() || originGenre())?.essence?.instrumentation?.patches?.[track]?.[voiceId];
         if (isPlainObject(own)) return own;
         // ui-review 2026-10-03 fix 1: a factory PRESET's own patch is that
         // voice's factory too — Deep Focus's strings are factory Deep Focus,
