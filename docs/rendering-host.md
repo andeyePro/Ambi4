@@ -61,6 +61,24 @@ primary user, so a global install from the test account fails with EACCES.
 
 `AMBI4_SHOT_HOST` overrides the SSH target and `AMBI4_SHOT_KEY` the key file name in `.vibe/` (default `id_ed25519_mac`).
 
+## Two Macs, many runs at once (2026-10-30)
+
+There is a second test account on the second Mac (MBP08L; brain2's
+mac-test-account note names the account), and Martin's rule is to use it
+whenever it answers: it is the faster machine and has a fan. Its
+`authorized_keys` holds `.vibe/id_ed25519_ambi4shot` (not `id_ed25519_mac`),
+and its Node is `~/shot/node/bin/node` in that account. `measure.sh` tries it first
+(a four-second probe) and falls back to the Air; `AMBI4_SHOT_MAC=air` or
+`AMBI4_SHOT_MAC=mbp08l` forces one. The scripts live in `.vibe/`, which is
+gitignored, so a fresh clone has to copy them from a sibling checkout.
+
+Several agents can share a Mac: `AMBI4_SHOT_SLOT=<n>` gives a run its own port
+(`8731 + n`), site folder (`~/shot/site-<n>`) and tarball, so one run's
+`pkill` no longer stops another's server. Slot 0 is the old single-run layout.
+A worktree sets `AMBI4_REPO_ROOT=<worktree>` (or copies `.vibe/` in) so its own
+`dist` is the one uploaded. Builds still go one at a time on the 7 GB
+container: `flock /tmp/ambi4-build.lock npm run build`.
+
 ## For a vibe in another project
 
 The account and its Playwright install are not specific to Ambi4 — anything that

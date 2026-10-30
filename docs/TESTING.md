@@ -181,6 +181,13 @@ a sweep that cries wolf is a sweep that stops being run.
 | transport-drive, undo-drive | the transport keys and ⌘Z/⇧⌘Z |
 | sharelink-drive, provenance-drive, submit-drive | links, provenance, Submit |
 | chordchip-drive, chordlength-drive, progression-drive | the chord loop editors |
+| structure-edges-drive | structure/progression/MIDI/typed-melody/words edge inputs, rapid edits while playing, engine parity |
+| layout-states-drive | the three measure.sh sweeps over 12 page states × 5 viewports × 2 themes, horizontal scroll, 24px primary targets |
+| flows-drive | the tour end to end, every popover, Create, shortcuts, pins/layouts, a full Tab-order sweep |
+| transport2-drive | pause/resume inside the fade, grid playhead through a pause, mediaSession keys, outro |
+| mobile-touch-drive | real touch contexts at 390 and 360: finger-drags reach the engine without scrolling, long-press, popovers, keyboard-height viewport |
+| dials-everywhere-drive | every dial in every editor (225) × drag, spread, typed value, reset — engine diffed after each; ~8 min |
+| share-browser-drive, presets-drive | a minted link re-opened and compared at the engine, every path; presets save/overwrite/load/delete/caps/full storage |
 | chosen-drive, pitch-drive, section-drive | the grid's engine readouts |
 | loudness-drive, scope-drive, fullscreenbar-drive, driftshape-drive | output level, scope, fullscreen chrome, spread shapes |
 
