@@ -23060,7 +23060,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const target = composeTarget(melodyTrackSelect);
           const tokens = raw.split(/[\s,|]+/).filter(Boolean);
           const slotsPerBar = stepsPerBarFor(target);
-          const beats = Math.floor(slotsPerBar / 4);
+          // "One token per beat" at the TARGET's own rung: a beat is
+          // 1/stepBeats slots (four at semiquavers, two at quavers, three at
+          // a quaver triplet) and a lane is as long as the engine stores at
+          // that rung. Four and twenty were hard-wired here, so at any other
+          // rung the notes landed on the wrong beats and ran into the next
+          // bar (tests/structure-edges-drive.mjs).
+          const stepBeats = trackStepBeats(target);
+          const perBeat = 1 / stepBeats;
+          const laneLength = engineModule && typeof engineModule.laneSlotsFor === 'function'
+            ? engineModule.laneSlotsFor(stepBeats)
+            : 20;
+          const beats = Math.max(1, Math.floor(slotsPerBar / perBeat + 1e-9));
+          const startOf = (b) => Math.min(Math.round(b * perBeat), laneLength - 1);
+          const lastOf = (b) => Math.min(Math.round((b + 1) * perBeat), slotsPerBar, laneLength) - 1;
           // A writer that REPLACES a lane says null out loud where a step has
           // nothing — the engine's tie/gate/group/midi are sticky by design
           // (the same discipline explicitStep documents for captures), so a
@@ -23076,7 +23089,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // typed melody of any length plays back as composed. Cap at eight
           // bars, saying so.
           const MAX_BARS = 8;
-          const bars = [Array.from({ length: 20 }, blank)];
+          const bars = [Array.from({ length: laneLength }, blank)];
           let beat = 0;
           let lastRef = null; // { bar, slot } of the previous NOTE, for holds
           let written = 0;
@@ -23086,7 +23099,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const barIndex = () => Math.floor(beat / beats);
           const ensureBar = () => {
             while (bars.length <= barIndex() && bars.length < MAX_BARS) {
-              bars.push(Array.from({ length: 20 }, blank));
+              bars.push(Array.from({ length: laneLength }, blank));
             }
             return barIndex() < MAX_BARS;
           };
@@ -23104,12 +23117,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               // bar's beat (a lane cannot tie into the next sequencer).
               if (lastRef !== null) {
                 const midi = bars[lastRef.bar][lastRef.slot].midi;
-                const from = lastRef.bar === barIndex() ? lastRef.slot : barBeat() * 4;
+                const from = lastRef.bar === barIndex() ? lastRef.slot : startOf(barBeat());
                 if (lastRef.bar !== barIndex() && !steps[from].on) {
                   steps[from] = { ...blank(), on: true, midi };
                   lastRef = { bar: barIndex(), slot: from };
                 }
-                for (let s = from; s < (barBeat() + 1) * 4 - 1 && s < 19; s++) {
+                for (let s = from; s < lastOf(barBeat()); s++) {
                   if (!steps[s].on) { steps[s].on = true; steps[s].midi = midi; }
                   steps[s].tie = true;
                   if (!steps[s + 1].on) {
@@ -23124,13 +23137,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // Not a note name: reported as such, never as "past the cap"
             // (tests/structure-edges-drive.mjs).
             if (midi === null) { unread.push(token); continue; }
-            const slot = barBeat() * 4;
+            const slot = startOf(barBeat());
             steps[slot] = { ...blank(), on: true, midi };
             // v0.0.196: a plain note fills its whole BEAT, not one sixteenth —
             // an unheld note was a 0.25s blip at 60bpm. Tie the beat's four
             // slots together, the same tie shape "-" builds above (a following
             // hold just extends this chain into the next beat).
-            for (let s = slot; s < (barBeat() + 1) * 4 - 1 && s < 19; s++) {
+            for (let s = slot; s < lastOf(barBeat()); s++) {
               steps[s].tie = true;
               if (!steps[s + 1].on) {
                 steps[s + 1] = { ...blank(), on: true, midi };
