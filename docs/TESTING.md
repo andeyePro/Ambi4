@@ -134,6 +134,7 @@ node tests/doc-drift.mjs           # no retired control named in README, the ope
 node tests/wav-export-smoke.mjs    # Save as WAV: the encoder's bytes and the tap
 npm run build && node tests/share-roundtrip.mjs  # a page-minted link opened on a second page: every engine field arrives
 npm run build && node tests/hostile-link.mjs     # a page-minted link (and a stored setup) with every scalar set to junk: page and engine agree, nothing NaN, nothing junk saved
+npm run build && node tests/hostile-prefs.mjs    # corrupt stored presets (and layout, hidden, genre, genres, voices): the page boots, lists and saves only well-formed entries, a loaded preset agrees with the engine
 npm run build && node tests/tutorial-smoke.mjs   # the guided tour
 npm run build && node tests/page-boot.mjs        # the built page in jsdom (above)
 ```
@@ -273,7 +274,7 @@ Worst-first within each section: if a step fails, note it and keep going.
 
 ## 10. Presets
 
-- [ ] (Consented window) Name + Save a preset; change settings; Load it — settings restored. Delete removes it.
+- [ ] (Consented window) Name + Save a preset; change settings; Load it — settings restored. Delete removes it. (A damaged stored list — `tests/hostile-prefs.mjs` — boots with only its well-formed entries; the list holds 100.)
 - [ ] "Submit preset" — copy-to-clipboard yields valid-looking JSON (paste somewhere to check). The contact.andeye.com tab will 404 — EXPECTED for now, the form doesn't exist yet.
 
 ## 11. Playlists + routes

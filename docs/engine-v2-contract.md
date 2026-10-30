@@ -461,6 +461,11 @@ denied → memory-only for the session, never re-ask that session, re-ask next v
 
 - "Presets" row: name input + Save (→ prefs `ambi4:presets` array, consent-gated),
   load select, delete. A preset = full v2/v3 params snapshot + name.
+  v0.0.279: the stored list is read through `cleanPresets` like every other
+  stored pref — kept only an object with a non-empty string name (trimmed, at
+  most 60 characters) and object params; a later entry repeating a name is
+  dropped; at most 100. A NEW name at 100 is refused under the dials ("delete
+  one to make room"); saving over an existing name still works.
 - "Submit preset" button → opens `https://contact.andeye.com/?subject=<enc>&message=<enc JSON>`
   in a new tab AND offers a copy-to-clipboard of the JSON (the domain may not exist yet —
   the copy path is the reliable one; keep the URL in ONE const at the top of the page script).

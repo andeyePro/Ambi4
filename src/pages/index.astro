@@ -1112,7 +1112,7 @@ const VOICES: Record<string, [string, string][]> = {
         </div>
         <div class="preset-row">
           <label for="preset-name" class="visually-hidden">Preset name</label>
-          <input id="preset-name" type="text" placeholder="Preset name" />
+          <input id="preset-name" type="text" placeholder="Preset name" maxlength="60" />
           <button type="button" id="preset-save" class="secondary-button">Save</button>
         </div>
         <div class="preset-row">
@@ -1813,6 +1813,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (out.some((g) => g.slug === entry.slug)) continue;
         out.push({ ...entry, name: entry.name.trim().slice(0, 40) });
         if (out.length >= USER_GENRE_CAP) break;
+      }
+      return out;
+    }
+
+    /**
+     * v0.0.279: the person's saved presets, cleaned like every other stored
+     * pref. Until now the read checked only Array.isArray, so a stored
+     * `[null]` threw in refreshPresetSelect at boot, a null entry broke Save,
+     * and an entry whose params were a string or array was listed and, loaded,
+     * deep-merged to DEFAULTS — the setup silently wiped. Kept: a plain object
+     * with a non-empty string name (trimmed, cut to PRESET_NAME_MAX) and
+     * plain-object params; a later entry repeating a name is dropped; the list
+     * stops at PRESET_CAP. The params' own values are left to the load path
+     * (loadParamsSnapshot → normaliseV6Tracks, which adopts the engine's
+     * sanitised answer, v0.0.278).
+     */
+    const PRESET_CAP = 100;
+    const PRESET_NAME_MAX = 60;
+    function cleanPresets(list) {
+      if (!Array.isArray(list)) return [];
+      const out = [];
+      const names = new Set();
+      for (const entry of list) {
+        if (!isPlainObject(entry) || typeof entry.name !== 'string' || !isPlainObject(entry.params)) continue;
+        const name = entry.name.trim().slice(0, PRESET_NAME_MAX);
+        if (!name || names.has(name)) continue;
+        names.add(name);
+        out.push({ ...entry, name });
+        if (out.length >= PRESET_CAP) break;
       }
       return out;
     }
@@ -24120,9 +24149,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       let presets = [];
       try {
-        const stored = prefs.get('presets');
-        if (Array.isArray(stored)) presets = stored;
-      } catch {}
+        presets = cleanPresets(prefs.get('presets'));
+      } catch {
+        presets = [];
+      }
 
       function paramsSnapshot() {
         const s = structuredClone(settings);
@@ -24208,9 +24238,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       presetSave.addEventListener('click', () => {
-        const name = presetName.value.trim() || 'Untitled';
+        // v0.0.279: cut to the length the stored list keeps, so what is saved
+        // is what reads back; a new name at PRESET_CAP is refused, as a layout is.
+        const name = presetName.value.trim().slice(0, PRESET_NAME_MAX) || 'Untitled';
         const entry = { name, params: paramsSnapshot() };
         const existing = presets.findIndex((p) => p.name === name);
+        if (existing < 0 && presets.length >= PRESET_CAP) {
+          sayUnderDials(`This device holds ${PRESET_CAP} presets already \u2014 delete one to make room.`);
+          return;
+        }
         if (existing >= 0) presets[existing] = entry;
         else presets.push(entry);
         persistPresets();
