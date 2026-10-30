@@ -119,7 +119,7 @@ export default async function drive(page) {
     const weight = editor?.querySelector('.seq-weight');
     return { chainChecked: chain?.checked ?? null, weightHidden: weight?.hidden ?? null };
   });
-  check('the order toggle reads In order', gridState.chainChecked, true);
+  check('the order toggle reads In turn', gridState.chainChecked, true);
   check('the ignored weight box is hidden', gridState.weightHidden, true);
 
   const failed = results.filter((r) => !r.ok);

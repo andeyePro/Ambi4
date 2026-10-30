@@ -753,6 +753,9 @@ function createRig(ctx, destination, note) {
     // A mono track releases the note it is replacing AT the new onset, which
     // the lookahead puts in the future; a bare cancel() still means "now".
     const from = Math.max(Number.isFinite(at) ? at : now, now);
+    // `out` is the rig's own output gain: 1 since creation, automated by
+    // nothing but this function, which runs once — so its value now is its
+    // value at `from`, and holding it there steps nothing.
     const current = Math.max(out.gain.value, SILENCE);
     out.gain.cancelScheduledValues(from);
     out.gain.setValueAtTime(current, from);

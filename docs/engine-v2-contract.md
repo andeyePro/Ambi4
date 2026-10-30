@@ -2891,7 +2891,7 @@ counted from 1, and the sequencers' weights now lifted with each tab so
 `rule-control.js` under the percussion grid's tab strip, shown once there are
 two tabs: Now is the tab playing / the fill tab, Chance a dial, When the
 primitive's, Pool an inline editor — tick, weigh, ▲▼, by weight or in turn,
-Back to Auto; a Variant with its own chance hides the Shuffle / In order and
+Back to Auto; a Variant with its own chance hides the By weight / In turn and
 weight controls it supersedes; Blank slate holds the first tab with no fills;
 Next keeps a held Variant and a fill set to Off). Gated by
 `tests/kit-rule-smoke.mjs` and page-boot.

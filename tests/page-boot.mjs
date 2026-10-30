@@ -1567,6 +1567,61 @@ try {
     if (line) line.textContent = '';
   }
 
+  // 2026-10-24 (review, HIGH): a refusal is SEEN where the dial is. The line
+  // lived only inside #panel-simple, which activateTab hides on Advanced, so
+  // every voice-editor refusal was written into a hidden element — the text
+  // check above passed against it. This asserts visibility, on both tabs,
+  // and that a second refusal replaces the first and a working gesture
+  // clears it.
+  {
+    const shownWhere = (el) => {
+      const hiddenBy = el?.closest('[hidden]');
+      let styled = null;
+      for (let n = el; n && n !== doc.documentElement; n = n.parentElement) {
+        const cs = window.getComputedStyle(n);
+        if (cs.display === 'none' || cs.visibility === 'hidden') { styled = n; break; }
+      }
+      return { hiddenBy: hiddenBy ? hiddenBy.id || hiddenBy.className : null, styled: styled ? styled.id || styled.className : null };
+    };
+    const press = (knob, shiftKey) => knob.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey, bubbles: true }));
+    doc.getElementById('tab-advanced')?.click();
+    const editor = await openEditor('pad');
+    await waitUntil(() => [...editor.querySelectorAll('.knob')].some((k) => k.getAttribute('aria-label') === 'Drift rate'));
+    const drift = [...editor.querySelectorAll('.knob')].find((k) => k.getAttribute('aria-label') === 'Drift rate');
+    const breath = [...editor.querySelectorAll('.knob')].find((k) => k.getAttribute('aria-label') === 'Breath');
+    if (!drift) {
+      failures.push('refusal visibility: no Drift rate dial in the pad editor');
+    } else {
+      press(drift, true);
+      const el = doc.getElementById('dial-confirm');
+      const said = el?.textContent || '';
+      const where = shownWhere(el);
+      if (!/pace every other/.test(said)) failures.push(`refusal visibility: Drift rate on Advanced said ${JSON.stringify(said)}`);
+      if (where.hiddenBy || where.styled) failures.push(`refusal visibility: the Drift rate refusal is hidden on Advanced (hidden ancestor ${where.hiddenBy}, styled ${where.styled})`);
+      if (!doc.getElementById('panel-advanced')?.contains(el)) failures.push('refusal visibility: the Drift rate refusal is not in the Advanced panel with its dial');
+      if (!el?.classList.contains('shown')) failures.push('refusal visibility: the Drift rate refusal is not marked shown');
+      if (el?.getAttribute('aria-live') !== 'polite') failures.push('refusal visibility: the line lost its aria-live');
+      if (breath) {
+        press(breath, true);
+        const second = el?.textContent || '';
+        if (!/swell the pad/.test(second) || /pace every other/.test(second)) failures.push(`refusal visibility: a second refusal did not replace the first: ${JSON.stringify(second)}`);
+      }
+      press(drift, false);
+      if ((el?.textContent || '').trim()) failures.push(`refusal visibility: a working gesture left the old line up: ${JSON.stringify(el.textContent)}`);
+    }
+    doc.getElementById('tab-simple')?.click();
+    const tempo = [...(doc.getElementById('panel-simple')?.querySelectorAll('.knob') || [])].find((k) => k.getAttribute('aria-label') === 'Tempo');
+    if (!tempo) {
+      failures.push('refusal visibility: no Tempo dial on Simple');
+    } else {
+      press(tempo, true);
+      const el = doc.getElementById('dial-confirm');
+      const where = shownWhere(el);
+      if (!/one steady value/.test(el?.textContent || '')) failures.push(`refusal visibility: Simple Tempo said ${JSON.stringify(el?.textContent)}`);
+      if (where.hiddenBy || where.styled || !doc.getElementById('panel-simple')?.contains(el)) failures.push(`refusal visibility: the Simple Tempo refusal is not visible on Simple (${JSON.stringify(where)})`);
+    }
+  }
+
   // v0.0.219 — UI review fixes 15, 16, 17.
   // 16: the scope legend solos on Alt/Option-click and on a press-and-hold,
   // not only a double-click. The legend is drawn from the page's
@@ -1832,6 +1887,23 @@ try {
       doc.getElementById('tutorial-toggle').click();
       if (a.box.parentElement !== a.wrap || panel.hidden || panel.classList.contains('info-mode') || doc.getElementById('tutorial-title').textContent !== 'Guided tour') failures.push('ⓘ in the panel: "?" over a docked box did not give the panel back to the tour');
       doc.getElementById('tutorial-close').click();
+
+      // 2026-10-30 (review 3): the box goes home when its reason to dock
+      // goes. A resize below the dock width, and a tab change that hides the
+      // ⓘ, each release it — before, it stayed in the panel.
+      a.btn.click();
+      pretend(900);
+      window.dispatchEvent(new window.Event('resize'));
+      if (a.box.parentElement !== a.wrap || !panel.hidden || a.btn.getAttribute('aria-controls') !== a.box.id) failures.push('ⓘ in the panel: a resize below 1100px left the box docked');
+      pretend(1400);
+      const tabBefore = doc.querySelector('[role="tab"][aria-selected="true"]')?.id || 'tab-simple';
+      doc.getElementById('tab-advanced').click();
+      b.btn.click();
+      const bDocked = panel.contains(b.box);
+      doc.getElementById('tab-simple').click();
+      if (!bDocked) failures.push('ⓘ in the panel: the tracks ⓘ did not dock on Advanced');
+      else if (b.box.parentElement !== b.wrap || !panel.hidden) failures.push('ⓘ in the panel: a tab change that hid the ⓘ left its box docked');
+      doc.getElementById(tabBefore)?.click();
 
       // Narrow: inline, as before.
       pretend(900);

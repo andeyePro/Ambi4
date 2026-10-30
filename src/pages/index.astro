@@ -4530,6 +4530,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           tabPanels[tabNames[i]].hidden = !active;
           if (active && focus) button.focus();
         });
+        document.dispatchEvent(new Event('ambi4:panels-changed'));
         applyTransportVisibility(name);
         // v18: the scope and the piano roll sit above the tab strip and are
         // never hidden by a tab change, so switching tabs no longer touches
@@ -5630,6 +5631,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (infoDock.wired) return;
         infoDock.wired = true;
         document.getElementById('tutorial-info-close')?.addEventListener('click', () => releaseInfoDock(true));
+        // 2026-10-30 (review 3): the box goes home when its reason to be
+        // docked goes — the window narrows past the panel's dock width, or
+        // its ⓘ is hidden by a closed editor or a tab change. Otherwise it
+        // stayed in a panel that now sits below the page, or explained a dial
+        // nobody could see.
+        const releaseIfOrphaned = () => {
+          if (infoDock.owner?.orphaned()) releaseInfoDock(false);
+        };
+        window.addEventListener('resize', releaseIfOrphaned);
+        document.addEventListener('ambi4:panels-changed', releaseIfOrphaned);
         // Esc inside the docked box is handled by the panel's own keydown
         // listener (it releases the box before it would close the tour).
       }
@@ -5673,6 +5684,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // instead of under the ⓘ: the SAME node is moved there, and moved
         // back on close. aria-controls follows it to the panel and back.
         const handle = {
+          orphaned() {
+            return !infoDockWide() || !btn.isConnected || btn.closest('[hidden]') !== null;
+          },
           release(returnFocus) {
             if (infoDock.owner !== handle) return;
             infoDock.owner = null;
@@ -6154,10 +6168,58 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return clamp(1600 + words * READING_MS_PER_WORD, 1600, 30000);
       }
 
+      /**
+       * 2026-10-24 (review, HIGH): the line goes where the dial is. It used to
+       * live only under the Simple dials, inside #panel-simple — and
+       * activateTab hides the inactive panel, so every "this dial cannot
+       * spread, because…" refusal from a voice editor (Drift rate, the arp
+       * dials, Breath, the Chances) was written into a hidden line and an
+       * aria-live region nobody could hear. One element, one timer, one code
+       * path still: before it speaks, the line is moved under the panel
+       * section the user last touched (pointer or key), or to the top of the
+       * visible tab when nothing there was touched. On Simple that is its
+       * old home under the dials.
+       */
+      const dialConfirmHome = dialConfirmEl?.parentElement ?? null;
+      let dialConfirmTouched = null;
+      for (const type of ['pointerdown', 'keydown']) {
+        document.addEventListener(type, (event) => {
+          if (!(event.target instanceof Element)) return;
+          dialConfirmTouched = event.target;
+          // A new gesture on a dial retires the last line: a refusal says
+          // itself again (it replaces, it never stacks), and a gesture that
+          // works leaves no stale "cannot" behind it.
+          if (event.target.closest('.knob') && dialConfirmEl?.textContent) clearDialConfirm();
+        }, true);
+      }
+      function clearDialConfirm() {
+        if (dialConfirmTimer !== null) clearTimeout(dialConfirmTimer);
+        dialConfirmTimer = null;
+        dialConfirmHeldUntil = 0;
+        dialConfirmEl.classList.remove('shown');
+        dialConfirmEl.textContent = '';
+      }
+      function homeDialConfirm() {
+        const panel = document.querySelector('[role="tabpanel"]:not([hidden])');
+        if (!dialConfirmEl || !panel) return;
+        if (dialConfirmHome && panel.contains(dialConfirmHome)) {
+          if (dialConfirmEl.parentElement !== dialConfirmHome) dialConfirmHome.append(dialConfirmEl);
+          return;
+        }
+        const touched = dialConfirmTouched?.isConnected && panel.contains(dialConfirmTouched) ? dialConfirmTouched : null;
+        const section = touched?.closest('.module-panel');
+        if (section && section !== dialConfirmEl.parentElement && panel.contains(section)) {
+          if (section.nextElementSibling !== dialConfirmEl) section.after(dialConfirmEl);
+        } else if (!section && !panel.contains(dialConfirmEl)) {
+          panel.prepend(dialConfirmEl);
+        }
+      }
+
       function sayUnderDials(text, ms = readingTime(text), { hold = false } = {}) {
         if (!dialConfirmEl) return;
         if (!hold && Date.now() < dialConfirmHeldUntil) return;
         dialConfirmHeldUntil = hold ? Date.now() + ms : 0;
+        homeDialConfirm();
         dialConfirmEl.textContent = text;
         dialConfirmEl.classList.add('shown');
         if (dialConfirmTimer !== null) clearTimeout(dialConfirmTimer);
@@ -9854,7 +9916,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         ' Tabs: with two or more, the kit shows two rules under the tab strip. ' +
         'Variant says which tab plays: its Chance is how likely a redraw is at each ' +
         'bar, each new section or once (0 holds the tab playing; Auto lets the ' +
-        'tabs\u2019 own Shuffle weights or In order decide), and its Pool is the tabs a ' +
+        'tabs\u2019 own weights (By weight) or order (In turn) decide), and its Pool is the tabs a ' +
         'redraw may land on. Fill is a one-bar visit that always hands back: its ' +
         'Chance is how often, its When any bar, the last bar of each section or once, ' +
         'and a tab in its Pool plays only as a fill.';
@@ -9997,14 +10059,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         weightInput.step = '0.5';
         weightInput.inputMode = 'decimal';
         weightWrap.append(weightLabel, weightInput);
-        // v0.0.116: HOW the tabs advance. Shuffle is the Markov pick the
-        // weights drive; In order plays the tabs as a composed sequence —
+        // v0.0.116: HOW the tabs advance. By weight (was Shuffle) is the
+        // Markov pick the weights drive; In turn (was In order, renamed
+        // 2026-10-30 to match the Pool's words) plays the tabs as a composed
+        // sequence —
         // and then the weight box hides, because a control the engine
         // ignores must not be on screen.
         const orderWrap = document.createElement('div');
         orderWrap.className = 'segmented seq-order';
         const orderRadios = [];
-        for (const [value, text] of [['weights', 'Shuffle'], ['chain', 'In order']]) {
+        for (const [value, text] of [['weights', 'By weight'], ['chain', 'In turn']]) {
           const input = document.createElement('input');
           input.type = 'radio';
           input.name = `seq-order-${track}`;
@@ -10029,7 +10093,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         tabsRow.append(tabs, addButton, orderWrap, weightWrap);
         describe(
           orderWrap,
-          'Shuffle picks the next sequencer by the weights; In order plays the tabs as a composed sequence, 1 then 2 then 3, and wraps.'
+          'By weight picks the next sequencer at random, the heavier the likelier; In turn plays the tabs as a composed sequence, 1 then 2 then 3, and wraps.'
         );
         describe(
           weightInput,
@@ -11311,7 +11375,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const HINTS = {
             variantRule: {
               now: 'The tab playing now. Press to open it in the grid below.',
-              chance: 'Chance: how likely the kit is to move to another tab from its pool, at each bar, each new section, or once when it comes in (the When beside it). 0 reads Hold and keeps the tab playing for good; at the left detent, Auto, the tabs\u2019 own Shuffle weights or In order decide, as they always have. It holds one value rather than a range: it is already a chance, rolled afresh each time.',
+              chance: 'Chance: how likely the kit is to move to another tab from its pool, at each bar, each new section, or once when it comes in (the When beside it). 0 reads Hold and keeps the tab playing for good; at the left detent, Auto, the tabs\u2019 own By weight or In turn decide, as they always have. It holds one value rather than a range: it is already a chance, rolled afresh each time.',
               when: 'When the tab may be redrawn: at every bar, at the first bar of every new section, or once, when the kit comes in.',
               pool: 'The tabs a redraw may land on, in order and weighted: by weight draws among them (the playing tab included), in turn steps to the next. Empty holds. A tab the fill rule owns is stepped over.',
             },
@@ -11530,7 +11594,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               commit(key);
               drawPool(key);
             });
-            describe(reset, 'Drop this rule: the tabs\u2019 own Shuffle weights or In order decide again, exactly as before it was set.');
+            describe(reset, 'Drop this rule: the tabs\u2019 own By weight or In turn decide again, exactly as before it was set.');
             actions.append(orderSelect, reset);
             panel.append(actions);
           }
@@ -11603,7 +11667,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // rendering of that, not a convenience.
           weightWrap.hidden = chained || seqs.length < 2;
           // A variant rule with a Chance of its own decides which tab plays;
-          // Shuffle / In order and the weights then do nothing, so they go.
+          // By weight / In turn and the weights then do nothing, so they go.
           if (kitRules) {
             kitRules.refresh();
             if (kitRules.supersedes()) {
@@ -15466,6 +15530,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         editor.hidden = true;
         toggle.setAttribute('aria-expanded', 'false');
         teardownEditor(id);
+        document.dispatchEvent(new Event('ambi4:panels-changed'));
       }
 
       // restoreScroll: only click-initiated opens put the viewport back
@@ -26989,7 +27054,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
     /* v0.0.51: the three-second what-just-changed line under the Simple
        dials. Reserved height whether empty or not — a confirmation must
-       never bounce the panel it is explaining. */
+       never bounce the panel it is explaining. 2026-10-24: the same one
+       element moves under the section of the dial last touched when that
+       dial is on Advanced (homeDialConfirm), so it is never in a hidden tab. */
     .dial-confirm {
       flex: 1 1 100%;
       min-height: 1.3em;

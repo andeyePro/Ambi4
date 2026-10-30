@@ -47,11 +47,11 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ## Review 3 findings, 2026-10-24 00:45 (v0.0.267–272)
 
-- [ ] **HIGH — the refusal lines are written where nobody sees them.** `sayUnderDials` writes to `#dial-confirm`, which lives in `#panel-simple`; the voice editors are on `#panel-advanced` and `activateTab` hides the other panel, so every "cannot spread, because…" line from v0.0.268–269 (Loop chance, Drift rate, arp, kit/fill Chance, Breath, Groove/Motif chance) is invisible and the aria-live region is hidden too. Only the Simple-tab Tempo refusal shows. Tests read textContent, so they pass. Fix: a confirm line inside the active panel (or beside the editor's dials); page-boot proof: `#dial-confirm.closest('[hidden]') === null` after a refused spread on Advanced. Fix built: 8afd2df on worktree-agent-a0974d7db691191cd, page-boot proven; merge first next session.
-- [ ] An ⓘ box can stay docked in the tutorial panel after a resize below 1100 px (no matchMedia change listener) or after its editor closes; neither case is tested.
+- [x] **HIGH — the refusal lines are written where nobody sees them.** `sayUnderDials` writes to `#dial-confirm`, which lives in `#panel-simple`; the voice editors are on `#panel-advanced` and `activateTab` hides the other panel, so every "cannot spread, because…" line from v0.0.268–269 (Loop chance, Drift rate, arp, kit/fill Chance, Breath, Groove/Motif chance) is invisible and the aria-live region is hidden too. Only the Simple-tab Tempo refusal shows. Tests read textContent, so they pass. Fix: a confirm line inside the active panel (or beside the editor's dials); page-boot proof: `#dial-confirm.closest('[hidden]') === null` after a refused spread on Advanced. **SHIPPED v0.0.273** (8afd2df merged).
+- [x] *(SHIPPED v0.0.273 — released on resize, tab change and editor close; page-boot 15b red on old)* An ⓘ box can stay docked in the tutorial panel after a resize below 1100 px (no matchMedia change listener) or after its editor closes; neither case is tested.
 - [ ] Phone with the editor closed: a track's Swing and Density live values are visible only on the editor's dials since v0.0.272 (Level and Randomness stay on the row).
 - [ ] `public/logo/` ships to ambi4.work (unreferenced, nothing 404s); decide whether to keep it there or publish it only from andeye.com. The two "Ambi4 Logo - Rough*.png" files at the repo root are untracked and unreferenced.
-- [ ] Pre-existing: `cancel()` in engine-voices.js reads `out.gain.value` now and sets it at a future `from`, which can step the gain on a mono hand-off — the same instant-change rule.
+- [x] Pre-existing: `cancel()` in engine-voices.js reads `out.gain.value` now and sets it at a future `from` — **checked 2026-10-30, not a step:** `out` is the rig's own output gain, set to 1 at creation and touched by nothing but `cancel()`, which the `cancelled` guard lets run once. Its value now IS its value at `from`; the envelope that moves lives on the voice's own amp, upstream. A comment at the line says so.
 
 ## Test hygiene found 2026-10-23
 
@@ -66,7 +66,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 Shipped from it: fixes 1 (v0.0.208), 2–4 and 14 (v0.0.207), 6–7 (v0.0.209), 8–12 (v0.0.210), 13 (v0.0.208). Still open, in the review's order:
 
-- [ ] **[decide — fromClaude 23] One name for the randomness macro** (Change / Variation / Randomness), then rename everywhere; meanwhile the sequencer tabs' "Shuffle / In order" becomes "By weight / In turn" like the Pool (fix 5).
+- [ ] **[decide — fromClaude 23] One name for the randomness macro** (Change / Variation / Randomness), then rename everywhere; meanwhile the sequencer tabs' "Shuffle / In order" becomes "By weight / In turn" like the Pool (fix 5) — *that half SHIPPED v0.0.273*.
 - [x] *(SHIPPED v0.0.219)* **Scope legend solo without double-click** — Alt/⌥-click or long-press, double-click kept as an alias (fix 16).
 - [x] **Pro layer: keybindings** — *(keys SHIPPED v0.0.220; pins and saved layouts SHIPPED v0.0.233)* 1–9 favourite genres / factory presets, [ ] previous/next preset, S/A tabs, ? for a shortcut sheet; off while musical typing is on (fix 19). Then pins and saved layouts, his "rapid pro work" half of the rule.
 - [x] *(SHIPPED v0.0.219)* **Help in one form** — the Presets and Rules paragraphs into ⓘs; genre-rules titles to describe() (fix 15).

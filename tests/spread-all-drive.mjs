@@ -222,6 +222,19 @@ export default async function drive(page) {
     check(`${label} stays single-valued`, spread(after), (v) => v === false);
     const said = await page.evaluate(() => document.getElementById('dial-confirm')?.textContent?.trim() || '');
     check(`${label} says why it will not spread`, said, (v) => words.test(v));
+    // 2026-10-24: and the words are SEEN — the line used to sit in the hidden
+    // Simple panel while these dials refused on Advanced.
+    const seen = await page.evaluate(() => {
+      const el = document.getElementById('dial-confirm');
+      if (!el || el.closest('[hidden]')) return false;
+      for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+        const cs = getComputedStyle(n);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      }
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && !!document.getElementById('panel-advanced')?.contains(el);
+    });
+    check(`${label}'s refusal is visible on Advanced`, seen, (v) => v === true);
   }
 
   // The enums refuse, and refusing is the POINT — if one started accepting, the
