@@ -4222,6 +4222,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return consentAsking;
       }
 
+      // Assigned once sayUnderDials exists (it is declared much further
+      // down); persistKey only ever calls it after boot, so a plain `let`
+      // read lazily is enough — the same pattern as onSettingsCommitted.
+      let onStoreRefused = null;
+      let storeRefusedSaid = false;
+
       function persistKey(key, value) {
         // prefs.set without consent writes to session memory and returns
         // false — so the value survives in-session either way.
@@ -4234,6 +4240,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           try {
             localStorage.removeItem(LEGACY_STORAGE_KEY);
           } catch {}
+          // A write the store refused with consent GRANTED used to vanish in
+          // silence: the dial moved, the readout agreed, and the next visit
+          // opened on the setup from before it (2026-10-30, browser bug hunt,
+          // tests/first-visit-drive). The settings funnel fires per gesture,
+          // so it says so once per streak of refusals and the next write that
+          // lands re-arms it; a deliberate Save (layout, voice, genre) says so
+          // every time. Presets say their own, by name, in the Save handler.
+          if (kept) storeRefusedSaid = false;
+          else if (key !== 'presets' && (key !== 'generator' || !storeRefusedSaid)) {
+            if (key === 'generator') storeRefusedSaid = true;
+            if (onStoreRefused) onStoreRefused();
+          }
           return kept;
         }
         if (prefs.consent() === null && !deniedThisSession) {
@@ -6530,6 +6548,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           dialConfirmEl.textContent = '';
         }, ms);
       }
+
+      onStoreRefused = () =>
+        sayUnderDials(
+          'That change lasts this visit only \u2014 this device\u2019s storage refused it (full, or locked by a private window), so nothing new is being kept. Delete a preset or a layout to make room, then move it again.',
+          9000,
+          { hold: true }
+        );
 
       /**
        * v0.0.57: the first time a spread is opened on the SIMPLE tab, say what
