@@ -23023,6 +23023,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (fitted.dropped) {
             notes.push(`${fitted.dropped} went past eight bars and were left out.`);
           }
+          // A format-1 file is several parts; they all land on this ONE grid
+          // (the highest note wins where they share a step). Said out loud,
+          // or "notes shared a step" is a mystery (tests/structure-edges-drive.mjs).
+          const partsWithNotes = parsed.tracks.filter((part) => part.notes.length).length;
+          if (partsWithNotes > 1) {
+            notes.push(`The file has ${partsWithNotes} tracks with notes in them; all of them landed on this one grid.`);
+          }
           if (parsed.tempoBpm) notes.push(`The file says ${parsed.tempoBpm} bpm.`);
           if (parsed.timeSignature && parsed.timeSignature !== settings.timeSignature) {
             notes.push(`It is written in ${parsed.timeSignature}; this piece is in ${settings.timeSignature}.`);
@@ -23038,7 +23045,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
         describe(
           document.querySelector('.create-midi-label'),
-          'Import a MIDI file you composed elsewhere. Its notes land on the chosen instrument\u2019s grid as pinned steps at the grid\u2019s current resolution, one bar per tab played in order, and anything that could not fit is reported.'
+          'Import a MIDI file you composed elsewhere. Its notes \u2014 every track\u2019s, merged \u2014 land on the chosen instrument\u2019s grid as pinned steps at the grid\u2019s current resolution, one bar per tab played in order, and anything that could not fit is reported.'
         );
 
         const melodyText = document.getElementById('compose-melody-text');
