@@ -19666,6 +19666,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       async function startPlayback() {
         if (alarmTarget !== null) cancelAlarm(); // starting now supersedes it
         clearPaused();
+        // A disabled button drops its focus to body, and the key was focused
+        // when it was pressed by keyboard: without the restore below, the
+        // Space that should have been Finish went to the document and did
+        // nothing (2026-10-30, browser bug hunt, tests/keyboard-only-drive).
+        const hadFocus = document.activeElement === toggleButton;
         toggleButton.disabled = true;
         playNotice = '';
         updateTimerUI();
@@ -19680,6 +19685,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           new Promise((resolve) => setTimeout(() => resolve('timeout'), 3000)),
         ]);
         toggleButton.disabled = false;
+        // Only when nothing else took focus meanwhile: a Tab pressed during the
+        // start keeps its destination.
+        if (hadFocus && document.activeElement === document.body) toggleButton.focus();
         if (outcome === 'started') {
           setupMediaSession();
         } else if (outcome === 'failed' || (outcome === 'timeout' && !engine.running)) {
