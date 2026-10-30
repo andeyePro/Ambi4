@@ -2631,6 +2631,82 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       if (isPlainObject(s.tracks) && isPlainObject(sane.tracks)) {
         for (const id of Object.keys(s.tracks)) adopt(s.tracks[id], sane.tracks[id]);
       }
+      adoptStructures(s, sane, fresh);
+    }
+
+    // ---- v0.0.281: the engine's answer for STRUCTURES too ----------------
+    // The scalar pass above left every structure — a step list, a voice rule,
+    // a motif, the custom structure, routing, the harmony block — as deepMerge
+    // and the page's lighter repairs left it. The engine deep-sanitises all of
+    // them, so a link carrying `voiceRule: {}` or `sequencers: "x"` had the
+    // engine playing one thing while the page drew (or died drawing) another,
+    // and the next Save kept the junk. tests/hostile-structure.mjs.
+    //
+    // Same law, no second sanitiser: wherever the page's copy of a structure
+    // is not the engine's answer, the engine's answer is adopted whole. A key
+    // the engine's answer LACKS goes only when it is the engine's own key —
+    // one its empty answer holds, or one of the sparse structures it omits
+    // when it refuses them (ENGINE_SPARSE_STRUCTURES). Everything else the
+    // page keeps and the engine never sees (voiceDrafts, genreRules,
+    // lastTake, origin, ui, a track's userVoice tag, …) is left alone: a key
+    // the page adds tomorrow must never be wiped on load because nobody
+    // listed it. The percussion lanes are compared without the engine's
+    // `order` numbers — the page keeps the list in that order and
+    // deliberately carries no number (normalisePercLanes).
+    const ENGINE_SPARSE_STRUCTURES = new Set([
+      // arp
+      'additive',
+      // a track (the grid only on an opt-in track: texture)
+      'voiceRule', 'voiceWeights', 'walkHold', 'grooveRule', 'motif', 'motifRule',
+      'variantRule', 'fillRule', 'sequencers', 'sequencer',
+    ]);
+    const PAGE_ONLY_KEYS = new Set(['origin', 'ui']);
+    const withoutLaneOrder = (lanes) => (Array.isArray(lanes)
+      ? lanes.map((lane) => (isPlainObject(lane)
+        ? Object.fromEntries(Object.entries(lane).filter(([key]) => key !== 'order'))
+        : lane))
+      : lanes);
+    /** JSON with every object's keys sorted: key order is not meaning. */
+    function sortedJson(v) {
+      const walk = (x) => (Array.isArray(x) ? x.map(walk)
+        : isPlainObject(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, walk(x[k])])) : x);
+      return JSON.stringify(walk(v));
+    }
+    const isStructureSlot = (v) => v !== null && typeof v === 'object' && !isNumberOrRange(v);
+
+    function adoptStructures(s, sane, fresh) {
+      // One level: `target` is the page's object, `answer` the engine's,
+      // `empty` the engine's answer to an empty call (its always-kept keys).
+      const level = (target, answer, empty, skip) => {
+        if (!isPlainObject(target) || !isPlainObject(answer)) return;
+        for (const key of Object.keys(target)) {
+          if (skip.has(key)) continue;
+          if (!(key in answer)) {
+            const engineKey = (isPlainObject(empty) && key in empty) || ENGINE_SPARSE_STRUCTURES.has(key);
+            if (engineKey) delete target[key];
+            continue;
+          }
+          const theirs = answer[key];
+          const mine = target[key];
+          // A scalar slot on both sides is the scalar pass's business.
+          if (!isStructureSlot(theirs) && !isStructureSlot(mine)) continue;
+          const view = key === 'lanes' ? withoutLaneOrder : (v) => v;
+          if (sortedJson(view(mine)) === sortedJson(view(theirs))) continue;
+          target[key] = structuredClone(view(theirs));
+        }
+      };
+      // The top level never loses a key: every structure the engine keeps
+      // there is always in its answer, so a missing one is the page's own.
+      level(s, sane, null, new Set([...PAGE_ONLY_KEYS, 'arp', 'tracks']));
+      level(s.arp, sane.arp, fresh?.arp, new Set());
+      if (isPlainObject(s.tracks) && isPlainObject(sane.tracks)) {
+        for (const id of Object.keys(s.tracks)) {
+          const t = s.tracks[id];
+          level(t, sane.tracks[id], fresh?.tracks?.[id], new Set());
+          // The singular is an ALIAS of slot 0, on the page as in the engine.
+          if (isPlainObject(t) && Array.isArray(t.sequencers) && t.sequencers.length) t.sequencer = t.sequencers[0];
+        }
+      }
     }
 
     // ---- tempo mapping (one tempo, two views) ---------------------------

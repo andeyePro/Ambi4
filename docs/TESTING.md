@@ -135,6 +135,7 @@ node tests/wav-export-smoke.mjs    # Save as WAV: the encoder's bytes and the ta
 npm run build && node tests/share-roundtrip.mjs  # a page-minted link opened on a second page: every engine field arrives
 npm run build && node tests/hostile-link.mjs     # a page-minted link (and a stored setup) with every scalar set to junk: page and engine agree, nothing NaN, nothing junk saved
 npm run build && node tests/hostile-prefs.mjs    # corrupt stored presets (and layout, hidden, genre, genres, voices): the page boots, lists and saves only well-formed entries, a loaded preset agrees with the engine
+npm run build && node tests/hostile-structure.mjs # a page-minted link (and a stored setup) with every STRUCTURE (step lists, rules, motif, custom structure, routing, …) and list entry set to junk: boots, editors open, page and engine agree, the Save is what the engine keeps
 npm run build && node tests/tutorial-smoke.mjs   # the guided tour
 npm run build && node tests/page-boot.mjs        # the built page in jsdom (above)
 ```
