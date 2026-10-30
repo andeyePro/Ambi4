@@ -32,7 +32,12 @@
  *      (paint calls per second on each canvas, measured with and without the
  *      preference);
  *   8. the page at 200% zoom (a 640px viewport, and CSS zoom 2 at 1280) does
- *      not scroll sideways and no visible element paints past the right edge.
+ *      not scroll sideways and no visible element paints past the right edge;
+ *   9. the keyboard: ArrowUp and End move a focused dial and the engine with
+ *      it; the Timers and Create popovers take focus when opened by Enter
+ *      and hand it back on Escape; a control inside the tour is within six
+ *      Tabs of the "?" that opened it (it was forty-nine), and Escape there
+ *      closes it and returns to the "?".
  *
  * Traps honoured (CLAUDE.md): about:blank before the real load; genre pinned
  * and verified at the engine; every box re-read after scrollIntoView; editor
@@ -646,6 +651,65 @@ export default async function drive(page) {
   check('a refusal is spoken in the live region (Drift rate sideways)', !!refused && !drifting(refused) && after.dialConfirmText.length > 0, true);
   note('refusal text', after.dialConfirmText);
   await closeEditor('pad');
+
+  // ---- (9) the keyboard: dials, popovers, the tour -------------------------------
+  // A role=slider that only the mouse can move is a dial a keyboard user does
+  // not have; a popover that opens without taking focus, or closes without
+  // giving it back, strands them; a tour whose Next is fifty Tabs from the "?"
+  // that opened it is a tour nobody steers from a keyboard.
+  current = 'keyboard';
+  await page.click('#tab-advanced'); await settle(200);
+  await a('unfold', '#panel-advanced'); await settle(200);
+  const keyLies = [];
+  for (const [label, path] of [['Tempo', 'bpm'], ['Complexity', 'complexity'], ['Swing', 'swing']]) {
+    const key = `${label}#1`;
+    const focused = await a('focusDial', '#panel-advanced', key, true);
+    if (!focused) { keyLies.push({ label, why: 'did not take focus' }); continue; }
+    const v0 = await a('engine', path, null);
+    const s0 = await a('dialState', '#panel-advanced', key, true, false);
+    for (let i = 0; i < 3; i += 1) await page.keyboard.press('ArrowUp');
+    await settle(400);
+    const v1 = await a('engine', path, null);
+    const s1 = await a('dialState', '#panel-advanced', key, true, false);
+    if (!(Number(s1.now) > Number(s0.now))) keyLies.push({ label, at: 'ArrowUp', now0: s0.now, now1: s1.now });
+    if (!(typeof v1 === 'number' && v1 > v0)) keyLies.push({ label, at: 'ArrowUp (engine)', engine0: v0, engine1: v1 });
+    await page.keyboard.press('End'); await settle(400);
+    const s2 = await a('dialState', '#panel-advanced', key, true, false);
+    const v2 = await a('engine', path, null);
+    if (!near(Number(s2.now), Number(s2.max))) keyLies.push({ label, at: 'End', now: s2.now, max: s2.max });
+    if (!(typeof v2 === 'number' && v2 > v1)) keyLies.push({ label, at: 'End (engine)', engine1: v1, engine2: v2 });
+    await page.keyboard.press('Backspace'); await settle(300);
+  }
+  check('ArrowUp and End move the focused dial AND the engine (Tempo, Complexity, Swing)', keyLies, []);
+
+  const activeInfo = () => page.evaluate(() => {
+    const el = document.activeElement;
+    return { id: el?.id || '', sel: el ? el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\s+/)[0] : '') : '' };
+  });
+  for (const [toggle, pop] of [['timers-toggle', 'timers-popover'], ['play-along-open', 'play-along']]) {
+    await page.evaluate((id) => { const t = document.getElementById(id); t.scrollIntoView({ block: 'center' }); t.focus(); }, toggle);
+    await page.keyboard.press('Enter'); await settle(400);
+    const inside = await page.evaluate((id) => !document.getElementById(id).hidden && document.getElementById(id).contains(document.activeElement), pop);
+    check(`[${pop}] opened from the keyboard, focus moves inside`, inside, true);
+    await page.keyboard.press('Escape'); await settle(300);
+    const back = await activeInfo();
+    check(`[${pop}] Escape closes it and hands focus back to its button`, back.id, toggle);
+  }
+  // The tour: how many Tabs from "?" (opened by Enter) to the first control inside the panel.
+  await page.evaluate(() => { if (!document.getElementById('tutorial-panel').hidden) document.getElementById('tutorial-close').click(); });
+  await settle(200);
+  await page.evaluate(() => { const t = document.getElementById('tutorial-toggle'); t.scrollIntoView({ block: 'center' }); t.focus(); });
+  await page.keyboard.press('Enter'); await settle(400);
+  check('the tour opens from the keyboard', await page.evaluate(() => !document.getElementById('tutorial-panel').hidden), true);
+  let tabsToTour = 0;
+  for (let i = 0; i < 80; i += 1) {
+    const inPanel = await page.evaluate(() => !!document.activeElement?.closest('#tutorial-panel') && document.activeElement !== document.getElementById('tutorial-panel'));
+    if (inPanel) break;
+    await page.keyboard.press('Tab'); tabsToTour += 1;
+  }
+  check('a control inside the open tour is within six Tabs of the "?" that opened it', tabsToTour, (v) => v <= 6);
+  await page.keyboard.press('Escape'); await settle(300);
+  check('Escape inside the tour closes it and hands focus back to "?"', { hidden: await page.evaluate(() => document.getElementById('tutorial-panel').hidden), active: (await activeInfo()).id }, { hidden: true, active: 'tutorial-toggle' });
 
   // ---- (7) reduced motion ------------------------------------------------------
   current = 'motion';

@@ -1144,7 +1144,7 @@ const VOICES: Record<string, [string, string][]> = {
     </section>
   </div>
 
-  <aside id="tutorial-panel" class="tutorial-panel module-panel" aria-labelledby="tutorial-title" hidden>
+  <aside id="tutorial-panel" class="tutorial-panel module-panel" aria-labelledby="tutorial-title" tabindex="-1" hidden>
     <div class="tutorial-head">
       <span class="panel-label" id="tutorial-title">Guided tour</span>
       <button type="button" id="tutorial-close" class="round-button" aria-label="Close the guided tour">&times;</button>
@@ -26212,7 +26212,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       // A docked ⓘ box is not the tour: "?" opens the tour over it.
-      tutorialToggle.addEventListener('click', () => setTutorialOpen(tutorialPanel.hidden || tutorialPanel.classList.contains('info-mode')));
+      // Opened from the keyboard (Enter or Space on the "?" is a click with
+      // detail 0), focus moves onto the panel itself, as the Timers and Create
+      // popovers move it inside themselves: the panel sits forty-nine Tab
+      // stops after the "?" (tests/a11y-drive.mjs counted), so a keyboard
+      // visitor who opened the tour could not reach Next without walking the
+      // whole page. A mouse click leaves focus on the "?" exactly as before.
+      tutorialToggle.addEventListener('click', (event) => {
+        const open = tutorialPanel.hidden || tutorialPanel.classList.contains('info-mode');
+        setTutorialOpen(open);
+        if (open && event.detail === 0) tutorialPanel.focus({ preventScroll: true });
+      });
       // Esc on the ? itself closes what it opened, as Esc on an ⓘ closes its
       // box (v0.0.207): a click leaves focus on the ?, so a keyboard user
       // pressing Esc there was pressing it outside the panel's own listener.
