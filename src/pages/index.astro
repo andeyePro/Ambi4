@@ -4441,6 +4441,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // v0.0.275: Passing notes is sparse in the engine too — absent
             // keeps a stored one — so a load without it says null (off).
             if (t.passingNotes === undefined) t.passingNotes = null;
+            // 2026-10-30 (undo sweep, tests/undo-everywhere-drive): the rest of
+            // the track's sparse fields, by the same law. Each one is "absent
+            // keeps the stored one, null clears" in the engine, and none was
+            // said out loud — so ⌘Z after Blank slate, or any preset / link /
+            // Back loaded after one, put the page back while the engine kept
+            // Blank slate's zeroed voice, groove and tab rules; and ⌘Z after a
+            // triplet left the engine playing triplets under a sixteenth grid.
+            for (const key of ['voiceRule', 'voiceWeights', 'grooveRule', 'variantRule', 'fillRule']) {
+              if (!isPlainObject(t[key])) t[key] = null;
+            }
+            for (const key of ['autoThreshold', 'walkSeed']) {
+              if (typeof t[key] !== 'number') t[key] = null;
+            }
+            if (!Array.isArray(t.walkHold)) t.walkHold = null;
+            // stepBeats has no null: the engine reads a missing or junk value
+            // as "keep the stored resolution", so the default is said as itself.
+            if (typeof t.stepBeats !== 'number') t.stepBeats = 0.25;
+            // The steps' own sparse fields (tie, gate, group, a pinned pitch)
+            // merge per step the same way: a load whose steps carry no pin left
+            // the engine playing the typed melody, MIDI file or words that the
+            // undo had just taken off the grid. Said out loud on every step.
+            const stateStep = (step) => {
+              if (!isPlainObject(step)) return;
+              step.tie = step.tie === true;
+              if (step.gate === undefined) step.gate = null;
+              if (step.group === undefined) step.group = null;
+              if (step.midi === undefined) step.midi = null;
+            };
+            const stateSequencer = (seq) => {
+              if (!isPlainObject(seq)) return;
+              if (Array.isArray(seq.steps)) seq.steps.forEach(stateStep);
+              else if (isPlainObject(seq.steps)) Object.values(seq.steps).forEach((lane) => { if (Array.isArray(lane)) lane.forEach(stateStep); });
+            };
+            if (Array.isArray(t.sequencers)) t.sequencers.forEach(stateSequencer);
+            stateSequencer(t.sequencer);
           }
           // v0.0.262: the texture's grid is sparse in the engine too — absent
           // keeps a stored one — so a piece without one says null out loud,
