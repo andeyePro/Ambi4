@@ -290,7 +290,10 @@ export default async function drive(page) {
   await action('main dial Level (pad): drag', async () => (await drag('main', 'Level', 0, -30)) !== null);
   await action('main dial Randomness (pad): drag', async () => (await drag('main', 'Randomness', 0, -30)) !== null);
   await action('main dial Tempo: spread (horizontal drag)', async () => (await drag('main', 'Tempo', 70, 0)) !== null);
-  await action('main dial Tempo: typed value', async () => typeValue('main', 'Tempo', 95));
+  await action('main dial Tempo: typed value', async () => {
+    const now = await ue('knob', 'main', 'Tempo', 0);
+    return typeValue('main', 'Tempo', Math.round(now?.now) === 95 ? 97 : 95);
+  });
   await action('main dial Tempo: drag (kept for the reset)', async () => (await drag('main', 'Tempo', 0, -40)) !== null, { keep: true });
   await action('main dial Tempo: double-click reset', async () => dblclick('main', 'Tempo'));
 
@@ -573,13 +576,12 @@ export default async function drive(page) {
   }, { keep: true, wait: 900 });
   check('Add track made a track', addedId, (v) => typeof v === 'string');
   if (addedId) {
-    await action('new track: editor dial (kept — a draft to lose on Remove)', async () => {
-      await ue('openEditor', addedId);
-      const open = await page.waitForFunction((t) => window.__ue.editorOpen(t), addedId, { timeout: 8000 }).then(() => true).catch(() => false);
-      if (!open) return false;
-      await settle(500);
-      const labels = await ue('knobLabels', `#voice-editor-${addedId}`);
-      const label = labels.find((l) => /cutoff|release|attack/i.test(l)) || labels[0];
+    await ue('openEditor', addedId);
+    const open = await page.waitForFunction((t) => window.__ue.editorOpen(t), addedId, { timeout: 8000 }).then(() => true).catch(() => false);
+    await settle(500);
+    const labels = open ? await ue('knobLabels', `#voice-editor-${addedId}`) : [];
+    const label = labels.find((l) => /cutoff|release|attack/i.test(l)) || labels[0];
+    await action(`new track: editor dial ${label} (kept — a draft to lose on Remove)`, async () => {
       if (!label) return false;
       return (await drag(`#voice-editor-${addedId}`, label, 0, -50)) !== null;
     }, { keep: true });
