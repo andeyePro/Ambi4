@@ -2352,7 +2352,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const weights = Array.isArray(src.weights)
         ? src.weights.map((w) => (Number.isFinite(w) ? clamp(w, 0, 100) : 1))
         : [1];
-      return { mode: src.mode === 'manual' ? 'manual' : 'auto', weights: weights.length ? weights : [1], steps };
+      // v0.0.194's `hand` (a person wrote this grid) survives the repair:
+      // dropping it here lost the mark on every load — a reload, a preset, a
+      // link, ⌘Z / ⇧⌘Z — and a typed line then waited out a staged intro
+      // (2026-10-30, tests/undo-everywhere-drive).
+      return {
+        mode: src.mode === 'manual' ? 'manual' : 'auto',
+        weights: weights.length ? weights : [1],
+        steps,
+        ...(src.hand === true ? { hand: true } : {}),
+      };
     }
 
     /**
