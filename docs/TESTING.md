@@ -194,6 +194,7 @@ a sweep that cries wolf is a sweep that stops being run.
 | a11y-drive | names, dial valuetext vs engine, contrast in both themes, focus-visible, duplicate ids, live regions, reduced motion, zoom 2 |
 | live-click-drive | the engine's output tapped by an AudioWorklet: largest sample step for every action while sounding; ~100 s |
 | genre-measure-drive | every stock genre, 48 bars: notes per bar per track, silence, out-of-scale notes, loudness per bar, chord-loop adherence; ~12 min |
+| undo-everywhere-drive | 72 actions, each diffed at the page store and the engine before, after ⌘Z and after ⇧⌘Z; a no-change gesture leaves no entry; ~9 min |
 | share-browser-drive, presets-drive | a minted link re-opened and compared at the engine, every path; presets save/overwrite/load/delete/caps/full storage |
 | chosen-drive, pitch-drive, section-drive | the grid's engine readouts |
 | loudness-drive, scope-drive, fullscreenbar-drive, driftshape-drive | output level, scope, fullscreen chrome, spread shapes |
