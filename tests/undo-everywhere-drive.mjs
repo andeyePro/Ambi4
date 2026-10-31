@@ -135,7 +135,10 @@ export default async function drive(page) {
       //  * settings.spans.<key> (the spread's shape) is filled in by the load
       //    path's normaliser for a span the gesture path never named.
       diff: (a, b) => {
-        const benign = (p) => p.endsWith('?') && (p.startsWith('.patches.') || p.startsWith('.spans.'));
+        // A field written out on one side only, INSIDE an existing patch or span,
+        // is write-out noise. A whole track's or voice's entry appearing is not:
+        // a new track's first edit creates .patches.<id> and is the change itself.
+        const benign = (p) => p.endsWith('?') && (p.startsWith('.spans.') || (p.startsWith('.patches.') && p.split('.').length > 4));
         const s = diffPaths(a.s, b.s);
         const e = diffPaths(a.e, b.e);
         return { s: s.filter((p) => !benign(p)), e: e.filter((p) => !benign(p)), notes: [...s, ...e].filter(benign) };
@@ -214,6 +217,16 @@ export default async function drive(page) {
     await page.mouse.up();
     return ue('knob', scope, label, nth);
   }
+  // A select's pick must differ from what the draw already chose, or the action
+  // "changes nothing" on the draws that happened to land there.
+  async function otherOption(sel, preferred) {
+    return page.evaluate(([sel, preferred]) => {
+      const el = document.querySelector(sel);
+      if (!el) return preferred;
+      if (el.value !== preferred) return preferred;
+      return [...el.options].find((o) => !o.disabled && o.value !== el.value)?.value ?? preferred;
+    }, [sel, preferred]);
+  }
   async function dblclick(scope, label, nth = 0) {
     const d = await ue('knob', scope, label, nth);
     if (!d) return null;
@@ -291,8 +304,10 @@ export default async function drive(page) {
   await action('main dial Randomness (pad): drag', async () => (await drag('main', 'Randomness', 0, -30)) !== null);
   await action('main dial Tempo: spread (horizontal drag)', async () => (await drag('main', 'Tempo', 70, 0)) !== null);
   await action('main dial Tempo: typed value', async () => {
-    const now = await ue('knob', 'main', 'Tempo', 0);
-    return typeValue('main', 'Tempo', Math.round(now?.now) === 95 ? 97 : 95);
+    // aria-valuenow is the dial's 0-1 position, not bpm: read the engine's bpm
+    // and type a different one, or a draw already at 95 "changes nothing".
+    const bpm = await page.evaluate(() => { const b = window.__ambi4Engine.getParams().bpm; return typeof b === 'number' ? b : (b?.min + b?.max) / 2; });
+    return typeValue('main', 'Tempo', Math.round(bpm) === 95 ? 97 : 95);
   });
   await action('main dial Tempo: drag (kept for the reset)', async () => (await drag('main', 'Tempo', 0, -40)) !== null, { keep: true });
   await action('main dial Tempo: double-click reset', async () => dblclick('main', 'Tempo'));
@@ -323,9 +338,9 @@ export default async function drive(page) {
   }
 
   // ---- main-panel selects and radios ---------------------------------------
-  await action('select Key (#root)', async () => { await page.selectOption('#root', 'G'); return true; });
-  await action('select Scale (#mode)', async () => { await page.selectOption('#mode', 'dorian'); return true; });
-  await action('select Time signature', async () => { await page.selectOption('#timeSignature', '3/4'); return true; });
+  await action('select Key (#root)', async () => { await page.selectOption('#root', await otherOption('#root', 'G')); return true; });
+  await action('select Scale (#mode)', async () => { await page.selectOption('#mode', await otherOption('#mode', 'dorian')); return true; });
+  await action('select Time signature', async () => { await page.selectOption('#timeSignature', await otherOption('#timeSignature', '3/4')); return true; });
   await action('select Chord length', async () => {
     const other = await page.evaluate(() => { const s = document.getElementById('chordLength'); return s ? [...s.options].map((o) => o.value).find((v) => v !== s.value && !s.querySelector(`option[value="${v}"]`).disabled) : null; });
     if (!other) return false;
@@ -583,7 +598,20 @@ export default async function drive(page) {
     const label = labels.find((l) => /cutoff|release|attack/i.test(l)) || labels[0];
     await action(`new track: editor dial ${label} (kept — a draft to lose on Remove)`, async () => {
       if (!label) return false;
-      return (await drag(`#voice-editor-${addedId}`, label, 0, -50)) !== null;
+      // Arrow keys, not a drag: this late in the run a pointer drag at the dial's
+      // centre landed on nothing (store and engine unmoved), while the same drag
+      // on a fresh page moves this dial both ways (440 -> 1374 / 415 Hz, probed
+      // 2026-10-31). The keys reach the dial wherever it sits on screen.
+      const focused = await page.evaluate(([scope, l]) => {
+        const k = [...document.querySelectorAll(`${scope} [role="slider"]`)].find((x) => x.getAttribute('aria-label') === l);
+        if (!k) return false;
+        k.scrollIntoView({ block: 'center' });
+        k.focus();
+        return document.activeElement === k;
+      }, [`#voice-editor-${addedId}`, label]);
+      if (!focused) return false;
+      for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowUp');
+      return true;
     }, { keep: true });
     await action('Remove track', async () => page.evaluate((id) => { const b = document.getElementById(`track-remove-${id}`); if (!b) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true; }, addedId), { wait: 1200 });
   }
