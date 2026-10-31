@@ -1085,8 +1085,9 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
 - Transport strip layout (left→right): [▶ Play/Finish combined button — triangle
   icon left of "Play"; while running it reads "Finish" with a final-barline 𝄂 icon
   to its right] [■ Stop button] [● Record button, classic red dot; MediaRecorder on
-  the engine's existing MediaStream output → local download (webm/opus baseline;
-  wav via offline later); recording indicator + elapsed] [far right: sleep (clock)
+  the engine's existing MediaStream output → local download (webm/opus where the
+  browser writes WebM, .m4a in Safari, which writes MP4 — the name follows the
+  recorder's mimeType since v0.0.287; wav via offline later); recording indicator + elapsed] [far right: sleep (clock)
   and schedule (alarm) icon buttons stacked, each half the Play button's height].
 - Piano-roll REPEAT BRACKETS: click on the roll's bar ruler sets an open-repeat
   mark 𝄆 at that bar; the next click to its right sets the close 𝄇; the enclosed

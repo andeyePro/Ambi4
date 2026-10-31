@@ -275,7 +275,10 @@ const FROZEN_SHIPPED = Object.freeze({
   'genre:bossa': 'f8eab9e6766a116b7aa929b488b6b2d582ac898606be3b7ad37ca888cd447b52',
   'genre:cinematic': '5781d11a54bf9172d0491b2b36e6e14790ce868e83d96dfabd0b5c558e529524',
   'genre:deep-house': '534afa872ddb034e94c73b88ff99589d21a03fa39f70e41dec6a93fbe143cfea',
-  'genre:downtempo': '6ba38d33a1737c9a07f0b462d2f208957d4218430eb0bcabb010527a38a4dd60',
+  // Re-taken v0.0.287: the chord-loop fold (18dfa1f) keeps Downtempo's own loop in
+  // the minor-pentatonic draw this seed makes, where the engine used to walk an
+  // unseeded loop of its own; audio-reference moved for the same one config.
+  'genre:downtempo': 'fd30c4cb98d36c675d29d2fd9e3c8f7eaf29d5dfba0e38a46144e16a22f3f632',
   'genre:lofi-beats': 'dac0dd77aa0c06fa9842243aa7f9de0221f84d3f3ccb1b98f3435d09b4a0c255',
   'genre:minimalism': '71d3506c473c391b20cd7a6e61e2d87256b335be42a54fe89f7615ea5cfd2125',
   'genre:new-age': '32204bd68b0340382a9ca750d3868e12fb13ddb56ce282754bb650b0fc6f8ad3',

@@ -189,6 +189,11 @@ a sweep that cries wolf is a sweep that stops being run.
 | dials-everywhere-drive | every dial in every editor (225) × drag, spread, typed value, reset — engine diffed after each; ~8 min |
 | voices-edges-drive | voice drafts and the leave-guard at the engine's patch bank, Save/Revert/Forget, user-track drafts across remove/re-add and reload; ~4 min |
 | sound-edges-drive | Reverb/Drive/Tempo typed extremes and rapid drags while sounding, the Timers popover's focus and caps, genre/key/scale while playing, the resolution ladder |
+| first-visit-drive | the consent flow from an empty store, No thanks, a later yes, Storage throwing, quota, corrupt stored values, reload while playing, two tabs, ten fresh draws |
+| webkit-drive | the page in Playwright's WebKit, desktop and iPhone UA: boot, play, pause fade, dials, popovers, share, storage, fullscreen/pinned stage, record container, layout sweeps |
+| a11y-drive | names, dial valuetext vs engine, contrast in both themes, focus-visible, duplicate ids, live regions, reduced motion, zoom 2 |
+| live-click-drive | the engine's output tapped by an AudioWorklet: largest sample step for every action while sounding; ~100 s |
+| genre-measure-drive | every stock genre, 48 bars: notes per bar per track, silence, out-of-scale notes, loudness per bar, chord-loop adherence; ~12 min |
 | share-browser-drive, presets-drive | a minted link re-opened and compared at the engine, every path; presets save/overwrite/load/delete/caps/full storage |
 | chosen-drive, pitch-drive, section-drive | the grid's engine readouts |
 | loudness-drive, scope-drive, fullscreenbar-drive, driftshape-drive | output level, scope, fullscreen chrome, spread shapes |
