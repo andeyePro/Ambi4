@@ -21623,7 +21623,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const next = applyUndoEntry(entry);
         undoSuspended += 1;
         try {
-          loadParamsSnapshot(next);
+          loadParamsSnapshot(next, { keepDrafts: false });
           syncGenreUI();
         } finally {
           undoBaseline = null;
@@ -24624,7 +24624,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * skipping either step leaves laneSteps()[i] undefined and throws
        * inside the un-awaited renderVoiceEditor triggered by syncUIFromSettings.
        */
-      function loadParamsSnapshot(params) {
+      function loadParamsSnapshot(params, { keepDrafts = true } = {}) {
         const ui = settings.ui;
         // v0.0.164: like ui, the raw take is session bookkeeping a snapshot
         // never carries — loading one must not throw the performance away.
@@ -24636,8 +24636,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         normaliseV6Tracks(settings);
         settings.ui = ui;
         if (isPlainObject(lastTake)) settings.lastTake = lastTake;
-        // v0.0.206: edits the person parked under Edited survive any load.
-        if (isPlainObject(drafts)) settings.voiceDrafts = drafts;
+        // v0.0.206: edits the person parked under Edited survive any load —
+        // except ⌘Z / ⇧⌘Z, which restore the drafts the snapshot names: the
+        // load being undone (a factory preset, a genre) parked them, so
+        // keeping them would leave the undo a draft short of where it began
+        // (2026-10-30, tests/undo-everywhere-drive).
+        if (!keepDrafts) {
+          if (isPlainObject(clone.voiceDrafts)) settings.voiceDrafts = structuredClone(clone.voiceDrafts);
+          else delete settings.voiceDrafts;
+        } else if (isPlainObject(drafts)) settings.voiceDrafts = drafts;
         // v0.0.206: the engine MERGES patches, so a load that names fewer (a
         // genre ships few or none) left the last piece's dial edits sounding
         // under a page that showed none — the likely "discordant Synthwave".
