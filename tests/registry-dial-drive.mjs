@@ -1,25 +1,20 @@
 /**
- * PARKED, two known faults from its first real run against the deployed page —
- * kept out of tests/ so the drive sweep stays honest (sweep-drives.sh runs
- * every tests/*-drive.mjs, and a drive that is wrong about its own subject is
- * worse than no drive).
+ * Promoted from tests/pending on 2026-11-05, once the test bridge was back:
+ * the two faults its first real run found in the drive itself are fixed.
  *
- * It DID run, and the seam it needs works: the registry reaches the page as
- * window.__ambi4Registry and every dial now names its parameter in the DOM
- * (both landed in v0.0.171 and are committed).
- *
- * Fault one, mine: the octave exception's predicate reads v.row.min/.max
- * while the value handed to it is an ARRAY — [min, max]. Use v.row[0]/v.row[1].
+ * Fault one: the octave exception's predicate read v.row.min/.max while the
+ * value handed to it was an ARRAY. Rows are [min, max] arrays throughout now.
  *
  * Fault two, the real lesson: a LOG dial reports 0..1 in aria-valuemin/max by
  * construction (addLogKnob maps the domain onto a normalised axis), so
- * filter.cutoff and the three ADSR times can never match their row's bounds
- * through ARIA. The drive must branch on the row's own `curve`: a log row's
- * dial is expected to be [0, 1], and the check worth making for those is that
- * the page draws as log exactly the rows the registry declares log. That
- * comparison finds a real discrepancy the review already flagged —
- * patch.filter.q declares curve 'log' and is drawn linear — so expect it to go
- * red and record it as a finding, not as a bug in the drive.
+ * filter.cutoff and the three ADSR times could never match their row's bounds
+ * through ARIA. The drive branches on the row's own `curve`: a log row's dial
+ * must be drawn [0, 1], a linear row's over its own ends — so the page draws
+ * as log exactly the rows the registry declares log — and every dial's
+ * Home/End must store the row's ends in the ENGINE, which is the only witness
+ * that a log dial's normalised axis maps onto its row's domain. The two dials
+ * that depart from their row (Octave's ±1, Resonance drawn linear) are held
+ * to exactly their recorded departure in DEPARTURES, pending the owner.
  */
 
 /**
@@ -48,14 +43,27 @@
  */
 
 /**
- * The one dial that is deliberately narrower than its row, with the reason it
- * is allowed to be. If this list ever needs a second entry, the entry has to
- * carry a reason too — a dial quietly narrower than what the engine accepts is
- * a dial that cannot reach values a share link can carry.
+ * The dials that deliberately depart from their registry row, each with the
+ * owner's open ruling it waits on. The page keeps the same set in
+ * index.astro's DIAL_DEPARTURES (tests/registry-contract.mjs pins it there);
+ * this drive holds each one to EXACTLY its recorded departure, so the entry
+ * cannot widen quietly, and a ruling either way turns it red until this list
+ * follows. A new entry has to carry its ruling too — a dial quietly differing
+ * from what the engine accepts is a dial that cannot reach values a share
+ * link can carry.
  */
-const NARROWER_THAN_ITS_ROW = {
-  'source.octave': 'the dial ships ±1 while the row takes ±2 — an unexplained cap, in TODO as a decision',
+const DEPARTURES = {
+  'source.octave': {
+    ruling: 'the dial ships ±1 while the row takes ±2 — held pending the owner (fromClaude 11)',
+    dial: [-1, 1],
+  },
+  'filter.q': {
+    ruling: 'the row says log and Resonance is drawn linear — held pending the owner (fromClaude 10/28)',
+    curve: 'linear',
+  },
 };
+
+const near = (a, b) => typeof a === 'number' && Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
 
 export default async function drive(page) {
   const results = [];
@@ -127,7 +135,8 @@ export default async function drive(page) {
         field,
         min: Number(knob.getAttribute('aria-valuemin')),
         max: Number(knob.getAttribute('aria-valuemax')),
-        row: row && row.kind === 'number' ? { min: row.domain[0], max: row.domain[1] } : null,
+        row: row && row.kind === 'number' ? [row.domain[0], row.domain[1]] : null,
+        curve: row ? row.curve : null,
         kind: row ? row.kind : null,
       });
     }
@@ -137,6 +146,34 @@ export default async function drive(page) {
 
   check('the editor drew dials that name their parameter', dials.out.length, (n) => n >= 8);
 
+  // Read the stored value the ENGINE holds for this pad patch field, not the
+  // readout: a dial drawing an end the engine never receives is the failure
+  // this drive exists for.
+  const stored = (field) => page.evaluate((f) => {
+    const [section, key] = f.split('.');
+    return window.__ambi4Engine?.getParams?.()?.patches?.pad?.polysaw?.[section]?.[key] ?? null;
+  }, field);
+  const lowEnd = (v) => (v && typeof v === 'object' ? v.min : v);
+  const highEnd = (v) => (v && typeof v === 'object' ? v.max : v);
+  // Home, then Shift+End: in single mode both move the one value; in range
+  // mode Home takes the min thumb (the default active one) and Shift forces
+  // the max thumb, so each press lands on exactly one end.
+  const reachEnds = async (field) => {
+    const sel = `#voice-editor-pad .knob-cell[data-field="${field}"] .knob`;
+    await page.evaluate((q) => {
+      const k = document.querySelector(q);
+      k.scrollIntoView({ block: 'center' });
+      k.focus();
+    }, sel);
+    await page.keyboard.press('Home');
+    await page.waitForTimeout(250);
+    const lo = lowEnd(await stored(field));
+    await page.keyboard.press('Shift+End');
+    await page.waitForTimeout(250);
+    const hi = highEnd(await stored(field));
+    return [lo, hi];
+  };
+
   for (const d of dials.out) {
     // A dial with no row at all: since v0.0.166 the spec tables carry no
     // min/max of their own, so this is a dial with nothing behind its bounds.
@@ -144,16 +181,22 @@ export default async function drive(page) {
       check(`${d.field} has a numeric registry row`, d.kind, (k) => k !== null && k !== undefined);
       continue;
     }
-    const exception = NARROWER_THAN_ITS_ROW[d.field];
-    if (exception) {
-      check(`${d.field} is the documented exception (${exception})`,
-        { dial: [d.min, d.max], row: [d.row.min, d.row.max] },
-        (v) => v.dial[0] >= v.row.min && v.dial[1] <= v.row.max
-          && (v.dial[0] !== v.row.min || v.dial[1] !== v.row.max));
-      continue;
-    }
-    check(`${d.field} draws its registry row's bounds`,
-      { min: d.min, max: d.max }, { min: d.row.min, max: d.row.max });
+    const dep = DEPARTURES[d.field] || {};
+    const reach = dep.dial || d.row;
+    const curve = dep.curve || d.curve;
+    const tag = dep.ruling ? ` (recorded departure: ${dep.ruling})` : '';
+    // The drawing: a LOG dial reports 0..1 in ARIA by construction —
+    // addLogKnob maps the row's domain onto a normalised axis — so a log row
+    // must be drawn [0, 1] and a linear row over its own ends. A log row
+    // drawn over its ends is a dial drawn linear against its row.
+    check(`${d.field} is drawn ${curve} over ${curve === 'log' ? '[0,1]' : JSON.stringify(reach)}${tag}`,
+      [d.min, d.max], curve === 'log' ? [0, 1] : reach);
+    // The reach: Home and End land on the ends the engine stores. For a log
+    // dial this is the only witness that its normalised axis maps onto the
+    // row's domain rather than some other one.
+    const ends = await reachEnds(d.field);
+    check(`${d.field}'s Home/End store ${JSON.stringify(reach)} in the engine${tag}`,
+      ends, (v) => near(v[0], reach[0]) && near(v[1], reach[1]));
   }
 
   const failed = results.filter((r) => !r.ok);

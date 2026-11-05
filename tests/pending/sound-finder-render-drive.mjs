@@ -5,6 +5,20 @@
  *
  *   npm run build && .vibe/measure.sh local drive tests/sound-finder-render-drive.mjs
  *
+ * Run again on 2026-11-05 (v0.0.295) with the bridge back, and STILL parked —
+ * now on two app faults, not on the drive. The drive's own fault (the steady
+ * window read residue after a short voice had stopped sounding; see
+ * steadyWindow) is fixed. What stays red is the finder claiming a word the
+ * voice does not deliver:
+ *   - gritty on texture (sparkle): fm.depth up alone doubles the impurity,
+ *     but the second move, filter.q up ("and ring the filter"), alone CUTS it
+ *     by a third — a resonant highpass under sine glints boosts one partial —
+ *     and the pair nets 0.0149 -> 0.0139.
+ *   - thick on arp (muted): over a 95 ms chop each move alone lowers the
+ *     component count (18.8 -> 15.3 for mix, 18.8 -> 15.5 for detune), the
+ *     pair 18.8 -> 12.6.
+ * Promote it to tests/ once the finder's table is corrected or the owner rules.
+ *
  * tests/sound-finder-smoke.mjs holds the table's integrity; this holds what
  * the table SAYS. For every word and every tuned voice set: render the
  * starting voice at its defaults, apply the two moves a third of the way
@@ -17,7 +31,8 @@
  *                        and the peak no later
  *   sustained            sounding length longer
  *   clean / gritty       share of the steady power OUTSIDE the strongest
- *                        partial, down / up
+ *                        partial, down / up (steady: see steadyWindow — after
+ *                        the strike while the note still sounds)
  *   warm / glassy        spectral centroid after the strike, down / up
  *   thick                spectral components (exp entropy) after the strike, up
  *   thin                 weight (power at or below the fundamental over the
@@ -190,9 +205,29 @@ const PROBE = async (voicesUrl, finderUrl, registryUrl, matchUrl) => {
   };
   // The note is held for NOTE.duration after it is played.
   const HELD = NOTE.duration;
-  const features = (data) => {
+  // "After the strike" is the window the steady quantities (clean/gritty,
+  // warm/glassy, thick/thin) are read over: from 0.2 s to the end of the held
+  // note, or to where the STARTING render stops sounding (20 dB under its
+  // peak) if that comes first. Both renders are read over that one window, so
+  // the comparison is never made across two different spans.
+  //
+  // A voice that has stopped sounding by 0.3 s has under 100 ms — about one
+  // analysis frame — after its strike: it IS its strike, and the whole
+  // sounding note is read instead. Until 2026-11-05 the window was a flat
+  // 0.2-1.2 s, which on those voices read the residue 20 dB and more under
+  // the peak, after the note had gone: a 150 ms FM ping (arp crystal) read
+  // 364 Hz -> 364 Hz there and failed glassy while its moves lifted the
+  // centroid of the note you hear 21%, and the same residue let a 95 ms
+  // chop (arp muted) pass thick on a component count that FALLS over the
+  // note itself.
+  const steadyWindow = (data) => {
+    const { length } = envelope(data);
+    if (length < 0.3) return [0, Math.max(length, 0.05)];
+    return [0.2, Math.min(HELD, length)];
+  };
+  const features = (data, [from, to]) => {
     const e = envelope(data);
-    const steadyP = meanPower(frames(data, 0.2, HELD));
+    const steadyP = meanPower(frames(data, from, to));
     return {
       noteCentroid: centroid(meanPower(frames(data, 0, HELD))),
       steadyCentroid: centroid(steadyP),
@@ -254,8 +289,9 @@ const PROBE = async (voicesUrl, finderUrl, registryUrl, matchUrl) => {
       }
       const a = await render(voice, base);
       const b = await render(voice, moved);
-      const fa = features(a);
-      const fb = features(b);
+      const steady = steadyWindow(a);
+      const fa = features(a, steady);
+      const fb = features(b, steady);
       const m = MEASURE[entry.word](fa, fb);
       rows.push({ word: entry.word, set, voice: spec.voice, holds: m.holds, quantity: m.q, before: m.before, after: m.after, peakAt: m.peakAt, truncated: fa.truncated || fb.truncated, brokenOnPurpose: entry.word === 'bright' && set === 'pad' });
     }
