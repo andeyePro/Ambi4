@@ -47,6 +47,9 @@
  * - PressureObserver('cpu'), feature-detected: 'serious'/'critical' states
  *   react IMMEDIATELY (not waiting for the periodic tick) by stepping the
  *   tier down one notch, subject to the hysteresis window below.
+ * - Scheduler lateness (engine.getStats().late.count): the engine's own
+ *   count of pulses reached after their start time. Growth since the last
+ *   tick steps the tier down one, hysteresis-gated like every other step.
  * - rAF frame-time EMA: a lightweight sampler that takes at most one
  *   two-frame measurement window per periodic tick (≤1 per 2 s), smoothed
  *   with an EMA. Feeds a periodic decision (every 2 s while visible, every
@@ -138,6 +141,7 @@ const VISIBLE_EVAL_MS = 2000;
 const HIDDEN_EVAL_MS = 30000;
 const HYSTERESIS_MS = 10000;
 const RAISE_STREAK_TICKS = 3;
+const LATE_HOLD_MS = 30000; // no raise this long after the scheduler ran late
 const FRAME_EMA_ALPHA = 0.3;
 const BAD_FRAME_MS = 40; // ~<25 fps
 const GOOD_FRAME_MS = 20; // ~>50 fps
@@ -199,6 +203,15 @@ export function createGovernor({ engine, onTierChange } = {}) {
 
   let frameEma = null;
   let headroomStreak = 0;
+  // engine.getStats().late.count as of the last tick. The engine counts the
+  // pulses its scheduler reached after their own start time — the starvation
+  // a listener hears — and a count that GREW since the last tick is a bad
+  // signal on its own: on a 20x-throttled tab a bar went out 240 ms late
+  // while the frame-time EMA sat at 37 ms, under BAD_FRAME_MS
+  // (tests/slow-device-drive, 2026-10-30). Cumulative on the engine's side,
+  // so only growth counts, never the standing total.
+  let lateSeen = 0;
+  let lateAt = 0; // Date.now() of the last growth: holds the raise off a while
 
   function budgetFor(tier) {
     return {
@@ -247,6 +260,22 @@ export function createGovernor({ engine, onTierChange } = {}) {
     return applyTier(TIER_ORDER[nextIdx]);
   }
 
+  /** True when the engine's late-pulse count grew since the last look. */
+  function schedulerLate() {
+    if (!engine || typeof engine.getStats !== 'function') return false;
+    let late = null;
+    try {
+      late = engine.getStats()?.late;
+    } catch {
+      return false;
+    }
+    const count = late && Number.isFinite(late.count) ? late.count : 0;
+    const grew = count > lateSeen;
+    lateSeen = count;
+    if (grew) lateAt = Date.now();
+    return grew;
+  }
+
   function isBadSignal() {
     if (PRESSURE_BAD.has(pressureState)) return true;
     if (frameEma != null && frameEma >= BAD_FRAME_MS) return true;
@@ -255,6 +284,10 @@ export function createGovernor({ engine, onTierChange } = {}) {
 
   function isGoodSignal() {
     if (PRESSURE_BAD.has(pressureState)) return false;
+    // A late pulse is an event, not a state: without this hold the three
+    // good ticks after it would raise the tier straight back into the load
+    // that starved it, ten seconds on, and the glitch would come round again.
+    if (lateAt && Date.now() - lateAt < LATE_HOLD_MS) return false;
     if (batteryDischarging) return false;
     if (frameEma != null && frameEma > GOOD_FRAME_MS) return false;
     return true;
@@ -280,7 +313,10 @@ export function createGovernor({ engine, onTierChange } = {}) {
   /** Periodic sustained-headroom decision (and frame-time-driven lowering). */
   function decideTierStep() {
     if (!sensing || destroyed) return;
-    if (isBadSignal()) {
+    // Read every tick, bad signal or not, so the count never piles up into
+    // a step that a later, calmer tick then pays for.
+    const late = schedulerLate();
+    if (late || isBadSignal()) {
       headroomStreak = 0;
       if (!atFloor() && hysteresisOk()) stepTier(-1);
       return;
@@ -446,6 +482,8 @@ export function createGovernor({ engine, onTierChange } = {}) {
     if (sensing) return;
     sensing = true;
     headroomStreak = 0;
+    // Prime the late count: whatever happened while pinned is not news.
+    schedulerLate();
     attachVisibilityListener();
     startPressureObserver();
     startBatteryWatch();
@@ -541,6 +579,7 @@ export function createGovernor({ engine, onTierChange } = {}) {
       sensors: {
         pressureState,
         frameEmaMs: frameEma,
+        schedulerLate: lateSeen,
         batteryDischarging,
         hardwareConcurrency: safeNav('hardwareConcurrency') ?? null,
         deviceMemory: safeNav('deviceMemory') ?? null,

@@ -806,8 +806,12 @@ play(); RangeValue walk: w∈[0,1], ±0.15/bar, effective = min+(max-min)·w.
   honour: max simultaneous notes (voice-steal oldest/quietest), reverb IR length
   (full 6 s, the Reverb tail dial's whole range; med 4 s; low 2 s; eco 1 s), texture+arp density scale, visual fps cap, scope on/off.
 - Engine: engine.setPowerBudget(budget) + per-track live stats API
-  engine.getStats() → {perTrack: {activeNotes, nodesEstimate, notesPerMin}, total}
-  for the UI's per-track cost meters.
+  engine.getStats() → {perTrack: {activeNotes, nodesEstimate, notesPerMin}, total,
+  late: {count, worstSeconds, lastAt}} for the UI's per-track cost meters. `late`
+  (v0.0.291) counts the pulses the scheduler reached after their own start time —
+  the starvation a listener hears — cumulatively for the engine's life; the
+  governor steps the tier down one on any growth since its last tick and holds
+  off raising for 30 s after one (power.js, LATE_HOLD_MS).
 - UI: "Processor" dial (Eco–Full; a span is the band the governor may move in, the full span is Auto — v0.0.249) on the transport panel; per-track cost
   meter (bar) in the tracks list; the meters and dial are the user-facing story of
   what is eating CPU.

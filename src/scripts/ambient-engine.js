@@ -5877,6 +5877,14 @@ export function createEngine(initialParams, options = {}) {
   // v9 cost accounting
   let maxNotes = Infinity;          // power budget: simultaneous sounding notes
   let statsStart = 0;               // ctx time the note-rate window started
+  // Pulses the scheduler reached AFTER their own start time: the main thread
+  // was held past the lookahead and whatever that pulse plays starts late or
+  // not at all — the one starvation a listener hears. Cumulative for the
+  // engine's life (a monotonic count is what a governor compares between
+  // ticks); getStats().late publishes them.
+  let lateCount = 0;
+  let lateWorst = 0;                // seconds, the furthest behind any pulse was
+  let lateLastAt = 0;               // ctx time of the last late pulse
   const noteTimes = new Map();      // track → recent note onsets (ctx seconds)
 
   // v23: the chains of removed tracks, waiting on their own last note. Cutting
@@ -11004,6 +11012,12 @@ export function createEngine(initialParams, options = {}) {
     }
   }
 
+  function noteLate(behind) {
+    lateCount += 1;
+    if (behind > lateWorst) lateWorst = behind;
+    lateLastAt = ctx ? ctx.currentTime : 0;
+  }
+
   function tick() {
     if (!ctx || !isRunning || outroScheduled) return;
     // Hidden tabs clamp timers (setInterval to >=1 s; Chrome's intensive
@@ -11017,6 +11031,7 @@ export function createEngine(initialParams, options = {}) {
     // never by minting a new bar per tick, which shreds the music into
     // downbeat fragments and races the structure.
     if (nextPulseTime < ctx.currentTime - RESYNC_GAP) {
+      noteLate(ctx.currentTime - nextPulseTime);
       if (bar) {
         const missed = Math.floor((ctx.currentTime - nextPulseTime) / bar.duration);
         barIndex += missed;
@@ -11053,6 +11068,8 @@ export function createEngine(initialParams, options = {}) {
           retuneDelay(nextPulseTime, live);
         }
       }
+      // Behind the clock by less than RESYNC_GAP: the pulse still plays, late.
+      if (nextPulseTime < ctx.currentTime) noteLate(ctx.currentTime - nextPulseTime);
       schedulePulse(nextPulseTime, pulseIndex);
       nextPulseTime += bar.pulses[pulseIndex] * bar.secPerBeat;
       pulseIndex += 1;
@@ -12108,7 +12125,14 @@ export function createEngine(initialParams, options = {}) {
         ? NODES_PER_TRACK + perTrack[name].activeNotes * NODES_PER_NOTE
         : 0;
     }
-    return { perTrack, totalActiveNotes, total: totalActiveNotes };
+    return {
+      perTrack,
+      totalActiveNotes,
+      total: totalActiveNotes,
+      // The scheduler's own starvation record: pulses reached after their
+      // start time, how far behind the worst was, and when the last one was.
+      late: { count: lateCount, worstSeconds: round3(lateWorst), lastAt: round3(lateLastAt) },
+    };
   }
 
   /**

@@ -2514,6 +2514,42 @@ test('scheduler survives throttled 1 Hz timers and resumes mid-piece after a sta
   }
 });
 
+test('getStats().late counts the pulses a stalled scheduler reached after their start, and nothing before', async () => {
+  // v0.0.291 (bt-slow): the one starvation a listener hears is a pulse
+  // scheduled after its own start time. The engine counts them so the power
+  // governor can step down on it; a frame-time EMA alone missed a bar sent
+  // 240 ms late on a 20x-throttled tab (tests/slow-device-drive, 2026-10-30).
+  globalThis.document = { hidden: false, addEventListener() {} };
+  try {
+    const engine = createEngine({
+      bpm: 100, speed: 1, timeSignature: '4/4', structure: 'abab', complexity: 0.6,
+      tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: n === 'pad' ? 'on' : 'off' }])),
+    });
+    await engine.start();
+    const ctx = liveContexts[liveContexts.length - 1];
+    // A healthy clock: small steps, well inside the lookahead.
+    for (let i = 0; i < 40; i++) {
+      ctx.currentTime += 0.05;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    const calm = engine.getStats().late;
+    assert.ok(calm && Number.isFinite(calm.count), 'getStats() publishes late.count');
+    assert.equal(calm.count, 0, `no pulse may count as late on a healthy clock, got ${calm.count}`);
+    // A stall: the main thread held for 3 s, then the clock runs on.
+    ctx.currentTime += 3;
+    for (let i = 0; i < 10; i++) {
+      ctx.currentTime += 0.05;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    const after = engine.getStats().late;
+    engine.stop();
+    assert.ok(after.count >= 1, `a 3 s stall must count at least one late pulse, got ${after.count}`);
+    assert.ok(after.worstSeconds >= 1, `the worst lateness must reflect the stall, got ${after.worstSeconds}`);
+  } finally {
+    delete globalThis.document;
+  }
+});
+
 test('concurrent start() leaves exactly one ticker and stop() clears it', async () => {
   MockTickerWorker.live.clear();
   globalThis.Worker = MockTickerWorker;

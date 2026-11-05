@@ -478,6 +478,76 @@ test('auto: a bad frame-time reading lowers the tier even without PressureObserv
 });
 
 // --------------------------------------------------------------------------
+// The scheduler falling behind the audio clock is the starvation a listener
+// hears, and the one signal straight from the thing being protected. The
+// engine counts it (getStats().late.count, cumulative); a count that grew
+// since the last tick is a bad signal on its own — rAF frame times stayed
+// under the 40 ms threshold on a 20x-throttled tab while a bar went out
+// 240 ms late (tests/slow-device-drive, 2026-10-30).
+// --------------------------------------------------------------------------
+
+test('auto: a scheduler that fell behind (engine.getStats().late grew) lowers the tier, once per growth', () => {
+  const restoreNav = installFakeNavigator({ hardwareConcurrency: 16, deviceMemory: 16 }); // starts 'full'
+  assert.equal(typeof globalThis.PressureObserver, 'undefined');
+  const clock = installFakeClock(0);
+  const raf = installFakeRaf();
+  const stats = { late: { count: 0, worstSeconds: 0, lastAt: 0 } };
+  const engine = { getStats: () => stats, setPowerBudget() {} };
+  const g = power.createGovernor({ engine });
+
+  assert.equal(g.getAuto(), 'full');
+  // Good frames throughout: only the late count moves.
+  for (let t = 2_000; t <= 10_000; t += 2_000) tick(clock, raf, t, 8);
+  assert.equal(g.getAuto(), 'full', 'good frames and no late pulses hold the tier');
+
+  stats.late = { count: 1, worstSeconds: 0.24, lastAt: 12 };
+  tick(clock, raf, 12_000, 8);
+  assert.equal(g.getAuto(), 'med', 'one late pulse since the last tick steps the tier down');
+
+  // The same count again is old news: no further step, and the headroom
+  // streak may build again from here.
+  for (let t = 14_000; t <= 22_000; t += 2_000) tick(clock, raf, t, 8);
+  assert.equal(g.getAuto(), 'med', 'a count that stopped growing does not keep lowering');
+
+  // Growth after the hysteresis window steps once more.
+  stats.late = { count: 3, worstSeconds: 0.5, lastAt: 24 };
+  tick(clock, raf, 24_000, 8);
+  assert.equal(g.getAuto(), 'low');
+
+  // Published for the page and the tests.
+  assert.equal(g.stats().sensors.schedulerLate, 3);
+
+  // A late pulse holds the raise off for LATE_HOLD_MS (30 s) — three good
+  // ticks ten seconds on would otherwise lift the tier straight back into
+  // the load that starved it. Past the hold, sustained headroom raises as
+  // ever: one step, after the usual three-tick streak.
+  for (let t = 26_000; t <= 52_000; t += 2_000) tick(clock, raf, t, 8);
+  assert.equal(g.getAuto(), 'low', 'no raise inside the 30 s hold');
+  for (let t = 54_000; t <= 60_000; t += 2_000) tick(clock, raf, t, 8);
+  assert.equal(g.getAuto(), 'med', 'headroom raises again once the hold has passed');
+
+  g.destroy();
+  raf.restore();
+  clock.restore();
+  restoreNav();
+});
+
+test('auto: an engine with no getStats, or one that throws, is simply not consulted', () => {
+  const restoreNav = installFakeNavigator({ hardwareConcurrency: 16, deviceMemory: 16 });
+  const clock = installFakeClock(0);
+  const raf = installFakeRaf();
+  for (const engine of [{ setPowerBudget() {} }, { getStats() { throw new Error('no'); } }, { getStats: () => ({}) }]) {
+    const g = power.createGovernor({ engine });
+    for (let t = 2_000; t <= 12_000; t += 2_000) tick(clock, raf, t, 8);
+    assert.equal(g.getAuto(), 'full');
+    g.destroy();
+  }
+  raf.restore();
+  clock.restore();
+  restoreNav();
+});
+
+// --------------------------------------------------------------------------
 // Battery discharging bias blocks raising until it recovers.
 // --------------------------------------------------------------------------
 
