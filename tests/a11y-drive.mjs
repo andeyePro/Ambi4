@@ -465,7 +465,8 @@ export default async function drive(page) {
     await page.mouse.move(d.x + dx, d.y + dy);
     await page.mouse.up();
     await settle();
-    return a('dialState', scope, key, excl, false);
+    const after = await a('dialState', scope, key, excl, false);
+    return after ? { ...after, before: d.now } : after;
   }
   const textAgrees = (s) => {
     if (!s.valuetext) return false;
@@ -512,8 +513,13 @@ export default async function drive(page) {
       const path = typeof spec === 'string' ? spec : spec.path;
       const via = typeof spec === 'string' ? undefined : spec.via;
       probed += 1;
-      const dragged = await drag(scope, d.key, excl, 0, -40);
+      let dragged = await drag(scope, d.key, excl, 0, -40);
       if (!dragged) continue;
+      // A dial already at its top does not move on an upward drag, and then
+      // the reset below cannot be told from no reset (v0.0.290: a drag from
+      // the hub is vertical since v0.0.289, so it no longer swings to the
+      // angle it crosses — Drift rate sits at its top by default). Go down.
+      if (dragged.now === dragged.before) dragged = (await drag(scope, d.key, excl, 0, 40)) || dragged;
       let v = await a('engine', path, track || null);
       if (!engineAgrees(dragged, v, via)) engineLies.push({ key: d.key, at: 'drag', now: dragged.now, valuetext: dragged.valuetext, engine: v });
       if (!textAgrees(dragged)) textLies.push({ key: d.key, at: 'drag', text: dragged.text, valuetext: dragged.valuetext });

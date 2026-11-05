@@ -203,7 +203,7 @@ export default async function drive(page) {
   const snap = () => ue('snap');
   const diff = (a, b) => ue('diff', a, b);
 
-  async function drag(scope, label, dx, dy, nth = 0) {
+  async function drag(scope, label, dx, dy, nth = 0, again = true) {
     const d = await ue('knob', scope, label, nth);
     if (!d) return null;
     await page.mouse.move(d.x, d.y);
@@ -215,7 +215,13 @@ export default async function drive(page) {
     }
     await page.mouse.move(d.x + dx, d.y + dy);
     await page.mouse.up();
-    return ue('knob', scope, label, nth);
+    const after = await ue('knob', scope, label, nth);
+    // A dial already at its top does not move on an upward drag (since
+    // v0.0.289 a drag from the hub is vertical and no longer swings to the
+    // angle it crosses — Reprise sits at its top on some draws). The other
+    // way, once, so the action is a real change.
+    if (again && dx === 0 && after && after.valuetext === d.valuetext) return drag(scope, label, dx, -dy, nth, false);
+    return after;
   }
   // A select's pick must differ from what the draw already chose, or the action
   // "changes nothing" on the draws that happened to land there.

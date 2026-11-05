@@ -988,15 +988,27 @@ export function createKnob(container, options) {
       closeEditor();
       applyTypedValue(raw);
     }
+    // v0.0.290: Enter and Escape remove the box that HAS the focus, and a
+    // removed element hands focus to <body> — so the next keys a keyboard
+    // user pressed were the page's shortcuts (a typed "1" loaded favourite 1;
+    // keyboard-only-drive). Hand it back to the readout the box replaced.
+    // A blur commits without this: focus has already gone where it was sent.
+    function refocusReadout() {
+      try {
+        if (typeof valueEl.focus === 'function') valueEl.focus();
+      } catch {}
+    }
     function onEditKeydown(e) {
       if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
       const key = e && e.key;
       if (key === 'Enter') {
         if (e && typeof e.preventDefault === 'function') e.preventDefault();
         commitEdit();
+        refocusReadout();
       } else if (key === 'Escape') {
         if (e && typeof e.preventDefault === 'function') e.preventDefault();
         closeEditor();
+        refocusReadout();
       }
     }
     function onEditBlur() {

@@ -7640,6 +7640,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         renderChordChips();
         try { refreshHookRule(); } catch {}
         if (!progressionRow) return;
+        // v0.0.290: the rebuild replaces the box and its button, so a commit
+        // by Enter (or Enter on Let the app choose) left focus on <body> and
+        // the next letters typed were the page's shortcuts (a "1" loaded
+        // favourite 1; keyboard-only-drive). Focus that was in the row comes
+        // back to the new box — the button may now be disabled.
+        const hadFocus = progressionRow.contains(document.activeElement);
         progressionRow.innerHTML = '';
         const text = progressionText();
         const field = document.createElement('input');
@@ -7652,7 +7658,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         field.addEventListener('change', () => commitProgression(field.value));
         field.addEventListener('keydown', (event) => {
           if (event.key === 'Enter') { event.preventDefault(); commitProgression(field.value); }
-          if (event.key === 'Escape') { field.value = progressionText(); field.blur(); }
+          // Escape puts the playing loop back and STAYS in the box (it used
+          // to blur, which drops a keyboard user's focus to the page).
+          if (event.key === 'Escape') { event.preventDefault(); field.value = progressionText(); field.select(); }
         });
         progressionRow.append(field);
 
@@ -7663,6 +7671,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         clear.disabled = !text;
         clear.addEventListener('click', () => commitProgression(''));
         progressionRow.append(clear);
+        if (hadFocus) field.focus();
 
         if (progressionHint) {
           // Deliberately does NOT claim the loop is yours. A genre supplies one,
@@ -16528,6 +16537,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           setAddTrackFormOpen(false);
           addTrackButton.focus();
         });
+        // v0.0.290: Escape anywhere in the form is Cancel, as it is in every
+        // other panel and popover here (keyboard-only-drive: it closed nothing).
+        addTrackForm.addEventListener('keydown', (event) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          event.stopPropagation();
+          setAddTrackFormOpen(false);
+          addTrackButton.focus();
+        });
         addTrackForm.addEventListener('submit', (event) => {
           event.preventDefault();
           const family = addTrackForm.querySelector('input[name="add-track-family"]:checked')?.value
@@ -17415,12 +17433,24 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
           };
 
+          // v0.0.290 (keyboard-only-drive): entering moves the module that
+          // holds the focused ⛶ into the stage, and a moved element loses
+          // focus to <body>; leaving moves it back the same way. So focus is
+          // carried by hand: into the bar on the way in, back to the ⛶ that
+          // was pressed on the way out — only when it would otherwise be on
+          // nothing (body) or inside the stage that is closing.
+          let enteredFrom = null;
+          const focusIsLost = () => {
+            const el = document.activeElement;
+            return !el || el === document.body || stage.contains(el);
+          };
           for (const display of DISPLAYS) {
             display.button.addEventListener('click', () => {
               if (isActive()) {
                 exitFullscreen().catch(() => {});
                 return;
               }
+              enteredFrom = display.button;
               stage.hidden = false;
               moveIn(display);
               syncChrome();
@@ -17476,17 +17506,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
           bar?.addEventListener('pointerenter', () => clearTimeout(menuTimer));
           bar?.addEventListener('pointerleave', armMenuCollapse);
+          // Keyboard focus is the keyboard's hover: a control that takes focus
+          // while the bar is slid away (opacity 0) was invisible, so the bar
+          // comes back with it, and glides away again after the same beat.
+          bar?.addEventListener('focusin', () => {
+            if (!isActive()) return;
+            revealMenu();
+            armMenuCollapse();
+          });
 
           function onFullscreenChange() {
             if (!isActive()) {
+              const lost = focusIsLost();
               restoreAll();
               clearTimeout(menuTimer);
               revealMenu(); // reset for the next entry
-            } else {
-              revealMenu();
-              armMenuCollapse();
+              syncChrome();
+              if (lost && enteredFrom && enteredFrom.isConnected && !enteredFrom.hidden) enteredFrom.focus({ preventScroll: true });
+              enteredFrom = null;
+              return;
             }
+            revealMenu();
+            // syncChrome first: it is what un-hides the stage, and a focus()
+            // on a control inside a [hidden] stage does nothing.
             syncChrome();
+            // On the way IN, anything outside the bar is behind the stage
+            // (the ⛶ that was pressed stays in the page, unseen), so focus
+            // goes to Exit whatever held it.
+            if (!bar || !bar.contains(document.activeElement)) exitButton.focus({ preventScroll: true });
+            armMenuCollapse();
           }
 
           document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -24657,6 +24705,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
       }
 
+      // v0.0.290: Enter in the name box saves, as Add track's and the genre
+      // rules' name boxes already do (keyboard-only-drive: it did nothing).
+      presetName.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' || event.isComposing) return;
+        event.preventDefault();
+        presetSave.click();
+      });
       presetSave.addEventListener('click', () => {
         // v0.0.279: a NEW name is cut to PRESET_NAME_MAX and refused at
         // PRESET_CAP, as a layout is. A name that already exists is looked up
@@ -25453,12 +25508,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         renderPins();
         sayUnderDials(`Layout ${name} saved`, 1600);
       });
+      layoutName?.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' || event.isComposing) return;
+        event.preventDefault();
+        layoutSave?.click();
+      });
       layoutForget?.addEventListener('click', () => {
         if (!layoutShown) return;
+        // Forget hides itself (nothing is shown to forget), so focus that was
+        // on it would fall to the page: hand it to the layout picker.
+        const hadFocus = document.activeElement === layoutForget;
         delete layoutPrefs.saved[layoutShown];
         layoutShown = '';
         savePins();
         renderPins();
+        if (hadFocus) (layoutSelect && !layoutSelect.disabled ? layoutSelect : layoutName)?.focus();
       });
 
       // A dial built or destroyed anywhere may wake or put to sleep a pin.

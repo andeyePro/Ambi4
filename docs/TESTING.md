@@ -191,6 +191,7 @@ a sweep that cries wolf is a sweep that stops being run.
 | sound-edges-drive | Reverb/Drive/Tempo typed extremes and rapid drags while sounding, the Timers popover's focus and caps, genre/key/scale while playing, the resolution ladder |
 | first-visit-drive | the consent flow from an empty store, No thanks, a later yes, Storage throwing, quota, corrupt stored values, reload while playing, two tabs, ten fresh draws |
 | webkit-drive | the page in Playwright's WebKit, desktop and iPhone UA: boot, play, pause fade, dials, popovers, share, storage, fullscreen/pinned stage, record container, layout sweeps |
+| keyboard-only-drive | every flow by keyboard alone, asking after each action where focus is NOW: transport, a typed dial value, editors, the chord-loop box, structure, the grid, Create, Add track, presets, the tour, pins and layouts, Timers, full screen |
 | a11y-drive | names, dial valuetext vs engine, contrast in both themes, focus-visible, duplicate ids, live regions, reduced motion, zoom 2 |
 | live-click-drive | the engine's output tapped by an AudioWorklet: largest sample step for every action while sounding; ~100 s |
 | genre-measure-drive | every stock genre, 48 bars: notes per bar per track, silence, out-of-scale notes, loudness per bar, chord-loop adherence; ~12 min |
@@ -1432,7 +1433,14 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       keys type, nothing loads. Ctrl/⌘-2 is the browser's, not ours.
 - [ ] Create → Musical typing on: `2`, `3`, `5` play notes and load nothing;
       `A` does not switch tabs. Turn it off and the shortcuts are back.
-- [ ] Automated: `node tests/page-boot.mjs` (the keybindings block).
+- [ ] After Enter or Esc in a dial's typed box, in the chord-loop box, on Let
+      the app choose, on Forget (layouts) and on full screen's Exit, focus is
+      on the control you were using (or the one that replaced it), never on
+      the page: type `1` straight after and no favourite loads. Esc in the
+      Add track form closes it onto Add track; Enter in the preset-name and
+      layout-name boxes saves.
+- [ ] Automated: `node tests/page-boot.mjs` (the keybindings block) and
+      `tests/keyboard-only-drive.mjs` in the browser sweep.
 
 ## Factory, edited and your own — step 3: Hide
 
