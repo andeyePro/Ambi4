@@ -3209,6 +3209,31 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return;
       }
 
+      // Every module the boot awaits below is fetched NOW, together, rather
+      // than one after another as each `await import` is reached. The awaits
+      // stay where they are — the browser's module map hands each of them
+      // the fetch already in flight, so nothing below changes — but the
+      // chain they formed was most of a slow boot: on 4x CPU and Slow 3G
+      // (400 ms a round trip) tests/slow-device-drive measured 24.9 s to a
+      // visible app, eleven of them in thirteen serial round trips after the
+      // entry script had landed. Only the modules the boot cannot show the
+      // app without are here; a module missing from a build fails silently
+      // here and again at its own site, where its fallback has always been.
+      for (const warm of [
+        import('../scripts/ambient-engine.js'),
+        import('../scripts/prefs.js'),
+        import('../scripts/genre-compiler.js'),
+        import('../scripts/engine-voices.js'),
+        import('../scripts/knob.js'),
+        import('../scripts/visualiser.js'),
+        import('../scripts/rule-control.js'),
+        import('../scripts/scope.js'),
+        import('../scripts/patch-words.js'),
+        import('../scripts/sound-finder.js'),
+        import('../scripts/sample-match.js'),
+        import('../scripts/power.js'),
+      ]) warm.catch(() => {});
+
       let createEngine;
       // v18: the page probes the engine's own patch sanitiser for the fields
       // it wants to offer dials for (percussion source.pitch / source.noise).

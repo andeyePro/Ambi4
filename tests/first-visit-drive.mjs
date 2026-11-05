@@ -185,7 +185,12 @@ export default async function drive(page) {
     for (let t = 4; t <= Math.abs(dx); t += 6) await pg.mouse.move(d.x, d.y - Math.sign(dx) * t);
     await pg.mouse.up();
     await pg.waitForTimeout(450); // past the 250 ms persist debounce
-    return { before, after: (await params(pg)).bpm, found: true };
+    const after = (await params(pg)).bpm;
+    // A Tempo already at its top does not move on an upward drag (since
+    // v0.0.289 a drag from the hub is vertical, and no longer swings to the
+    // angle it crosses). Once the other way, so the drag is a real change.
+    if (JSON.stringify(after) === JSON.stringify(before) && dx > 0) return dragTempo(pg, -dx);
+    return { before, after, found: true };
   };
   const bpmOf = (v) => (v && typeof v === 'object' ? v.min : v);
   // Every visible text node and the readable attributes, scanned for the

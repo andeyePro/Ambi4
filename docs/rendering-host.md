@@ -79,6 +79,15 @@ A worktree sets `AMBI4_REPO_ROOT=<worktree>` (or copies `.vibe/` in) so its own
 `dist` is the one uploaded. Builds still go one at a time on the 7 GB
 container: `flock /tmp/ambi4-build.lock npm run build`.
 
+The site server (2026-11-05) is the stdlib's `ThreadingHTTPServer` with a listen
+backlog of 128, started by a `python3 -c` one-liner whose command line still
+reads `http.server <port>` so the `pkill` patterns match. `python3 -m
+http.server` queues only 5 connections, and a boot that fetches its twelve
+modules at once (v0.0.293) got ERR_CONNECTION_RESET from it — a fault of the
+test server, not of the page; a sibling checkout's older `measure.sh` still has
+it. Never build into another `--outDir` beside a running gate: astro writes the
+pages into `./dist` regardless, under the gate's feet.
+
 ## For a vibe in another project
 
 The account and its Playwright install are not specific to Ambi4 — anything that
