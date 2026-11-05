@@ -251,6 +251,20 @@ export default async function drive(page) {
     check('A: plays after No thanks', await running(pg), true);
     const drag2 = await dragTempo(pg, 40);
     check('A: a dial dragged after No thanks reaches the engine', drag2.found && bpmOf(drag2.after) !== bpmOf(drag2.before), true);
+    // v0.0.295: a layout Save under No thanks says it is for this visit only,
+    // as a preset Save already did (voice and genre Saves share the words).
+    await pg.evaluate(() => {
+      const more = document.getElementById('pinned-more');
+      const row = document.getElementById('pinned-layouts');
+      if (more && row && row.hidden) more.click();
+      const name = document.getElementById('layout-name');
+      if (name) name.value = 'No thanks layout';
+      document.getElementById('layout-save')?.click();
+    });
+    await pg.waitForTimeout(300);
+    const savedLayout = await said(pg);
+    note('A: what a layout Save under No thanks says', savedLayout);
+    check('A: a layout Save under No thanks says it is for this visit only', /saved/i.test(savedLayout.dial) && /this visit only/i.test(savedLayout.dial), true);
     await pg.selectOption('#root', 'F');
     await pg.waitForTimeout(450);
     check('A: a select after No thanks reaches the engine', (await params(pg)).root, 'F');

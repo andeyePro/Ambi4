@@ -4261,6 +4261,18 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // read lazily is enough — the same pattern as onSettingsCommitted.
       let onStoreRefused = null;
       let storeRefusedSaid = false;
+      /**
+       * v0.0.295: a deliberate Save under No thanks (voice, genre, layout) is
+       * kept for the visit only, and used to say nothing about it — only
+       * preset Save did. The answer is honoured; the Save says what that means.
+       * Empty when the store keeps things.
+       */
+      function visitOnlyNote() {
+        const declined = prefs.consent() === 'denied' || deniedThisSession;
+        return declined
+          ? ' For this visit only \u2014 you chose not to keep settings on this device, so it goes when this tab closes. A share link keeps it anywhere.'
+          : '';
+      }
       // v0.0.289: the refusal is news only about something the visitor DID. A
       // write the boot makes on its own (a migration, a cleaned list) is not
       // theirs, and the notice used to greet a full store before any click.
@@ -5499,7 +5511,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (settings.tracks[track]) settings.tracks[track].userVoice = { id: mine.id, name: mine.name };
         persistSettings();
         syncMyVoicesEverywhere();
-        sayUnderDials(`Saved: "${clean}" is in this track's picker under User.`);
+        { const note = visitOnlyNote(); sayUnderDials(`Saved: "${clean}" is in this track's picker under User.${note}`, note ? 9000 : undefined, note ? { hold: true } : undefined); }
         return mine;
       }
 
@@ -18318,6 +18330,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         persistKey('voices', persistable(USER_VOICES));
         persistSettings();
         syncMyVoicesEverywhere();
+        const note = visitOnlyNote();
+        if (note) sayUnderDials(`Saved "${mine.name || 'your voice'}".${note}`, 9000, { hold: true });
       }
       /** Move on: the leaving voice's edit, parked under Edited (step 1's promise). */
       function parkVoiceEdit(track, voiceId) {
@@ -21270,7 +21284,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         say(null);
         rulesModelDirty = false;
         syncGenreUI();
-        sayUnderDials(`Saved: "${name}" is in the picker under User, and Next draws fresh pieces from it.`);
+        { const note = visitOnlyNote(); sayUnderDials(`Saved: "${name}" is in the picker under User, and Next draws fresh pieces from it.${note}`, note ? 9000 : undefined, note ? { hold: true } : undefined); }
       }
 
       /** v0.0.180: drop a genre of the person's own; the setup keeps playing, tagged with what it was made from. */
@@ -25541,7 +25555,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         layoutName.value = '';
         savePins();
         renderPins();
-        sayUnderDials(`Layout ${name} saved`, 1600);
+        { const note = visitOnlyNote(); sayUnderDials(`Layout ${name} saved.${note}`, note ? 9000 : 1600, note ? { hold: true } : undefined); }
       });
       layoutName?.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter' || event.isComposing) return;

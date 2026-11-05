@@ -62,7 +62,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [ ] **Advanced Tempo by wheel or arrow moves 0.2 bpm, which rounds away** — four or five presses per bpm, readout and engine still. Needs a per-step size for log-mapped dials in knob.js. fromClaude 42.
 - [ ] **The consent card asks when Storage is dead** (private window): a yes keeps nothing and Save says "storage is full" (prefs.set swallows the reason). fromClaude 43.
 - [ ] **No way back after No thanks** for a year (cookie Max-Age). fromClaude 44.
-- [ ] **Save voice / Save genre / Save layout under No thanks say nothing** — they share persistKey keys with pin moves and deletes, so a per-key line would be noisy; only preset Save speaks (v0.0.287).
+- [x] *(SHIPPED v0.0.295 — said at the Save sites, not per key)* **Save voice / Save genre / Save layout under No thanks say nothing** — they share persistKey keys with pin moves and deletes, so a per-key line would be noisy; only preset Save speaks (v0.0.287).
 - [ ] **A finger tap on a dial's hub sends it to its floor** (Tempo → 20 bpm) — knob.js `toZero()` on a hub tap, the owner's 2026-07-27 rule; `webkit-drive` asserts it. Listed only because a phone user will do it by accident.
 - [x] *(SHIPPED v0.0.292)* **Typing a percentage into the Advanced Volume readout mutes the piece** — its tooltip now says a typed number is decibels down (6 is 6 dB quieter, 40 near silence) and that Simple takes a percentage.
 - [ ] **`.vibe/measure.sh` is gitignored** — the bridge every browser test depends on has no tracked copy; a fresh clone must copy it from a sibling checkout. Track it under `tests/bridge/`? Its 2026-10-30 changes (MBP08L auto-pick, `AMBI4_SHOT_SLOT`, `AMBI4_REPO_ROOT`) are documented in docs/rendering-host.md.

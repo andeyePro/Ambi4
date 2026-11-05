@@ -1636,7 +1636,8 @@ Tour and help
 Storage and links
 - [ ] Private window, "No thanks", then Save a preset: listed, and the line
       under the dials says it is for this visit only and that a share link
-      keeps it anywhere (section 9).
+      keeps it anywhere (section 9). The same for Save voice, Save genre and
+      Save layout (v0.0.295; they used to say only "Saved").
 - [ ] Consented window, fill the store (DevTools console:
       `for (let i = 0; ; i++) localStorage.setItem('x' + i, 'y'.repeat(1e6))`
       until it throws), then move a dial: the line under the dials says the
