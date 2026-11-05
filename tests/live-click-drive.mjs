@@ -434,6 +434,25 @@ export default async function drive(page) {
     await page.waitForTimeout(400);
   }
 
+  // v0.0.296: the three tracks the pinned line-up keeps off had never had
+  // their Level dial dragged while sounding. On for this stretch, given two
+  // bars to enter (the arp and percussion wait their staged turn), then
+  // dragged exactly as the others; off again afterwards.
+  await page.evaluate(() => window.__ambi4Engine.setParams({ tracks: { texture: { state: 'on' }, arp: { state: 'on' }, percussion: { state: 'on' } } }));
+  await page.waitForTimeout(7000);
+  for (const id of ['texture', 'arp', 'percussion']) {
+    const before = await engineVal(`p.tracks.${id}.level`);
+    await measure(`Level dial drag: ${id}`, async () => {
+      const r = await drag('Level', 0, 40, `.track-row[data-track="${id}"]`);
+      return { ...r, engineBefore: before, engine: await engineVal(`p.tracks.${id}.level`) };
+    });
+    check(`Level drag on ${id} reached the engine`, rows[rows.length - 1].extra.engine !== before, true);
+    await page.evaluate(([id, v]) => window.__ambi4Engine.setParams({ tracks: { [id]: { level: v } } }), [id, before]);
+    await page.waitForTimeout(400);
+  }
+  await page.evaluate(() => window.__ambi4Engine.setParams({ tracks: { texture: { state: 'off' }, arp: { state: 'off' }, percussion: { state: 'off' } } }));
+  await page.waitForTimeout(1500);
+
   const genreM = await measure('genre switch while playing', () => page.evaluate(() => {
     const sel = document.getElementById('genre-select');
     const cur = sel.value;
@@ -482,6 +501,13 @@ export default async function drive(page) {
     seen.stepBeatsAfter = window.__ambi4Engine.getParams().tracks.melody.stepBeats ?? null;
     return seen;
   }), { settle: 2500 });
+
+  // v0.0.296: "pause during an outro" was listed as unmeasured; it is not
+  // reachable — Pause is disabled from Finish until the piece has stopped, so
+  // the outro's fade and a pause fade never meet. Held here so it stays so.
+  await page.click('#toggle-play');
+  await page.waitForTimeout(1200);
+  check('Pause is disabled during the outro (its fade and a pause fade never meet)', await page.evaluate(() => document.getElementById('pause-toggle').disabled), true);
 
   await page.click('#toggle-play');
   await page.waitForTimeout(300);
