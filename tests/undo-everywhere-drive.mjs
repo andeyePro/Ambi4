@@ -430,18 +430,39 @@ export default async function drive(page) {
     return true;
   };
   await action('sequencer: tap a step (melody)', async () => tapCell(2));
-  await action('sequencer: pitch input (melody)', async () => page.evaluate(() => {
-    const cell = document.querySelector('#voice-editor-melody .seq-cell');
-    if (!cell) return false;
-    cell.click();
-    const input = document.querySelector('#voice-editor-melody .seq-pitch-input');
-    if (!input) { cell.click(); return false; }
-    input.value = 'E5';
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+  // v0.0.296: the note box opens with P on a FOCUSED cell (a click toggles
+  // the step instead), which is why this action was skipped until now.
+  await action('sequencer: pitch input (melody)', async () => {
+    const focused = await page.evaluate(() => {
+      const cell = document.querySelectorAll('#voice-editor-melody .seq-cell')[2];
+      if (!cell) return false;
+      cell.scrollIntoView({ block: 'center' });
+      cell.focus();
+      return document.activeElement === cell;
+    });
+    if (!focused) return false;
+    await page.keyboard.press('p');
+    await page.waitForTimeout(150);
+    const open = await page.evaluate(() => document.activeElement?.classList.contains('seq-pitch-input'));
+    if (!open) return false;
+    await page.keyboard.type('E5');
+    await page.keyboard.press('Enter');
     return true;
-  }));
+  });
   await action('sequencer: add a lane/bar (melody)', async () => ue('click', '#voice-editor-melody .seq-add'), { keep: true });
-  await action('sequencer: remove the last lane (melody)', async () => page.evaluate(() => { const b = [...document.querySelectorAll('#voice-editor-melody .seq-lane-remove')].pop(); if (!b || b.disabled) return false; b.click(); return true; }));
+  // v0.0.296: only a lane of your own on a kit can be removed (the built-in
+  // Low/Mid/High cannot), so this one adds a lane to the kit and removes it.
+  await ue('openEditor', 'percussion');
+  await page.waitForFunction(() => window.__ue.editorOpen('percussion'), { timeout: 5000 }).catch(() => {});
+  await settle(300);
+  // Setup, not an action: the kit may already be in Manual.
+  await page.evaluate(() => { const r = document.getElementById('seq-mode-percussion-manual'); if (r && !r.checked) document.querySelector('label[for="seq-mode-percussion-manual"]')?.click(); });
+  await settle(400);
+  await action('sequencer: add a lane (kit)', async () => ue('click', '#voice-editor-percussion .seq-lane-add'), { keep: true });
+  await action('sequencer: remove a lane of your own (kit)', async () => page.evaluate(() => { const b = [...document.querySelectorAll('#voice-editor-percussion .seq-lane-remove')].pop(); if (!b || b.disabled) return false; b.click(); return true; }));
+  await ue('openEditor', 'melody');
+  await page.waitForFunction(() => window.__ue.editorOpen('melody'), { timeout: 5000 }).catch(() => {});
+  await settle(300);
   await action('sequencer: resolution finer (melody)', async () => page.evaluate(() => { const b = [...document.querySelectorAll('#voice-editor-melody .seq-res-step')].find((x) => !x.disabled && /finer|\+|×2/i.test(x.textContent + (x.getAttribute('aria-label') || ''))) || [...document.querySelectorAll('#voice-editor-melody .seq-res-step')].find((x) => !x.disabled); if (!b) return false; b.click(); return true; }));
   await action('sequencer: triplet (melody)', async () => page.evaluate(() => { const b = document.querySelector('#voice-editor-melody .seq-res-triplet'); if (!b || b.disabled) return false; b.click(); return true; }));
   await action('sequencer: Auto mode again (melody)', async () => ue('click', 'label[for="seq-mode-melody-auto"]'));
