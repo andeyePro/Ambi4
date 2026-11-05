@@ -202,6 +202,8 @@ a sweep that cries wolf is a sweep that stops being run.
 | chosen-drive, pitch-drive, section-drive | the grid's engine readouts |
 | additive-render-drive, fm-render-drive, modal-render-drive | the Additive, FM and Modal sections measured from real offline renders (promoted from tests/pending 2026-11-05) |
 | user-genre-drive, user-voice-drive | a genre and a voice of your own survive closing the tab (promoted from tests/pending 2026-11-05) |
+| registry-dial-drive, sound-finder-render-drive | every editor dial draws its registry row and its ends reach the engine; every sound-finder word, rendered, moves the measure it names (promoted 2026-11-05) |
+| blank-slate-first-minute-drive, genre-essence-drive, lesson-drive, voice-rule-drive | the Blank slate first minute, a genre's rules reaching the engine, the synthesis lessons, the voice rule (promoted 2026-11-05) |
 | reverb-swap-render | a reverb tail swap through real convolvers, offline: the wet level through one swap each way and a tail swapping every 2 s, against the old schedule |
 | loudness-drive, scope-drive, fullscreenbar-drive, driftshape-drive | output level, scope, fullscreen chrome, spread shapes |
 

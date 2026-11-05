@@ -1,23 +1,19 @@
 /**
  * The finder's CLAIMS, measured from real offline renders (unit 16 of
- * docs/synthesis-programme.md, v0.0.185). PARKED in tests/pending until the
- * Mac test bridge key is restored (fromClaude 13); then:
+ * docs/synthesis-programme.md, v0.0.185). Promoted from tests/pending on 2026-11-05,
+ * once the test bridge was back:
  *
  *   npm run build && .vibe/measure.sh local drive tests/sound-finder-render-drive.mjs
  *
- * Run again on 2026-11-05 (v0.0.295) with the bridge back, and STILL parked —
- * now on two app faults, not on the drive. The drive's own fault (the steady
- * window read residue after a short voice had stopped sounding; see
- * steadyWindow) is fixed. What stays red is the finder claiming a word the
- * voice does not deliver:
- *   - gritty on texture (sparkle): fm.depth up alone doubles the impurity,
- *     but the second move, filter.q up ("and ring the filter"), alone CUTS it
- *     by a third — a resonant highpass under sine glints boosts one partial —
- *     and the pair nets 0.0149 -> 0.0139.
- *   - thick on arp (muted): over a 95 ms chop each move alone lowers the
- *     component count (18.8 -> 15.3 for mix, 18.8 -> 15.5 for detune), the
- *     pair 18.8 -> 12.6.
- * Promote it to tests/ once the finder's table is corrected or the owner rules.
+ * Its first run back (v0.0.295) found two rows of the finder's table claiming
+ * a word the voice did not deliver, fixed in v0.0.296: gritty on texture
+ * (sparkle) — the second move, filter.q up, CUT the impurity by a third (a
+ * resonant high-pass under sine glints boosts one partial), so the pair
+ * netted 0.0149 -> 0.0139; now FM bite, 0.0149 -> 0.149 — and thick on arp
+ * (muted) — over a 95 ms chop both mix-to-square and detune thinned it
+ * (18.8 -> 12.6 components); now more saw and an open filter, 18.8 -> 21.2.
+ * The drive's own fault (its steady window read residue after a short voice
+ * had stopped) is fixed: see steadyWindow.
  *
  * tests/sound-finder-smoke.mjs holds the table's integrity; this holds what
  * the table SAYS. For every word and every tuned voice set: render the

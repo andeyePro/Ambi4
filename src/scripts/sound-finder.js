@@ -90,7 +90,11 @@ export const SOUND_WORDS = Object.freeze([
       melody: { voice: 'tines', moves: [up('fm.depth', 'drive the wobble'), up('filter.q', 'and ring the filter')] },
       bass: { voice: 'acid', moves: [up('source.fold', 'fold it'), up('filter.q', 'squelch')] },
       arp: { voice: 'muted', moves: [up('source.fold', 'fold the chop'), up('filter.q', 'and ring it')] },
-      texture: { voice: 'sparkle', moves: [up('fm.depth', 'drive the FM'), up('filter.q', 'and ring the filter')] },
+      // v0.0.296: not the filter here — Sparkle's is a high-pass under sine
+      // glints, nothing broad to ring, so more q purified it (impurity -36 %,
+      // tests/sound-finder-render-drive.mjs). More bite on top of the drive
+      // is grit it can deliver.
+      texture: { voice: 'sparkle', moves: [up('fm.depth', 'drive the FM'), up('fm.bite', 'and give it more bite')] },
     },
   },
   {
@@ -122,7 +126,12 @@ export const SOUND_WORDS = Object.freeze([
       pad: { voice: 'polysaw', moves: [up('source.detune', 'spread the stack'), up('filter.cutoff', 'and let all of it through')] },
       melody: { voice: 'stab', moves: [up('additive.p2', 'more octave'), up('additive.p3', 'more twelfth')] },
       bass: { voice: 'sawbass', moves: [up('source.detune', 'two saws apart'), up('source.mix', 'both saws, evenly')] },
-      arp: { voice: 'muted', moves: [up('source.mix', 'both oscillators'), up('source.detune', 'and spread them')] },
+      // v0.0.296: a 95 ms chop is over before a detune spread can beat, and
+      // more mix toward the square leaves only odd harmonics — both thinned
+      // it (18.8 -> 12.6 components). More of the saw brings back the even
+      // harmonics the square lacks — more sound at once — and the filter
+      // lets them through.
+      arp: { voice: 'muted', moves: [down('source.mix', 'all saw, every harmonic'), up('filter.cutoff', 'and let all of it through')] },
       texture: { voice: 'colour', moves: [up('source.bandWidth', 'a wider band'), up('source.tilt', 'and less of it rolled off')] },
     },
   },
