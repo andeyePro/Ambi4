@@ -36,7 +36,8 @@
  * WHERE the press lands decides WHAT the vertical drag moves, which is what
  * makes an asymmetric span reachable at all:
  *
- *   centre hub (inner HUB_FRACTION of the face)   both ends together, width kept
+ *   centre hub (inner HUB_FRACTION of the face)   both ends together, width kept;
+ *                                                 vertical only, never aimed by angle
  *   anywhere else                                 the nearer end alone, by sweep angle
  *
  * No small targets: "nearer end" is a half-plane test on the ring, so it works
@@ -1325,7 +1326,12 @@ export function createKnob(container, options) {
     // The owner's own instinct — "for small dials on iOS I guess up/down may
     // win" — is exactly right and is now the rule: on touch, where the whole
     // dial may be under the fingertip, there is no angular mode at all.
-    const onFace = finePointer(e) && pointerOnFace(e) && !pointerInHub(e);
+    // v0.0.289: and only for a press that LANDED on the annulus. A press in
+    // the hub is "the whole control" and drags vertically for its whole life;
+    // without this the pointer leaving the hub on its way up swung the value
+    // to whatever angle it crossed — a dial at 26 read 29 and then 50 on the
+    // next move (Master Volume's first-move snap, seen by live-click-drive).
+    const onFace = !pressHub && finePointer(e) && pointerOnFace(e) && !pointerInHub(e);
     if (onFace && !e.shiftKey) {
       const deg = pointerDeg(e);
       if (deg != null && deg >= START_DEG && deg <= START_DEG + SWEEP_DEG) {

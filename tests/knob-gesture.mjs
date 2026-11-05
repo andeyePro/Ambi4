@@ -509,6 +509,25 @@ test('grabbing an end on the face moves it to where you point', () => {
   assert.equal(last(seen), 50, `pointing at the top of the sweep should read 50, got ${last(seen)}`);
 });
 
+test('a drag that starts in the hub never jumps to an angle on its way out', () => {
+  // v0.0.289: Master Volume read 68 % then snapped on the first move of an
+  // upward drag from its centre (live-click-drive). The hub is "the whole
+  // control" and drags vertically; leaving it must not hand the value to the
+  // angle the pointer happens to cross. Red on v0.0.288: 26 -> 29 -> 50.
+  const { el, seen } = makeKnob({ value: 26 });
+  el.dispatch('pointerdown', { clientX: 50, clientY: 50, button: 0, pointerId: 1, pointerType: 'mouse' });
+  let prev = 26;
+  for (let y = 46; y >= -10; y -= 6) {
+    el.dispatch('pointermove', { clientX: 50, clientY: y, pointerId: 1, pointerType: 'mouse' });
+    const v = last(seen);
+    if (v === undefined) continue;
+    assert.ok(v - prev <= 4, `one 6px move took the value from ${prev} to ${v}`);
+    prev = v;
+  }
+  el.dispatch('pointerup', { clientX: 50, clientY: -10, pointerId: 1, pointerType: 'mouse' });
+  assert.ok(prev > 26, 'and the drag still raised the value');
+});
+
 test('the dead zone at the bottom is refused, never wrapped', () => {
   // Directly below the centre IS the gap in a 270° sweep. A dial that followed
   // the finger there would jump from full to nothing in a millimetre.

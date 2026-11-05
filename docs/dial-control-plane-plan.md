@@ -134,7 +134,9 @@ here. (D1, D2 and D9 below are the owner's decisions of 2026-07-27, unchanged.)
 ### D1 — No click gestures. Vertical drag = value, horizontal drag = spread
 
 *Status: decided 2026-07-27. Shipped as the hub/annulus model with vertical
-primary and angular assist on a fine pointer only (v0.0.65/66). The full
+primary and angular assist on a fine pointer only (v0.0.65/66), for a press
+that lands on the annulus — a press in the hub drags vertically throughout
+(v0.0.289; before that, leaving the hub snapped the value to the angle). The full
 removal of click and double-click paths below is the phase-3 gesture rebuild,
 which has not been done; the live dial still resets on double-click.*
 
