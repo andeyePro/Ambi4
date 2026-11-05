@@ -5232,10 +5232,77 @@ const REVERB_DECAY = 3.2;
 const REVERB_RETURN_LEVEL = 0.9;
 
 /**
+ * The longest an OUTGOING tail takes to fade (v0.0.294). The new convolver
+ * starts empty — it has heard nothing yet — so its wet level builds over its
+ * own tail; an outgoing tail gone in the same half-second it takes the new one
+ * to fade in left the reverb collapsed under the swap. It now fades over its
+ * own length, capped here, never shorter than the fade-in.
+ */
+const REVERB_OUT_MAX = 2;
+const REVERB_CURVE_POINTS = 64;
+
+/** How long each side of a swap fades: { inSeconds, outSeconds }. */
+export function reverbSwapShape(oldSeconds) {
+  const old = Number.isFinite(oldSeconds) && oldSeconds > 0 ? oldSeconds : REVERB_CROSSFADE;
+  return { inSeconds: REVERB_CROSSFADE, outSeconds: clamp(old, REVERB_CROSSFADE, REVERB_OUT_MAX) };
+}
+
+/** A return's level at `time` while it fades in along the equal-power curve. */
+export function reverbRiseValue(rise, time) {
+  if (!rise) return REVERB_RETURN_LEVEL;
+  const x = (time - rise.start) / rise.dur;
+  if (!(x < 1)) return rise.level;
+  if (x <= 0) return 0;
+  return rise.level * Math.sin((Math.PI / 2) * x);
+}
+
+/**
+ * Schedule one reverb swap's two fades — the engine's swapReverb calls this,
+ * and tests/reverb-swap-render.mjs renders it through real convolvers.
+ *
+ * EQUAL-POWER, not linear (v0.0.294). The two tails are uncorrelated noise, so
+ * their powers add: two linear ramps crossing at half level sum to half the
+ * power, a 3 dB hole at the midpoint — on a ranged Reverb tail, once a bar,
+ * which reads as pumping. sin² + cos² = 1 holds the sum level throughout.
+ *
+ * Nothing steps (docs/engine-v2-contract.md): the outgoing gain is held at the
+ * value it HAS (`outFrom`, which the caller computes from its own rise, exact
+ * to the curve's interpolation) and its curve starts from that value one
+ * render quantum later — a curve may not begin on the hold's own event time.
+ * The incoming gain starts at 0, where a new return already sits.
+ */
+export function scheduleReverbSwap(previousGain, nextGain, { time, sampleRate = 48000, level = REVERB_RETURN_LEVEL, outFrom = level, oldSeconds }) {
+  const { inSeconds, outSeconds } = reverbSwapShape(oldSeconds);
+  const n = REVERB_CURVE_POINTS;
+  const rise = new Float32Array(n);
+  const fall = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (Math.PI / 2) * (i / (n - 1));
+    rise[i] = level * Math.sin(x);
+    fall[i] = outFrom * Math.cos(x);
+  }
+  fall[n - 1] = 0;
+  const quantum = 128 / sampleRate;
+  nextGain.setValueAtTime(0, time);
+  nextGain.setValueCurveAtTime(rise, time + quantum, inSeconds);
+  if (typeof previousGain.cancelAndHoldAtTime === 'function') {
+    previousGain.cancelAndHoldAtTime(time);
+  } else {
+    previousGain.cancelScheduledValues(time);
+    previousGain.setValueAtTime(outFrom, time);
+  }
+  previousGain.setValueCurveAtTime(fall, time + quantum, outSeconds);
+  return {
+    rise: { start: time + quantum, dur: inSeconds, level },
+    endsAt: time + quantum + outSeconds,
+  };
+}
+
+/**
  * Procedural impulse response: stereo noise under an exponential decay, with a
  * few milliseconds of fade-in so the reverb blooms instead of cracking.
  */
-function createImpulseResponse(ctx, seconds = 4, decay = REVERB_DECAY, rng = Math.random) {
+export function createImpulseResponse(ctx, seconds = 4, decay = REVERB_DECAY, rng = Math.random) {
   const length = Math.max(1, Math.floor(ctx.sampleRate * seconds));
   const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
   const fadeIn = Math.max(1, ctx.sampleRate * 0.01);
@@ -7204,19 +7271,13 @@ export function createEngine(initialParams, options = {}) {
 
     const time = ctx.currentTime;
     const previous = graph.reverbReturn;
-    const level = REVERB_RETURN_LEVEL;
-    nextReturn.gain.setValueAtTime(0, time);
-    nextReturn.gain.linearRampToValueAtTime(level, time + REVERB_CROSSFADE);
-    // Held at the value it HAS (it may itself be mid fade-in), never the last
-    // completed event. Linear, not exponential: this ramp ends at true zero,
-    // which an exponential one cannot reach.
-    if (typeof previous.gain.cancelAndHoldAtTime === 'function') {
-      previous.gain.cancelAndHoldAtTime(time);
-    } else {
-      previous.gain.cancelScheduledValues(time);
-      previous.gain.setValueAtTime(previous.gain.value, time);
-    }
-    previous.gain.linearRampToValueAtTime(0, time + REVERB_CROSSFADE);
+    // Held at the value it HAS — it may itself be mid fade-in — which the
+    // rise we scheduled for it says exactly; never the last completed event.
+    const outFrom = reverbRiseValue(graph.reverbRise, time);
+    const swap = scheduleReverbSwap(previous.gain, nextReturn.gain, {
+      time, sampleRate: ctx.sampleRate, level: REVERB_RETURN_LEVEL, outFrom,
+      oldSeconds: graph.reverbSeconds,
+    });
 
     // 2026-10-30 (click audit): every outgoing tail is retired by its OWN
     // timer once its own fade has reached zero. A second swap used to unwire
@@ -7225,7 +7286,7 @@ export function createEngine(initialParams, options = {}) {
     // The fade runs on the audio clock and the timer on the wall clock: while
     // the context is suspended (a pause) the fade stands still, so the timer
     // waits rather than cutting a return still near full level (bug hunt).
-    const fade = { convolver: graph.convolver, ret: previous, timer: null, endsAt: time + REVERB_CROSSFADE };
+    const fade = { convolver: graph.convolver, ret: previous, timer: null, endsAt: swap.endsAt };
     const retire = () => {
       if (ctx && ctx.state === 'suspended' && ctx.currentTime < fade.endsAt) {
         fade.timer = setTimeout(retire, 250);
@@ -7233,11 +7294,12 @@ export function createEngine(initialParams, options = {}) {
       }
       endReverbFade(fade);
     };
-    fade.timer = setTimeout(retire, REVERB_CROSSFADE * 1000 + 20);
+    fade.timer = setTimeout(retire, (swap.endsAt - time) * 1000 + 20);
     reverbFades.add(fade);
     graph.convolver = next;
     graph.reverbReturn = nextReturn;
     graph.reverbSeconds = seconds;
+    graph.reverbRise = swap.rise;
   }
 
   /** Unwire one outgoing tail; its fade has reached zero. */

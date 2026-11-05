@@ -52,7 +52,14 @@ function makeParam(value) {
       return this;
     },
     setTargetAtTime(v) { this.value = v; return this; },
-    setValueCurveAtTime() { return this; },
+    // Recorded like the ramps (v0.0.294: the reverb swap is two curves).
+    curves: [],
+    setValueCurveAtTime(curve, start, dur) {
+      const values = Array.from(curve || []);
+      this.curves.push({ values, start, dur });
+      if (values.length) this.value = values[values.length - 1];
+      return this;
+    },
     cancelScheduledValues() { return this; },
     cancelAndHoldAtTime() { return this; },
   };
@@ -6721,17 +6728,27 @@ test('v21: a reverbTail change rebuilds the IR asynchronously and crossfades the
   assert.notEqual(old.convolver, next.convolver, 'the engine swapped a buffer instead of a convolver');
 
   // Mid-crossfade: both convolvers are live, fed by the one send bus, and the
-  // two returns are ramping past each other over the same half-second.
+  // two returns fade past each other — v0.0.294: along an equal-power pair of
+  // curves, the new one in over half a second, the old one out over its own
+  // tail (4 s here) capped at 2 s, because the new convolver starts empty.
   assert.ok(bus.connections.includes(old.convolver) && bus.connections.includes(next.convolver),
     'the two convolvers do not overlap — the send would gap');
   assert.equal(old.convolver.disconnects.length, 0, 'the old tail was cut before it had faded');
-  const fadeOut = old.ret.gain.ramps.at(-1);
-  const fadeIn = next.ret.gain.ramps.at(-1);
-  assert.ok(fadeOut && fadeOut.to === 0, 'the old return did not ramp to silence');
-  assert.ok(fadeIn && fadeIn.to > 0, 'the new return did not ramp up');
-  assert.ok(Math.abs(fadeOut.at - fadeIn.at) < 1e-9, 'the two ramps do not land together');
-  assert.ok(Math.abs((fadeOut.at - ctx.currentTime) - 0.5) < 0.05,
-    `the crossfade runs for ${fadeOut.at - ctx.currentTime} s, not ~0.5`);
+  const fadeOut = old.ret.gain.curves.at(-1);
+  const fadeIn = next.ret.gain.curves.at(-1);
+  assert.ok(fadeOut && fadeOut.values.at(-1) === 0, 'the old return did not fade to silence');
+  assert.ok(fadeIn && fadeIn.values.at(-1) > 0 && fadeIn.values[0] === 0, 'the new return did not rise from 0');
+  assert.ok(Math.abs(fadeIn.dur - 0.5) < 1e-9, `the new tail fades in over ${fadeIn.dur} s, not 0.5`);
+  assert.ok(Math.abs(fadeOut.dur - 2) < 1e-9, `the outgoing 4 s tail fades over ${fadeOut.dur} s, not min(4, 2)`);
+  // Equal power at every point the two curves share.
+  const level = fadeIn.values.at(-1);
+  for (let i = 0; i < fadeIn.values.length; i++) {
+    const x = i / (fadeIn.values.length - 1);
+    const sin = Math.sin((Math.PI / 2) * x);
+    assert.ok(Math.abs(fadeIn.values[i] - level * sin) < 1e-6, 'the rise is not a sine quarter');
+    assert.ok(Math.abs(fadeOut.values[i] - fadeOut.values[0] * Math.cos((Math.PI / 2) * x)) < 1e-6 || i === fadeOut.values.length - 1,
+      'the fall is not a cosine quarter');
+  }
 
   await reverbFaded();
   assert.ok(old.convolver.disconnects.length > 0, 'the faded-out convolver was left connected');
@@ -9851,7 +9868,8 @@ function reverbTails(ctx) {
  * wall-clock timers, exactly as the AudioParam ramps do in a real context.
  */
 const reverbBuilt = () => new Promise((resolve) => setTimeout(resolve, 0));
-const reverbFaded = () => new Promise((resolve) => setTimeout(resolve, 620));
+// v0.0.294: an outgoing tail fades over min(its own length, 2 s).
+const reverbFaded = () => new Promise((resolve) => setTimeout(resolve, 2150));
 
 const liveContexts = [];
 const RealCtx = MockAudioContext;

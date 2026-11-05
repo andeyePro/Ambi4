@@ -257,34 +257,39 @@ function sketchbookMigrated() {
  * by reverting that one hold to the old cancel-and-set in the v0.0.274 tree,
  * which reproduces the v0.0.271 digests exactly.
  */
+/**
+ * Re-taken 2026-11-05 (v0.0.294): the reverb swap now schedules an equal-power
+ * pair of setValueCurveAtTime curves instead of two linear ramps, and this
+ * suite's graph digest hashes the linear ramps it records — so the same 16
+ * configs moved as at v0.0.274, with NO note moving (audio-reference, which
+ * hashes the note stream, is unchanged in the same gate). The swap was that
+ * build's only engine change; tests/reverb-swap-render.mjs measures it.
+ */
 const FROZEN_SHIPPED = Object.freeze({
   'preset:deep-focus': 'b749a807083936cbfe4886e762848e3445c2cc325b423512cab88554e71ebe7c',
-  'preset:open-plan': '92c75ea30ec9eb1cca4cf10255c02a04463669d2b6253b91f2622dfa0c7af8b2',
+  'preset:open-plan': '6a62dfa96a282afc1f59c969f28d8f0691d225ae37734b62877c0c9744e3eb8e',
   'preset:glass-office': 'b32284e253a13bc7f258a494e1d0ce40774d6817e8d3b86fa26fc6eb5dcb6753',
   'preset:long-read': 'e944770f69c9dca67e69af8494d556316bd716af8956d9075975ed9b92ced67b',
   'preset:first-light': 'fe066688e29768000c86e95f01b93265a1c59973874045584f0080f8330c639a',
-  'preset:push': 'ef58a38bd04a040f693eda48654b1ed2588c86d548a3f1a9ad240f53df38022a',
+  'preset:push': 'a586969143b7054ef92bc82965c71ab218fd55ec595cbb77832c0cb228ac0d2e',
   'preset:sketchbook': '88c397fd130feb8721ffd5a6e0dee27277ae2c529a6bebb0282f2ddcda8bb258',
   'preset:night-shift': 'ef4f0e8ece3cdf43418b2ef99b3b1e73021d089008e4c11f1a10b69ca9ce9377',
   'preset:wind-down': '3e24fdc1ebb6e367b2997cc7040e485f636755e4dc98fd86586e0ebbf8e13c79',
   'preset:breathe': '45f02b9253095834a481cb990ec389ef21d968a81d231cedcc54413116c6d866',
-  'preset:far-rain': 'd86c7325f08872662adc0369965b03c4cb93014c90119998d4b2c4f8afcf7cb1',
-  'preset:dawn-song': '1091192915970efe72b4dabad7ecbca8df73cd8adcdbb0c0cca2bf9618ae98c7',
-  'genre:acid-jazz': 'd350597993c3ae29b9a4affed64ed08e6200898f005f8f5cb6c12b7a1fdf40a3',
-  'genre:ambient': '4c12dc5d64cfff2019893a3d953011c52998ce0bfec2810d0f797a62a6ed5ba2',
-  'genre:bossa': 'f8eab9e6766a116b7aa929b488b6b2d582ac898606be3b7ad37ca888cd447b52',
-  'genre:cinematic': '5781d11a54bf9172d0491b2b36e6e14790ce868e83d96dfabd0b5c558e529524',
-  'genre:deep-house': '534afa872ddb034e94c73b88ff99589d21a03fa39f70e41dec6a93fbe143cfea',
-  // Re-taken v0.0.287: the chord-loop fold (18dfa1f) keeps Downtempo's own loop in
-  // the minor-pentatonic draw this seed makes, where the engine used to walk an
-  // unseeded loop of its own; audio-reference moved for the same one config.
-  'genre:downtempo': 'fd30c4cb98d36c675d29d2fd9e3c8f7eaf29d5dfba0e38a46144e16a22f3f632',
-  'genre:lofi-beats': 'dac0dd77aa0c06fa9842243aa7f9de0221f84d3f3ccb1b98f3435d09b4a0c255',
-  'genre:minimalism': '71d3506c473c391b20cd7a6e61e2d87256b335be42a54fe89f7615ea5cfd2125',
-  'genre:new-age': '32204bd68b0340382a9ca750d3868e12fb13ddb56ce282754bb650b0fc6f8ad3',
-  'genre:soul-groove': 'be0d945759defed867ad70b06a309257ea767af9f1e366039a586bcb93c64a71',
-  'genre:synthwave': '235ba88988292b94bea93a1062e44b5dfe88dda8e5b6536ee35b49280df05142',
-  'genre:techno-tools': 'c89a204d8b1702fbfc53f21ba7c5471c4ee618dc2370c0d2ef4a6a83bba82a9f',
+  'preset:far-rain': '3760508861b1897ebedf4abbc8bade25011fe52d746fa215c25791a87e44b4e7',
+  'preset:dawn-song': '97470ec851945941648aab1bf16808a05d2e9a74c073e38c78837d2867d2825f',
+  'genre:acid-jazz': '54db831c34545bc9b5b08847533008cf36524c1e7ab506cf64f942c7ce4c1d57',
+  'genre:ambient': 'db4e5640514661d71fb35f2f68e29243457357b29912d38eaafd962a735f2e9d',
+  'genre:bossa': 'a5422350d7ebb626c5198907190fb14709d4a4da06eda6796c6842ab05c40fb9',
+  'genre:cinematic': 'df8acea3fffc4187abd59e17f30ec5a97bd53ab097899de027addba36a29aab8',
+  'genre:deep-house': '41e9e7064fd903154195c1cca6e827725c4185ecab4eab54c3173aedbe9ddd3c',
+  'genre:downtempo': 'f5ca826f0c675f935b6c751dc0f8af5074b4ff6544452c77cf02347d33256cdd',
+  'genre:lofi-beats': 'b5a83c9854b65852614b54a9f921236a05f96423f22dfe70f6ba3f5d6928c9eb',
+  'genre:minimalism': '366c543a3af2daec94170427833f944918a3985bb580261f3ab2588ec728bed5',
+  'genre:new-age': 'ee2665622cd7de7cfd4708cb2ef5e09d01089add01f1fb198d346a75959659f2',
+  'genre:soul-groove': '1076041093df7632c796c978174a6efbb2f974a7719f07aaf4cc3a52719e2546',
+  'genre:synthwave': 'fd007a8a86fb67ba27997bc4d0f1323cda84b84d53f643c4edf54667b84b8124',
+  'genre:techno-tools': '840814e82a4e43f804fd228e0c5649d52f1695bb0ac4b3db228d8b1caf652545',
 });
 
 const FROZEN = {

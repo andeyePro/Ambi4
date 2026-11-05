@@ -1242,6 +1242,14 @@ space, so users sculpt real-world impressions themselves:
   its own step. The Drift rate dial says so under the dials on a sideways drag.
 - reverbTail: 0.5-6 seconds (global preset-capturable; engine rebuilds the IR
   async on change, crossfading sends — governor tier caps still apply on top).
+  The swap (v0.0.294, `scheduleReverbSwap`) is EQUAL-POWER: the new return
+  rises along a sine quarter over 0.5 s, the old one falls along a cosine
+  quarter over min(its own tail, 2 s), never shorter than 0.5 s — the new
+  convolver starts empty and builds over its tail, and the two tails are
+  uncorrelated, so their powers add. The outgoing curve starts from the value
+  the return HAS (its own rise, computed exactly) one render quantum after a
+  cancelAndHold, so nothing steps. tests/reverb-swap-render.mjs renders it
+  through real convolvers against the v0.0.293 schedule (two linear 0.5 s ramps).
 - harmony.rhythm: 'auto' | 'section' | 1..16 bars-per-chord (hook pass length
   adapts). v0.0.77 widened this from the Auto/1/2/4/8 whitelist: 3, 5, 6 and 12
   bars are ordinary chord lengths that the whitelist had no room for, and a
