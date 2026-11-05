@@ -1,10 +1,9 @@
 /**
  * v0.0.195 — the voice rule: the first Now / Chance / Pool (his report:
  * Synthwave's melody kept moving to Organ stab and nothing could stop it).
- * PARKED in tests/pending until the Mac test bridge key is restored
- * (fromClaude 13); then:
+ * Promoted from tests/pending on 2026-11-05, once the test bridge was back:
  *
- *   npm run build && .vibe/measure.sh local drive tests/pending/voice-rule-drive.mjs
+ *   npm run build && .vibe/measure.sh local drive tests/voice-rule-drive.mjs
  *
  * tests/voice-rule-smoke.mjs proves the rule at the engine directly; this is
  * the real-browser half — the Voice chance KNOB (keyboard, per knob.js's own
@@ -52,31 +51,49 @@ export default async function drive(page) {
 
   await page.click('#tab-advanced');
   await page.waitForTimeout(300);
-  await page.click('#voice-edit-toggle-melody');
-  await page.waitForSelector('#voice-editor-melody .vary-row');
+  if (await page.locator('#voice-editor-melody').isHidden()) await page.click('#voice-edit-toggle-melody');
+  // Since v0.0.196 the voice rule is the Now / Chance / Pool primitive
+  // (src/scripts/rule-control.js): the knob is mounted in its Chance layer,
+  // and at the default level (Advanced) the Pool layer is folded behind the
+  // rule's own "more" — the in-place expand, pressed here as a person would.
+  const RULE = '#voice-editor-melody .rule[data-rule="voice"]';
+  await page.waitForSelector(`${RULE} .rule-chance-slot .knob`);
   await page.waitForTimeout(300);
+  // A rebuild of the editor (a voice change, a level change) folds the rule
+  // back to its level, so this runs again before the Pool is pressed.
+  const openPoolLayer = async () => {
+    for (let i = 0; i < 3; i += 1) {
+      const poolHidden = await page.evaluate((sel) => document.querySelector(`${sel} .rule-pool`)?.hidden !== false, RULE);
+      if (!poolHidden) return;
+      const more = page.locator(`${RULE} .rule-more`);
+      if (!(await more.isVisible())) return;
+      await more.scrollIntoViewIfNeeded();
+      await more.click();
+      await page.waitForTimeout(150);
+    }
+  };
+  await openPoolLayer();
+  check('the voice rule\'s Pool layer is open', await page.locator('#voice-rule-pool-melody').isVisible(), true);
 
   const voiceKnob = () => page.locator('#voice-editor-melody .knob[aria-label="Voice chance"]');
-  check('the Randomise row has a Voice chance knob', await voiceKnob().count(), 1);
+  check('the voice rule has a Voice chance knob', await voiceKnob().count(), 1);
 
-  // ---- Layout: the When select and Pool button sit BESIDE the knob, on
-  // the same row, and never overlap the next vary-knob cell (Volume). ----
-  const rowShape = await page.evaluate(() => {
-    // .vary-knob cells in DOM order: [0] the Voice chance knob itself,
-    // [1] appendVoiceRuleControls' own wrap (When + Pool — also classed
-    // vary-knob, so it is NOT "the next cell"), [2] the Volume knob.
-    const cells = [...document.querySelectorAll('#voice-editor-melody .vary-row .vary-knob')];
-    const voice = cells[0]?.getBoundingClientRect();
-    const when = document.querySelector('#voice-editor-melody .voice-rule-when')?.getBoundingClientRect();
-    const pool = document.querySelector('#voice-editor-melody .voice-rule-pool')?.getBoundingClientRect();
-    const next = cells[2]?.getBoundingClientRect(); // the Volume knob's cell
-    return { voice, when, pool, next };
-  });
+  // ---- Layout: the When select sits BESIDE the knob, on the Chance
+  // layer's own row, and the Pool layer's Edit… paints over neither. ----
+  const rowShape = await page.evaluate((sel) => {
+    const box = (el) => (el ? el.getBoundingClientRect().toJSON() : null);
+    const rule = document.querySelector(sel);
+    return {
+      voice: box(rule?.querySelector('.rule-chance-slot .knob')),
+      when: box(document.getElementById('voice-rule-when-melody')),
+      pool: box(document.getElementById('voice-rule-pool-melody')),
+    };
+  }, RULE);
   const sameRow = (a, b) => !!a && !!b && a.top < b.bottom && a.bottom > b.top;
   check('the When selector sits on the Voice chance knob\'s own row', sameRow(rowShape.voice, rowShape.when), (v) => v === true);
-  check('…so does the Pool button', sameRow(rowShape.voice, rowShape.pool), (v) => v === true);
   const overlaps = (a, b) => !!a && !!b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-  check('the voice-rule controls do not paint over the next knob cell', overlaps(rowShape.pool, rowShape.next), (v) => v === false);
+  check('the Pool button paints over neither the knob nor the When selector',
+    !!rowShape.pool && (overlaps(rowShape.pool, rowShape.voice) || overlaps(rowShape.pool, rowShape.when)), (v) => v === false);
 
   await voiceKnob().scrollIntoViewIfNeeded();
   await voiceKnob().focus();
@@ -125,7 +142,9 @@ export default async function drive(page) {
   await page.waitForTimeout(300);
 
   // ---- Pool editor: remove Organ stab, choose In turn, Done ---------------
-  await page.click('#voice-rule-pool-melody');
+  await openPoolLayer();
+  check('the Pool layer is still open when its Edit… is pressed', await page.locator('#voice-rule-pool-melody').isVisible(), true);
+  await page.click('#voice-rule-pool-melody', { timeout: 10000 });
   await page.waitForSelector('#voice-blend-editor');
   await page.waitForTimeout(250);
 

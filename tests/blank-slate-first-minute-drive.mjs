@@ -1,9 +1,9 @@
 /**
  * v0.0.194 — the Blank slate first minute (his report: "I tried blank slate
- * and then entering a melody and got nothing"). PARKED in tests/pending until
- * the Mac test bridge key is restored (fromClaude 13); then:
+ * and then entering a melody and got nothing"). Promoted from tests/pending
+ * on 2026-11-05, once the test bridge was back:
  *
- *   npm run build && .vibe/measure.sh local drive tests/pending/blank-slate-first-minute-drive.mjs
+ *   npm run build && .vibe/measure.sh local drive tests/blank-slate-first-minute-drive.mjs
  *
  * tests/blank-slate-sounds.mjs already proves this in jsdom with a fake
  * AudioContext; this is the real-browser half — a real pointer tap on a real
@@ -38,6 +38,19 @@ export default async function drive(page) {
   const panelHidden = () => page.evaluate(() => document.getElementById('play-along')?.hidden !== false);
   const openPanel = async () => { if (await panelHidden()) { await page.click('#play-along-open'); await page.waitForTimeout(250); } };
   const closePanel = async () => { if (!(await panelHidden())) { await page.click('#play-along-open'); await page.waitForTimeout(150); } };
+
+  // Play's second face is Finish, which starts an ~8 s outro with the engine
+  // still running; a second press (now reading Stop) cuts it short. A single
+  // press used to stop, so a scenario after it found the piece still playing.
+  const stopNow = async () => {
+    for (let i = 0; i < 2; i += 1) {
+      if (!(await page.evaluate(() => window.__ambi4Engine.running === true))) break;
+      await page.click('#toggle-play').catch(() => {});
+      await page.waitForTimeout(250);
+    }
+    await page.waitForFunction(() => window.__ambi4Engine.running !== true, { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(150);
+  };
 
   // ---- Scenario 1: Blank slate, tap the Bass grid, Play -------------------
   await openPanel();
@@ -85,13 +98,21 @@ export default async function drive(page) {
     .then(() => true)
     .catch(() => false);
   check('a tapped Bass step actually sounds within one bar of Play', gotBassNote, (v) => v === true);
-  await page.click('#toggle-play').catch(() => {});
+  await stopNow();
   await page.waitForTimeout(300);
 
   // ---- Scenario 2: Blank slate again, type onto Bass, Write it ------------
   await openPanel();
   await page.click('#create-blank');
   await page.waitForTimeout(400);
+
+  // Since the Create rebuild the popover is two doors, Start and Write…, and
+  // the melody row is hidden until Write… is set to Melody: choose it as a
+  // person would, through the select, and read the row back.
+  await page.selectOption('#create-write', 'melody');
+  await page.waitForTimeout(150);
+  check('Write… set to Melody opens the melody row',
+    await page.locator('.create-melody-row[data-write="melody"]').isVisible(), true);
 
   // The picker's "onto" label must be VISIBLE (v0.0.194: it used to be
   // invisible, so nobody could tell Write it would land on their chosen
@@ -118,7 +139,7 @@ export default async function drive(page) {
   // Layout: the row holding the picker must not have wrapped taller than the
   // button that sits beside it (≤ 1.5× the button's own height).
   const rowShape = await page.evaluate(() => {
-    const row = document.querySelector('.create-melody-row');
+    const row = document.querySelector('.create-melody-row[data-write="melody"]');
     const btn = document.getElementById('compose-melody-write');
     if (!row || !btn) return null;
     return { rowH: row.getBoundingClientRect().height, btnH: btn.getBoundingClientRect().height };
@@ -158,7 +179,7 @@ export default async function drive(page) {
   const tooltip = await page.evaluate(() => document.querySelector('.ui-tooltip')?.textContent || '');
   check('Write it\'s tooltip names the instrument the picker points at (bass)', /bass/i.test(tooltip), (v) => v === true);
 
-  await page.click('#toggle-play').catch(() => {});
+  await stopNow();
   await page.waitForTimeout(300);
 
   // ---- Scenario 3: a track switched on with an EMPTY grid stays staged ----
@@ -194,7 +215,7 @@ export default async function drive(page) {
   const afterBar2 = await page.evaluate(() => document.getElementById('transport-status')?.textContent || '');
   check('by bar 2 the staged notice for Melody is gone', /Melody enters in/.test(afterBar2), (v) => v === false);
 
-  await page.click('#toggle-play').catch(() => {});
+  await stopNow();
   await page.waitForTimeout(200);
 
   const failed = results.filter((r) => !r.ok);

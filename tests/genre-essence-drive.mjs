@@ -1,8 +1,7 @@
 /**
  * The genre's essence is on screen as CONTROLS, and a gesture on them reaches
- * the ENGINE (unit 10 of docs/synthesis-programme.md, v0.0.178). PARKED in
- * tests/pending until the Mac test bridge key is restored (fromClaude 13);
- * then:
+ * the ENGINE (unit 10 of docs/synthesis-programme.md, v0.0.178). Promoted
+ * from tests/pending on 2026-11-05, once the test bridge was back:
  *
  *   npm run build && .vibe/measure.sh local drive tests/genre-essence-drive.mjs
  *
@@ -24,7 +23,7 @@ export default async function drive(page) {
   await page.click('#consent-slot button:has-text("Save on this device")').catch(() => {});
   await page.waitForTimeout(200);
 
-  await page.selectOption('#genre-select', 'synthwave');
+  await page.selectOption('#genre-select', 'g:synthwave');
   await page.waitForFunction(() => window.__ambi4Engine?.getParams().genre === 'synthwave');
   await page.click('#genre-rules-toggle');
   await page.waitForSelector('#genre-rules:not([hidden])');
@@ -35,6 +34,12 @@ export default async function drive(page) {
   const box = await dial.boundingBox();
   check('the Tempo dial renders', !!box, true);
   if (box) {
+    const readSpan = () => page.evaluate(() => {
+      const el = document.querySelector('#genre-rules-tempo-ui .rules-dial[data-field="essence.bpm"] .knob-value');
+      const nums = (el?.textContent || '').match(/\d+(\.\d+)?/g)?.map(Number) || [];
+      return { text: el ? el.textContent : null, lo: nums[0], hi: nums.length > 1 ? nums[1] : nums[0] };
+    });
+    const spanBefore = await readSpan();
     const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
     await page.mouse.move(cx, cy);
@@ -44,11 +49,11 @@ export default async function drive(page) {
     await page.click('#genre-rules-apply');
     await page.waitForTimeout(300);
     const bpm = await page.evaluate(() => window.__ambi4Engine.getParams().bpm);
-    const span = await page.evaluate(() => {
-      const el = document.querySelector('#genre-rules-tempo-ui .rules-dial[data-field="essence.bpm"] .knob-value');
-      return el ? el.textContent : null;
-    });
-    check('a sideways drag opened a tempo span and Apply drew inside it', { bpm, span }, ({ bpm: b, span: s }) => Number.isFinite(b) && typeof s === 'string' && /\d+.*\d+/.test(s));
+    const span = await readSpan();
+    check('a sideways drag widened the tempo span', { before: spanBefore, after: span },
+      ({ before: b, after: a }) => Number.isFinite(a.lo) && Number.isFinite(a.hi) && a.hi > a.lo && (a.hi - a.lo) > (b.hi - b.lo));
+    check('Apply drew the ENGINE\'s bpm from inside the span', { bpm, span },
+      ({ bpm: b, span: s }) => Number.isFinite(b) && b >= s.lo && b <= s.hi);
   }
 
   // The metre rows: keep one, set it to 3/4, remove the rest, Apply.

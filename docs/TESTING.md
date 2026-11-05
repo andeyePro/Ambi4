@@ -1223,7 +1223,7 @@ found four reasons, all of them now closed on the Node gate
       1 bar · Melody enters in 2 bars …" and the entries drop off as each track
       comes in. A hand-written track is never listed.
 - [ ] Automated: `npm run build && node tests/all.mjs` — blank-slate-sounds is
-      the gate; the browser drive is `tests/pending/blank-slate-first-minute-drive.mjs`. Stock genres and every stored piece are unchanged:
+      the gate; the browser drive is `tests/blank-slate-first-minute-drive.mjs` (promoted 2026-11-05). Stock genres and every stored piece are unchanged:
       a sequencer only carries `hand` when a person wrote it.
 
 ## v0.0.195 delta — the voice rule, the first Now / Chance / Pool (2026-09-25)
@@ -1256,8 +1256,9 @@ owed to the bridge key (fromClaude 13).
       voice-rule-smoke (the engine: 8 checks, 6 red on the old engine) and
       voice-rule-page (the built page in jsdom: the knob to Hold, 8 bars on
       Keys, Next keeps it, the Pool editor, When, "· drawn", a pick holds,
-      Blank slate zeroes). Browser drives parked in `tests/pending/`:
-      blank-slate-first-minute-drive and voice-rule-drive (fromClaude 13).
+      Blank slate zeroes). Browser drives: blank-slate-first-minute-drive
+      and voice-rule-drive (parked for fromClaude 13, promoted to `tests/`
+      on 2026-11-05).
 
 ## v0.0.196 delta — the rule primitive (2026-09-25)
 
