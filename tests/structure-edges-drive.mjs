@@ -152,6 +152,26 @@ export default async function drive(page) {
   check('…and its instrument buttons name the new section', /section C\b/.test(relabelled.buttonTitle), (v) => v === true);
   info('button title after relabel', relabelled.buttonTitle);
 
+  // v0.0.289: a relabel from the KEYBOARD keeps the focus. The repaint
+  // replaces the select, and on v0.0.288 focus fell to <body>, so Tab
+  // restarted from the top of the page.
+  // (The change is dispatched on the FOCUSED select rather than by
+  // ArrowDown: on macOS Chromium an arrow opens the popup instead of
+  // changing the value, which would test the platform, not the page.)
+  await page.focus('.structure-block:nth-child(2) select');
+  await page.evaluate(() => {
+    const sel = document.activeElement;
+    sel.value = sel.value === 'D' ? 'A' : 'D';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(200);
+  const kept = await page.evaluate(() => ({
+    label: document.activeElement && document.activeElement.getAttribute('aria-label'),
+    engine: window.__ambi4Engine.getParams().customStructure[1].label,
+  }));
+  check('a keyboard relabel keeps the focus on that block\u2019s label', kept.label, 'Block 2 label');
+  info('block 2 label after ArrowDown', kept.engine);
+
   // Instrument states on a block other than the first, and a reorder.
   await page.click('.structure-block:nth-child(3) .block-track:nth-of-type(2)');
   await page.click('.structure-block:nth-child(3) .block-track:nth-of-type(2)');
@@ -377,7 +397,7 @@ export default async function drive(page) {
   check('a multi-track file imports', /Imported/.test(multi.tip), (v) => v === true);
   check('…the higher part wins where the parts share a step', multi.notes[0], [72, 74, 76]);
   check('…the report says notes shared a step', /shared a step/.test(multi.tip), (v) => v === true);
-  check('…and that the file had several tracks, merged onto one grid', /\b(two|three|2|3) (note )?tracks\b/i.test(multi.tip) || /several tracks/i.test(multi.tip), (v) => v === true);
+  check('…and that the file had several parts (its MIDI tracks, not Ambi4 tracks), merged onto one grid', /\b(two|three|2|3) parts\b/i.test(multi.tip) && /MIDI tracks/.test(multi.tip), (v) => v === true);
   check('…and names the file’s metre against the piece’s', /3\/4/.test(multi.tip), (v) => v === true);
   info('multi-track tip', multi.tip);
   // Forty bars of notes: eight land, the rest are counted out loud.

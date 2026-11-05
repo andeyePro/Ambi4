@@ -4236,6 +4236,21 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // read lazily is enough — the same pattern as onSettingsCommitted.
       let onStoreRefused = null;
       let storeRefusedSaid = false;
+      // v0.0.289: the refusal is news only about something the visitor DID. A
+      // write the boot makes on its own (a migration, a cleaned list) is not
+      // theirs, and the notice used to greet a full store before any click.
+      // Set by the first trusted press or key, never cleared.
+      let storeUserActed = false;
+      try {
+        const markActed = (ev) => {
+          if (ev && ev.isTrusted === false) return;
+          storeUserActed = true;
+          document.removeEventListener('pointerdown', markActed, true);
+          document.removeEventListener('keydown', markActed, true);
+        };
+        document.addEventListener('pointerdown', markActed, true);
+        document.addEventListener('keydown', markActed, true);
+      } catch {}
 
       function persistKey(key, value) {
         // prefs.set without consent writes to session memory and returns
@@ -4256,10 +4271,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // so it says so once per streak of refusals and the next write that
           // lands re-arms it; a deliberate Save (layout, voice, genre) says so
           // every time. Presets say their own, by name, in the Save handler.
-          if (kept) storeRefusedSaid = false;
-          else if (key !== 'presets' && (key !== 'generator' || !storeRefusedSaid)) {
+          // Only the settings write itself re-arms the settings notice: a
+          // small key (a pin, the hidden list) landing while the big one
+          // still fails proves nothing about room, and re-arming on it let
+          // the notice repeat on every drag (review, 2026-10-30).
+          if (kept) {
+            if (key === 'generator') storeRefusedSaid = false;
+          } else if (key !== 'presets' && storeUserActed && (key !== 'generator' || !storeRefusedSaid)) {
             if (key === 'generator') storeRefusedSaid = true;
-            if (onStoreRefused) onStoreRefused();
+            if (onStoreRefused) onStoreRefused(key);
           }
           return kept;
         }
@@ -6031,9 +6051,38 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // only gesture — a pointerenter from a finger is ignored, or the tap
         // that follows would close what the touch had just opened.
         let pinned = false;
+        // v0.0.289: on a phone a box inside a popover is position:fixed (so
+        // it cannot run off the screen), which also means it stays put while
+        // the popover scrolls under it and ends up beside some other control
+        // (review, 2026-10-30). Scrolling that popover closes it, the way a
+        // tooltip goes when its anchor moves.
+        let scroller = null;
+        let openedAt = 0;
+        // A few pixels are not the popover scrolling — a tap's own focus
+        // can nudge it — so only a real scroll away from where it opened.
+        const closeOnScroll = () => {
+          if (scroller && Math.abs(scroller.scrollTop - openedAt) < 8) return;
+          pinned = false;
+          show(false);
+        };
         const show = (open) => {
           box.hidden = !open;
           btn.setAttribute('aria-expanded', String(open));
+          if (scroller) {
+            scroller.removeEventListener('scroll', closeOnScroll);
+            scroller = null;
+          }
+          if (!open || box.classList.contains('info-box-docked')) return;
+          const pop = wrap.closest('.popover');
+          if (!pop) return;
+          let fixed = false;
+          try {
+            fixed = getComputedStyle(box).position === 'fixed';
+          } catch {}
+          if (!fixed) return;
+          scroller = pop;
+          openedAt = pop.scrollTop;
+          pop.addEventListener('scroll', closeOnScroll, { passive: true });
         };
         const isMouse = (event) => !event.pointerType || event.pointerType === 'mouse';
         wrap.addEventListener('pointerenter', (event) => {
@@ -6593,12 +6642,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }, ms);
       }
 
-      onStoreRefused = () =>
-        sayUnderDials(
-          'That change lasts this visit only \u2014 this device\u2019s storage refused it (full, or locked by a private window), so nothing new is being kept. Delete a preset or a layout to make room, then move it again.',
-          9000,
-          { hold: true }
-        );
+      // Worded for what was refused: the settings funnel is a dial or a
+      // switch moved; voices, genres and layouts are a Save pressed; the
+      // hidden list and the genre picker's own choices are a pin, a hide or a
+      // favourite. Each lasts the visit either way (session memory).
+      onStoreRefused = (key) => {
+        const why = '\u2014 this device\u2019s storage refused it (full, or locked by a private window). Delete a preset or a layout to make room, then ';
+        const text =
+          key === 'generator'
+            ? 'That change lasts this visit only ' + why + 'move it again.'
+            : key === 'voices' || key === 'genres' || key === 'layout'
+              ? 'Not saved on this device \u2014 it lasts this visit only ' + why + 'save it again.'
+              : 'That choice lasts this visit only ' + why + 'make it again.';
+        sayUnderDials(text, 9000, { hold: true });
+      };
 
       /**
        * v0.0.57: the first time a spread is opened on the SIMPLE tab, say what
@@ -19146,7 +19203,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // The instrument buttons beside it name the section ("Pad in
             // section A"); a relabel without a repaint left them naming the
             // old letter (tests/structure-edges-drive.mjs).
+            const hadFocus = document.activeElement === labelSelect;
             renderStructureBlocks();
+            // The repaint replaced this select, so a keyboard user who
+            // relabelled with the arrows was left focused on nothing and
+            // Tab restarted from the top of the page (review, 2026-10-30).
+            if (hadFocus) {
+              const again = structureBlocks.querySelector(`select[aria-label="Block ${index + 1} label"]`);
+              if (again) again.focus();
+            }
           });
 
           // v0.0.97: the optional title — B can double as "bridge", C as
@@ -23217,7 +23282,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // or "notes shared a step" is a mystery (tests/structure-edges-drive.mjs).
           const partsWithNotes = parsed.tracks.filter((part) => part.notes.length).length;
           if (partsWithNotes > 1) {
-            notes.push(`The file has ${partsWithNotes} tracks with notes in them; all of them landed on this one grid.`);
+            notes.push(`The file has ${partsWithNotes} parts with notes in them (its own MIDI tracks); all of them landed on this one grid.`);
           }
           if (parsed.tempoBpm) notes.push(`The file says ${parsed.tempoBpm} bpm.`);
           if (parsed.timeSignature && parsed.timeSignature !== settings.timeSignature) {
@@ -23234,7 +23299,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         });
         describe(
           document.querySelector('.create-midi-label'),
-          'Import a MIDI file you composed elsewhere. Its notes \u2014 every track\u2019s, merged \u2014 land on the chosen instrument\u2019s grid as pinned steps at the grid\u2019s current resolution, one bar per tab played in order, and anything that could not fit is reported.'
+          'Import a MIDI file you composed elsewhere. Its notes \u2014 every part\u2019s in the file, merged \u2014 land on the chosen instrument\u2019s grid as pinned steps at the grid\u2019s current resolution, one bar per tab played in order, and anything that could not fit is reported.'
         );
 
         const melodyText = document.getElementById('compose-melody-text');
@@ -26815,7 +26880,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     .tracks-head { margin-bottom: 12px; }
     .tracks-head > .tracks-heading { margin: 0; }
     /* The Processor title sits at the right edge: its box opens leftward. */
-    .head-info-end .info-box { left: auto; right: 0; }
+    /* Its anchor sits ~33 px in from the right edge, so the 16 px inset the
+       general max-width assumes put the box's left border 1 px off a phone's
+       screen (v0.0.289). Room for the anchor's inset plus a 16 px gutter. */
+    .head-info-end .info-box { left: auto; right: 0; max-width: min(360px, calc(100vw - 52px)); }
     .ve-more-row { display: flex; align-items: center; gap: 4px; margin: 4px 0 10px; }
     .ve-more-row > .ve-more { margin: 0; }
 

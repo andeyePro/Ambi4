@@ -426,6 +426,32 @@ export default async function drive(harnessPage) {
         if (pbox) {
           check(`${P} …and its box is readable on screen (not past the screen's edge, not clipped by the popover)`, pbox.left >= 0 && pbox.right <= pbox.vw && pbox.popScrollW <= pbox.popClientW + 1, (v) => v === true);
           check(`${P} …under its ⓘ, not over it`, pbox.iBottom != null && pbox.top >= pbox.iBottom - 2, (v) => v === true);
+          // v0.0.289: the box is fixed, so a popover that scrolls under it
+          // would leave it beside some other control. Scrolling closes it.
+          const scrolled = await page.evaluate(async () => {
+            const p = document.getElementById('play-along');
+            // A tall phone may show the whole popover; cap it the way a
+            // short one would, so the scroll this proves can happen at all.
+            if (p.scrollHeight - p.clientHeight < 16) { p.dataset.testCapped = '1'; p.style.maxHeight = '240px'; p.style.overflowY = 'auto'; }
+            const room = p.scrollHeight - p.clientHeight;
+            if (room < 16) return `no room to scroll (${room}px)`;
+            p.dataset.testScrollTop = String(p.scrollTop);
+            const by = Math.min(40, room);
+            p.scrollTop = p.scrollTop + by <= room ? p.scrollTop + by : p.scrollTop - by;
+            await new Promise((r) => setTimeout(r, 150));
+            return ![...p.querySelectorAll('.info-box')].some((e) => !e.hidden && e.getClientRects().length);
+          });
+          notes.push({ P, popoverInfoScroll: scrolled });
+          if (!String(scrolled).startsWith('no room')) {
+            check(`${P} …and scrolling the popover closes it`, scrolled, true);
+            await page.evaluate(() => {
+              const p = document.getElementById('play-along');
+              if (p.dataset.testCapped) { p.style.maxHeight = ''; p.style.overflowY = ''; delete p.dataset.testCapped; }
+              p.scrollTop = Number(p.dataset.testScrollTop) || 0;
+            });
+            await tap(cdp, ...at(popInfo));
+            await page.waitForTimeout(300);
+          }
           await tap(cdp, ...at(popInfo));
           await page.waitForTimeout(200);
           check(`${P} …and the ⓘ is still reachable to close it`, await page.evaluate(() => ![...document.querySelectorAll('#play-along .info-box')].some((e) => !e.hidden && e.getClientRects().length)), true);
@@ -467,10 +493,11 @@ export default async function drive(harnessPage) {
       check(`${P} an ⓘ opens its box by touch`, !!box, (v) => v === true);
       if (box) {
         check(`${P} …beside the ⓘ, not docked (the panel is for wide screens)`, box.docked, false);
-        // -1 is tolerated and named: the Processor ⓘ's box is right-aligned
-        // to an anchor 33 px in from the edge, and its max-width assumes a
-        // 16 px inset — the 1 px that overhangs is its own left border.
-        check(`${P} …inside the screen's width (the ⓘ box; 1 px of border tolerated)`, box.left >= -1 && box.right <= box.vw && box.sw <= box.vw, (v) => v === true);
+        // v0.0.289: no tolerance. The Processor ⓘ's box is right-aligned to
+        // an anchor 33 px in from the edge and used to overhang by its own
+        // left border (left -1 at 390 and 360); its max-width now allows for
+        // the anchor's inset.
+        check(`${P} …inside the screen's width (the ⓘ box)`, box.left >= 0 && box.right <= box.vw && box.sw <= box.vw, (v) => v === true);
         await tap(cdp, ...at(infoBtn));
         await page.waitForTimeout(250);
         check(`${P} …and a second tap closes it`, await page.evaluate(() => ![...document.querySelectorAll('.info-box')].some((e) => !e.hidden && e.getClientRects().length)), true);

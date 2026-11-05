@@ -1630,8 +1630,11 @@ Storage and links
       `for (let i = 0; ; i++) localStorage.setItem('x' + i, 'y'.repeat(1e6))`
       until it throws), then move a dial: the line under the dials says the
       change lasts this visit only and why (full, or a private window). Save a
-      preset: it says the preset is listed for this visit only. Remove the
-      junk keys afterwards.
+      preset: it says the preset is listed for this visit only. Save a voice:
+      the line says Not saved on this device. Pin a dial: That choice lasts
+      this visit only. Move the dial again: no second line (one per streak).
+      Reload with the store still full and touch nothing: no line at all.
+      Remove the junk keys afterwards.
 - [ ] Consented window with a setup of your own: open someone's share link in
       the same browser, do not Save, then open `/` plain — your own setup is
       back. The link's setup reaches the store only when you Save.
