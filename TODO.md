@@ -101,7 +101,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 - [x] *(SHIPPED v0.0.274)* Pause/resume fade, Reverb tail drag (per-fade retirement + rest debounce), Firefox legato refusal, outro hold, fallback voice cancel.
 - [x] *(SHIPPED v0.0.294 — tests/reverb-swap-render.mjs)* Each reverb swap dipped the wet level, and the first swap of a session collapsed it 17–21 dB (cancelAndHold on a return with no automation events); now an equal-power swap with the outgoing tail fading over min(its tail, 2 s): ≤0.02 dB.
-- [ ] The rig's CANCEL_FADE (50 ms exponential to 1e-4) loses ~8 dB in its first 5 ms, under a quarter cycle of a 40 Hz sub: continuous, but may thump on bass. Measure a sub-bass cancel with onset-render tooling before changing it.
+- [x] *(MEASURED 2026-11-05, no change)* The rig's CANCEL_FADE (50 ms exponential to 1e-4) on a 40 Hz sub cancelled at a peak, offline in Chromium: energy above 120 Hz over the 200 ms around the cancel, against the note's level, is −42.8 dB — under the −40.0 dB the same sub carries with no cancel at all, so the cancel adds no burst; a 50 ms raised-cosine would read −47.3 dB (cleaner, not needed). onset-render's steepness law already passes every voice's cancel.
 
 ## Share round trip, 2026-10-30
 
