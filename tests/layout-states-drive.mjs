@@ -18,7 +18,12 @@
  *   viewports  1280×900 · 1024×768 · 768×1024 · 390×844 · 360×740
  *   themes     light · dark
  *
- * and three more checks the sweeps do not make: no horizontal page scroll (a
+ * and four more checks the sweeps do not make: no ORPHAN (v0.0.297: every
+ * visible label[for] and aria-labelledby pair is measured box to box, and one
+ * more than 48 px down or 160 px across from its control, outside a shared
+ * .control block and not a tab naming its panel, fails — the general sweep
+ * behind v0.0.96's Processor fix; the widest separations are returned), no
+ * horizontal page scroll (a
  * page wider than its viewport pans sideways under a thumb — at 390 wide the
  * genre row's processor readout measured the page at 468px, v0.0.284), tap
  * targets at least 24 px in both dimensions at the phone widths (WCAG 2.5.8)
@@ -186,7 +191,46 @@ const SWEEPS = (PRIMARY) => {
     }
   }
 
+  // v0.0.297: the no-orphan sweep (TODO, layout backlog). A label and the
+  // control it names must sit together: every visible <label for> and every
+  // aria-labelledby pair, measured box to box. A gap is reported in px.
+  const orphans = [];
+  const pairs = [];
+  for (const l of document.querySelectorAll('label[for]')) {
+    const c = document.getElementById(l.getAttribute('for'));
+    if (c && !c.contains(l)) pairs.push([l, c]);
+  }
+  for (const c of document.querySelectorAll('[aria-labelledby]')) {
+    for (const id of c.getAttribute('aria-labelledby').split(/\s+/)) {
+      const l = document.getElementById(id);
+      if (l && !c.contains(l) && !l.contains(c)) pairs.push([l, c]);
+    }
+  }
+  const seenPair = new Set();
+  for (const [l, c] of pairs) {
+    if (hiddenBy(l) || hiddenBy(c)) continue;
+    const lcs = getComputedStyle(l), ccs = getComputedStyle(c);
+    if (!shown(lcs) || !shown(ccs)) continue;
+    const a = l.getBoundingClientRect(), b = c.getBoundingClientRect();
+    if (a.width < 1 || a.height < 1 || b.width < 1 || b.height < 1) continue;
+    // A visually hidden label (clip, 1px) is for a screen reader, not the eye.
+    if (a.width <= 2 && a.height <= 2) continue;
+    const key = selOf(l) + '>' + selOf(c);
+    if (seenPair.has(key)) continue;
+    seenPair.add(key);
+    const dx = Math.max(0, a.left - b.right, b.left - a.right);
+    const dy = Math.max(0, a.top - b.bottom, b.top - a.bottom);
+    // Far apart AND not one block: a label heading its own .control block
+    // (Chords over the chip editor and the typed box) is a section label, and
+    // a tab naming its panel is the tablist pattern; neither is an orphan.
+    const far = dy > 48 || dx > 160;
+    const oneBlock = !!(l.closest('.control') && l.closest('.control').contains(c));
+    const tab = l.getAttribute('role') === 'tab';
+    orphans.push({ dx: Math.round(dx), dy: Math.round(dy), orphan: far && !oneBlock && !tab, label: (l.textContent || '').trim().slice(0, 30), labelSel: selOf(l), controlSel: selOf(c) });
+  }
+
   return {
+    orphans: orphans.filter((o) => o.dx > 0 || o.dy > 0).sort((p, q) => (q.dx + q.dy) - (p.dx + p.dy)),
     collisions: collisions.sort((p, q) => q.ox * q.oy - p.ox * p.oy),
     overflows: overflows.sort((p, q) => q.over - p.over),
     clipped: clipped.sort((p, q) => q.clippedBy - p.clippedBy),
@@ -238,6 +282,7 @@ export default async function drive(page) {
     return r.width > 0 && r.height > 0;
   }, sel);
 
+  const orphanSeen = [];
   for (const theme of THEMES) {
     await page.emulateMedia({ colorScheme: theme });
     for (const [w, h] of VIEWPORTS) {
@@ -259,6 +304,8 @@ export default async function drive(page) {
           for (const c of r.collisions) note(where, 'collision', c);
           for (const o of r.overflows) note(where, 'overflow', o);
           for (const c of r.clipped) note(where, 'clipped', c);
+          orphanSeen.push(...r.orphans.map((o) => ({ where, ...o })));
+          for (const o of r.orphans) if (o.orphan) note(where, 'orphan', o);
           if (r.scrollWidth > r.innerWidth + 1) note(where, 'horizontal-scroll', { scrollWidth: r.scrollWidth, innerWidth: r.innerWidth });
           if (PHONE(w)) {
             for (const s of r.small) note(where, 'tap-target', s);
@@ -283,6 +330,14 @@ export default async function drive(page) {
     }
   }
 
+  // Measurement first: the widest separations, per pair, across every state.
+  const worstOrphans = {};
+  for (const o of orphanSeen) {
+    const k = o.labelSel + ' > ' + o.controlSel;
+    if (!worstOrphans[k] || o.dx + o.dy > worstOrphans[k].dx + worstOrphans[k].dy) worstOrphans[k] = o;
+  }
+  const separations = Object.values(worstOrphans).sort((p, q) => (q.dx + q.dy) - (p.dx + p.dy)).slice(0, 12);
+
   const pageErrors = errors.filter((e) => !/favicon|net::ERR_|Failed to load resource/.test(e));
 
   if (findings.length || pageErrors.length) {
@@ -297,6 +352,6 @@ export default async function drive(page) {
       '\n  secondary targets under 24px (advisory): ' + JSON.stringify(advisory),
     );
   }
-  return { passed: swept.length, states: STATES.length, viewports: VIEWPORTS.length, themes: THEMES.length,
+  return { separations, passed: swept.length, states: STATES.length, viewports: VIEWPORTS.length, themes: THEMES.length,
     notes: ['secondary targets under 24px at phone widths (advisory, not failed): ' + JSON.stringify(advisory)] };
 }
