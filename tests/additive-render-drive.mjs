@@ -1,7 +1,7 @@
 /**
  * The Additive section, measured from a REAL offline render (unit 5 of
- * docs/synthesis-programme.md). PARKED in tests/pending until the Mac test
- * bridge key is restored (fromClaude 13); then:
+ * docs/synthesis-programme.md). Promoted from tests/pending on
+ * 2026-11-05, once the test bridge was back:
  *
  *   npm run build && .vibe/measure.sh local drive tests/additive-render-drive.mjs
  *

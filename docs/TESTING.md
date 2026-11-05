@@ -200,6 +200,8 @@ a sweep that cries wolf is a sweep that stops being run.
 | undo-everywhere-drive | 72 actions, each diffed at the page store and the engine before, after ⌘Z and after ⇧⌘Z; a no-change gesture leaves no entry; ~9 min |
 | share-browser-drive, presets-drive | a minted link re-opened and compared at the engine, every path; presets save/overwrite/load/delete/caps/full storage |
 | chosen-drive, pitch-drive, section-drive | the grid's engine readouts |
+| additive-render-drive, fm-render-drive, modal-render-drive | the Additive, FM and Modal sections measured from real offline renders (promoted from tests/pending 2026-11-05) |
+| user-genre-drive, user-voice-drive | a genre and a voice of your own survive closing the tab (promoted from tests/pending 2026-11-05) |
 | reverb-swap-render | a reverb tail swap through real convolvers, offline: the wet level through one swap each way and a tail swapping every 2 s, against the old schedule |
 | loudness-drive, scope-drive, fullscreenbar-drive, driftshape-drive | output level, scope, fullscreen chrome, spread shapes |
 

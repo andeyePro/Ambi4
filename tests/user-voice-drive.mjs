@@ -1,7 +1,7 @@
 /**
  * A voice of the person's own survives closing the tab (unit 8 of
- * docs/synthesis-programme.md, v0.0.182). PARKED in tests/pending until the
- * Mac test bridge key is restored (fromClaude 13); then:
+ * docs/synthesis-programme.md, v0.0.182). Promoted from tests/pending on 2026-11-05, once
+ * the test bridge was back:
  *
  *   npm run build && .vibe/measure.sh local drive tests/user-voice-drive.mjs
  *
