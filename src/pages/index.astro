@@ -7070,6 +7070,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         : null;
 
       describeDial(volumeDial, dialHint('Loud', 'Quiet', null, null, 'Vary the level'));
+      // v0.0.292: the two views read in different units, and so does what you
+      // TYPE into them — a percentage on Simple, decibels down here. "73"
+      // typed here is 73 dB down, all but silence; say so where it is typed.
+      // (volumeAdv is block-scoped where it is built; find its view by place.)
+      const volumeAdvEl = (volumeDial && volumeDial.els ? volumeDial.els : []).find((el) => el && el.closest && el.closest('#volume-dial-adv'));
+      if (volumeAdvEl) {
+        describe(volumeAdvEl, dialHint('Loud', 'Quiet', null,
+          'Reads in decibels below full. Click the number to type one: it is decibels DOWN, so 6 is 6 dB quieter and 40 is close to silence (Volume on Simple takes a percentage instead).',
+          'Vary the level'), { replace: true });
+      }
 
       // ---- v14 Swing (global; Advanced tab) -------------------------------
       // Only rendered when the engine advertises the param — a dial that

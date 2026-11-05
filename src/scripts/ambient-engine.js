@@ -3527,7 +3527,11 @@ function copySequencer(sequencer) {
     : Object.fromEntries(
       Object.keys(sequencer.steps).map((lane) => [lane, copyStepLane(sequencer.steps[lane])]),
     );
-  return { mode: sequencer.mode, weights: sequencer.weights.slice(), steps };
+  // v0.0.292: `hand` travels with the copy. getParams() handed out every
+  // sequencer without it, so the engine kept a person's mark and reported
+  // none, and anything that read the tracks back (the undo snapshot, a
+  // reconcile) wrote the line back as the app's (undo-everywhere-drive).
+  return { mode: sequencer.mode, weights: sequencer.weights.slice(), steps, ...(sequencer.hand === true ? { hand: true } : {}) };
 }
 
 function copyTrack(track) {
@@ -5809,6 +5813,7 @@ export function createEngine(initialParams, options = {}) {
   // The line's lay-back: ONE constant every bass note of the section shares
   // (v24). Null until the groove — or, on a manual grid, the first bar — draws it.
   let bassPocket = null;
+  let bassPocketAmount = 0; // the Timing spread amount bassPocket was drawn at
 
   // Realised bar plans (see planFor): every random draw a bar needs is made
   // once, at the barline, so hold can replay a bar identically.
@@ -8276,6 +8281,9 @@ export function createEngine(initialParams, options = {}) {
       ? sequencer.steps.map(explicitStep)
       : Object.fromEntries(Object.keys(sequencer.steps)
         .map((lane) => [lane, sequencer.steps[lane].map(explicitStep)])),
+    // A SENT sequencer must say `hand` itself (sanitiseSequencer), so a
+    // capture re-sending the list keeps a person's mark where it was.
+    ...(sequencer.hand === true ? { hand: true } : {}),
   });
 
   /**
@@ -9257,7 +9265,23 @@ export function createEngine(initialParams, options = {}) {
    * no groove, draws its own on the same terms.
    */
   function bassPocketFor() {
-    if (bassPocket === null) bassPocket = bassPocketSeconds(spreadAmount('bass', 'timing'), rng);
+    const amount = spreadAmount('bass', 'timing');
+    if (bassPocket === null) {
+      bassPocket = bassPocketSeconds(amount, rng);
+      bassPocketAmount = amount;
+    } else if (amount !== bassPocketAmount && !macroPatched('bass', 'timing')) {
+      // v0.0.292: the Timing dial's spread is the pocket's DEPTH, and the
+      // pocket is one constant per section — so a widened or narrowed spread
+      // waited for the next section (or the next Play) to be heard while the
+      // dial already drew it. Rescale the pocket the line already has, so
+      // its own draw is kept; from nothing, draw one. Only for a dial set by
+      // hand: on Auto the amount is the track's Randomness, which can walk
+      // every bar, and a pocket that followed it would be jitter.
+      bassPocket = bassPocketAmount > 0
+        ? clamp(bassPocket * (amount / bassPocketAmount), 0, BASS_POCKET)
+        : bassPocketSeconds(amount, rng);
+      bassPocketAmount = amount;
+    }
     // v0.0.275: the Timing dial's centre moves the whole line; its spread is
     // the pocket's depth, as vary.timing was.
     const centre = spreadCentre('bass', 'timing');
@@ -9319,6 +9343,7 @@ export function createEngine(initialParams, options = {}) {
     grooveChoice = copyGrooveChoice(bassGroove.choice);
     if (!grooveOpening) grooveOpening = copyGrooveChoice(bassGroove.choice);
     bassPocket = bassGroove.pocket;
+    bassPocketAmount = spreadAmount('bass', 'timing');
     return bassGroove;
   }
 

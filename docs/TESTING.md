@@ -191,6 +191,8 @@ a sweep that cries wolf is a sweep that stops being run.
 | sound-edges-drive | Reverb/Drive/Tempo typed extremes and rapid drags while sounding, the Timers popover's focus and caps, genre/key/scale while playing, the resolution ladder |
 | first-visit-drive | the consent flow from an empty store, No thanks, a later yes, Storage throwing, quota, corrupt stored values, reload while playing, two tabs, ten fresh draws |
 | webkit-drive | the page in Playwright's WebKit, desktop and iPhone UA: boot, play, pause fade, dials, popovers, share, storage, fullscreen/pinned stage, record container, layout sweeps |
+| soak-drive | fifteen minutes playing with an edit every 20 s: post-GC heap, DOM outside the voice editors, listeners, audio-node census, bar starvation, long tasks; ~16 min |
+| churn-drive | every repeatable edit (editor, pause, tabs, Create, dial, genre, voice) 18 times after a warm-up, a slope per cycle for heap net of audio buffers, DOM, listeners, intervals, subscriptions, observers |
 | keyboard-only-drive | every flow by keyboard alone, asking after each action where focus is NOW: transport, a typed dial value, editors, the chord-loop box, structure, the grid, Create, Add track, presets, the tour, pins and layouts, Timers, full screen |
 | a11y-drive | names, dial valuetext vs engine, contrast in both themes, focus-visible, duplicate ids, live regions, reduced motion, zoom 2 |
 | live-click-drive | the engine's output tapped by an AudioWorklet: largest sample step for every action while sounding; ~100 s |

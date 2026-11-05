@@ -1838,7 +1838,12 @@ into a change) is unchanged and still property-tested.
   the section (`bassPocketSeconds`, exported). Never early. Scaled by the
   track's `vary.timing`, so `vary.timing 0` still means machine-tight and the
   shipped default sits a few ms behind. The bass takes NO per-note timing
-  humanisation — that is the whole point.
+  humanisation — that is the whole point. (v0.0.292) A Timing spread set by
+  hand and changed mid-section RESCALES the line's pocket from its next note,
+  keeping the section's own draw (a pocket from nothing is drawn fresh); before
+  that the new width waited for the next section or Play. On Auto (patched to
+  Randomness) the pocket still re-draws only with the groove, since Randomness
+  may walk every bar and a pocket that followed it would be jitter.
 - **Articulation**: `BASS_ARTICULATIONS` multiplier cycles (even / longShort /
   shortLong / holdOne) applied across the pulse spine at build time, clamped to
   0.12–1. Which notes ring into the next and which stop short is part of the

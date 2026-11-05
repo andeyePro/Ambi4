@@ -2550,6 +2550,22 @@ test('getStats().late counts the pulses a stalled scheduler reached after their 
   }
 });
 
+test('v0.0.292: getParams() reports a hand-written sequencer as hand-written', () => {
+  // The engine kept `hand` and played the line as a person's (it enters at
+  // once), but copySequencer left it out of getParams(), so every read-back
+  // of the tracks said null — the undo-everywhere-drive's "the engine reports
+  // hand null right after a typed-melody write while the store holds true".
+  const engine = createEngine({});
+  const steps = Array.from({ length: 16 }, (unused, i) => ({ on: i === 0, prob: 1, vmin: 0.6, vmax: 0.8, tie: false, gate: null, group: null, midi: i === 0 ? 60 : null }));
+  engine.setParams({ tracks: { melody: { state: 'on', sequencers: [{ mode: 'manual', weights: [1], steps, hand: true }] } } });
+  const melody = engine.getParams().tracks.melody;
+  assert.equal(melody.sequencers[0].hand, true, 'the list must carry the mark');
+  assert.equal(melody.sequencer.hand, true, 'and so must the singular alias');
+  // An app-written line still reads back without it (byte-equal stored pieces).
+  engine.setParams({ tracks: { melody: { sequencers: [{ mode: 'manual', weights: [1], steps }] } } });
+  assert.equal('hand' in engine.getParams().tracks.melody.sequencers[0], false);
+});
+
 test('concurrent start() leaves exactly one ticker and stop() clears it', async () => {
   MockTickerWorker.live.clear();
   globalThis.Worker = MockTickerWorker;
@@ -5181,6 +5197,41 @@ test('v24 bass pocket: one constant lay-back for the whole line, never early, ne
     for (const d of tight) {
       assert.ok(Math.abs(d) < 1e-9, `vary.timing 0 must leave the bass exactly on the grid, got ${d}`);
     }
+  }));
+
+test('v0.0.292 bass pocket: widening the Timing spread mid-section is heard from the next note, not the next section',
+  () => hiddenTab(async () => {
+    // Drone: one section, so the groove never re-keys and nothing but this
+    // change can move the pocket. On v0.0.291 the width waited for a groove
+    // rebuild (a section change or the next Play) while the dial drew it.
+    const sixteenth = (60 / 120) / 4;
+    const engine = createEngine({
+      bpm: 120, speed: 1, swing: 0, structure: 'drone', complexity: 0.5, repetition: 0.5,
+      tracks: Object.fromEntries(TRACK_ORDER.map((name) => [
+        name, name === 'bass' ? { state: 'on', randomness: 0.3, vary: { timing: 0, volume: 0, voice: 0 } } : { state: 'off' },
+      ])),
+    }, { rng: seededRng(8803) });
+    const log = record(engine);
+    await engine.start();
+    await advance(20, FAST);
+    const changedAt = liveContexts[liveContexts.length - 1].currentTime;
+    engine.setParams({ tracks: { bass: { timing: { min: -1, max: 1 } } } });
+    await advance(30, FAST);
+    engine.stop();
+    const off = (note) => {
+      const offset = note.time - log.barOf(note).time;
+      return offset - Math.round(offset / sixteenth) * sixteenth;
+    };
+    const bass = log.notes.filter((note) => note.track === 'bass');
+    const before = bass.filter((note) => note.time < changedAt);
+    // Notes already scheduled ahead of the change keep their time; a hidden
+    // tab schedules up to HIDDEN_LOOKAHEAD (3.5 s) ahead, so judge from past it.
+    const after = bass.filter((note) => note.time > changedAt + 4);
+    assert.ok(before.length >= 10 && after.length >= 20, `too few bass notes to judge (${before.length} before, ${after.length} after)`);
+    for (const note of before) assert.ok(Math.abs(off(note)) < 1e-9, `Timing 0 must sit on the grid, got ${off(note)}`);
+    const laid = after.map(off);
+    assert.ok(laid.every((d) => d > 1e-4), `after the spread widened, ${laid.filter((d) => d <= 1e-4).length} of ${laid.length} bass notes still sat on the grid`);
+    assert.equal(new Set(laid.map((d) => d.toFixed(6))).size, 1, 'and it is still one pocket, not jitter');
   }));
 
 test('v24 bass contour: ghosts are genuinely quiet after shaping, and the anchor is genuinely an accent',
