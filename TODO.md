@@ -46,7 +46,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 ## Docs, CONTRIBUTING and genre data audit, 2026-11-06 (read-only opus review)
 
 - [x] *(DONE 2026-11-06, docs only)* CONTRIBUTING: a scale needs a `SCALES` entry AND a `modeGroups` label; a new genre ships hidden (`PUBLIC_GENRE_SLUGS`, the owner's call) and moves genre-smoke's `GENRE_COUNT`; `tests/all.mjs` is the runner. deploying.md's gate is `tests/all.mjs` + `tests/sweep-drives.sh`. engine-v2-contract: the expanded loop DOES reach the engine (`harmony.seed`), pocketMs writes `tracks.bass.timing`, bass defaults off. dial plan §2.1/D2 say today's gestures. rendering-host names all three sweeps, the URL form and the sweep script. Two stale code comments.
-- [ ] Four genre substitution rules can never fire (no seed in the genre has their source chord): Ambient V→IV, Bossa Imaj7→Imaj9, Minimalism V7→V, New Age V7→V. Removing them changes no draw (`substituteToken` calls rng only on a match) but they show in the Rules panel as live-looking odds. Remove with the next genre pass.
+- [!] ~~Four genre substitution rules can never fire~~ — checked 2026-11-06 against the compiler: true of the STOCK progressions (Ambient V→IV, Bossa Imaj7→Imaj9, Minimalism V7→V, New Age V7→V; matched case-insensitively), but the Rules panel lets a person write their own progressions (`over.progressionGrammar`), and these rules then apply to them — they are the genre's stated colour for chords a person adds. Not dead; kept.
 - Checked clean by script: all 12 genres × 200 seeds compile to what the sanitiser returns (nothing clamped or dropped), every key is read, every voice/metre/mode/arc exists, every chord parses.
 
 ## ⓘ, key help and under-dial audit, 2026-11-06 (read-only opus review)
