@@ -33,7 +33,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 ## The file paths hunted, 2026-11-06 (MIDI import, Match a sample, Record, Save as WAV)
 
 - [x] *(SHIPPED v0.0.304)* MIDI: stack overflow on big files, non-track chunks, overlapping same-pitch notes, running status after meta/sysex, truncated last track, format > 2; skipped parts said. Match a sample: noisy lead-in onset, sub-43 Hz pitch at 44.1 kHz, long-file overflow, too-short files, DC and NaN; kit voice changed mid-match; error messages; microphone lifecycle. Record: empty take; WAV/Record across a context rebuild.
-- [ ] Unconfirmed, needs a browser: the WAV tap may DROP silent stretches (an AudioWorklet input with no active upstream has zero channels, and the tap posts nothing then) — a drive that records across a silence and checks the file's length. Pressing Stop while a WAV take is still starting. High notes above 2 kHz (a whistle) and a bass with no fundamental are NAMED an octave off in "Heard …" (the search's octave tries still find the voice).
+- [x] *(CHECKED 2026-11-06 — tests/wav-silence-drive.mjs, green in Chromium, Firefox and WebKit)* The WAV tap does not drop silence: four seconds with every track off saves as four seconds. Still unconfirmed: pressing Stop while a WAV take is still starting. High notes above 2 kHz (a whistle) and a bass with no fundamental are NAMED an octave off in "Heard …" (the search's octave tries still find the voice).
 
 ## The manual release pass audited, 2026-11-06 (docs/TESTING.md)
 
