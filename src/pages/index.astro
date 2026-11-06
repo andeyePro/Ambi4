@@ -1471,6 +1471,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // Steps-per-bar by metre; all 20 slots persist, the first N render/play.
     const STEPS_PER_BAR = { '3/4': 12, '4/4': 16, '5/4': 20, '6/8': 12, '7/8': 14 };
     const SEQ_SLOTS = 20;
+    // A lane STORES as many slots as its track's resolution needs: twenty at
+    // the semiquaver, forty at the demisemiquaver, thirty at semiquaver
+    // triplets. The engine's laneSlotsFor is the authority once it has loaded
+    // (init() hands it over); before that, the same arithmetic stands in, so a
+    // lane is never cut to twenty and then padded back by the engine.
+    let engineLaneSlotsFor = null;
+    const LANE_LADDER = [1, 0.5, 0.25, 0.125, 0.0625, 2 / 3, 1 / 3, 1 / 6, 1 / 12];
+    function laneSlotsForBeats(stepBeats) {
+      if (typeof engineLaneSlotsFor === 'function') {
+        const n = engineLaneSlotsFor(stepBeats);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+      const rung = Number.isFinite(stepBeats)
+        ? LANE_LADDER.find((r) => Math.abs(r - stepBeats) < 1e-9)
+        : undefined;
+      return rung === undefined ? SEQ_SLOTS : Math.round(5 / rung);
+    }
     const SEQ_MAX = 8; // sequencers per track (Markov chain size ceiling)
     // SEQ_TRACKS / SEQ_SINGLE_TRACKS are registry views — see trackListsFrom.
     // v21 per-step gate: the fraction of its step a note is held for. 1 fills
@@ -1605,9 +1622,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       high: (i) => i % 2 === 0,
     };
 
-    function defaultLane(kind) {
+    function defaultLane(kind, slots = SEQ_SLOTS) {
       const on = SEQ_LANE_DEFAULT_ON[kind] || (() => true);
-      return Array.from({ length: SEQ_SLOTS }, (_, i) => ({
+      return Array.from({ length: slots }, (_, i) => ({
         on: !!on(i),
         prob: 1,
         vmin: 0.5,
@@ -2306,10 +2323,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       };
     }
 
-    function normaliseLane(arr, kind) {
-      const out = defaultLane(kind);
+    function normaliseLane(arr, kind, slots = SEQ_SLOTS) {
+      const out = defaultLane(kind, slots);
       if (!Array.isArray(arr)) return out;
-      for (let i = 0; i < SEQ_SLOTS; i++) {
+      // Past the end of a WRITTEN lane (anything in it switched off) is a slot
+      // nobody wrote: silent, as the engine pads it — never the default
+      // pattern, which for a melody is all-on. An untouched all-on lane is not
+      // a written one and keeps its default, again as the engine does.
+      const written = arr.some((s) => s === false || (isPlainObject(s) && 'on' in s && !s.on));
+      for (let i = 0; i < slots; i++) {
+        if (i >= arr.length) {
+          if (written) out[i] = { ...out[i], on: false };
+          continue;
+        }
         const s = arr[i];
         if (typeof s === 'boolean') {
           out[i] = { on: s, prob: 1, vmin: 0.5, vmax: 0.9 };
@@ -2344,17 +2370,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
      * `lanes` (percussion only) is the track's lane list — the step map is
      * keyed by lane id, so a lane the user added carries its own pattern and a
      * lane they removed takes its pattern with it. */
-    function normaliseSequencer(seq, track, lanes) {
+    function normaliseSequencer(seq, track, lanes, slots = SEQ_SLOTS) {
       const src = isPlainObject(seq) ? seq : {};
       const steps =
         lanes
           ? (() => {
               const raw = isPlainObject(src.steps) ? src.steps : {};
               const out = {};
-              for (const lane of lanes) out[lane.id] = normaliseLane(raw[lane.id], lane.kind);
+              for (const lane of lanes) out[lane.id] = normaliseLane(raw[lane.id], lane.kind, slots);
               return out;
             })()
-          : normaliseLane(src.steps, track);
+          : normaliseLane(src.steps, track, slots);
       const weights = Array.isArray(src.weights)
         ? src.weights.map((w) => (Number.isFinite(w) ? clamp(w, 0, 100) : 1))
         : [1];
@@ -2384,7 +2410,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // settings object it is repairing — the live registry is not yet in step
       // with a preset that has only just arrived.
       const lanes = percussive ? (Array.isArray(t.lanes) ? t.lanes : defaultPercLanes()) : null;
-      t.sequencers = list.slice(0, SEQ_MAX).map((seq) => normaliseSequencer(seq, track, lanes));
+      // The track's OWN resolution sizes its lanes: a demisemiquaver grid
+      // stores forty slots, and cutting it to twenty threw in the grid and
+      // came back from the engine on reload with slots 20+ all switched on.
+      const slots = laneSlotsForBeats(t.stepBeats);
+      t.sequencers = list.slice(0, SEQ_MAX).map((seq) => normaliseSequencer(seq, track, lanes, slots));
       const n = t.sequencers.length;
       for (const seq of t.sequencers) {
         seq.weights = Array.from({ length: n }, (unused, i) =>
@@ -3252,6 +3282,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       try {
         engineModule = await import('../scripts/ambient-engine.js');
         ({ createEngine, sanitiseParams } = engineModule);
+        if (typeof engineModule.laneSlotsFor === 'function') engineLaneSlotsFor = engineModule.laneSlotsFor;
         // v0.0.278: every load path's normaliser adopts the engine's answer.
         if (typeof sanitiseParams === 'function') engineSanitiser = sanitiseParams;
       } catch {
@@ -10654,8 +10685,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         '<rect x="3" y="14" width="12" height="6" rx="1.5"/>' +
         '</svg>';
 
-      /** Next free probability-group id in a lane (v14 conditional trigs). */
-      function nextGroupId(lane, slots) {
+      /** Next free probability-group id in a lane (v14 conditional trigs).
+       * Scans the WHOLE stored lane, not just the slots this metre plays: a
+       * group in the tail (a 5/4 bar's last beat, seen from 4/4) is still the
+       * lane's, and handing out its id again would merge two groups. */
+      function nextGroupId(lane, slots = Array.isArray(lane) ? lane.length : 0) {
         let top = -1;
         for (let i = 0; i < slots; i++) {
           const g = lane[i] && lane[i].group;
@@ -10665,7 +10699,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /** How many groups a lane already uses, so the row can offer the next. */
-      function groupsUsedIn(lane, slots) {
+      function groupsUsedIn(lane, slots = Array.isArray(lane) ? lane.length : 0) {
         const seen = new Set();
         for (let i = 0; i < slots; i++) {
           const g = lane[i] && lane[i].group;
@@ -10985,6 +11019,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         resTriplet.textContent = 'Triplets';
         resTriplet.hidden = !engineCaps.stepTriplets;
         resBar.append(resCoarser, resLabel, resFiner, resTriplet);
+        // A real name, the tooltip's own words: "×2" read out alone does not
+        // say which way it goes (a test picked the coarser one by its glyph).
+        // The glyph stays in the name so a voice user can say what they see.
+        resCoarser.setAttribute('aria-label', 'Coarser grid ×2');
+        resFiner.setAttribute('aria-label', 'Finer grid ÷2');
         describe(resCoarser, 'Coarser grid: each step covers twice the time (fewer, longer steps).');
         describe(resFiner, 'Finer grid: each step covers half the time.');
         describe(resTriplet, 'Triplets: three steps in the time of two, at the note value you are on. Press again for straight time.');
@@ -11331,7 +11370,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
          */
         const MAX_GROUPS = GROUP_COLOURS.length;
         function groupSlots(li) {
-          const used = groupsUsedIn(laneSteps(lanes[li]), stepsPerBarFor(track));
+          const used = groupsUsedIn(laneSteps(lanes[li]));
           const slots = [...used];
           // The next id the lane would hand out, offered as an empty dot.
           if (slots.length < MAX_GROUPS) {
@@ -11417,7 +11456,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             }
           } else {
             if (!activeGroup || activeGroup.lane !== li) {
-              activeGroup = { lane: li, id: nextGroupId(lane, stepsPerBarFor(track)) };
+              activeGroup = { lane: li, id: nextGroupId(lane) };
             }
             s.group = activeGroup.id;
           }
@@ -11837,7 +11876,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           });
           for (const seq of list()) {
             const source = nearest && isPlainObject(seq.steps) ? seq.steps[nearest.id] : null;
-            seq.steps[id] = source ? structuredClone(source) : defaultLane(PERC_NEW_LANE_KIND);
+            seq.steps[id] = source
+              ? structuredClone(source)
+              : defaultLane(PERC_NEW_LANE_KIND, laneSlotsForBeats(t.stepBeats));
           }
           commitLanes(id);
         }
@@ -11863,6 +11904,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             sendPatch(track, voiceId, patch);
           }
           commitLanes();
+          // The × that was pressed went with its row, and the redraw dropped
+          // focus to the page. Land on the neighbouring lane's × — the one that
+          // moved up into its place, else the one above — or on Add lane.
+          const heads = gridEl.querySelectorAll('.seq-lane-head');
+          const removeAt = (i) => (heads[i] ? heads[i].querySelector('.seq-lane-remove') : null);
+          const next = removeAt(index) || removeAt(index - 1) || addLaneButton;
+          if (next && typeof next.focus === 'function') next.focus();
         }
 
         function renameLane(index, text) {
@@ -23266,7 +23314,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         document.getElementById('zero-notes')?.addEventListener('click', zeroWith((p) => {
           if (p.arp && Array.isArray(p.arp.steps)) p.arp.steps = p.arp.steps.map(() => false);
           for (const [id, t] of Object.entries(p.tracks || {})) {
-            if (id === 'percussion' || !t.sequencer) continue;
+            // A kit is a kit by its family, not its id: a user percussive
+            // track is a Rhythm, and Strip notes must leave it alone.
+            if (isPercussiveTrack(id) || !t.sequencer) continue;
             eachSequencer(t, (seq) => {
               seq.mode = 'manual';
               clearSequencerSteps(seq);
@@ -23275,14 +23325,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }, 'Melodic grids cleared and set to Manual. Rhythms and chords kept.'));
         document.getElementById('zero-rhythms')?.addEventListener('click', zeroWith((p) => {
           p.swing = 0;
-          const t = p.tracks && p.tracks.percussion;
-          if (t && t.sequencer) {
+          // Every kit, the user's own as well as the built-in one.
+          for (const [id, t] of Object.entries(p.tracks || {})) {
+            if (!isPercussiveTrack(id) || !t || !t.sequencer) continue;
             eachSequencer(t, (seq) => {
               seq.mode = 'manual';
               clearSequencerSteps(seq);
             });
           }
-        }, 'Drum grid cleared, swing straight. Notes and chords kept.'));
+        }, 'Drum grids cleared, swing straight. Notes and chords kept.'));
         document.getElementById('zero-fx')?.addEventListener('click', zeroWith((p) => {
           p.reverbTail = 0.5;
           p.patches = p.patches && typeof p.patches === 'object' ? p.patches : {};
@@ -23786,14 +23837,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }));
           track.sequencers = list;
           track.sequencer = list[0];
+          // One bar is not a chain: a previous multi-bar write's 'chain' must
+          // go, or the engine keeps advancing a list of one (as MIDI import).
           if (bars.length > 1) track.sequencerAdvance = 'chain';
+          else delete track.sequencerAdvance;
           if (track.state === 'off') track.state = 'on';
           engine.setParams({
             tracks: {
               [target]: {
                 state: track.state,
                 sequencers: structuredClone(list),
-                ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
+                sequencerAdvance: bars.length > 1 ? 'chain' : null,
               },
             },
           });
@@ -23893,6 +23947,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             const accepted = engine.getParams().timeSignature;
             settings.timeSignature = accepted;
             if (timeSignatureSelect) timeSignatureSelect.value = accepted;
+            // A named metre now: the Custom… row goes, as choosing one from
+            // the select hides it — and every open grid redraws at the new
+            // bar length, not only the one the words land on.
+            const customRow = document.getElementById('custom-metre');
+            if (customRow && timeSignatureSelect && timeSignatureSelect.value !== 'custom') customRow.hidden = true;
+            for (const ed of openEditors.values()) {
+              try { ed.seq?.refresh(); } catch {}
+            }
             metreNote = accepted === metre.timeSignature
               ? ` The words scan in ${metre.foot === 3 ? 'threes' : 'twos'}, so the metre is now ${accepted} (it was ${before}).`
               : '';
@@ -23939,9 +24001,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             on: false, prob: 1, vmin: 0.6, vmax: 0.8,
             tie: false, gate: null, group: null, midi: null,
           });
+          // As long as the engine stores at the TARGET's rung — twenty was a
+          // semiquaver's lane, and a finer grid lost every syllable past it.
+          const laneLength = laneSlotsForBeats(trackStepBeats(target));
           const bars = [];
           const ensure = (index) => {
-            while (bars.length <= index) bars.push(Array.from({ length: 20 }, blank));
+            while (bars.length <= index) bars.push(Array.from({ length: laneLength }, blank));
             return bars[index];
           };
           const CHORD_TONES = [0, 2, 4]; // root, third, fifth, by scale step
@@ -23970,14 +24035,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps, hand: true }));
           track.sequencers = list;
           track.sequencer = list[0];
+          // One bar is not a chain: a previous multi-bar write's 'chain' must
+          // go, or the engine keeps advancing a list of one (as MIDI import).
           if (bars.length > 1) track.sequencerAdvance = 'chain';
+          else delete track.sequencerAdvance;
           if (track.state === 'off') track.state = 'on';
           engine.setParams({
             tracks: {
               [target]: {
                 state: track.state,
                 sequencers: structuredClone(list),
-                ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
+                sequencerAdvance: bars.length > 1 ? 'chain' : null,
               },
             },
           });
@@ -24183,7 +24251,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             on: false, prob: 1, vmin: 0.6, vmax: 0.8,
             tie: false, gate: null, group: null, midi: null,
           });
-          const bars = Array.from({ length: tune.bars }, () => Array.from({ length: 20 }, blank));
+          // The target's own lane length (forty at demisemiquavers), not a
+          // semiquaver's twenty — the tune is placed against slotsPerBar.
+          const laneLength = laneSlotsForBeats(trackStepBeats(target));
+          const bars = Array.from({ length: tune.bars }, () => Array.from({ length: laneLength }, blank));
           for (const note of tune.notes) {
             const steps = bars[note.bar];
             const strong = note.role === 'chord' || note.role === 'cadence';
@@ -24193,7 +24264,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             };
             steps[note.slot] = head;
             // A note fills its length, tied the way the typed melody ties a beat.
-            const end = Math.min(note.slot + note.length, slotsPerBar, 20);
+            const end = Math.min(note.slot + note.length, slotsPerBar, laneLength);
             for (let s = note.slot; s < end - 1; s++) {
               steps[s].tie = true;
               steps[s + 1] = { ...head, tie: false };
@@ -24203,14 +24274,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps, hand: true }));
           track.sequencers = list;
           track.sequencer = list[0];
+          // One bar is not a chain: a previous multi-bar write's 'chain' must
+          // go, or the engine keeps advancing a list of one (as MIDI import).
           if (bars.length > 1) track.sequencerAdvance = 'chain';
+          else delete track.sequencerAdvance;
           if (track.state === 'off') track.state = 'on';
           engine.setParams({
             tracks: {
               [target]: {
                 state: track.state,
                 sequencers: structuredClone(list),
-                ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
+                sequencerAdvance: bars.length > 1 ? 'chain' : null,
               },
             },
           });
@@ -24271,8 +24345,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             on: false, prob: 1, vmin: 0.6, vmax: 0.8,
             tie: false, gate: null, group: null, midi: null,
           });
+          // The kit's own lane length at its rung: at demisemiquavers a bar is
+          // thirty-two slots, and a twenty-slot lane dropped the last twelve.
+          const laneLength = laneSlotsForBeats(trackStepBeats(target));
           const emptyBar = () => Object.fromEntries(
-            lanes.map((id) => [id, Array.from({ length: 20 }, blank)])
+            lanes.map((id) => [id, Array.from({ length: laneLength }, blank)])
           );
           const bars = [emptyBar()];
           const tokens = raw.split(/[\s,]+/).filter(Boolean);
@@ -24321,14 +24398,17 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const list = bars.map((steps) => ({ mode: 'manual', weights: bars.map(() => 1), steps, hand: true }));
           track.sequencers = list;
           track.sequencer = list[0];
+          // One bar is not a chain: a previous multi-bar write's 'chain' must
+          // go, or the engine keeps advancing a list of one (as MIDI import).
           if (bars.length > 1) track.sequencerAdvance = 'chain';
+          else delete track.sequencerAdvance;
           if (track.state === 'off') track.state = 'on';
           engine.setParams({
             tracks: {
               [target]: {
                 state: track.state,
                 sequencers: structuredClone(list),
-                ...(bars.length > 1 ? { sequencerAdvance: 'chain' } : {}),
+                sequencerAdvance: bars.length > 1 ? 'chain' : null,
               },
             },
           });

@@ -912,6 +912,8 @@ const GLIDE_RANGE = Object.freeze([0.02, 0.12]);
 
 /** The step a legacy `arp.steps` boolean expands to, and every lane's default. */
 const DEFAULT_STEP = Object.freeze({ on: true, prob: 1, vmin: 0.5, vmax: 0.9 });
+/** A slot past a stored lane: the default step, switched off. */
+const SILENT_STEP = Object.freeze({ ...DEFAULT_STEP, on: false });
 
 /**
  * v21 per-step gate: how long a sequenced note sounds, as a fraction of the
@@ -2061,15 +2063,30 @@ function groupId(value) {
  * a finer resolution, so no share link or preset pays for a feature it does
  * not use.
  */
+/** A stored lane somebody wrote: at least one of its steps is switched off. */
+function laneWritten(lane) {
+  if (!Array.isArray(lane)) return false;
+  return lane.some((step) => step === false
+    || (step && typeof step === 'object' && 'on' in step && !step.on));
+}
+
 function sanitiseStepLane(value, base, stepBeats = SEQUENCER_STEP_BEATS) {
   const source = Array.isArray(value) ? value : null;
   const from = Array.isArray(base) ? base : null;
   const slots = laneSlotsFor(stepBeats);
+  // A slot past every lane anyone WROTE is one nobody wrote: it pads SILENT.
+  // ÷2 on a written grid used to switch every new slot on (DEFAULT_STEP is the
+  // all-on default), so a sparse line gained a note in every new slot. A lane
+  // that is still the untouched all-on default — nothing in it switched off —
+  // is not a written one, and keeps growing all-on: a track nobody has written
+  // gates nothing out at any rung.
+  const pad = laneWritten(source) || laneWritten(from) ? SILENT_STEP : DEFAULT_STEP;
   const lane = new Array(slots);
   for (let i = 0; i < slots; i++) {
     lane[i] = sanitiseStep(
       source && i < source.length ? source[i] : undefined,
-      from && i < from.length ? from[i] : DEFAULT_STEP,
+      from && i < from.length ? from[i]
+        : source && i < source.length ? DEFAULT_STEP : pad,
     );
   }
   return lane;

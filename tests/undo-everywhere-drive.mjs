@@ -463,7 +463,7 @@ export default async function drive(page) {
   await ue('openEditor', 'melody');
   await page.waitForFunction(() => window.__ue.editorOpen('melody'), { timeout: 5000 }).catch(() => {});
   await settle(300);
-  await action('sequencer: resolution finer (melody)', async () => page.evaluate(() => { const b = [...document.querySelectorAll('#voice-editor-melody .seq-res-step')].find((x) => !x.disabled && /finer|\+|×2/i.test(x.textContent + (x.getAttribute('aria-label') || ''))) || [...document.querySelectorAll('#voice-editor-melody .seq-res-step')].find((x) => !x.disabled); if (!b) return false; b.click(); return true; }));
+  await action('sequencer: resolution finer (melody)', async () => page.evaluate(() => { const b = [...document.querySelectorAll('#voice-editor-melody .seq-res-step')].find((x) => /^Finer grid/.test(x.getAttribute('aria-label') || '')); if (!b || b.disabled) return false; b.click(); return true; }));
   await action('sequencer: triplet (melody)', async () => page.evaluate(() => { const b = document.querySelector('#voice-editor-melody .seq-res-triplet'); if (!b || b.disabled) return false; b.click(); return true; }));
   await action('sequencer: Auto mode again (melody)', async () => ue('click', 'label[for="seq-mode-melody-auto"]'));
 

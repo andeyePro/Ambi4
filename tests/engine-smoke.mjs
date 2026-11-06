@@ -10549,6 +10549,37 @@ test('v0.0.136 sources: Cycle is an LFO and Step is a sample-and-hold, both on t
     `rise must climb within each pass (saw ${drops} drops over ~${passes} passes): ${rise.join(', ')}`);
 });
 
+test('grid lanes: a WRITTEN lane grows silent — ÷2 never switches new slots on; an untouched one stays all-on', () => {
+  // The hunt's res.mjs: a bass written on every crotchet of a 4/4 bar, then
+  // ÷2. Slots 20–39 were padded from DEFAULT_STEP (on: true), so the line
+  // gained a note in every new slot.
+  const onAt = (steps) => steps.map((st, i) => (st.on ? i : null)).filter((i) => i !== null);
+  const written = Array.from({ length: 20 }, (unused, i) => ({ on: i % 4 === 0 && i < 16 }));
+  let p = sanitiseParams({ tracks: { bass: { sequencers: [{ mode: 'manual', steps: written, hand: true }] } } });
+  p = sanitiseParams({ tracks: { bass: { stepBeats: 0.125 } } }, p);
+  assert.equal(p.tracks.bass.sequencers[0].steps.length, laneSlotsFor(0.125));
+  assert.deepEqual(onAt(p.tracks.bass.sequencers[0].steps), [0, 4, 8, 12],
+    '÷2 on a written grid must leave every new slot off');
+  // Via a crotchet and back: the slots the coarse lane dropped come back off.
+  let q = sanitiseParams({ tracks: { bass: { sequencers: [{ mode: 'manual', steps: written, hand: true }] } } });
+  q = sanitiseParams({ tracks: { bass: { stepBeats: 1 } } }, q);
+  q = sanitiseParams({ tracks: { bass: { stepBeats: 0.25 } } }, q);
+  assert.deepEqual(onAt(q.tracks.bass.sequencers[0].steps), [0, 4]);
+  // A reload: the page sends a SHORT written lane with no base behind it.
+  const boot = sanitiseParams({ tracks: { bass: { stepBeats: 0.125, sequencers: [{ mode: 'manual', steps: written }] } } });
+  assert.deepEqual(onAt(boot.tracks.bass.sequencers[0].steps), [0, 4, 8, 12],
+    'a stored lane shorter than its rung pads silent');
+  // A kit lane follows the same law.
+  const kit = sanitiseParams({ tracks: { percussion: { stepBeats: 0.125, sequencers: [{ mode: 'manual', steps: { low: written } }] } } });
+  assert.deepEqual(onAt(kit.tracks.percussion.sequencers[0].steps.low), [0, 4, 8, 12]);
+  // Untouched: the all-on default stays all-on at every rung.
+  const fresh = sanitiseParams({ tracks: { melody: { stepBeats: 0.125 } } });
+  assert.ok(fresh.tracks.melody.sequencers[0].steps.every((st) => st.on),
+    'a track nobody wrote keeps the all-on default');
+  const fine = sanitiseParams({ tracks: { melody: { stepBeats: 1 / 6 } } }, sanitiseParams({}));
+  assert.ok(fine.tracks.melody.sequencers[0].steps.every((st) => st.on));
+});
+
 test('v0.0.131 resolution: a track\'s grid is its own ×2/÷2 rung — lanes size to it and the default is byte-identical', () => {
   // His item 89: "add to the todo the ability to choose the editing
   // resolution… a x2 /2 controller could easily control all eventualities

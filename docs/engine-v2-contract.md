@@ -2346,6 +2346,13 @@ other than triplets."
   `stepsPerBarAt(timeSignature, stepBeats)`, which FLOORS — a rounded-up count
   would draw a step that sounds past the barline, and a spare stored slot is
   the same harmless tail a shorter metre has always left.
+- **A grown lane's new slots are silent.** When a WRITTEN lane grows (÷2, or
+  a stored lane shorter than its rung), every slot past it pads with the
+  default step switched OFF: nobody wrote it, so it plays nothing. A lane
+  counts as written once any step in it is off; an untouched all-on lane (and
+  a track with no lane at all) keeps growing all-on, so a track nobody has
+  written still gates nothing out. Before this, ÷2 on a written grid switched
+  every new slot on. The page's own lane repair follows the same rule.
 - **Off-ladder asks keep the stored rung.** A value on neither ladder (junk, a
   string, 0.3) is not a resolution, and silently rounding it would resize
   lanes the caller did not ask to resize. Ladder membership is matched with a
@@ -2353,7 +2360,10 @@ other than triplets."
   1/3 in its last bit.
 - **The page never guesses a lane length.** It asks the engine to resize and
   adopts the answer (`applyResolution` in `index.astro`), because the engine
-  owns how many slots a resolution stores. Both controls are capability-probed
+  owns how many slots a resolution stores. Every page path that rebuilds a
+  lane — load, undo, preset, link, the + tab, the block editor, the Create
+  writers — sizes it from `laneSlotsFor` at the track's own rung, never a
+  fixed twenty. Both controls are capability-probed
   (`engineCaps.stepResolution`, `engineCaps.stepTriplets`) so a build whose
   engine knows only halving ships the ×2/÷2 pair and hides Triplets rather
   than offering a feel it cannot store. The arp is excluded from both: its
