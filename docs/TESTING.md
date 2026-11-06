@@ -194,7 +194,7 @@ a sweep that cries wolf is a sweep that stops being run.
 | firefox-drive | the page in Playwright's Firefox (desktop): boot, play/pause/resume on the no-cancelAndHold fallback, Reverb tail bursts with one convolver left wired, dials, an editor, storage, layout sweeps |
 | soak-drive | fifteen minutes playing with an edit every 20 s: post-GC heap, DOM outside the voice editors, listeners, audio-node census, bar starvation, long tasks; ~16 min |
 | churn-drive | every repeatable edit (editor, pause, tabs, Create, dial, genre, voice) 18 times after a warm-up, a slope per cycle for heap net of audio buffers, DOM, listeners, intervals, subscriptions, observers |
-| keyboard-only-drive | every flow by keyboard alone, asking after each action where focus is NOW: transport, a typed dial value, editors, the chord-loop box, structure, the grid, Create, Add track, presets, the tour, pins and layouts, Timers, full screen |
+| keyboard-only-drive | every flow by keyboard alone, asking after each action where focus is NOW: transport, a typed dial value, editors, the chord-loop box, structure, the grid, Create, Add track, presets, the tour, pins and layouts, Timers, full screen — in Chromium, Firefox and WebKit (Option+Tab, Safari's full keyboard access) |
 | a11y-drive | names, dial valuetext vs engine, contrast in both themes, focus-visible, duplicate ids, live regions, reduced motion, zoom 2 |
 | live-click-drive | the engine's output tapped by an AudioWorklet: largest sample step for every action while sounding; ~100 s |
 | genre-measure-drive | every stock genre, 48 bars: notes per bar per track, silence, out-of-scale notes, loudness per bar, chord-loop adherence; ~12 min |

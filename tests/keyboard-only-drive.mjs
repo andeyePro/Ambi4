@@ -24,13 +24,16 @@
  *    rules' name box, both take Enter).
  *
  * Console errors and page errors during the drive fail it.
+ *
+ * Runs three times: the harness's Chromium, then Firefox and WebKit (see
+ * ENGINES at the foot).
  */
 
-export default async function drive(page) {
+async function driveIn(page, { TAB = 'Tab', label = '' } = {}) {
   const results = [];
   const check = (name, got, want) => {
     const ok = typeof want === 'function' ? want(got) : JSON.stringify(got) === JSON.stringify(want);
-    results.push({ name, ok, got, want: typeof want === 'function' ? '(predicate)' : want });
+    results.push({ name: label + name, ok, got, want: typeof want === 'function' ? '(predicate)' : want });
     return ok;
   };
   const errors = [];
@@ -70,7 +73,7 @@ export default async function drive(page) {
   const activeTab = () => page.evaluate(() => document.querySelector('[role="tab"][aria-selected="true"]')?.id);
   const tabTo = async (predicateSrc, limit = 120) => {
     for (let i = 0; i < limit; i++) {
-      await page.keyboard.press('Tab');
+      await page.keyboard.press(TAB);
       if (await page.evaluate(predicateSrc)) return i + 1;
     }
     return -1;
@@ -116,7 +119,7 @@ export default async function drive(page) {
   await page.keyboard.press('Backspace');
   await page.waitForTimeout(250);
   check('Backspace is the default, focus still on the dial', { bpm: await bpm(), focus: await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) }, { bpm: 60, focus: 'Tempo' });
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(TAB);
   check('Tab from the dial lands on its readout button', await page.evaluate(() => document.activeElement?.classList.contains('knob-value')), true);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(150);
@@ -146,7 +149,7 @@ export default async function drive(page) {
     await focusEl('#' + id);
     await page.keyboard.press('Enter');
     await page.waitForTimeout(450);
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(TAB);
     const opened = await page.evaluate((t) => { const ed = document.getElementById('voice-editor-' + t); return { shown: !!ed && !ed.hidden, inside: !!ed && ed.contains(document.activeElement) }; }, track);
     check(`${track}: Enter opens the editor and Tab enters it`, opened, { shown: true, inside: true });
     await page.keyboard.press('Escape');
@@ -187,7 +190,7 @@ export default async function drive(page) {
   await page.waitForTimeout(200);
   check('Escape puts the playing loop back in the box', await page.evaluate(() => /^i vi iii vii$/i.test(document.querySelector('.progression-input')?.value || '')), true);
   check('the box is focusable again after Escape', await focusEl('.progression-input'), true);
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(TAB);
   // Enter is pressed ONLY on the button: on a missed Tab it would follow
   // whatever link had focus and navigate the page away.
   if (check('Tab reaches "Let the app choose"', await page.evaluate(() => document.activeElement?.classList.contains('progression-clear')), true)) {
@@ -251,7 +254,7 @@ export default async function drive(page) {
   const firstStop = await focusId();
   let wrapped = false;
   for (let i = 0; i < 60; i++) {
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(TAB);
     const inside = await page.evaluate(() => document.getElementById('play-along').contains(document.activeElement));
     if (!inside) break;
     if ((await focusId()) === firstStop) { wrapped = true; break; }
@@ -298,7 +301,7 @@ export default async function drive(page) {
   await page.keyboard.press('Enter');
   await page.waitForTimeout(250);
   await page.keyboard.type('Keys track');
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(TAB);
   await page.keyboard.press('ArrowRight');
   const before = await page.evaluate(() => Object.keys(window.__ambi4Engine.getParams().tracks));
   await page.keyboard.press('Enter');
@@ -409,6 +412,49 @@ export default async function drive(page) {
   check('no console errors or page errors during the drive', errors, []);
   }
 
+  return results;
+}
+
+// 2026-11-06: the same flows in Firefox and WebKit too. Focus is where the
+// engines differ most — what Tab reaches, what a disabled or removed element
+// does with focus, Escape in a select — and the drive asks "where is focus
+// NOW" after every action. WebKit on a Mac tabs to form fields only unless
+// full keyboard access is on, which is Option+Tab, the key a Safari keyboard
+// user presses; Firefox is told the same (accessibility.tabfocus 7, macOS's
+// own default is form fields only). Both green on v0.0.300 (84 + 84).
+const ENGINES = [
+  { name: 'firefox', label: '[firefox] ', TAB: 'Tab', launch: (pw) => pw.firefox.launch({ firefoxUserPrefs: { 'media.autoplay.default': 0, 'media.autoplay.block-webaudio': false, 'accessibility.tabfocus': 7 } }) },
+  { name: 'webkit', label: '[webkit] ', TAB: 'Alt+Tab', launch: (pw) => pw.webkit.launch() },
+];
+
+export default async function drive(page) {
+  const url = page.url();
+  const results = await driveIn(page);
+  const { join } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  // measure.sh runs a drive from the shot folder, which holds the Playwright
+  // the harness imports and its Firefox and WebKit builds.
+  const pw = await import(pathToFileURL(join(process.cwd(), 'node_modules', 'playwright', 'index.mjs')).href);
+  for (const E of ENGINES) {
+    let browser;
+    try {
+      browser = await E.launch(pw);
+    } catch (err) {
+      results.push({ name: `${E.label}the browser launches (npx playwright install ${E.name})`, ok: false, got: String(err && err.message).split('\n')[0], want: 'a browser' });
+      continue;
+    }
+    try {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const p = await ctx.newPage();
+      await p.goto('about:blank');
+      await p.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
+      await p.waitForSelector('#generator-app:not([hidden])', { timeout: 20000 });
+      await p.waitForTimeout(800);
+      results.push(...(await driveIn(p, { TAB: E.TAB, label: E.label })));
+    } finally {
+      await browser.close();
+    }
+  }
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(
