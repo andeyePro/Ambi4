@@ -30,6 +30,11 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## The visual layer hunted, 2026-11-06 (scope.js, visualiser.js)
+
+- [x] *(SHIPPED v0.0.305 — scope-hunt-smoke 5 red on v0.0.304)* Hidden-canvas growth (scope and piano roll), traces after an audio rebuild, piano-roll lamps for added/removed tracks, the legend's solo-restore, the static trace's observer after a rebuild.
+- [ ] Left: the scope runs at 30 fps whatever the Processor tier's `visualFps` (Low asks 24; Eco does stop it, correctly); `power.js` documents a `scope.setEnabled` that does not exist. About 2.9 MB/s of short-lived arrays at 30 fps with six tracks (`scaleWindow` allocates per track per frame) — a reused buffer would end it.
+
 ## The file paths hunted, 2026-11-06 (MIDI import, Match a sample, Record, Save as WAV)
 
 - [x] *(SHIPPED v0.0.304)* MIDI: stack overflow on big files, non-track chunks, overlapping same-pitch notes, running status after meta/sysex, truncated last track, format > 2; skipped parts said. Match a sample: noisy lead-in onset, sub-43 Hz pitch at 44.1 kHz, long-file overflow, too-short files, DC and NaN; kit voice changed mid-match; error messages; microphone lifecycle. Record: empty take; WAV/Record across a context rebuild.

@@ -811,8 +811,14 @@ export function initVisualiser(canvas, engine) {
     try {
       const rect = canvas.getBoundingClientRect();
       dpr = currentDpr();
-      cssWidth = Math.max(1, Math.round(rect.width) || canvas.clientWidth || canvas.width || 300);
-      cssHeight = Math.max(1, Math.round(rect.height) || canvas.clientHeight || canvas.height || 150);
+      // A hidden canvas measures 0×0: keep the size it last had rather than
+      // fall back to canvas.width, which is the backing store in DEVICE
+      // pixels and grew by the pixel ratio on every resize while hidden
+      // (2026-11-06 hunt: 1000×400 → 8000×3200).
+      const w = Math.round(rect.width) || canvas.clientWidth || 0;
+      const h = Math.round(rect.height) || canvas.clientHeight || 0;
+      cssWidth = Math.max(1, w || cssWidth || 300);
+      cssHeight = Math.max(1, h || cssHeight || 150);
       canvas.width = Math.round(cssWidth * dpr);
       canvas.height = Math.round(cssHeight * dpr);
       if (typeof ctx2d.setTransform === 'function') ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1853,6 +1859,22 @@ export function initVisualiser(canvas, engine) {
     for (const id of TRACKS) if (!notesByTrack.has(id)) notesByTrack.set(id, []);
     for (const id of [...notesByTrack.keys()]) if (!TRACKS.includes(id)) notesByTrack.delete(id);
     theme = readTheme(canvas, TRACKS, TRACK_COLOUR_TOKENS);
+    // 2026-11-06 hunt: the lamp buttons were built once for the first
+    // track list, so a track added later got a lane with no label or lamp
+    // (drawLaneLabel leaves labels to the lamps) and a removed track's lamp
+    // stayed on screen, aimed at a track that no longer exists. Rebuild them
+    // for the new list.
+    if (lampHost) {
+      for (const { btn } of lampButtons.values()) {
+        try { btn.remove(); } catch { /* best effort */ }
+      }
+      lampButtons.clear();
+      for (const id of [...lampState.keys()]) if (!TRACKS.includes(id)) lampState.delete(id);
+      for (const id of TRACKS) if (!lampState.has(id)) lampState.set(id, 'auto');
+      createLampButtons();
+      refreshLampStates();
+      positionLamps();
+    }
   }
 
   return { destroy, setFps, getFps, refreshTracks };

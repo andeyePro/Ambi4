@@ -800,7 +800,7 @@ play(); RangeValue walk: w∈[0,1], ±0.15/bar, effective = min+(max-min)·w.
 
 - Visual perf floor (immediate): no shadowBlur in any rAF loop (pre-rendered glow
   sprite/gradient allowed); visualiser + live scope ≤30 fps active, ≤2 fps hidden-tab
-  (already off), pause via IntersectionObserver when scrolled out; dpr capped at 2.
+  (already off), pause via IntersectionObserver when scrolled out; dpr capped at 3 (v14; scope.js and visualiser.js MAX_DPR).
 - Power governor (src/scripts/power.js): quality tiers eco|low|med|full + auto.
   Auto senses: PressureObserver (feature-detected), rAF frame-time EMA, audio
   underrun proxy (ctx.outputLatency drift / currentTime stalls), hardwareConcurrency,

@@ -680,6 +680,9 @@ function currentDpr() {
  * fullscreen-scale (e.g. 3840×2160) box — this is plain arithmetic on
  * whatever getBoundingClientRect()/clientWidth/clientHeight report.
  */
+// The last CSS size each canvas measured while it was laid out (2026-11-06).
+const lastCssSize = new WeakMap();
+
 function measureCanvasCssSize(canvas) {
   let w = 0;
   let h = 0;
@@ -690,9 +693,18 @@ function measureCanvasCssSize(canvas) {
   } catch {
     // fall through to the DOM-less fallbacks
   }
-  w = Math.max(1, w || canvas.clientWidth || canvas.width || 300);
-  h = Math.max(1, h || canvas.clientHeight || canvas.height || 120);
-  return { w, h };
+  w = w || canvas.clientWidth || 0;
+  h = h || canvas.clientHeight || 0;
+  if (w > 0 && h > 0) {
+    lastCssSize.set(canvas, { w, h });
+    return { w, h };
+  }
+  // A hidden canvas (its panel display:none) measures 0×0. It used to fall
+  // back to canvas.width — the BACKING store, already in device pixels — so
+  // every draw while hidden multiplied it by the pixel ratio: 600×240 grew
+  // to 9600×3840 in four frames (2026-11-06 hunt). The last laid-out size
+  // stands in, or a small default; never the backing store.
+  return lastCssSize.get(canvas) || { w: 300, h: 120 };
 }
 
 /** Sizes the backing store to CSS px × dpr; returns the CSS-px draw size. */
@@ -1002,7 +1014,20 @@ export function renderPatchWave(canvas, patch, opts) {
     job = { busy: false, queued: null, waiters: [], last: null, ro: null };
     patchJobs.set(canvas, job);
     job.ro = observeResize(canvas, () => {
+      // 2026-11-06 hunt: an editor rebuild (container.innerHTML = '') left
+      // the old canvas observed for ever, and its 0×0 report re-rendered a
+      // whole offline trace for a canvas nobody can see. A detached canvas
+      // lets go of its observer; a hidden one (0×0) skips the render.
+      if (canvas.isConnected === false) {
+        try { job.ro && job.ro.disconnect && job.ro.disconnect(); } catch { /* gone already */ }
+        patchJobs.delete(canvas);
+        return;
+      }
       if (liveCanvases.has(canvas) || !job.last) return;
+      try {
+        const r = canvas.getBoundingClientRect();
+        if (!(r.width > 0 && r.height > 0)) return;
+      } catch { /* no layout API: render as before */ }
       renderPatchWave(canvas, job.last.patch, job.last.opts);
     });
   }
@@ -1783,13 +1808,27 @@ export function attachMultiScope(canvas, engine, opts) {
         if (next) bumpFftSize(next);
       }
     }
+    // The total trace follows the engine's master tap too, so a rebuilt
+    // context does not leave it reading a closed one.
+    const nextTotal = analysers && analysers.total;
+    if (nextTotal && nextTotal !== totalAnalyser) {
+      totalAnalyser = nextTotal;
+      Object.assign(totalTraceState, createTraceState());
+      bumpFftSize(nextTotal);
+    }
   }
   refreshAnalysers();
 
   let unsubState = null;
+  let unsubRebuilt = null;
   try {
     if (typeof engine.on === 'function') {
       unsubState = engine.on('state', () => refreshAnalysers());
+      // 2026-11-06 hunt: a rebuilt AudioContext (resume() after an iOS
+      // interruption or a rate change) swaps every analyser and emits only
+      // 'rebuilt', so the traces kept reading the dead context until the
+      // next Stop/Play.
+      unsubRebuilt = engine.on('rebuilt', () => refreshAnalysers());
     }
   } catch {
     unsubState = null;
@@ -1895,7 +1934,13 @@ export function attachMultiScope(canvas, engine, opts) {
 
   return {
     setTracks(ids) {
-      preSoloSelection = null; // a programmatic set supersedes any pending solo-restore
+      // A programmatic set supersedes any pending solo-restore — unless it
+      // only ECHOES the selection already showing: the page answers every
+      // legend change by setting the same ids back, which cleared the
+      // restore, so a second double-click never brought the old selection
+      // back (2026-11-06 hunt).
+      const same = Array.isArray(ids) && ids.length === selected.length && ids.every((id) => selected.includes(id));
+      if (!same) preSoloSelection = null;
       applySelectionSilently(ids);
     },
     setSpread(v) {
@@ -1928,6 +1973,7 @@ export function attachMultiScope(canvas, engine, opts) {
       }
       try {
         if (unsubState) unsubState();
+        if (unsubRebuilt) unsubRebuilt();
       } catch {
         // ignore
       }
