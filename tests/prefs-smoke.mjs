@@ -342,6 +342,33 @@ ok('consent granted in ANOTHER tab: the next write here flushes what this tab he
   assert.equal(localStorage.getItem('ambi4:presetsX'), '["mine"]', 'the earlier key reached storage too');
 });
 
+// Two tabs: two module instances sharing one storage and one cookie jar.
+const { prefs: tabA } = await import('../src/scripts/prefs.js?tab=A');
+const { prefs: tabB } = await import('../src/scripts/prefs.js?tab=B');
+
+ok('consent granted in ANOTHER tab does not overwrite what that tab has saved since', () => {
+  // 2026-11-06 review: A (never asked) held presets [A-old] in memory; B
+  // granted and saved [A-old, B-new]; A's next unrelated write (a pin)
+  // flushed its whole memory and storage went back to [A-old].
+  resetConsent();
+  localStorage.removeItem('ambi4:presetsT');
+  localStorage.removeItem('ambi4:pinT');
+  assert.equal(tabA.set('presetsT', ['A-old']), false, 'unasked: memory only');
+  tabB.setConsent(true);
+  assert.equal(tabB.set('presetsT', ['A-old', 'B-new']), true);
+  assert.equal(tabA.set('pinT', 'dial-1'), true, 'A now sees the grant');
+  assert.equal(localStorage.getItem('ambi4:presetsT'), '["A-old","B-new"]', "B's newer presets survive");
+  assert.deepEqual(tabA.get('presetsT'), ['A-old', 'B-new'], 'A now reads the stored list, not its stale copy');
+});
+
+ok('a grant made in THIS tab still flushes every key it held', () => {
+  resetConsent();
+  localStorage.setItem('ambi4:presetsU', '["stale"]');
+  assert.equal(tabB.set('presetsU', ['mine']), false);
+  tabB.setConsent(true);
+  assert.equal(localStorage.getItem('ambi4:presetsU'), '["mine"]');
+});
+
 ok('a stray consent cookie with a bad value does not hide the real one behind it', () => {
   // 2026-11-06 hunt: readConsent() returned "unasked" at the FIRST
   // ambi4-consent it met, so a duplicate from another Path or Domain sorting

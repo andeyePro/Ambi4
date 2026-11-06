@@ -78,15 +78,28 @@ function writeConsentCookie(value) {
   }
 }
 
-/** Flush everything chosen pre-consent into localStorage (on grant). */
 // What set() last saw the consent cookie say (see set()).
 let lastConsentSeen = null;
 
-function flushMemory() {
+/**
+ * Flush everything chosen pre-consent into localStorage (on grant).
+ *
+ * onlyMissing: the grant was made in ANOTHER tab, which has been saving
+ * since — so a key storage already holds is newer than this tab's memory
+ * copy and must not be overwritten (2026-11-06 review: an unasked tab's
+ * first write after another tab's grant replaced that tab's presets with its
+ * own stale list). Such a key is dropped from memory instead, so get() reads
+ * the stored value. A grant made in THIS tab (setConsent) flushes everything.
+ */
+function flushMemory(onlyMissing = false) {
   const store = getLocalStorage();
   if (!store) return;
   for (const [key, value] of memory) {
     try {
+      if (onlyMissing && store.getItem(NAMESPACE + key) !== null) {
+        memory.delete(key);
+        continue;
+      }
       store.setItem(NAMESPACE + key, JSON.stringify(value));
       memory.delete(key);
     } catch (_) {
@@ -129,9 +142,10 @@ export const prefs = {
     const consent = readConsent();
     // Consent granted in ANOTHER tab reaches this one only through the
     // cookie: the first write after it lands flushes everything this tab had
-    // been holding in memory, as a grant here would (2026-11-06 hunt: only
-    // keys rewritten afterwards reached storage — earlier presets did not).
-    if (consent === 'granted' && lastConsentSeen !== 'granted' && memory.size) flushMemory();
+    // been holding in memory (2026-11-06 hunt: only keys rewritten afterwards
+    // reached storage — earlier presets did not) — but only the keys storage
+    // does not already hold, since the granting tab's are newer.
+    if (consent === 'granted' && lastConsentSeen !== 'granted' && memory.size) flushMemory(true);
     lastConsentSeen = consent;
     if (consent === 'granted') {
       const store = getLocalStorage();
