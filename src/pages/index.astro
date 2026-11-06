@@ -22475,11 +22475,38 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // v0.0.87 (his item 96): tap-a-rhythm — while on, Space is a tap on
       // the selected track, and Capture writes the taps into its grid.
       let tapMode = false;
-      const playAlongDown = new Map();   // keyboard key → { track, midi }
+      // keyboard event.code → { track, midi }. 2026-11-06 (play-along hunt):
+      // keyed by the PHYSICAL key, not event.key — Shift pressed while ','
+      // is held makes its keyup say '<', which matched nothing and left the
+      // note stuck. event.code is the same on the way down and up.
+      const playAlongDown = new Map();
+      // 2026-11-06: several computer keys are one pitch (, q / l 2 / . w /
+      // ; 3 / slash e), and a MIDI note can arrive from two ports. The note
+      // is let go when the LAST hand holding it lets go — a count per
+      // track|pitch, so releasing one of two keys does not stop the other.
+      const pitchHolds = new Map();
+      function holdPitch(track, midi) {
+        const id = `${track}|${midi}`;
+        pitchHolds.set(id, (pitchHolds.get(id) || 0) + 1);
+      }
+      function releasePitch(track, midi) {
+        const id = `${track}|${midi}`;
+        const left = (pitchHolds.get(id) || 0) - 1;
+        if (left > 0) {
+          pitchHolds.set(id, left);
+          return;
+        }
+        pitchHolds.delete(id);
+        try { engine.noteOff(track, midi); } catch {}
+      }
       // Follow my chords: on, and the MIDI keys held (the computer keys and
       // the on-screen keys keep their own maps: playAlongDown, padDown).
       let followOn = false;
       const midiDown = new Set();
+      // 2026-11-06: MIDI notes held, per input port id → Map(midi → track),
+      // so an instrument unplugged mid-note has its notes let go rather than
+      // left sounding with no keyup ever to come.
+      const midiHeldByPort = new Map();
       const canFollow = typeof engine.setChordFollow === 'function'
         && typeof engine.getChordFollow === 'function';
 
@@ -22821,6 +22848,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           } catch {}
           playAlongDown.delete(key);
         }
+        for (const [, held] of midiHeldByPort) {
+          for (const [midi, track] of held) {
+            try { engine.noteOff(track, midi); } catch {}
+          }
+        }
+        midiHeldByPort.clear();
+        pitchHolds.clear();
         midiDown.clear();
         try {
           if (typeof engine.allNotesOff === 'function') engine.allNotesOff();
@@ -22886,7 +22920,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           return;
         }
         const midi = midiForKey(key);
-        if (midi === null || playAlongDown.has(key)) return;
+        const physical = heldKeyId(event, key);
+        if (midi === null || playAlongDown.has(physical)) return;
         event.preventDefault();
         const track = playAlongTarget();
         let sounded = false;
@@ -22894,9 +22929,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           sounded = engine.noteOn(track, midi, 0.8) === true;
         } catch {}
         if (!sounded) return;
-        playAlongDown.set(key, { track, midi });
+        playAlongDown.set(physical, { track, midi });
+        holdPitch(track, midi);
         showPlayed(noteName(midi));
         setPlayAlongUI();
+      }
+
+      /**
+       * The id a held key is filed under: its physical key (event.code), the
+       * same on keydown and keyup whatever modifier came down in between —
+       * the tap-mode Space included, which is filed as 'Space' however it
+       * played. A synthetic event with no code falls back to the key.
+       */
+      function heldKeyId(event, key) {
+        return typeof event.code === 'string' && event.code ? event.code : key;
       }
 
       function playAlongKeyUp(event) {
@@ -22907,12 +22953,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           : typeof event.key === 'string' && event.key.length === 1
             ? event.key.toLowerCase()
             : event.key;
-        const held = playAlongDown.get(key);
+        const physical = heldKeyId(event, key);
+        const held = playAlongDown.get(physical);
         if (!held) return;
-        playAlongDown.delete(key);
-        try {
-          engine.noteOff(held.track, held.midi);
-        } catch {}
+        playAlongDown.delete(physical);
+        releasePitch(held.track, held.midi);
         setPlayAlongUI();
       }
 
@@ -22933,15 +22978,22 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           .then((access) => {
             const listen = () => {
               try {
-                access.inputs.forEach((input) => {
-                  input.onmidimessage = onMidiMessage;
+                access.inputs.forEach((input, key) => {
+                  const port = input && input.id != null ? String(input.id) : String(key);
+                  input.onmidimessage = (event) => onMidiMessage(event, port);
                 });
               } catch {}
             };
             listen();
-            // An instrument plugged in later is the same instrument.
+            // An instrument plugged in later is the same instrument; one
+            // unplugged mid-note lets go of what it held (2026-11-06) — its
+            // note-offs are never coming.
             try {
-              access.onstatechange = listen;
+              access.onstatechange = (event) => {
+                const port = event && event.port;
+                if (port && port.state === 'disconnected' && port.id != null) releaseMidiPort(String(port.id));
+                listen();
+              };
             } catch {}
           })
           // Refused permission, or no instrument: the keyboard still works and
@@ -22949,23 +23001,49 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           .catch(() => {});
       }
 
-      function onMidiMessage(event) {
+      /** Let go of every note one MIDI port is holding. */
+      function releaseMidiPort(port) {
+        const held = midiHeldByPort.get(port);
+        if (!held) return;
+        midiHeldByPort.delete(port);
+        for (const [midi, track] of held) {
+          if (![...midiHeldByPort.values()].some((other) => other.has(midi))) midiDown.delete(midi);
+          releasePitch(track, midi);
+        }
+        followHeldChord();
+        setPlayAlongUI();
+      }
+
+      function onMidiMessage(event, port = '') {
         if (!playAlongOn) return;
         const data = event && event.data;
         if (!data || data.length < 3) return;
         const command = data[0] & 0xf0;
         const midi = data[1];
         const velocity = data[2];
-        const track = playAlongTarget();
+        if (!midiHeldByPort.has(port)) midiHeldByPort.set(port, new Map());
+        const held = midiHeldByPort.get(port);
         try {
           if (command === 0x90 && velocity > 0) {
+            // A re-strike on the same port is one hold, not two.
+            if (held.has(midi)) releasePitch(held.get(midi), midi);
+            held.delete(midi);
+            const track = playAlongTarget();
             if (engine.noteOn(track, midi, velocity / 127) === true) {
               showPlayed(noteName(midi));
               midiDown.add(midi);
+              held.set(midi, track);
+              holdPitch(track, midi);
             }
           } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
-            midiDown.delete(midi);
-            engine.noteOff(track, midi);
+            // The note-off goes to the track the note-on SOUNDED on — the
+            // picker can have moved in between.
+            const track = held.has(midi) ? held.get(midi) : playAlongTarget();
+            const was = held.has(midi);
+            held.delete(midi);
+            if (![...midiHeldByPort.values()].some((other) => other.has(midi))) midiDown.delete(midi);
+            if (was) releasePitch(track, midi);
+            else engine.noteOff(track, midi);
           }
         } catch {}
         setPlayAlongUI();
@@ -23020,7 +23098,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         document.addEventListener('visibilitychange', () => {
           if (document.hidden) releaseAll();
         });
-        if (typeof engine.on === 'function') engine.on('tracks', renderPlayAlongTracks);
+        if (typeof engine.on === 'function') {
+          engine.on('tracks', renderPlayAlongTracks);
+          // 2026-11-06 (play-along hunt): the engine rebuilt its audio context
+          // (an iOS interruption, a sample-rate change). A take straddling two
+          // clocks cannot be quantised honestly, so it ends here — the engine
+          // closed its held rows on the old clock — and the keys still down
+          // are let go: their notes were in the context that just closed.
+          engine.on('rebuilt', () => {
+            endCapture();
+            releaseAll();
+            setPlayAlongUI();
+          });
+        }
       }
 
       if (typeof engine.on === 'function') {

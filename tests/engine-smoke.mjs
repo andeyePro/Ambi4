@@ -10493,6 +10493,123 @@ test('v28 record-arm: a take is quantised into the armed track\'s active lane, a
   engine.stop();
 });
 
+// --------------------------------------------------------------------------
+// 2026-11-06 play-along hunt. Each of these was red on f32182e.
+// --------------------------------------------------------------------------
+
+test('2026-11-06: a key on a STOPPED piece wakes the idle-suspended context, and Pause refuses it', async () => {
+  const spy = keySpy();
+  const bank = bankFor('melody');
+  bank.keySpy = spy.voice;
+  try {
+    const engine = createEngine({
+      bpm: 120, structure: 'drone',
+      tracks: { melody: { state: 'on', voice: 'keySpy', vary: { voice: 0 } } },
+    });
+    await engine.start();
+    const ctx = liveContexts.at(-1);
+    engine.stop();
+    // stop() arms the idle suspend for FADE_OUT + 0.2 s; let it land.
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(ctx.state, 'suspended', 'precondition: a stopped engine sleeps after its fade');
+    assert.equal(engine.noteOn('melody', 64, 0.6), true);
+    assert.equal(ctx.state, 'running',
+      'a key on a stopped piece claimed a note into a suspended context — nobody heard it');
+    // And a key held across where the suspend WOULD fire is not cut by it.
+    const played = spy.plays.at(-1);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(ctx.state, 'running', 'the held key was suspended underneath');
+    assert.equal(played.handle.cancelled, false, 'the idle suspend cancelled a held key');
+    engine.noteOff('melody', 64);
+
+    // A key pressed INSIDE the stop fade (before the suspend fires) survives too.
+    await engine.start();
+    engine.stop();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(engine.noteOn('melody', 67, 0.6), true);
+    const early = spy.plays.at(-1);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(ctx.state, 'running', 'the pending idle suspend fired under a held key');
+    assert.equal(early.handle.cancelled, false, 'the pending idle suspend cancelled a held key');
+    engine.noteOff('melody', 67);
+
+    // Pause holds the piece: a key may not run its frozen clock on, and must
+    // not be claimed (or captured) when it cannot be heard.
+    await engine.start();
+    engine.pause();
+    const before = spy.plays.length;
+    assert.equal(engine.noteOn('melody', 60, 0.6), false, 'a key on a paused piece must say it did not sound');
+    assert.equal(spy.plays.length, before);
+    engine.stop();
+  } finally {
+    delete bank.keySpy;
+  }
+});
+
+test('2026-11-06: a context rebuild closes a held key\'s capture row on the OLD clock', async () => {
+  const engine = createEngine({ bpm: 120, speed: 1, timeSignature: '4/4', structure: 'drone' });
+  await engine.start();
+  const ctx = liveContexts.at(-1);
+  ctx.currentTime = 10;
+  assert.equal(engine.armCapture('melody'), true);
+  ctx.currentTime = 10.5;
+  engine.noteOn('melody', 64, 0.6);
+  ctx.currentTime = 11;
+  ctx.state = 'suspended';
+  ctx.sampleRate = 96000;
+  await engine.resume();                       // a rate change: rebuild
+  assert.notEqual(liveContexts.at(-1), ctx, 'precondition: the context was rebuilt');
+  assert.equal(engine.getCapture().held, 0, 'the rebuild must let go of the held keys');
+  const take = engine.stopCapture();
+  assert.equal(take.captured, 1);
+  const row = engine.getLastTake().beats[0];
+  assert.ok(row.end !== null, 'the held row was left open by the rebuild');
+  assert.ok(row.end > row.start,
+    `the held row ended before it began (start ${row.start}, end ${row.end} beats) — old and new clocks mixed`);
+  assert.ok(Math.abs((row.end - row.start) - 1) < 1e-6,
+    `the row must close at the old clock's now (1 beat held), got ${row.end - row.start}`);
+  engine.stop();
+});
+
+test('2026-11-06: a take folds by the BAR, so every bar\'s downbeat lands on slot 0', async () => {
+  const cases = [
+    { label: '3/4 on the 2/3-beat triplet grid', timeSignature: '3/4', track: 'melody', stepBeats: 2 / 3 },
+    { label: '7/8 at 1/3 beat', timeSignature: '7/8', track: 'melody', stepBeats: 1 / 3 },
+    { label: 'the arp in 7/8 at 1/4', timeSignature: '7/8', track: 'arp', rate: '1/4' },
+  ];
+  for (const { label, timeSignature, track, stepBeats, rate } of cases) {
+    const engine = createEngine({
+      bpm: 120, speed: 1, timeSignature,
+      ...(rate ? { arp: { rate } } : {}),
+      tracks: { [track]: { state: 'on', ...(stepBeats ? { stepBeats } : {}) } },
+    });
+    engine.arm();
+    const ctx = liveContexts.at(-1);
+    ctx.currentTime = 2;
+    assert.equal(engine.armCapture(track), true, label);
+    const barSeconds = 0.5 * beatsPerBar(timeSignature);
+    for (let bar = 0; bar < 4; bar += 1) {
+      ctx.currentTime = 2 + bar * barSeconds;
+      engine.noteOn(track, 60, 0.6);
+      ctx.currentTime += 0.05;
+      engine.noteOff(track, 60);
+    }
+    const take = engine.stopCapture();
+    assert.equal(take.written, 4, label);
+    // Only the slots the bar PLAYS: the stored lane's tail past them is
+    // padding the sanitiser fills, not part of the take.
+    const plays = rate ? arpLaneLength(timeSignature, rate) : stepsPerBarAt(timeSignature, stepBeats);
+    const lane = engine.getParams().tracks[track].sequencers[take.sequencer].steps.slice(0, plays);
+    const on = lane.map((step, i) => (step.on ? i : -1)).filter((i) => i >= 0);
+    assert.deepEqual(on, [0], `${label}: four downbeats landed on slots ${on.join(',')}, not all on 0`);
+    engine.stop();
+  }
+  // The pure half: a phase that rounds past the last slot is the next downbeat.
+  const grid = { origin: 0, stepSeconds: 2 / 3 * 0.5, stepCount: 4, barSeconds: 1.5 };
+  assert.equal(captureSlot(1.45, grid), 0, 'a hair before the next downbeat is that downbeat');
+  assert.equal(captureSlot(1.5 * 3 + 0.34, grid), 1);
+});
+
 test('v0.0.136 sources: Cycle is an LFO and Step is a sample-and-hold, both on the existing span machinery', async () => {
   assert.deepEqual(DRIFT_SHAPES, ['drift', 'rise', 'fall', 'swell', 'cycle', 'step']);
 

@@ -1093,7 +1093,7 @@ function defaultStepLane() {
  * positive modulo — rather than a clamp — is for. Anything unusable answers
  * null: a caller with no clock must drop the note, not write it to slot 0.
  */
-export function captureSlot(seconds, { origin = 0, stepSeconds, stepCount } = {}) {
+export function captureSlot(seconds, { origin = 0, stepSeconds, stepCount, barSeconds } = {}) {
   const step = Number(stepSeconds);
   const slots = Math.round(Number(stepCount));
   const at = Number(seconds);
@@ -1101,6 +1101,20 @@ export function captureSlot(seconds, { origin = 0, stepSeconds, stepCount } = {}
   if (!Number.isFinite(slots) || slots < 1) return null;
   if (!Number.isFinite(at)) return null;
   const from = Number.isFinite(Number(origin)) ? Number(origin) : 0;
+  // 2026-11-06 (play-along hunt): the take folds by the BAR, not by the lane.
+  // A lane of stepCount slots need not fill its bar — 3/4 on the 2/3-beat
+  // triplet grid is 4 slots for 4.5 beats, 7/8 at 1/3 beat is 10 for 10.5,
+  // the arp in 7/8 at 1/4 is 4 for 3.5 — and folding by stepCount × step
+  // walked every later bar's downbeat off slot 0. So: the onset's phase
+  // within ITS bar, then the nearest slot; a phase that rounds past the last
+  // slot is the next bar's downbeat, slot 0. Without barSeconds (a caller
+  // from before this) the old lane-length fold stands.
+  const bar = Number(barSeconds);
+  if (Number.isFinite(bar) && bar > 0) {
+    const phase = (((at - from) % bar) + bar) % bar;
+    const slot = Math.round(phase / step);
+    return slot >= slots ? 0 : slot;
+  }
   const slot = Math.round((at - from) / step);
   return ((slot % slots) + slots) % slots;
 }
@@ -1148,7 +1162,8 @@ export function quantiseCapture(notes, options = {}) {
     if (!target) continue;
     const velocity = round3(clamp(Number(note.velocity) || DEFAULT_STEP.vmax, 0.05, 1));
     const step = { ...DEFAULT_STEP, on: true, prob: 1, vmin: velocity, vmax: velocity };
-    const held = Number(note.end) - Number(note.start);
+    // An open row (end null) has no length: Number(null) is 0, not a gap.
+    const held = note.end == null ? NaN : Number(note.end) - Number(note.start);
     if (Number.isFinite(held) && held > 0 && Number.isFinite(span) && span > 0) {
       step.gate = round3(clamp(held / span, STEP_GATE_RANGE[0], STEP_GATE_RANGE[1]));
     }
@@ -8269,6 +8284,41 @@ export function createEngine(initialParams, options = {}) {
     outputRamp = { t0: at, v0, t1: at + LIVE_OPEN * 4, v1: target };
   }
 
+  /**
+   * 2026-11-06 (play-along hunt): after stop() the idle suspend is armed, and
+   * ~0.7 s later the context is suspended — so a key played on a stopped
+   * piece sounded nothing while noteOn said true and Capture wrote it down.
+   * A key press IS a user gesture, so it may wake the context: the pending
+   * suspend is cancelled (it would also cancel the very note being played)
+   * and idleSuspended cleared, which resume() would otherwise refuse to get
+   * past. The last key up re-arms the suspend (noteOff) — but only when the
+   * keys are what woke it: a context arm() left awake for a gestureless
+   * start() (an alarm, a sleep timer) must stay awake, keys or no keys.
+   */
+  let keysWokeContext = false;
+  function wakeForKeys() {
+    const asleep = idleSuspended || suspendTimer !== null;
+    if (!asleep && ctx.state === 'running') return;
+    if (asleep) keysWokeContext = true;
+    clearSuspend();
+    idleSuspended = false;
+    if (ctx.state !== 'running') {
+      requestPlaybackAudioSession();
+      resumeWithTimeout(); // fire and forget: noteOn stays synchronous
+    }
+    playOutputElement();
+  }
+
+  /** The hands are off a stopped engine the keys woke: let it sleep again. */
+  function keysIdle() {
+    if (!keysWokeContext || isRunning || paused || heldKeys.size > 0 || !ctx) return;
+    keysWokeContext = false;
+    scheduleSuspend(KEYS_IDLE_SUSPEND);
+  }
+
+  /** How long the last key's release rings before an idle context may sleep. */
+  const KEYS_IDLE_SUSPEND = 4;
+
   /** Let go of one held key: fade its note, drop it from the polyphony ledger. */
   function releaseKey(held, at) {
     if (held.handle) {
@@ -8295,6 +8345,15 @@ export function createEngine(initialParams, options = {}) {
     if (!name || !ctx || !graph || !graph.tracks[name]) return false;
     const pitch = Math.round(Number(midi));
     if (!Number.isFinite(pitch) || pitch < 0 || pitch > 127) return false;
+    // 2026-11-06 (play-along hunt): Pause means the piece is HELD — the
+    // context is (or is about to be) suspended to freeze its clock, the
+    // output has faded to silence, and resume() continues from the exact
+    // pulse it left. Waking the context for a key would run that clock on
+    // and spend the notes the pause is holding, and the note would still
+    // play into a silenced master. So a key on a paused engine is refused
+    // out loud — false, nothing recorded — rather than claimed and unheard.
+    if (paused) return false;
+    if (!isRunning) wakeForKeys();
     const sent = Number(velocity);
     const vel = clamp(Number.isFinite(sent) && sent > 0 ? sent : LIVE_VELOCITY, 0.01, 1);
     // A key pressed twice without a release is a re-strike, never a stack.
@@ -8366,6 +8425,7 @@ export function createEngine(initialParams, options = {}) {
     if (!held) return false;
     heldKeys.delete(key);
     releaseKey(held, ctx ? ctx.currentTime : 0);
+    keysIdle();
     return true;
   }
 
@@ -8399,6 +8459,7 @@ export function createEngine(initialParams, options = {}) {
       released += 1;
     }
     heldKeys.clear();
+    keysIdle();
     return released;
   }
 
@@ -8455,10 +8516,14 @@ export function createEngine(initialParams, options = {}) {
     if (track === 'arp') {
       const rate = params.arp && ARP_RATES[params.arp.rate] !== undefined ? params.arp.rate : '1/8';
       const rateBeats = ARP_RATES[rate] ?? 0.5;
+      const metre = metreAt(params.timeSignature, currentBarNumber);
       return {
         origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
         stepSeconds: secPerBeat * rateBeats,
-        stepCount: arpLaneLength(metreAt(params.timeSignature, currentBarNumber), rate),
+        // The fold is the bar (captureSlot): the arp lane's ceil'd length can
+        // run past a short bar, and folding by it walks downbeats off slot 0.
+        barSeconds: secPerBeat * beatsPerBar(metre),
+        stepCount: arpLaneLength(metre, rate),
         // v0.0.171: the blank lane quantiseCapture writes into is sized off
         // this, laneSlotsFor(stepBeats) — the same law every other track's
         // grid already carries below.
@@ -8468,10 +8533,13 @@ export function createEngine(initialParams, options = {}) {
     // A take is quantised onto the TRACK's own grid — its resolution as well
     // as the metre (v0.0.131), the same way the arp branch above uses its rate.
     const beats = params.tracks[track] ? trackStepBeats(track) : SEQUENCER_STEP_BEATS;
+    const metre = metreAt(params.timeSignature, currentBarNumber);
     return {
       origin: isRunning && currentBarTime ? currentBarTime : (capture ? capture.armedAt : 0),
       stepSeconds: secPerBeat * beats,
-      stepCount: stepsPerBarAt(metreAt(params.timeSignature, currentBarNumber), beats),
+      // A floored triplet lane is shorter than its bar; the fold is the bar.
+      barSeconds: secPerBeat * beatsPerBar(metre),
+      stepCount: stepsPerBarAt(metre, beats),
       stepBeats: beats,
     };
   }
@@ -8527,7 +8595,11 @@ export function createEngine(initialParams, options = {}) {
         track,
         beats: notes.map((note) => ({
           start: (Number(note.start) - grid.origin) / secPerBeat,
-          end: Number.isFinite(Number(note.end)) ? (Number(note.end) - grid.origin) / secPerBeat : null,
+          // note.end == null FIRST: Number(null) is 0, a finite number, and
+          // an unclosed row became a release at context time zero — beats
+          // before the take began (-20 at a 10 s origin, 2026-11-06 hunt).
+          end: note.end != null && Number.isFinite(Number(note.end))
+            ? (Number(note.end) - grid.origin) / secPerBeat : null,
           lane: note.lane ?? null,
           velocity: Number.isFinite(Number(note.velocity)) ? Number(note.velocity) : null,
           midi: Number.isFinite(Number(note.midi)) ? Number(note.midi) : null,
@@ -11612,6 +11684,19 @@ export function createEngine(initialParams, options = {}) {
    * the reverb IR are baked at the old rate). Tear down and start over.
    */
   function rebuildContext() {
+    // 2026-11-06 (play-along hunt): a key held through the rebuild has a
+    // capture row that only its release would close — and the release never
+    // comes, because the key leaves heldKeys here. The row closes NOW, on the
+    // OLD context's clock its start was read from; the new context's clock
+    // starts again near zero, and a row spanning both would be nonsense. The
+    // page ends the take on 'rebuilt' (a take straddling two clocks cannot be
+    // quantised honestly) and releases its own held keys.
+    if (ctx) {
+      const at = ctx.currentTime;
+      for (const held of heldKeys.values()) {
+        if (held.row && held.row.end === null) held.row.end = Math.max(at, held.row.start + 0.02);
+      }
+    }
     liveNotes.clear(); // handles into the dead context; close() ends their audio
     heldKeys.clear();  // and the keys the hands were holding through them
     // Chains still ringing out belong to the context about to close, which ends
@@ -11658,6 +11743,7 @@ export function createEngine(initialParams, options = {}) {
     // Nothing may re-suspend a context the caller just armed.
     clearSuspend();
     idleSuspended = false;
+    keysWokeContext = false;
     if (ctx.state !== 'running') {
       requestPlaybackAudioSession();
       resumeWithTimeout(); // fire and forget: arm() stays synchronous

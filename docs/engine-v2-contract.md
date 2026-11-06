@@ -2164,6 +2164,16 @@ engine.getCapture()                     // → { armed, track, notes, held, undo
   intended door — it builds the graph, loads the voices and starts no
   transport, so the keys work over silence. A live note never starts the
   transport itself.
+- **A key wakes a sleeping context; Pause refuses it** (2026-11-06). After
+  `stop()` the engine suspends its context once the fade is done, to save
+  power. A key press is a user gesture, so `noteOn` on a stopped engine
+  cancels that pending suspend and resumes a context it already suspended;
+  once the last key is up, the suspend is re-armed (4 s, for the release to
+  ring) — but only if the keys are what woke it, so a context `arm()` left
+  awake for a gestureless `start()` stays awake. On a PAUSED engine `noteOn`
+  returns false and records nothing: a pause holds the piece by freezing the
+  clock, and waking it would spend the notes the pause is holding into a
+  master the pause has faded to silence.
 - With the piece stopped, `noteOn` opens the master gain the transport keeps
   shut and the target track's own chain; while it plays, the note simply uses
   the chain that is already open. A track the scheduler is NOT currently
@@ -2184,7 +2194,10 @@ engine.getCapture()                     // → { armed, track, notes, held, undo
   polyphony ledger (`getStats().totalActiveNotes`, the power governor's
   budget) because they are real voices — but never on `notesPerMin`, which
   measures the piece the ENGINE is generating.
-- `stop()` and a context rebuild release every held key.
+- `stop()` and a context rebuild release every held key. A rebuild first
+  closes each held key's capture row at the OLD context's time (its start was
+  read from that clock; the new one starts again near zero); the page then
+  ends the take and lets go of its own held keys on `rebuilt`.
 
 ## The bypass rule (the one that must not rot)
 
@@ -2216,8 +2229,8 @@ note stream — the events are emitted either way.
 Pure, exported, unit-testable without an AudioContext:
 
 ```js
-captureSlot(seconds, { origin, stepSeconds, stepCount })   // → slot | null
-quantiseCapture(notes, { origin, stepSeconds, stepCount, lanes? })
+captureSlot(seconds, { origin, stepSeconds, stepCount, barSeconds? })   // → slot | null
+quantiseCapture(notes, { origin, stepSeconds, stepCount, barSeconds?, lanes? })
   // notes: [{ start, end, velocity, lane? }] → { steps, written }
 ```
 
@@ -2232,6 +2245,14 @@ quantiseCapture(notes, { origin, stepSeconds, stepCount, lanes? })
   than a bar folds onto the grid, and a note played before the origin is as
   playable as one after it. An unreadable grid answers `null` and the note is
   dropped rather than written to slot 0.
+- The fold is the BAR (`barSeconds`, which the engine always passes), not
+  `stepCount × stepSeconds` (2026-11-06). A lane need not fill its bar — 3/4
+  on the 2/3-beat triplet grid is 4 slots for 3 beats, the arp in 7/8 at 1/4
+  is 4 slots for 3½ — and folding by the lane walked every later bar's
+  downbeat off slot 0. The onset's phase within its own bar is rounded to a
+  slot; one that rounds to `stepCount` or past it is the next downbeat, slot
+  0. A row still open at `stopCapture` (`end: null`) carries no gate and a
+  raw-take `end` of null — never `Number(null)`, which is context time zero.
 - Each played slot becomes `{ on: true, prob: 1, vmin: v, vmax: v }` at the
   velocity it was struck, plus a v21 `gate` of (held seconds ÷ step seconds),
   clamped to 0.1–2, when the key was released. A key never let go keeps the
@@ -2278,9 +2299,16 @@ alone.
 - Web MIDI is feature-detected (`navigator.requestMIDIAccess`) and requested
   when the toggle goes on; note-on/note-off messages drive the same
   `noteOn`/`noteOff` seam at velocity/127. Absence is silent — no message, no
-  disabled control, nothing to explain.
+  disabled control, nothing to explain. Held MIDI notes are tracked per input
+  port, and a port that reports `disconnected` has its notes let go; a
+  note-off goes to the track its note-on sounded on.
 - Blur and tab-hide release every held key: a keyup that never arrives must
   not leave a note sounding.
+- Held computer keys are filed by `event.code`, the physical key, so a
+  modifier pressed mid-note (Shift turns `,`'s keyup into `<`) cannot strand
+  it. Keys that share a pitch (`, q`, `l 2`, `. w`, `; 3`, `/ e`) — and MIDI
+  ports that share one — are counted per track and pitch: the note stops
+  when the LAST of them lets go.
 
 ---
 
