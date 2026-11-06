@@ -329,6 +329,19 @@ await okAsync('a fresh prompt works again after the previous one settled', async
   assert.equal(await promise, true);
 });
 
+ok('consent granted in ANOTHER tab: the next write here flushes what this tab held in memory', () => {
+  // 2026-11-06 hunt: the other tab's grant reaches this one only through the
+  // cookie, and only keys rewritten afterwards were stored.
+  resetConsent();
+  localStorage.removeItem('ambi4:presetsX');
+  localStorage.removeItem('ambi4:generatorX');
+  prefs.set('presetsX', ['mine']);      // held in memory, unasked
+  prefs.set('generatorX', { a: 1 });
+  cookieJar.set('ambi4-consent', 'granted'); // the other tab said yes
+  assert.equal(prefs.set('generatorX', { a: 2 }), true);
+  assert.equal(localStorage.getItem('ambi4:presetsX'), '["mine"]', 'the earlier key reached storage too');
+});
+
 ok('a stray consent cookie with a bad value does not hide the real one behind it', () => {
   // 2026-11-06 hunt: readConsent() returned "unasked" at the FIRST
   // ambi4-consent it met, so a duplicate from another Path or Domain sorting

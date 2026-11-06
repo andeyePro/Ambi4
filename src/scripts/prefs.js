@@ -79,6 +79,9 @@ function writeConsentCookie(value) {
 }
 
 /** Flush everything chosen pre-consent into localStorage (on grant). */
+// What set() last saw the consent cookie say (see set()).
+let lastConsentSeen = null;
+
 function flushMemory() {
   const store = getLocalStorage();
   if (!store) return;
@@ -123,7 +126,14 @@ export const prefs = {
 
   /** Returns true only when the value was persisted to localStorage. */
   set(key, value) {
-    if (readConsent() === 'granted') {
+    const consent = readConsent();
+    // Consent granted in ANOTHER tab reaches this one only through the
+    // cookie: the first write after it lands flushes everything this tab had
+    // been holding in memory, as a grant here would (2026-11-06 hunt: only
+    // keys rewritten afterwards reached storage — earlier presets did not).
+    if (consent === 'granted' && lastConsentSeen !== 'granted' && memory.size) flushMemory();
+    lastConsentSeen = consent;
+    if (consent === 'granted') {
       const store = getLocalStorage();
       if (store) {
         try {
