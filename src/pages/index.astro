@@ -1804,7 +1804,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (typeof entry.name !== 'string' || !entry.name.trim()) continue;
         if (typeof entry.voiceSet !== 'string' || !isStockVoice(entry.voiceSet, entry.voice)) continue;
         if (!isPlainObject(entry.patch) || out.some((v) => v.id === entry.id)) continue;
-        out.push({ ...entry, name: entry.name.trim().slice(0, 40) });
+        // As for genres: a stored `transient` is not this visit's link visitor.
+        const { transient: _transient, ...kept } = entry;
+        out.push({ ...kept, name: entry.name.trim().slice(0, 40) });
         if (out.length >= USER_VOICE_CAP) break;
       }
       return out;
@@ -1830,7 +1832,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (typeof entry.name !== 'string' || !entry.name.trim()) continue;
         if (!isPlainObject(entry.essence) || GENRE_BY_SLUG.has(entry.slug)) continue;
         if (out.some((g) => g.slug === entry.slug)) continue;
-        out.push({ ...entry, name: entry.name.trim().slice(0, 40) });
+        // `transient` marks a link's visitor for THIS visit and is set after
+        // cleaning; a stored one (old or hostile data) listed the genre at
+        // boot and then dropped it from storage on the next save (2026-11-06).
+        const { transient: _transient, ...kept } = entry;
+        out.push({ ...kept, name: entry.name.trim().slice(0, 40) });
         if (out.length >= USER_GENRE_CAP) break;
       }
       return out;
@@ -4012,11 +4018,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         settings = deepMerge(DEFAULTS, saved || {});
         normaliseV6Tracks(settings);
         if (migratedFromLegacy && prefs.consent() === 'granted') {
-          prefs.set('generator', settings);
-          // Persisted for real — NOW the legacy key can go.
-          try {
-            localStorage.removeItem(LEGACY_STORAGE_KEY);
-          } catch {}
+          // Persisted for real — NOW the legacy key can go. Only if it WAS
+          // persisted (2026-11-06 hunt): a store too full for the new copy
+          // returned false, the legacy key was removed anyway, and the next
+          // visit opened on the defaults.
+          if (prefs.set('generator', settings)) {
+            try {
+              localStorage.removeItem(LEGACY_STORAGE_KEY);
+            } catch {}
+          }
         }
         // A `#p=` share link (or a /[slug] factory-preset route, v16) wins over
         // the stored settings for THIS visit, and takes the same migrate →
@@ -4322,9 +4332,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // that promised to keep something (Save) must say so.
         const kept = prefs.set(key, value);
         if (prefs.consent() === 'granted') {
-          try {
-            localStorage.removeItem(LEGACY_STORAGE_KEY);
-          } catch {}
+          // Only the SETTINGS landing retires the legacy settings; a small key
+          // (a pin, the hidden list) landing proves nothing about them.
+          if (kept && key === 'generator') {
+            try {
+              localStorage.removeItem(LEGACY_STORAGE_KEY);
+            } catch {}
+          }
           // A write the store refused with consent GRANTED used to vanish in
           // silence: the dial moved, the readout agreed, and the next visit
           // opened on the setup from before it (2026-10-30, browser bug hunt,
@@ -4357,10 +4371,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (prefs.consent() === null && !deniedThisSession) {
           ensureConsent().then((granted) => {
             if (granted) {
-              prefs.set(key, value);
-              try {
-                localStorage.removeItem(LEGACY_STORAGE_KEY);
-              } catch {}
+              if (prefs.set(key, value) && key === 'generator') {
+                try {
+                  localStorage.removeItem(LEGACY_STORAGE_KEY);
+                } catch {}
+              }
             }
           });
         }
@@ -5504,6 +5519,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         settings.tracks[track].userVoice = { id: mine.id, name: mine.name };
         if (!isPlainObject(settings.patches[track])) settings.patches[track] = {};
         settings.patches[track][mine.voice] = patch;
+        // The engine MERGES patches: a sparse saved patch (one kept while an
+        // unedited genre patch was stored, or {} from a link) left the genre's
+        // own fields sounding under a page that showed stock (2026-11-06 hunt:
+        // Synthwave's detune 14 under a saved polysaw). Cleared first, as
+        // every other pick of a whole patch does.
+        if (engineCaps.patchClear) engine.setParams({ patches: { [track]: { [mine.voice]: null } } });
         engine.setParams({
           tracks: { [track]: { voice: mine.voice, voiceWeights: null, ...(heldRule ? { voiceRule: heldRule } : {}) } },
           patches: { [track]: { [mine.voice]: structuredClone(patch) } },
@@ -20342,6 +20363,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         return list;
       }
 
+      // The Line-up row keys the Rules form models; everything else in a row
+      // is carried through it as `extra`.
+      const RULES_ROW_MODELLED = new Set(['state', 'voice', 'level', 'randomness', 'voiceRule', 'motifRule', 'motif', 'autoThreshold']);
+      // Key order is not content: a row read back from the form lists its
+      // keys in another order than the file it came from.
+      const canonicalJson = (value) => JSON.stringify(value, (key, v) => (isPlainObject(v)
+        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]]))
+        : v));
+
       function buildRulesModel(genre) {
         const rules = effectiveGenreRules(genre);
         rulesModel = {
@@ -20378,6 +20408,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           perTrack: Object.fromEntries(TRACK_IDS_BUILTIN.map((id) => {
             const spec = rules.perTrack[id] || {};
             return [id, {
+              // 2026-11-06 hunt: every key the form does not model rides
+              // through untouched (densityScale, grooveRule, variantRule,
+              // fillRule, …). Dropped, an untouched row compared as "changed"
+              // and an Apply replaced the track's spec without them — Deep
+              // House's melody density went 0.2 → 1 on an Apply of nothing.
+              extra: Object.fromEntries(Object.entries(spec)
+                .filter(([key]) => !RULES_ROW_MODELLED.has(key))
+                .map(([key, value]) => [key, structuredClone(value)])),
               state: ['off', 'auto', 'on'].includes(spec.state) ? spec.state : null,
               voice: typeof spec.voice === 'string' ? spec.voice : null,
               level: spanOf(spec.level),
@@ -20968,7 +21006,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           reverbTail: Number.isFinite(m.reverbTail) ? m.reverbTail : null,
           perTrack: Object.fromEntries(TRACK_IDS_BUILTIN.map((id) => {
             const spec = (m.perTrack || {})[id] || {};
-            const out = {};
+            const out = isPlainObject(spec.extra) ? structuredClone(spec.extra) : {};
             if (spec.state) out.state = spec.state;
             if (spec.voice) out.voice = spec.voice;
             if (spec.level) out.level = spanBack(spec.level);
@@ -21028,6 +21066,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               return `"${row.value}" is not a ${what} the engine knows.`;
             }
             if (!Number.isFinite(row.weight) || row.weight < 0) return `A ${what} needs a weight of 0 or more.`;
+          }
+          // Every weight at 0 used to pass and then compile to nothing, so the
+          // engine's default stood in unseen (2026-11-06 hunt: an all-zero
+          // Synthwave drew major pentatonic in 4/4 every time). An EMPTIED
+          // list still means "stop ruling this".
+          const rows = form[key] || [];
+          if (rows.length && !rows.some((row) => row.weight > 0)) {
+            return `At least one ${what} needs a weight above 0 (or remove them all to stop ruling it).`;
           }
         }
         for (const line of form.progressionGrammar) {
@@ -21181,7 +21227,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         for (const id of TRACK_IDS_BUILTIN) {
           const mine = form.perTrack[id] || {};
           const filed = isPlainObject(own.instrumentation?.perTrack?.[id]) ? own.instrumentation.perTrack[id] : {};
-          if (JSON.stringify(mine) !== JSON.stringify(filed)) {
+          if (canonicalJson(mine) !== canonicalJson(filed)) {
             overrides.perTrack = overrides.perTrack || {};
             overrides.perTrack[id] = mine;
             ruledTracks.push(id);
@@ -21259,8 +21305,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const mine = settings.tracks?.[id];
           if (!isPlainObject(mine)) continue;
           const row = ruledTracks.includes(id) && overrides.perTrack ? overrides.perTrack[id] : null;
-          const fresh = row && JSON.stringify(row) !== JSON.stringify(lastRuled[id]);
-          const sets = (key) => fresh && row[key] !== undefined;
+          const fresh = row && canonicalJson(row) !== canonicalJson(lastRuled[id]);
+          // FIELD by field (2026-11-06 hunt): every stock row defines state,
+          // voice, level and randomness, so "the row defines it" landed all
+          // four when only Variation was edited, and the voice you had chosen
+          // went back to the genre's. A field lands when it differs from what
+          // it was before this edit — the rules last applied, or the genre's
+          // own row when none were.
+          const before = isPlainObject(lastRuled[id]) ? lastRuled[id]
+            : (isPlainObject(genre.essence?.instrumentation?.perTrack?.[id]) ? genre.essence.instrumentation.perTrack[id] : {});
+          const sets = (key) => fresh && row[key] !== undefined && canonicalJson(row[key]) !== canonicalJson(before[key]);
           if (!sets('voice') && typeof mine.voice === 'string') {
             track.voice = mine.voice;
             if (isPlainObject(mine.userVoice)) track.userVoice = structuredClone(mine.userVoice);
@@ -21320,6 +21374,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         if (USER_GENRES.length >= USER_GENRE_CAP) {
           say(`This device holds ${USER_GENRE_CAP} genres of your own already — forget one to make room.`);
+          return;
+        }
+        // Two of your own under one name were two identical entries in the
+        // picker (2026-11-06 hunt); presets already refuse a repeated name.
+        if (USER_GENRES.some((g) => String(g.name || '').toLowerCase() === name.toLowerCase())) {
+          say(`You already have a genre called "${name}" — choose another name, or forget that one first.`);
+          nameInput?.focus();
           return;
         }
         // v0.0.190: what you keep must be what is playing. An edit not yet
@@ -21883,11 +21944,23 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * Called whenever the settings tree may have moved. Coalesced, so a drag
        * that fires two hundred commits leaves one entry behind it.
        */
+      // The pending (debounced) recording, runnable NOW: ⌘Z within 300 ms of an
+      // edit used to undo the edit BEFORE it, and the fresh one then found
+      // nothing changed and was never recorded at all (2026-11-06 hunt).
+      let undoPending = null;
+      function flushUndoPoint() {
+        if (undoTimer === null || !undoPending) return;
+        clearTimeout(undoTimer);
+        const run = undoPending;
+        undoPending = null;
+        run();
+      }
       function noteUndoPoint() {
         if (undoSuspended) return;
         if (undoTimer !== null) clearTimeout(undoTimer);
-        undoTimer = setTimeout(() => {
+        undoPending = () => {
           undoTimer = null;
+          undoPending = null;
           if (undoSuspended) return;
           let now;
           try { now = paramsSnapshot(); } catch { return; }
@@ -21903,10 +21976,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // and what anyone who has used one expects.
           redoStack.length = 0;
           undoBaseline = now;
-        }, 300);
+        };
+        undoTimer = setTimeout(() => { if (undoPending) undoPending(); }, 300);
       }
 
       function stepUndo(from, to) {
+        flushUndoPoint();
         const entry = from.pop();
         if (!entry) return false;
         let current;

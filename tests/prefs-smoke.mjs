@@ -329,4 +329,17 @@ await okAsync('a fresh prompt works again after the previous one settled', async
   assert.equal(await promise, true);
 });
 
+ok('a stray consent cookie with a bad value does not hide the real one behind it', () => {
+  // 2026-11-06 hunt: readConsent() returned "unasked" at the FIRST
+  // ambi4-consent it met, so a duplicate from another Path or Domain sorting
+  // ahead of the real one made every visit ask again and save nothing.
+  const own = Object.getOwnPropertyDescriptor(document, 'cookie');
+  Object.defineProperty(document, 'cookie', { configurable: true, get: () => 'ambi4-consent=yes; ambi4-consent=granted', set() {} });
+  try {
+    assert.equal(prefs.consent(), 'granted');
+  } finally {
+    Object.defineProperty(document, 'cookie', own);
+  }
+});
+
 console.log('\nprefs-smoke: ' + passed + ' checks passed');

@@ -30,6 +30,11 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Rules, storage, undo and your own voices audited, 2026-11-06
+
+- [x] *(SHIPPED v0.0.308 — genre-rules, undo and prefs-smoke checks red on v0.0.307)* Rules: unmodelled Line-up keys dropped (Deep House/Lo-fi Apply of nothing), whole-row landing, all-zero weights, repeated genre names. Storage: legacy key deleted on a failed write, bad duplicate consent cookie, stored `transient` flags. Your own voice merged into the engine's patch. Quick ⌘Z.
+- [ ] Left from the same hunts: consent granted in ANOTHER tab writes only keys rewritten afterwards (this tab's other memory-only keys never reach storage); writes queued before consent are refused silently on a full store; forgetting the genre that is playing re-tags the setup but keeps `settings.genreRules`; a link carrying a genre under a slug you already have resolves Rules/Next to your copy (needs a forged slug); two voices of your own may share a name (presets refuse it; a design call). Unconfirmed: the undo stack has no cap and clones whole subtrees per drag (the owner asked for unlimited).
+
 ## The power governor audited, 2026-11-06
 
 - [x] *(SHIPPED v0.0.307 — power-hunt-smoke 4 red on v0.0.306)* Tier flip-flop under tier-dependent load (failed-tier back-off), hidden-tab lateness, battery listener race, the reverb cap sent with the note cap.

@@ -50,7 +50,9 @@ function readConsent() {
       if (trimmed.indexOf(CONSENT_COOKIE + '=') === 0) {
         const value = trimmed.slice(CONSENT_COOKIE.length + 1);
         if (value === 'granted' || value === 'denied') return value;
-        return null;
+        // A stray duplicate with a bad value (another Path or Domain) must
+        // not hide the real answer behind it (2026-11-06 hunt): keep looking.
+        continue;
       }
     }
   } catch (_) {

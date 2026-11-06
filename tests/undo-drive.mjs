@@ -146,6 +146,22 @@ export default async function drive(page) {
     !!document.getElementById('generator-app') && !document.getElementById('generator-app').hidden),
   (v) => v === true);
 
+  // ⌘Z pressed straight after an edit (inside the recorder's 300 ms
+  // debounce) undoes THAT edit, and the edit before it is untouched
+  // (2026-11-06 hunt: it undid the previous edit and the fresh one was never
+  // recorded). Two selects, the second changed and undone at once.
+  await page.selectOption('#root', 'D');
+  await page.waitForTimeout(700); // the first edit is recorded
+  const afterFirst = await state(page);
+  await page.selectOption('#mode', afterFirst.mode === 'dorian' ? 'aeolian' : 'dorian');
+  await page.waitForTimeout(60); // well inside the 300 ms debounce
+  await page.evaluate(() => document.activeElement && document.activeElement.blur && document.activeElement.blur());
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(500);
+  const quick = await state(page);
+  check('a quick ⌘Z undoes the edit just made', quick.mode, afterFirst.mode);
+  check('…and leaves the edit before it alone', quick.root, 'D');
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

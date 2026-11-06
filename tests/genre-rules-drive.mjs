@@ -293,6 +293,61 @@ export default async function drive(page) {
       /instruments and their dials are kept/.test(kept.note), (v) => v === true);
   }
 
+  // ---- 2026-11-06 hunt: an Apply of NOTHING changes nothing ----------------
+  // Deep House carries per-track keys the form does not model (the melody's
+  // densityScale); they were dropped, the untouched row compared as changed,
+  // and the melody's density went 0.2 → 1. Deep House is not on the public
+  // list, so it is picked the way Surprise me can land on it: by its value.
+  await page.evaluate(() => { const d = document.getElementById('genre-rules'); if (d && !d.hidden) document.getElementById('genre-rules-toggle')?.click(); });
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    const sel = document.getElementById('genre-select');
+    if (![...sel.options].some((o) => o.value === 'g:deep-house')) {
+      const o = document.createElement('option');
+      o.value = 'g:deep-house';
+      o.textContent = 'Deep House';
+      sel.append(o);
+    }
+    sel.value = 'g:deep-house';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  // The voices edited above put up the leave-guard: move on.
+  await page.waitForTimeout(400);
+  await page.evaluate(() => { const b = document.querySelector('.leave-guard-move, [data-action="leave-guard-move"], button#leave-guard-move'); if (b) b.click(); });
+  const onDeep = await page
+    .waitForFunction(() => window.__ambi4Engine?.getParams?.()?.genre === 'deep-house', { timeout: 5000 })
+    .then(() => true).catch(() => false);
+  check('Deep House is playing', onDeep, true);
+  if (onDeep) {
+    await page.waitForTimeout(400);
+    const tracksBefore = await page.evaluate(() => JSON.stringify(window.__ambi4Engine.getParams().tracks));
+    await ensureRulesOpen();
+    await page.click('#genre-rules-apply');
+    await page.waitForTimeout(900);
+    const tracksAfter = await page.evaluate(() => JSON.stringify(window.__ambi4Engine.getParams().tracks));
+    const changed = (() => {
+      const a = JSON.parse(tracksBefore); const b = JSON.parse(tracksAfter);
+      return Object.keys(a).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+    })();
+    check('an Apply with nothing touched changes no track (Deep House)', changed, []);
+
+    // A repeated name is refused, not saved as a second identical entry.
+    const saveTwice = await page.evaluate(async () => {
+      const name = document.getElementById('genre-rules-name');
+      const save = document.getElementById('genre-rules-save');
+      const count = () => [...document.getElementById('genre-select').options].filter((o) => o.textContent === 'Twice named').length;
+      name.value = 'Twice named';
+      save.click();
+      await new Promise((r) => setTimeout(r, 600));
+      const first = count();
+      name.value = 'Twice named';
+      save.click();
+      await new Promise((r) => setTimeout(r, 600));
+      return { first, second: count(), said: document.getElementById('genre-rules-save-info')?.textContent || document.getElementById('dial-confirm')?.textContent || '' };
+    });
+    check('Save genre under a name you already use is refused', [saveTwice.first, saveTwice.second], [1, 1]);
+  }
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(
