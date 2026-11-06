@@ -165,8 +165,10 @@ are unaffected.
 
 ### D2 — Tap the centre circle to default; zeroed state is shown, not gestured
 
-*Status: decided 2026-07-27. Zero-on-hub-tap and the muted default state are
-shipped; the larger mobile dial is part of the phase-3 rebuild.*
+*Status: decided 2026-07-27. Zero-on-hub-tap and the muted ZEROED state (grey
+pointer at the dial's own minimum) are shipped — the reset to default stayed on
+double-click (v0.0.60, the owner's reversal) and Backspace; the larger mobile
+dial is part of the phase-3 rebuild.*
 
 Reset moves from double-click to a **tap on the centre circle** — press and
 release without moving, no timing requirement of any kind.
@@ -199,11 +201,15 @@ it.
 
 ### 2.1 Where the dial stands today (was 1d)
 
-- **Double-click.** It is the reverse of the proposal's description. A *single*
-  click on the face toggles min ↔ max mode (`knob.js:927`, gated on
-  `allowRange`); a *double* click restores the initial value **and** mode
-  (`knob.js:995`). So the collision is real but it is single-vs-double, not
-  double-doing-two-things.
+- **Double-click.** *(Today, re-checked 2026-11-06: a tap outside the hub does
+  nothing; a tap on the hub sends the dial to its floor — `toZero`, only on a
+  dial that can spread, which is the only kind with a hub; a double-click or
+  Backspace restores the declared `defaultValue`, the initial value only when
+  none is declared — `resetToDefault`. The paragraph below is how it stood when
+  this plan was written.)* It is the reverse of the proposal's description. A
+  *single* click on the face toggled min ↔ max mode (gated on `allowRange`); a
+  *double* click restored the initial value **and** mode. So the collision was
+  real but it was single-vs-double, not double-doing-two-things.
 - **Ghost.** `ghostValue` today is the kit editor's *"what Common says"*
   reference pointer — a muted second pointer shown when editing a per-drum
   override, with a text fallback when the module lacks `setGhost()`. It is not

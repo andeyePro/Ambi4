@@ -30,6 +30,12 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Docs, CONTRIBUTING and genre data audit, 2026-11-06 (read-only opus review)
+
+- [x] *(DONE 2026-11-06, docs only)* CONTRIBUTING: a scale needs a `SCALES` entry AND a `modeGroups` label; a new genre ships hidden (`PUBLIC_GENRE_SLUGS`, the owner's call) and moves genre-smoke's `GENRE_COUNT`; `tests/all.mjs` is the runner. deploying.md's gate is `tests/all.mjs` + `tests/sweep-drives.sh`. engine-v2-contract: the expanded loop DOES reach the engine (`harmony.seed`), pocketMs writes `tracks.bass.timing`, bass defaults off. dial plan §2.1/D2 say today's gestures. rendering-host names all three sweeps, the URL form and the sweep script. Two stale code comments.
+- [ ] Four genre substitution rules can never fire (no seed in the genre has their source chord): Ambient V→IV, Bossa Imaj7→Imaj9, Minimalism V7→V, New Age V7→V. Removing them changes no draw (`substituteToken` calls rng only on a match) but they show in the Rules panel as live-looking odds. Remove with the next genre pass.
+- Checked clean by script: all 12 genres × 200 seeds compile to what the sanitiser returns (nothing clamped or dropped), every key is read, every voice/metre/mode/arc exists, every chord parses.
+
 ## ⓘ, key help and under-dial audit, 2026-11-06 (read-only opus review)
 
 - [x] *(SHIPPED v0.0.299 — doc-drift 12 hits on v0.0.298)* Eight false statements: chord numerals' case, link-name words, "tap the middle to start again", Journey/Build, Apply's "untouched", "Seed voices", "Repetition" ×4, the Processor's Auto. The keyboard help checked out row by row.
@@ -162,7 +168,7 @@ Shipped from it: fixes 1 (v0.0.208), 2–4 and 14 (v0.0.207), 6–7 (v0.0.209), 
 - [x] *(SHIPPED v0.0.219)* **"Rules show" where it acts** — mirrored in each voice editor head (fix 17).
 - [x] *(SHIPPED v0.0.232)* **Advanced collapses to its Now** — Sound / Music / Presets sections, each a heading with "more" (fix 18). Not measured: the layout on the bridge (no SSH) and the six updated drives.
 - [ ] **Genre rules on the rule primitive** — each of the 11 sections collapsed to its summary line with "more" (fix 20). Waits on fromClaude 24 (live versus Apply).
-- [ ] **Phone: the voice editor head is 297 px tall** (v0.0.210 measurement; 149 on desktop) — tidy, no overlap, but tall; look again once the head's remaining contents settle. *(Re-measured v0.0.297 at 390×844: 308 px, 339 on melody; 151 on desktop. The cause is one wrap: the extras row — re-roll 28, Randomness 84, Poly/Mono 101, Glide 84 px plus gaps — needs ~310 px in a 290 px box, so Glide takes a 109 px row of its own. A narrower Poly/Mono or tighter gaps would bring it back to one row.)*
+- [ ] **Phone: the voice editor head is 297 px tall** (v0.0.210 measurement; 149 on desktop) — tidy, no overlap, but tall; look again once the head's remaining contents settle. *(Re-measured v0.0.297 at 390×844: 308 px, 339 on melody; 151 on desktop. The cause is one wrap: the extras row — re-roll 28, Randomness 84, Poly/Mono 101, Glide 84 px plus gaps — needs ~310 px in a 290 px box, so Glide takes a 109 px row of its own. A narrower Poly/Mono or tighter gaps would bring it back to one row.)* *(Tried 2026-11-06: dial wrappers at 72 px, Poly/Mono padding 8, gap 6 put it on one row at 390 (head 308 → 191 px) but the Randomness caption is 90 px wide, wider than its own dial, and Poly then overlapped it by 1.8 px — layout-states-drive red in every editor. Reverted. A one-row phone head needs the caption shorter or the row reordered, a design call.)*
 
 ## Factory, edited and your own — owner brief 2026-10-03 (TOP of the queue, his placement)
 

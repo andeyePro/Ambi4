@@ -68,7 +68,7 @@ Six tracks, fixed order and ids: `pad`, `bass`, `melody`, `texture`, `arp`, `per
   },
   tracks: {
     pad:        { state: 'auto', voice: 'warm' },
-    bass:       { state: 'auto', voice: 'sub' },
+    bass:       { state: 'off',  voice: 'sub' },  // off by default since v14; genres turn it on
     melody:     { state: 'auto', voice: 'pluck' },
     texture:    { state: 'auto', voice: 'sparkle' },
     arp:        { state: 'auto', voice: 'softPluck' },
@@ -2003,11 +2003,11 @@ beat 4½ of a 7/8 bar).
   `extensionBias` and the colour the expanded tokens actually ask for (a ninth
   grammar compiles above `buildChord`'s 0.7 ninth threshold, a triad grammar
   below its 0.35 seventh threshold).
-- KNOWN LOSS: the expanded DEGREES do not reach the engine — the hook owns the
-  chord walk and there is no params slot for a supplied progression. Only the
-  loop's shape (length, colour, harmonic rhythm, mode) survives.
-  `expandProgression()` returns the degrees for a UI or a test; feeding them to
-  the engine needs a hook-seed param that does not exist yet — open work.
+- The expanded loop reaches the engine as `harmony.seed`: each token folded
+  into the drawn mode (`foldChordToken`), a plain numeral a step narrower than
+  Complexity plays it, a 7 as played, a 9 a step wider. (Until the seed param
+  existed this was a KNOWN LOSS — only the loop's shape survived; corrected
+  2026-11-06 by the docs audit.)
 - Groove grammar, two paths. With `fallbackLists.grooves` (nine of twelve
   genres): every groove becomes a MANUAL percussion sequencer — low/mid/high
   masks on the sixteenth grid, one sequencer per groove, evenly weighted, so
@@ -2019,7 +2019,7 @@ beat 4½ of a 7/8 bar).
   — `anchorPatterns` set the auto kit's density against four-on-the-floor
   (bounded 0.5–1.5, so a sixteenth-grid anchor cannot compile to a machine-gun),
   and no grid is faked from masks the director wrote for a kit.
-- Both paths (v0.0.275: the bass Timing spread's half-width, `tracks.bass.timing`): `pocketMs` → `tracks.bass.vary.timing` against the engine's own
+- Both paths (v0.0.275: the bass Timing spread's half-width, `tracks.bass.timing`): `pocketMs` → `tracks.bass.timing` (a `{min: -t, max: t}` spread) against the engine's own
   22 ms lay-back ceiling (0 ms = machine-tight); `syncopationCells` → a small
   bass-density uplift (`buildBassGroove` only reaches for a second cell above
   density 0.6); the declared `articulation` set → a bass-density nudge into the

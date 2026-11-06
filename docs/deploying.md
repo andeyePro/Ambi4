@@ -38,11 +38,14 @@ of doing so is nothing.
 ## Before pushing anything
 
 ```
-npm run build && node tests/page-boot.mjs
-node tests/audio-reference.mjs
+export PATH=~/.claude/toolchains/bin:$PATH   # Node >= 22.12 (Astro 7)
+npm run build && node tests/all.mjs          # every Node suite; non-zero if any is red
+tests/sweep-drives.sh                        # every browser drive, on the Mac test account
 ```
 
-`page-boot` is the blank-page gate — the generator has shipped blank twice, and
+`tests/all.mjs` finds the suites itself (a list in a doc cannot fail, and two
+suites once sat red for weeks because nothing ran them). Two of them matter
+most: `page-boot` is the blank-page gate — the generator has shipped blank twice, and
 neither time did `astro build` complain. `audio-reference` answers "does this
 change how existing presets sound"; if it reports drift, either the change was
 not meant to touch the sound, or the regenerated baseline belongs in the same

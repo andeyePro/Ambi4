@@ -633,8 +633,8 @@ function percussionDensityDrive(groove, timeSignature) {
 /**
  * The genre's pocket as the engine's own lay-back dial. `BASS_POCKET` seconds
  * is what a Timing half-width of 1 buys, so a genre asking for the full 22 ms gets 1 and a
- * genre asking for none gets a machine-tight line — which is what a 0 ms pocket
- * means in every one of the four straight genres that declares one.
+ * genre asking for none gets a machine-tight line — which is what a [0, 0] ms
+ * pocket means (Ambient, today the only genre that declares one).
  */
 function pocketToTiming(pocketMs) {
   if (!Array.isArray(pocketMs) || pocketMs.length < 2) return null;

@@ -18,10 +18,12 @@ over SSH.
 |---|---|
 | `.vibe/shot.sh local` | builds nothing — ships the existing `./dist`, serves it on the Mac, screenshots it |
 | `.vibe/shot.sh https://mcdev.ambi4.work/` | screenshots a live URL |
-| `.vibe/measure.sh local overlaps` | sweeps every visible text leaf for collisions and overflow, prints the rectangles |
+| `.vibe/measure.sh local overlaps` | three sweeps: text leaves that collide, text that overflows its box, and containers whose children paint past their own edge — prints the rectangles |
 | `.vibe/measure.sh local box '.knob-value'` | prints the rect of every match |
 | `.vibe/measure.sh local eval '<one-line expression>'` | runs JS in the page |
 | `.vibe/measure.sh local drive tests/dial-drive.mjs` | ships a local `.mjs` over and scripts the page with Playwright |
+| `.vibe/measure.sh https://mcdev.ambi4.work/ eval '<expr>'` | the same, against a deployed site (any mode takes a URL in place of `local`) |
+| `tests/sweep-drives.sh` | runs EVERY `tests/*-drive.mjs` (and the render drives) one after another, re-runs a failure alone after a rest, and splits RED from FLAKY |
 
 Both take `[width] [height]`, and honour `SHOT_CLICKS` (comma-separated
 selectors clicked before the shot — how you reach a tab or open a popover),
@@ -40,9 +42,9 @@ over each other in every track editor and shipped.
 
 So: `shot.sh` to see what a change looks like, `measure.sh overlaps` to assert
 that nothing collides, and a committed `drive` script for any behaviour you want
-to stay fixed. `tests/transport-drive.mjs` and `tests/dial-drive.mjs` are the
-two that exist; both were proven to fail against the pre-fix code before being
-trusted.
+to stay fixed. There are over seventy (`ls tests/*-drive.mjs`), each proven to
+fail against the pre-fix code before being trusted, and `tests/sweep-drives.sh`
+runs them all.
 
 ## Setup (once, on the Mac, as the test user)
 
@@ -55,6 +57,7 @@ Mac's own `~/.ssh/config` needs no edit.
 1. Authorise the key, as an admin on the Mac — `-H` matters, without it `~` is
    the admin's own home: `cd / && sudo -H -u claude sh -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys' < .vibe/id_ed25519_mac.pub`
 2. `mkdir -p ~/shot && cd ~/shot && npm init -y && npm i playwright && npx playwright install chromium`
+3. For `webkit-drive` and `firefox-drive`: `cd ~/shot && npx playwright install webkit firefox` (both are on MBP08L since 2026-11-06; Firefox 132 with Playwright 1.49.1).
 
 Local to the account, not `-g`: the global module directory belongs to the
 primary user, so a global install from the test account fails with EACCES.

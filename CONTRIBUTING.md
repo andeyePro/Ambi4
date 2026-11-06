@@ -16,16 +16,23 @@ shapes most of what follows.
 
 ### Scales, modes and genres — yes, with a shape
 
-New 12-TET scales are cheap and welcome: the scale table is a plain array of
-semitone offsets in `src/scripts/ambient-engine.js`. Add the intervals, name the
-scale for what it actually is rather than for a region ("Hijaz", not "Middle
-Eastern"), and say in the pull request where the interval set comes from.
+New 12-TET scales are cheap and welcome: the scale table is `SCALES` in
+`src/scripts/ambient-engine.js`, an object of named arrays of semitone offsets.
+Add a named entry, add its label to `modeGroups` at the top of
+`src/pages/index.astro` (the Scale menu is that hand-written list, so a scale
+only in `SCALES` never reaches the picker), name the scale for what it actually
+is rather than for a region ("Hijaz", not "Middle Eastern"), and say in the
+pull request where the interval set comes from.
 
 New genres are a data file under `src/data/genres/` plus a voicing. The bar a
 genre has to clear is the one the existing twelve are held to: **someone who
 knows the genre should be able to name it blind, from one bar, without being
 told.** A genre that sounds like the others with a different tempo is not a
-genre yet. `node tests/genre-smoke.mjs` checks the data; ears check the rest.
+genre yet. `node tests/genre-smoke.mjs` checks the data (move its `GENRE_COUNT`
+in the same commit, or it fails on the count); ears check the rest. A new genre
+ships HIDDEN: the picker lists only the slugs in `PUBLIC_GENRE_SLUGS` in
+`src/pages/index.astro`, and which genres are public is the owner's call. It is
+still reachable through Surprise me and a share link.
 
 ### Tunings beyond 12-TET — not on spec
 
@@ -80,12 +87,14 @@ about the source code. Do not conflate the two in copy.
 
 ### Tests
 
-There is no test runner; every file is a standalone Node script that exits
-non-zero on failure.
+`tests/all.mjs` runs every Node suite and exits non-zero if any is red; each
+suite is also a standalone script you can run alone. Astro 7 needs Node 22.12
+or later.
 
 ```
-npm run build && node tests/page-boot.mjs     # the minimum gate for any PR
-node tests/engine-smoke.mjs                   # ~4 min, the big one
+npm run build && node tests/all.mjs           # the gate for any PR (~20 min)
+node tests/page-boot.mjs                      # the page, booted in jsdom
+node tests/engine-smoke.mjs                   # ~5 min, the big one
 node tests/knob-gesture.mjs                   # the dial gesture contract
 node tests/audio-reference.mjs                # does this change how presets sound?
 ```

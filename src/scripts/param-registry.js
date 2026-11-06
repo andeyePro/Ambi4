@@ -23,7 +23,8 @@
  * - `integer`  — stored value rounds to whole steps (octave — a span keeps
  *                fractional ENDS meaningless, so ends round too)
  * - `rangeable`— a {min,max} span is legal here. Derived, not asserted, by
- *                everything downstream: enums are the only false today (D9)
+ *                everything downstream: false on enums (D9) and on a few numbers that
+ *                cannot honestly wander (master.drive, track.drive, …)
  * - `curve`    — 'linear' | 'log', the UI's mapping hint
  * - `unit`     — display unit ('' | 'ct' | 'st' | 'oct' | 'Hz' | 's')
  * - `scope`    — where in the D7 inheritance chain the parameter lives
