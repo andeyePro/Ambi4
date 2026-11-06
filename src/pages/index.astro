@@ -4448,6 +4448,35 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       const genreSelect = document.getElementById('genre-select');
       const recordButton = document.getElementById('record-toggle');
       const recordStatus = document.getElementById('record-status');
+      /**
+       * a11y (2026-11-06): a role=status line with a clock in it. A live
+       * region speaks every change, so a countdown or an elapsed time in it
+       * was read out once a second. `heard` is what a screen reader is told —
+       * it changes only when the state does ("Recording", "Sleep timer set:
+       * 15 minutes"); `shown` is what is on screen, clock and all, in a span
+       * hidden from assistive tech. When the two are the same the line is
+       * plain text, as before, and the status keeps its role either way.
+       */
+      function setQuietStatus(el, heard, shown = heard) {
+        if (!el) return;
+        if (heard === shown) {
+          if (el.children.length || el.textContent !== heard) el.textContent = heard;
+          return;
+        }
+        let said = el.querySelector(':scope > .status-heard');
+        let seen = el.querySelector(':scope > .status-shown');
+        if (!said || !seen) {
+          el.textContent = '';
+          said = document.createElement('span');
+          said.className = 'status-heard visually-hidden';
+          seen = document.createElement('span');
+          seen.className = 'status-shown';
+          seen.setAttribute('aria-hidden', 'true');
+          el.append(said, seen);
+        }
+        if (said.textContent !== heard) said.textContent = heard;
+        if (seen.textContent !== shown) seen.textContent = shown;
+      }
       const transportStatus = document.getElementById('transport-status');
 
       // v15: a transport control can be demoted to Advanced-only by adding
@@ -18327,6 +18356,61 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       /**
+       * a11y (2026-11-06): a dialog that closes hands focus back. Removing
+       * the panel that holds the focus drops it onto <body>, and a keyboard
+       * or screen-reader user then starts again from the top of the page.
+       * Call at OPEN: it notes what had the focus and returns the function to
+       * call after the close (and after anything the close re-renders). That
+       * puts focus back on the opener if it is still in the page and shown;
+       * otherwise on a visible relative — an element with the opener's id
+       * (a re-rendered editor rebuilds its buttons), then the opener's own
+       * kind of control in the same block, then each of `fallbacks`
+       * (elements, selectors, or functions giving one), then the block's
+       * first control. It does nothing when the focus is already somewhere real: what
+       * the close ran may have sent it there on purpose.
+       */
+      function focusIsShown(el) {
+        if (!(el instanceof HTMLElement) || !el.isConnected || el === document.body) return false;
+        if (el.disabled || el.closest('[hidden], [inert]')) return false;
+        for (let node = el; node && node !== document.documentElement; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (style.display === 'none' || style.visibility === 'hidden') return false;
+        }
+        return true;
+      }
+      function rememberFocus(...fallbacks) {
+        const active = document.activeElement;
+        const opener = active instanceof HTMLElement && active !== document.body ? active : null;
+        const id = opener?.id || '';
+        const home = opener?.parentElement?.closest('[id]') || null;
+        const homeId = home?.id || '';
+        const kind = opener ? `${opener.tagName}|${opener.className}` : '';
+        const FOCUSABLE = 'button, select, input, textarea, a[href], [tabindex="0"]';
+        return () => {
+          const now = document.activeElement;
+          if (now instanceof HTMLElement && now !== document.body && now.isConnected) return now;
+          const block = homeId ? document.getElementById(homeId) : null;
+          const candidates = [
+            opener,
+            () => (id ? [...document.querySelectorAll(`[id="${id}"]`)].find(focusIsShown) : null),
+            () => (block && kind ? [...block.querySelectorAll(opener.tagName)].find((el) => `${el.tagName}|${el.className}` === kind && focusIsShown(el)) : null),
+            ...fallbacks,
+            () => (block ? [...block.querySelectorAll(FOCUSABLE)].find(focusIsShown) : null),
+          ];
+          for (const candidate of candidates) {
+            const el = typeof candidate === 'function' ? candidate()
+              : typeof candidate === 'string' ? document.querySelector(candidate)
+                : candidate;
+            if (focusIsShown(el) && typeof el.focus === 'function') {
+              el.focus();
+              return el;
+            }
+          }
+          return null;
+        };
+      }
+
+      /**
        * v0.0.206: going back to factory asks first when more than two changes
        * would go (his rule) — the count, and a disclosure listing each one.
        * Two or fewer, it simply happens.
@@ -18334,6 +18418,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function confirmBackToFactory(what, changes, run, { verb = 'Back to factory' } = {}) {
         if (changes.length <= 2) { run(); return; }
         document.getElementById('factory-confirm')?.remove();
+        // Opened from the leave-guard, a Go that settles the row removes the
+        // button that opened it: the guard's own next control is the relative.
+        const focusBack = rememberFocus(() => document.querySelector('#leave-guard button'), '#genre-select');
         const panel = document.createElement('div');
         panel.className = 'module-panel blend-editor factory-confirm';
         panel.id = 'factory-confirm';
@@ -18367,11 +18454,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         cancel.type = 'button';
         cancel.className = 'secondary-button factory-confirm-cancel';
         cancel.textContent = 'Cancel';
-        go.addEventListener('click', () => { panel.remove(); run(); });
-        cancel.addEventListener('click', () => panel.remove());
+        go.addEventListener('click', () => { panel.remove(); run(); focusBack(); });
+        cancel.addEventListener('click', () => { panel.remove(); focusBack(); });
         // v0.0.207: Esc is Cancel, as in every other dialog here.
         panel.addEventListener('keydown', (event) => {
-          if (event.key === 'Escape') { event.preventDefault(); panel.remove(); }
+          if (event.key === 'Escape') { event.preventDefault(); panel.remove(); focusBack(); }
         });
         actions.append(go, cancel);
         panel.append(title, lead, details, actions);
@@ -18512,6 +18599,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         if (leaveGuardCancel) leaveGuardCancel();
         const settled = new Set();
+        const focusBack = rememberFocus(...tracks.map((track) => `#track-voice-${track}`), '#genre-select');
         const panel = document.createElement('div');
         panel.className = 'module-panel blend-editor factory-confirm leave-guard';
         panel.id = 'leave-guard';
@@ -18533,8 +18621,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           document.getElementById('factory-confirm')?.remove();
           if (leaveGuardCancel === onCancel) leaveGuardCancel = null;
         };
-        const onCancel = () => { close(); cancel(); };
-        const goOn = () => { close(); proceed({ settled }); };
+        const onCancel = () => { close(); cancel(); focusBack(); };
+        const goOn = () => { close(); proceed({ settled }); focusBack(); };
         const button = (cls, text, hint) => {
           const b = document.createElement('button');
           b.type = 'button';
@@ -18773,8 +18861,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // Noise (three colours and the track's own noise voices), Sample (not
       // built yet, and it says so). One door at a time, Back to the four — the
       // progressive rule: the first view is four words.
-      function closeNewVoiceChooser() {
-        document.getElementById('voice-new-chooser')?.remove();
+      // a11y: Close, Esc and a pick all hand focus back to what opened it
+      // (the track's voice picker), as the Hidden view and the shortcut sheet do.
+      let newChooserFocusBack = null;
+      function closeNewVoiceChooser(options) {
+        const panel = document.getElementById('voice-new-chooser');
+        if (!panel) return;
+        panel.remove();
+        const back = newChooserFocusBack;
+        newChooserFocusBack = null;
+        if (back && !(options && options.refocus === false)) back();
       }
 
       /** The panel's own row of actions: Back (inside a door) and Close. */
@@ -18874,8 +18970,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       async function openNewVoiceChooser(track) {
-        closeNewVoiceChooser();
+        const reopening = document.getElementById('voice-new-chooser')?.contains(document.activeElement);
+        const keep = reopening ? newChooserFocusBack : null;
+        closeNewVoiceChooser({ refocus: false });
         closeBlendEditor();
+        newChooserFocusBack = keep || rememberFocus(`#track-voice-${track}`, '#genre-select');
         await getVoicesTable();
         const select = document.getElementById(`track-voice-${track}`);
         if (!select || !settings.tracks[track]) return;
@@ -19027,11 +19126,41 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // A small fixed dialog: one weight per voice, 0 leaves a voice out.
       // Two or more nonzero weights store a blend; exactly one just picks
       // that voice; none clears the blend. The engine draws per section.
-      function closeBlendEditor() {
-        document.getElementById('voice-blend-editor')?.remove();
+      // a11y: Cancel, No pool, Done and Esc hand focus back to the Pool…
+      // button that opened it — after the editor behind it re-renders, which
+      // rebuilds that button (rememberFocus finds it again by its id).
+      let blendFocusBack = null;
+      function closeBlendEditor(options) {
+        const panel = document.getElementById('voice-blend-editor');
+        if (!panel) return;
+        panel.remove();
+        const back = blendFocusBack;
+        blendFocusBack = null;
+        if (back && !(options && options.refocus === false)) back();
+        return back;
+      }
+      // The editor's re-render folds the voice rule back to its level, which
+      // would hide the Pool… the focus is going back to: a person who was in
+      // the Pool layer comes back to it open.
+      const poolLayersOf = (track) => [...document.querySelectorAll(`[id="voice-rule-pool-${track}"]`)]
+        .map((button) => button.closest('.rule-layer[data-layer="pool"]'))
+        .filter(Boolean);
+      function poolLayerOpen(track) {
+        return poolLayersOf(track).some((layer) => !layer.hidden);
+      }
+      function reopenPoolLayer(track) {
+        for (const layer of poolLayersOf(track)) {
+          const more = layer.closest('.rule')?.querySelector(':scope > .rule-more');
+          for (let i = 0; i < 3 && more && layer.hidden; i++) more.click();
+        }
       }
       function openBlendEditor(track) {
-        closeBlendEditor();
+        const reopening = document.getElementById('voice-blend-editor')?.contains(document.activeElement);
+        const keep = reopening ? blendFocusBack : null;
+        closeBlendEditor({ refocus: false });
+        blendFocusBack = keep || rememberFocus(`#voice-rule-pool-${track}`, `#track-voice-${track}`, '#genre-select');
+        // Measured now: committing the rule re-renders the editor behind.
+        const poolWasOpen = poolLayerOpen(track);
         const select = document.getElementById(`track-voice-${track}`);
         if (!select || !settings.tracks[track]) return;
         const voices = [...select.options]
@@ -19181,8 +19310,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           settings.tracks[track].voiceRule = rule;
           delete settings.tracks[track].voiceWeights;
           commitVoiceRule(track);
-          closeBlendEditor();
-          renderVoiceEditorIfOpen(track);
+          const back = closeBlendEditor({ refocus: false });
+          // The editor re-renders asynchronously (it awaits the voices
+          // table): focus goes back once the rebuilt Pool… is there.
+          Promise.resolve(renderVoiceEditorIfOpen(track)).catch(() => {}).then(() => {
+            if (poolWasOpen) reopenPoolLayer(track);
+            back?.();
+          });
         });
         const done = document.createElement('button');
         done.type = 'button';
@@ -19201,8 +19335,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           settings.tracks[track].voiceRule = rule;
           delete settings.tracks[track].voiceWeights;
           commitVoiceRule(track);
-          closeBlendEditor();
-          renderVoiceEditorIfOpen(track);
+          const back = closeBlendEditor({ refocus: false });
+          // The editor re-renders asynchronously (it awaits the voices
+          // table): focus goes back once the rebuilt Pool… is there.
+          Promise.resolve(renderVoiceEditorIfOpen(track)).catch(() => {}).then(() => {
+            if (poolWasOpen) reopenPoolLayer(track);
+            back?.();
+          });
         });
         actions.append(cancel, clear, done);
         panel.append(actions);
@@ -19214,7 +19353,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
       function renderVoiceEditorIfOpen(track) {
         const editor = document.getElementById(`voice-editor-${track}`);
-        if (editor && !editor.hidden) renderVoiceEditor(track);
+        return editor && !editor.hidden ? renderVoiceEditor(track) : undefined;
       }
 
       /**
@@ -22136,9 +22275,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // always there (see .record-status) — hiding the element would let the
       // status line re-flow every time recording starts and stops.
       function updateRecordStatus() {
-        recordStatus.textContent = recorder
-          ? `Recording ${formatCountdown(Date.now() - recordStartedAt)}`
-          : '';
+        // The elapsed time ticks on screen only; "Recording" is said once.
+        if (recorder) setQuietStatus(recordStatus, 'Recording', `Recording ${formatCountdown(Date.now() - recordStartedAt)}`);
+        else setQuietStatus(recordStatus, '');
       }
 
       function stopRecording() {
@@ -22268,14 +22407,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         const total = Math.max(0, Math.floor(seconds));
         return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
       };
-      function wavSay(text) { wavStatus.textContent = text; }
+      function wavSay(text, shown = text) { setQuietStatus(wavStatus, text, shown); }
       function wavPressed(on) {
         wavButton.setAttribute('aria-pressed', on ? 'true' : 'false');
         wavButton.classList.toggle('recording', on);
         wavLabel.textContent = on ? 'Stop and save' : 'Save as WAV';
-        // The seconds counter ticks every second for up to ten minutes; a
-        // busy live region stays silent through it and speaks the result.
-        wavStatus.setAttribute('aria-busy', on ? 'true' : 'false');
+        // The seconds counter ticks every second for up to ten minutes, in a
+        // span hidden from assistive tech (setQuietStatus): the line says
+        // "Saving as WAV" once, then the result. (It was aria-busy, which
+        // silenced the start as well, and is honoured unevenly.)
       }
       function wavOutputNode() {
         try { return typeof engine.getOutputAnalyser === 'function' ? engine.getOutputAnalyser() : null; } catch { return null; }
@@ -22327,12 +22467,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               const whole = Math.floor(seconds);
               if (whole === wavShownSecond) return;
               wavShownSecond = whole;
-              wavSay(`WAV ${wavClock(seconds)} of ${WAV_MAX_MINUTES}:00`);
+              wavSay(`Saving as WAV, up to ${WAV_MAX_MINUTES} minutes`, `WAV ${wavClock(seconds)} of ${WAV_MAX_MINUTES}:00`);
             },
             onFull: () => { finishWav(); },
           });
           wavPressed(true);
-          wavSay(`WAV 0:00 of ${WAV_MAX_MINUTES}:00`);
+          wavSay(`Saving as WAV, up to ${WAV_MAX_MINUTES} minutes`, `WAV 0:00 of ${WAV_MAX_MINUTES}:00`);
         } catch (error) {
           wavCapture = null;
           wavPressed(false);
@@ -24593,6 +24733,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       });
 
       let sleepTarget = null; // epoch ms
+      let sleepMinutes = 0; // what was set, for the status line's spoken form
       let alarmTarget = null; // epoch ms
       let tickHandle = null;
       let alarmNotice = '';
@@ -24672,10 +24813,15 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         alarmChip.hidden = alarmTarget === null;
         if (alarmTarget !== null) alarmChip.textContent = formatCountdown(alarmTarget - now);
         const bits = [];
+        // What a screen reader hears: the same line, with the sleep countdown
+        // replaced by what was set — the live region speaks once per change
+        // of state, not once a second (setQuietStatus).
+        const heard = [];
         if (sleepTarget !== null) {
           const text = `Fades out in ${formatCountdown(sleepTarget - now)}`;
           sleepCountdown.textContent = text;
           bits.push(`Sleep: ${formatCountdown(sleepTarget - now)}`);
+          heard.push(`Sleep timer set: ${sleepMinutes} minute${sleepMinutes === 1 ? '' : 's'}`);
         }
         if (alarmTarget !== null) {
           const at = new Date(alarmTarget);
@@ -24683,11 +24829,14 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           const hhmm = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
           alarmCountdown.textContent = `Starts at ${hhmm} (in ${formatCountdown(alarmTarget - now)})`;
           bits.push(`Alarm: ${hhmm}`);
+          heard.push(`Alarm: ${hhmm}`);
         }
-        if (alarmNotice) bits.push(alarmNotice);
-        if (playNotice) bits.push(playNotice);
-        if (stageNotice) bits.push(stageNotice);
-        transportStatus.textContent = bits.join(' · ');
+        for (const notice of [alarmNotice, playNotice, stageNotice]) {
+          if (!notice) continue;
+          bits.push(notice);
+          heard.push(notice);
+        }
+        setQuietStatus(transportStatus, heard.join(' · '), bits.join(' · '));
       }
 
       // Re-check the wall clock every second rather than one long
@@ -24814,6 +24963,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function startSleepTimer(minutes) {
         if (!Number.isFinite(minutes) || minutes <= 0) return;
         sleepTarget = Date.now() + minutes * 60000;
+        sleepMinutes = minutes;
         ensureTicker();
         updateTimerUI();
       }

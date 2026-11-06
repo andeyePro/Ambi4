@@ -7630,6 +7630,284 @@ try {
     if (editor && !editor.hidden) doc.getElementById('voice-edit-toggle-melody')?.click();
   })();
 
+  // ---- 2026-11-06 accessibility: focus returns, quiet clocks, named readouts --
+  // Four faults found in an accessibility pass, each red on f32182e:
+  //  1. three dialogs (Back to factory's confirmation, New…, Pool…) and the
+  //     leave-guard closed by panel.remove() alone, dropping focus on <body>;
+  //  2. #transport-status re-spoke the sleep countdown every second;
+  //  3. a dial's readout button was named only by its value ("68%");
+  //  4. a focused spread dial's aria-valuetext rewrote "now Z" at 4 Hz.
+  await (async () => {
+    adoptGlobals(window);
+    const engine = window.__ambi4Engine;
+    const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+    const esc = (el) => el.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const where = () => {
+      const a = doc.activeElement;
+      if (!a || a === doc.body) return '<body>';
+      return a.id ? `#${a.id}` : `${a.tagName.toLowerCase()}.${String(a.className).split(' ').join('.')}`;
+    };
+    // The consent prompt would otherwise take the focus the moment a write asks.
+    doc.cookie = 'ambi4-consent=granted';
+    doc.querySelector('#consent-slot button')?.click();
+    await settle();
+    const genrePick = doc.getElementById('genre-select');
+    const genreFactory = doc.getElementById('genre-factory');
+    const padSelect = doc.getElementById('track-voice-pad');
+    if (!engine || !genrePick || !genreFactory || !padSelect) {
+      failures.push('a11y 2026-11-06: the engine seam, genre picker, Back to factory or pad picker is missing');
+      return;
+    }
+    const typeInto = async (editor, field, value) => {
+      const cell = editor.querySelector(`.patch-controls .knob-cell[data-field="${field}"]`);
+      const readout = cell && cell.querySelector('.knob-value');
+      if (!readout) return false;
+      readout.click();
+      const box = cell.querySelector('.knob-value-edit');
+      if (!box) return false;
+      box.value = String(value);
+      box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await settle(40);
+      return true;
+    };
+    const pick = async (select, value) => {
+      select.value = value;
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await settle();
+    };
+    const editPad = async () => {
+      const editor = await openEditor('pad');
+      await waitUntil(() => editor.querySelector('.patch-controls .knob-cell[data-field="adsr.release"]'));
+      await typeInto(editor, 'adsr.release', 2.5);
+      await typeInto(editor, 'adsr.attack', 0.9);
+      await typeInto(editor, 'sends.delay', 0.7);
+      await settle();
+    };
+
+    // The track rows and their pickers live on Advanced: a hidden control is
+    // not one focus can honestly go back to, so be where a person would be.
+    const advancedTab = doc.getElementById('tab-advanced');
+    const wasAdvanced = advancedTab?.getAttribute('aria-selected') === 'true';
+    if (!wasAdvanced) advancedTab?.click();
+    await settle();
+    // 1a. Back to factory's confirmation: Esc, Cancel and Go.
+    await pick(genrePick, 'g:synthwave');
+    await waitUntil(() => engine.getParams().genre === 'synthwave');
+    await pick(padSelect, 'warm');
+    for (const how of ['Esc', 'Cancel', 'Go']) {
+      await editPad();
+      if (genreFactory.hidden) { failures.push(`a11y focus: no Back to factory to press before ${how}`); break; }
+      genreFactory.focus();
+      genreFactory.click();
+      const dialog = await waitUntil(() => doc.getElementById('factory-confirm'));
+      if (!dialog) { failures.push(`a11y focus: three changes did not ask before ${how}`); break; }
+      // A real click puts focus on the button pressed; jsdom's click() does not.
+      if (how === 'Esc') esc(doc.activeElement && doc.getElementById('factory-confirm').contains(doc.activeElement) ? doc.activeElement : doc.getElementById('factory-confirm'));
+      if (how === 'Cancel') { const b = doc.querySelector('#factory-confirm .factory-confirm-cancel'); b.focus(); b.click(); }
+      if (how === 'Go') { const b = doc.querySelector('#factory-confirm .factory-confirm-go'); b.focus(); b.click(); }
+      await settle(100);
+      if (doc.getElementById('factory-confirm')) failures.push(`a11y focus: ${how} did not close the factory confirmation`);
+      const want = how === 'Go' ? 'genre-select' : 'genre-factory';
+      if (doc.activeElement?.id !== want) failures.push(`a11y focus: ${how} on Back to factory's confirmation left focus on ${where()}, not #${want}`);
+    }
+    // Leave nothing edited for what follows.
+    if (!genreFactory.hidden) {
+      genreFactory.click();
+      await settle();
+      doc.querySelector('#factory-confirm .factory-confirm-go')?.click();
+      await settle(100);
+    }
+
+    // 1b. New…: Close, Esc and a pick hand focus back to the voice picker.
+    for (const how of ['Close', 'Esc', 'pick']) {
+      padSelect.focus();
+      await pick(padSelect, '__new');
+      const chooser = await waitUntil(() => doc.getElementById('voice-new-chooser'), 3000);
+      if (!chooser) { failures.push(`a11y focus: New… opened no chooser before ${how}`); break; }
+      await settle();
+      const panel = doc.getElementById('voice-new-chooser');
+      if (how === 'Close') { const b = panel.querySelector('.new-voice-close'); b.focus(); b.click(); }
+      if (how === 'Esc') { const b = panel.querySelector('button'); b.focus(); esc(b); }
+      if (how === 'pick') {
+        panel.querySelector('[data-door="instrument"]')?.click();
+        const list = await waitUntil(() => doc.getElementById('new-voice-instrument-pad'));
+        const box = doc.getElementById('new-voice-instrument-pad');
+        const option = list && [...box.options].find((o) => o.value && o.value !== engine.getParams().tracks.pad.voice);
+        if (!option) { failures.push('a11y focus: the New… Instrument door offered no voice to pick'); break; }
+        box.focus();
+        box.value = option.value;
+        box.dispatchEvent(new window.Event('change', { bubbles: true }));
+      }
+      await settle(100);
+      if (doc.getElementById('voice-new-chooser')) failures.push(`a11y focus: ${how} did not close New…`);
+      if (doc.activeElement !== padSelect) failures.push(`a11y focus: ${how} on New… left focus on ${where()}, not #track-voice-pad`);
+    }
+
+    // 1c. Pool…: Cancel, Esc, Done and No pool hand focus back to Pool….
+    await pick(padSelect, 'warm');
+    const poolSel = '#voice-rule-pool-pad';
+    for (const how of ['Cancel', 'Esc', 'Done', 'No pool']) {
+      const padEditor = await openEditor('pad');
+      // The Pool layer opens on "more" at the default level.
+      const voiceRule = padEditor?.querySelector('.rule[data-rule="voice"]');
+      const poolLayer = voiceRule?.querySelector('.rule-layer[data-layer="pool"]');
+      if (poolLayer?.hidden) voiceRule.querySelector('.rule-more')?.click();
+      await settle(20);
+      // The Rules layer and the row can both carry a Pool…: the one on screen.
+      const shownPool = () => [...doc.querySelectorAll('[id="voice-rule-pool-pad"]')].find((el) => {
+        for (let n = el; n && n !== doc.documentElement; n = n.parentElement) {
+          if (n.hidden || window.getComputedStyle(n).display === 'none') return false;
+        }
+        return true;
+      });
+      const pool = await waitUntil(() => shownPool()) && shownPool();
+      if (!pool) { failures.push(`a11y focus: the pad editor has no Pool… button before ${how}`); break; }
+      pool.focus();
+      pool.click();
+      const blend = await waitUntil(() => doc.getElementById('voice-blend-editor'));
+      if (!blend) { failures.push(`a11y focus: Pool… opened no editor before ${how}`); break; }
+      const panel = doc.getElementById('voice-blend-editor');
+      const named = (word) => [...panel.querySelectorAll('.blend-actions button')].find((b) => b.textContent.trim() === word);
+      if (how === 'Esc') { const b = panel.querySelector('button'); b.focus(); esc(b); } else { const b = named(how); b.focus(); b.click(); }
+      await settle(100);
+      if (doc.getElementById('voice-blend-editor')) failures.push(`a11y focus: ${how} did not close Pool…`);
+      if (doc.activeElement?.id !== 'voice-rule-pool-pad') failures.push(`a11y focus: ${how} on Pool… left focus on ${where()}, not ${poolSel}`);
+    }
+
+    // 1d. The leave-guard: Keep editing, Esc and Move on.
+    window.__leaveGuardManual = true;
+    try {
+      for (const how of ['Keep editing', 'Esc', 'Move on']) {
+        await pick(padSelect, 'warm');
+        const editor = await openEditor('pad');
+        await waitUntil(() => editor.querySelector('.patch-controls .knob-cell[data-field="adsr.release"]'));
+        await typeInto(editor, 'adsr.release', 2.5);
+        padSelect.focus();
+        await pick(padSelect, 'glass');
+        const guard = await waitUntil(() => doc.getElementById('leave-guard'));
+        if (!guard) { failures.push(`a11y focus: leaving an edited Warm did not ask before ${how}`); break; }
+        const panel = doc.getElementById('leave-guard');
+        if (how === 'Keep editing') { const b = panel.querySelector('.leave-guard-cancel'); b.focus(); b.click(); }
+        if (how === 'Esc') { const b = panel.querySelector('button'); b.focus(); esc(b); }
+        if (how === 'Move on') { const b = panel.querySelector('.leave-guard-move'); b.focus(); b.click(); }
+        await settle(100);
+        if (doc.getElementById('leave-guard')) failures.push(`a11y focus: ${how} did not close the leave-guard`);
+        if (doc.activeElement !== padSelect) failures.push(`a11y focus: ${how} on the leave-guard left focus on ${where()}, not #track-voice-pad`);
+      }
+    } finally {
+      window.__leaveGuardManual = false;
+    }
+    await pick(padSelect, 'warm');
+
+    // 2. The sleep timer's countdown ticks on screen, not in a screen reader.
+    const spoken = (el) => {
+      const copy = el.cloneNode(true);
+      for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+      return copy.textContent.trim();
+    };
+    const status = doc.getElementById('transport-status');
+    const preset = doc.querySelector('.sleep-preset[data-minutes="15"]') || doc.querySelector('.sleep-preset');
+    if (!status || !preset) {
+      failures.push('a11y live: #transport-status or a sleep preset is missing');
+    } else {
+      if (status.getAttribute('role') !== 'status') failures.push('a11y live: #transport-status lost role=status');
+      preset.click();
+      await settle(50);
+      const said = [spoken(status)];
+      const shown = [status.textContent];
+      const started = Date.now();
+      while (Date.now() - started < 3300) {
+        await settle(100);
+        if (spoken(status) !== said[said.length - 1]) said.push(spoken(status));
+        if (status.textContent !== shown[shown.length - 1]) shown.push(status.textContent);
+      }
+      if (said.length > 2) failures.push(`a11y live: #transport-status spoke ${said.length} times in 3 s of sleep timer: ${JSON.stringify(said.slice(0, 4))}`);
+      if (!/Sleep/.test(said[0])) failures.push(`a11y live: setting a sleep timer said nothing about it (${JSON.stringify(said[0])})`);
+      if (shown.length < 2) failures.push('a11y live: the sleep countdown stopped ticking on screen');
+      doc.getElementById('sleep-cancel')?.click();
+      await settle();
+    }
+
+    // 3. Every dial readout is named with its dial.
+    await settle(20); // the readout's name follows a renamed dial on a mutation record
+    const unnamed = [];
+    for (const readout of doc.querySelectorAll('.knob-value')) {
+      const dial = readout.parentElement;
+      const name = String(dial?.getAttribute('aria-label') || '').replace(/\s*[—–-]\s*click to type a value\s*$/i, '').trim();
+      const label = readout.getAttribute('aria-label') || '';
+      if (!name || !label.includes(name) || !/type a value/.test(label)) unnamed.push(`${name || '?'} → ${JSON.stringify(label || readout.textContent)}`);
+    }
+    if (unnamed.length) failures.push(`a11y: ${unnamed.length} dial readouts are not named with their dial, e.g. ${unnamed.slice(0, 3).join(' | ')}`);
+
+    // 4. A focused spread dial's aria-valuetext stays put while "now" walks.
+    const level = doc.querySelector('#track-level-pad [role="slider"]');
+    const play = doc.getElementById('toggle-play');
+    if (!level || !play || typeof engine.getResolved !== 'function') {
+      failures.push('a11y valuetext: no pad Level dial, Play button or getResolved() to drive');
+      return;
+    }
+    // Wide enough that a quarter and three quarters of it read differently.
+    const isSpan = (v) => v && typeof v === 'object' && v.max - v.min >= 0.2;
+    for (let i = 0; i < 40 && !isSpan(engine.getParams().tracks.pad.level); i++) {
+      level.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+    }
+    const span = engine.getParams().tracks.pad.level;
+    if (!isSpan(span)) { failures.push('a11y valuetext: widening the pad Level gave no span'); return; }
+    const realResolved = engine.getResolved;
+    const realStart = engine.start;
+    const realFinish = engine.finish;
+    const realStop = engine.stop;
+    const runningDesc = Object.getOwnPropertyDescriptor(engine, 'running');
+    let running = false;
+    let flip = 0;
+    try {
+      Object.defineProperty(engine, 'running', { configurable: true, get: () => running });
+      engine.start = async () => { running = true; };
+      engine.finish = async () => { running = false; };
+      engine.stop = () => { running = false; };
+      engine.getResolved = function () {
+        const r = realResolved.call(engine);
+        flip += 1;
+        r.tracks.pad.level = span.min + (span.max - span.min) * (flip % 2 ? 0.25 : 0.75);
+        return r;
+      };
+      play.click();
+      if (!(await waitUntil(() => /now /.test(level.getAttribute('aria-valuetext') || ''), 3000))) {
+        failures.push(`a11y valuetext: the pad Level never read "now" while playing (${level.getAttribute('aria-valuetext')})`);
+      }
+      // Unfocused, the walk is read ("now" moves): what focus must hold still.
+      const unfocused = new Set();
+      for (let i = 0; i < 6; i++) {
+        await settle(100);
+        unfocused.add(level.getAttribute('aria-valuetext'));
+      }
+      if (unfocused.size < 2) failures.push(`a11y valuetext: the walk this check needs did not move "now" (${JSON.stringify([...unfocused])})`);
+      level.focus();
+      const texts = new Set([level.getAttribute('aria-valuetext')]);
+      for (let i = 0; i < 12; i++) {
+        await settle(100);
+        texts.add(level.getAttribute('aria-valuetext'));
+      }
+      if (texts.size > 1) failures.push(`a11y valuetext: a focused spread dial's aria-valuetext changed ${texts.size - 1} times in 1.2 s: ${JSON.stringify([...texts].slice(0, 3))}`);
+      level.blur();
+      if (!(await waitUntil(() => /now /.test(level.getAttribute('aria-valuetext') || ''), 1500))) {
+        failures.push(`a11y valuetext: blurring the spread dial did not bring "now" back (${level.getAttribute('aria-valuetext')})`);
+      }
+      play.click();
+      await waitUntil(() => !running);
+      await settle(50);
+    } finally {
+      engine.getResolved = realResolved;
+      engine.start = realStart;
+      engine.finish = realFinish;
+      engine.stop = realStop;
+      if (runningDesc) Object.defineProperty(engine, 'running', runningDesc);
+      else delete engine.running;
+    }
+    level.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    if (!wasAdvanced) doc.getElementById('tab-simple')?.click();
+  })();
+
   // ---- 2026-10-23: Edit still opens every editor, late in a long session --
   // Reported: late in this run, clicking a track's Edit stopped opening its
   // editor, with no error. It was the harness, not the page: the second boots
