@@ -2120,94 +2120,9 @@ test('finish() is idempotent, resolves when idle, and start() cancels an ending'
   engine.stop();
 });
 
-// 2026-11-06 audit: Firefox has no cancelAndHoldAtTime. A ranged master
-// volume walks once a bar on a 1.5 s ramp, and at a fast tempo that ramp
-// still runs when the closing bar is planned. The fallback cancelled from the
-// closing bar — which drops the running ramp's end, so the gain fell back to
-// the ramp's start at once — and then set the level read NOW at the bar: two
-// steps of the volume's span. The output gain here is a spec-rule timeline
-// with no cancelAndHoldAtTime; the outro must change nothing before the
-// closing bar and nothing AT it.
-test('finish() on Firefox (no cancelAndHold) holds a ranged volume without a step', async () => {
-  const Base = globalThis.AudioContext;
-  const timelines = [];
-  const timeline = (initial, ctx) => {
-    const ev = [];
-    const p = {
-      ev, initial, snapshots: [],
-      get value() { return p.at(ctx.currentTime); },
-      set value(v) { p.initial = v; ev.length = 0; },
-      push(e) { ev.push(e); ev.sort((a, b) => a.t - b.t || a.seq - b.seq); },
-      setValueAtTime(v, t) { p.push({ k: 'set', t, v, seq: ev.length }); return p; },
-      linearRampToValueAtTime(v, t) { p.push({ k: 'lin', t, v, seq: ev.length }); return p; },
-      exponentialRampToValueAtTime(v, t) { p.push({ k: 'exp', t, v, seq: ev.length }); return p; },
-      setTargetAtTime(v, t, c) { p.push({ k: 'tgt', t, v, c, seq: ev.length }); return p; },
-      setValueCurveAtTime() { return p; },
-      cancelScheduledValues(t) {
-        if (t > ctx.currentTime + 1e-9) p.snapshots.push({ now: ctx.currentTime, t, events: ev.map((e) => ({ ...e })), initial: p.initial });
-        for (let i = ev.length - 1; i >= 0; i--) if (ev[i].t >= t) ev.splice(i, 1);
-        return p;
-      },
-      at(t, list = ev, init = p.initial) {
-        let v = init; let vt = 0; let target = null;
-        for (let i = 0; i < list.length; i++) {
-          const e = list[i];
-          if (target && e.t > vt) { v = target.v + (v - target.v) * Math.exp(-(Math.min(t, e.t) - vt) / target.c); vt = Math.min(t, e.t); }
-          if (e.t > t) {
-            if (e.k === 'lin') return v + (e.v - v) * (t - vt) / (e.t - vt);
-            if (e.k === 'exp') return v * Math.pow(e.v / v, (t - vt) / (e.t - vt));
-            return v;
-          }
-          target = null;
-          if (e.k === 'tgt') { target = e; vt = e.t; continue; }
-          v = e.v; vt = e.t;
-        }
-        if (target) v = target.v + (v - target.v) * Math.exp(-(t - vt) / target.c);
-        return v;
-      },
-    };
-    timelines.push(p);
-    return p;
-  };
-  class FirefoxContext extends Base {
-    createGain() {
-      const node = super.createGain();
-      node.gain = timeline(node.gain.value, this);
-      return node;
-    }
-  }
-  globalThis.AudioContext = FirefoxContext;
-  try {
-    const engine = createEngine({
-      bpm: 200, speed: 1, complexity: 0.5, structure: 'drone',
-      volume: { min: 0.15, max: 0.95 },
-      tracks: Object.fromEntries(TRACK_ORDER.map((n) => [n, { state: 'on' }])),
-    }, { rng: seededRng(4242) });
-    await engine.start();
-    await advance(8, { step: 0.1, sleep: 12 });
-    const ending = engine.finish({ fadeSeconds: 2 });
-    await advance(6, { step: 0.1, sleep: 12 });
-    await settleWithin(ending, 4);
-    // The output gain: the one whose last call was the outro's target decay
-    // to SILENCE from a future closing bar.
-    const out = timelines.find((p) => p.snapshots.length && p.ev.some((e) => e.k === 'tgt' && e.v <= 0.0001 + 1e-9));
-    assert.ok(out, 'no output gain carried an outro');
-    const snap = out.snapshots[out.snapshots.length - 1];
-    const before = (t) => out.at(t, snap.events, snap.initial);
-    const step = [];
-    for (let k = 0; k <= 20; k++) {
-      const t = snap.now + (snap.t - snap.now) * (k / 20) - (k === 20 ? 1e-6 : 0);
-      step.push(Math.abs(out.at(t) - before(t)) / Math.max(before(t), 1e-4));
-    }
-    const worstBefore = Math.max(...step);
-    const atBar = Math.abs(out.at(snap.t + 1e-6) - before(snap.t - 1e-6)) / Math.max(before(snap.t - 1e-6), 1e-4);
-    assert.ok(worstBefore < 0.01, `the outro moved the level before the closing bar by ${(worstBefore * 100).toFixed(1)}%`);
-    assert.ok(atBar < 0.01, `the level stepped ${(atBar * 100).toFixed(1)}% at the closing bar`);
-    engine.stop();
-  } finally {
-    globalThis.AudioContext = Base;
-  }
-});
+// The Firefox outro hold (2026-11-06) is tested exactly in
+// tests/outro-hold-timeline.mjs; a whole-engine version lived here for
+// v0.0.297 and flaked on when the mock clock reached the closing bar.
 
 test('finish() clamps its fade and defaults to 8 s', async () => {
   const run = async (options, audioSeconds) => {

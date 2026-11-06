@@ -56,6 +56,18 @@ const RETIRED = [
   // v0.0.272: the 4 Hz line under each track row; its numbers are on the dials' live pointers.
   { re: /\bsummary line\b/i, retired: 'v0.0.272', now: 'the dials\' live pointers' },
   { re: /\blevel \d+ ?% · random\b/i, retired: 'v0.0.272', now: 'the dials\' live pointers' },
+  // v0.0.298 (tour and tooltip audit): words that were FALSE about a control
+  // still there — the chord colour button is a nudge either side of the width
+  // Complexity gives, not a chord type, and it goes round; the additive P4+
+  // are each voice's own partials, not fixed harmonics; a dial that cannot
+  // spread has no hub to tap; Simple's Tempo refuses a sideways drag.
+  { re: /\bmakes it wider \(a triad\b/, retired: 'v0.0.298', now: 'a step narrower or wider than Complexity plays it' },
+  { re: /\bPress to widen it\b/, retired: 'v0.0.298', now: 'narrower / as played / wider, and it goes round' },
+  { re: /\bthe button beside them widens it\b/, retired: 'v0.0.298', now: 'sets it a step narrower or wider than Complexity plays it' },
+  { re: /\bTap the centre for the middle\b/i, retired: 'v0.0.298', now: 'Double-click for the middle (no hub on a dial that cannot spread)' },
+  { re: /\bfourth partial, two octaves up\b|\bfifth partial, two octaves and a third\b|\bsixth partial, two octaves and a fifth\b/i, retired: 'v0.0.298', now: 'the Nth partial this voice is built from' },
+  { re: /\bLEFT AND RIGHT to give it a range to drift between, or\b/, retired: 'v0.0.298', now: '…(all but Tempo, which holds one steady speed here)' },
+  { re: /\bSurprise me, last in the list\b/, retired: 'v0.0.298', now: "under More, every genre you have not hidden" },
 ];
 
 const hits = [];

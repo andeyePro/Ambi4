@@ -6,7 +6,7 @@ Plus a growing list of work-optimised music playlists at `/playlists/`, being re
 ## What the generator does
 Everything runs in your own browser: the engine, the voices and the analysis. Some of what you can do with it:
 
-- **Every track works the same way.** Pad, bass, melody, arp, texture, the kit and kit tracks of your own: each with a voice, a level and an editor of dials. Drag a dial sideways and it spreads into a range the music wanders inside, with a live pointer showing where it is now.
+- **Every track works the same way.** Pad, bass, melody, arp, texture, the kit and tracks of your own (tuned or kit): each with a voice, a level and an editor of dials. Drag a dial sideways and it spreads into a range the music wanders inside, with a live pointer showing where it is now.
 - **Play along.** Musical typing, a MIDI keyboard, or the on-screen keys and drum pads on a phone or tablet. Turn on **Follow my chords** and the keys you hold choose the harmony at the next chord change.
 - **Write it yourself.** Type a chord loop, then **Write a tune over these chords** onto any tuned track. **Tap a rhythm** onto the built-in kit or a kit track of your own. Texture has an opt-in step grid too.
 - **See why each note was chosen.** Hover a lit step in a grid and its tooltip says what the note is against the chord and where it came from (the motif, a passing tone, leaning into the next chord).

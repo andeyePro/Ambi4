@@ -133,7 +133,7 @@ for (const hold of [false, true]) {
     });
     test(`${who}: swaps ${gap * 1000} ms apart hold the outgoing return at the value it has`, () => {
       for (const s of burst({ hold, gap, swaps: 6 })) {
-        assert.ok(Math.abs(s.after - s.before) < 0.02,
+        assert.ok(Math.abs(s.after - s.before) < 1e-3,
           `swap at ${s.time}s stepped the outgoing return ${s.before.toFixed(3)} → ${s.after.toFixed(3)}`);
       }
     });

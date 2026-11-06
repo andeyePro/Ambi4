@@ -4261,6 +4261,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // read lazily is enough — the same pattern as onSettingsCommitted.
       let onStoreRefused = null;
       let storeRefusedSaid = false;
+      // When a Save (voice, genre, layout) was last refused: the Save's own
+      // settings write follows 250 ms later and is refused too, and must not
+      // replace "save it again" with "move it again". Only that write — a
+      // dial moved later still says so (review of v0.0.298's first cut,
+      // which quieted every later notice until a write landed).
+      let saveRefusedAt = -Infinity;
       /**
        * v0.0.295: a deliberate Save under No thanks (voice, genre, layout) is
        * kept for the visit only, and used to say nothing about it — only
@@ -4320,7 +4326,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             // lands 250 ms later, is refused too, and used to replace "save
             // it again" with "move it again" — after a Save, with nothing
             // moved (2026-11-06 review).
-            if (key === 'generator' || key === 'voices' || key === 'genres' || key === 'layout') storeRefusedSaid = true;
+            const isSave = key === 'voices' || key === 'genres' || key === 'layout';
+            if (isSave) saveRefusedAt = Date.now();
+            // The Save's own settings write: quiet, and it does not start the
+            // settings notice's streak either, so the next dial moved says so.
+            if (key === 'generator' && Date.now() - saveRefusedAt < 1500) return kept;
+            if (key === 'generator') storeRefusedSaid = true;
             if (onStoreRefused) onStoreRefused(key);
           }
           return kept;
@@ -7275,7 +7286,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         '',
         'Every chord in the loop has a card of its own. Press one to hear it, and the notes it plays are printed on it — you never have to be able to imagine a chord from its name.',
         '',
-        'The arrows move a chord through the scale and the button beside them makes it wider (a triad, a 7th, a 9th). Hear the loop plays them all in order.',
+        'The arrows move a chord through the scale, and the button beside them sets it a step narrower or wider than Complexity plays it (narrower, as played, wider, then round again): how wide a chord gets is Complexity\u2019s call, and the button nudges it either side. Hear the loop plays them all in order.',
         '',
         'Chords are written as numbers of the scale, in roman numerals — the same way the built-in styles are written. I is the home chord, IV and V are the two it leans on most.',
         '',
@@ -7618,19 +7629,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // button says which one it is IN rather than which it will go to —
           // a control that names its own next state is a control you have to
           // press to find out where you are.
+          //
+          // 2026-11-06: named for what they ARE — a nudge either side of the
+          // width Complexity gives the chord. They used to read triad / 7th /
+          // 9th, and "7th" was really "as Complexity plays it", which may be
+          // a plain triad; and the press after the widest goes round to the
+          // narrowest, which the old "Press to widen it" denied.
           const colour = document.createElement('button');
           colour.type = 'button';
           colour.className = 'chord-chip-colour';
-          const COLOURS = [[-1, 'triad'], [0, '7th'], [1, '9th']];
+          const COLOURS = [
+            [-1, 'narrower', 'one step narrower than Complexity plays it'],
+            [0, 'as played', 'as wide as Complexity plays it'],
+            [1, 'wider', 'one step wider than Complexity plays it'],
+          ];
           const at = COLOURS.findIndex(([value]) => value === slot.extension);
-          colour.textContent = COLOURS[at === -1 ? 0 : at][1];
+          const colourNow = COLOURS[at === -1 ? 1 : at];
+          colour.textContent = colourNow[1];
           colour.setAttribute(
             'aria-label',
-            `Chord ${index + 1} is a ${COLOURS[at === -1 ? 0 : at][1]}. Press to widen it.`
+            `Chord ${index + 1} plays ${colourNow[2]}. Press for the next width: narrower, as played, wider, then round again.`
           );
           colour.addEventListener('click', () => {
             const next = slots.map((s, i) => (i === index
-              ? { ...s, extension: COLOURS[((at === -1 ? 0 : at) + 1) % COLOURS.length][0] }
+              ? { ...s, extension: COLOURS[((at === -1 ? 1 : at) + 1) % COLOURS.length][0] }
               : s));
             // The extension is a NUDGE relative to complexity, not an absolute
             // width — the engine's own design, and it means a widen can land
@@ -7645,7 +7667,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             playChord(slotMidis(next[index]), chipsAfter[index] || null);
             if (wasNotes === nowNotes && progressionHint) {
               progressionHint.textContent =
-                'That chord is written wider, but it sounds the same here: how wide chords actually get is decided by Complexity, and this one is already as wide as Complexity allows. Raise Complexity to hear the difference.';
+                'That chord is now set ' + COLOURS[((at === -1 ? 1 : at) + 1) % COLOURS.length][1] + ', but it sounds the same here: how wide chords actually get is decided by Complexity, and at this Complexity the step lands on the same notes. Move Complexity to hear the difference.';
             }
           });
           tools.append(colour);
@@ -7710,7 +7732,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           field.setAttribute('aria-labelledby', 'progression-label');
           field.setAttribute('spellcheck', 'false');
           const box = field;
-          box.addEventListener('change', () => commitProgression(box.value));
+          // A `change` that brings nothing new is skipped. The box is updated
+          // in place now, so after an Enter commit the browser still holds a
+          // change "pending" against the value it had on focus, and fires it
+          // on the next blur — a mousedown on a chord card's arrow, whose
+          // re-render then destroyed that arrow before its click (the loop
+          // did not move; chordchip-drive). Nothing typed, nothing to commit.
+          box.addEventListener('change', () => {
+            if (box.value.trim() === progressionText().trim()) return;
+            commitProgression(box.value);
+          });
           box.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') { event.preventDefault(); commitProgression(box.value); }
             // Escape puts the playing loop back and STAYS in the box (it used
@@ -19419,7 +19450,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 onInput: (v) => commitIntensity(Number(v)),
               });
               handle.el.setAttribute('aria-label', `Block ${index + 1} intensity`);
-              describe(handle.el, 'How full this block plays: low leaves parts out, high brings more in. Tap the centre for the middle. It holds one value rather than a range: the blocks themselves are how intensity moves.');
+              describe(handle.el, 'How full this block plays: low leaves parts out, high brings more in. Double-click for the middle. It holds one value rather than a range: the blocks themselves are how intensity moves.');
               intensityWrap = cell;
             } catch {
               intensityWrap = null;
@@ -26030,12 +26061,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'simple',
           target: '#genre-select',
-          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices, a different piece each time. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chords, each changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, last in the list, picks from every genre, unlisted ones too. The ☆ beside it keeps favourites and hides genres.',
+          text: 'Pick a genre and the whole setup is drawn from its rules — tempo, chords, kit and voices, a different piece each time. Rules, beside the picker, opens those rules as controls — tempo, swing, metres, modes and chords, each changeable, addable or removable — and Apply re-draws with the same dice, so only what you change, changes. Surprise me, under More, picks from every genre you have not hidden. The ☆ beside it keeps favourites and hides genres.',
         },
         {
           tab: 'simple',
           target: '#panel-simple .sliders-module',
-          text: 'These dials are the whole instrument for most people. Drag up and down for the value, LEFT AND RIGHT to give it a range to drift between, or click the number underneath to type one. Double-click restores the default, and the pointer thickens while a dial is still following your drag. Change at zero means hold: the generator loops exactly what it is playing. Spread, a dial shows \'now\' as it plays. Right-click a dial (hold on touch, or P) to pin it here.',
+          text: 'These dials are the whole instrument for most people. Drag up and down for the value, LEFT AND RIGHT for a range to drift between (not Tempo, which holds one speed here), or click the number to type one. Double-click restores the default; a thicker pointer means it is still following your drag. Change at zero means hold: it loops exactly what it is playing. Spread, a dial shows \'now\' as it plays. Right-click a dial (hold on touch, or P) to pin it here.',
         },
         {
           tab: 'simple',
@@ -26061,7 +26092,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#control-progression',
-          text: 'Chords is the loop the piece keeps coming back to. Press a chord\'s card to hear it; the notes it plays are printed on it. The arrows move a chord through the scale and the button beside them widens it. Leave the box empty and the app writes the loop itself, or on Create, Write → Chords fits one to a tune you have. Voicing, under the cards, sets each chord\'s lowest note and width, and how often the loop changes: Hold keeps it exactly.',
+          text: 'Chords is the loop the piece keeps returning to. Press a chord\'s card to hear it; its notes are printed on it. The arrows move a chord through the scale; the button beside them steps it narrower or wider than Complexity plays it. Leave the box empty and the app writes the loop itself, or on Create, Write → Chords fits one to your tune. Voicing, under the cards, sets each chord\'s lowest note and width, and how often the loop changes: Hold keeps it exactly.',
         },
         {
           tab: 'advanced',
@@ -26076,7 +26107,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         {
           tab: 'advanced',
           target: '#voice-edit-toggle-texture',
-          text: 'Give Texture the Coloured noise or Grain cloud voice and its panel grows Spectral, Motion and Burst rows. Wind, rain and surf all live in there — you sculpt them with the dials rather than picking a sample. The Call voice does the same for birdsong: a pitch sweep, two formants and a cadence. Hover any dial to read what you will hear; the chip by the track name says which kind of synthesis makes the sound, and pressing it opens a short lesson on it.',
+          text: 'Give Texture the Coloured noise or Grain cloud voice and its panel grows Spectral, Motion and Bursts rows. Wind, rain and surf all live in there — you sculpt them with the dials rather than picking a sample. The Call voice does the same for birdsong: a pitch sweep, two formants and a cadence. Hover any dial to read what you will hear; the chip by the track name says which kind of synthesis makes the sound, and pressing it opens a short lesson on it.',
         },
         {
           tab: 'advanced',

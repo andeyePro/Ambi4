@@ -30,12 +30,18 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Tour, tooltip and README audit, 2026-11-06 (read-only opus review)
+
+- [x] *(SHIPPED v0.0.298 — doc-drift 8 hits on v0.0.297)* Six false statements: chord colour button (triad/7th/9th → narrower/as played/wider), additive P4–P6 and Stretch tooltips, block intensity "tap the centre", tour step 3 (Simple Tempo refuses a spread), tour step 2 (Surprise me's place and pool). README: tracks of your own can be tuned.
+- [x] *(SHIPPED v0.0.298)* v0.0.297 regression: a pending `change` from an Enter-committed loop fired on the next blur and re-rendered the chord cards under a click (chordchip-drive red).
+- [x] *(SHIPPED v0.0.298)* Tour step 11 named the "Burst" row; the heading reads Bursts.
+
 ## Review of v0.0.289–296, 2026-11-06 (read-only opus review)
 
 - [x] *(SHIPPED v0.0.297 — reverb-swap-timeline 6/20 red on v0.0.296)* Firefox: two Reverb tail changes inside the 0.5 s fade-in threw in scheduleReverbSwap's no-cancelAndHold fallback and left a second tail on for the visit.
 - [x] *(SHIPPED v0.0.297 — progression-drive 4 red on v0.0.296)* The chord loop box rebuilt itself on every commit: Let the app choose did nothing on the first click after typing; Tab/Enter left focus on the page. (The review's "unconfirmed suspicion" here, confirmed in Chromium and worse than suspected.)
 - [x] *(SHIPPED v0.0.297)* A refused Save voice/genre/layout had its "save it again" replaced 250 ms later by the settings notice's "move it again".
-- [x] *(SHIPPED v0.0.297 — audit of every AudioParam automation, 2026-11-06)* glide() on a slurred note shorter than its 30 ms level ramp held the level past the note (onset-render short slur, 9 voices red); Firefox's outro hold stepped twice under a ranged Volume (engine-smoke case red). Audit found no other throw, no unguarded cancelAndHoldAtTime, no exponential ramp to zero.
+- [x] *(SHIPPED v0.0.297 — audit of every AudioParam automation, 2026-11-06)* glide() on a slurred note shorter than its 30 ms level ramp held the level past the note (onset-render short slur, 9 voices red); Firefox's outro hold stepped twice under a ranged Volume (tests/outro-hold-timeline.mjs since v0.0.298). Audit found no other throw, no unguarded cancelAndHoldAtTime, no exponential ramp to zero.
 - [x] *(SHIPPED v0.0.297)* **tests/firefox-drive.mjs** — the first Firefox run of the app (Playwright Firefox 132 on the test Mac). Covers desktop only: Playwright cannot emulate Firefox for Android.
 
 ## Browser sweep, 2026-10-30 (fifteen area agents in headless Chromium and WebKit plus a read-only review; 22 fixed in v0.0.285, 5 in v0.0.286, 11 in v0.0.287)

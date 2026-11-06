@@ -185,12 +185,16 @@ export const PARAM_REGISTRY = Object.freeze({
   'patch.additive.p1': number(0, 2, { hint: 'The fundamental: the note itself. Lower it and the upper partials carry the tone.' }),
   'patch.additive.p2': number(0, 2, { hint: 'The second partial, an octave up: more of it is fuller and brighter.' }),
   'patch.additive.p3': number(0, 2, { hint: 'The third partial, an octave and a fifth up: the hollow, reedy colour.' }),
-  'patch.additive.p4': number(0, 2, { hint: 'The fourth partial, two octaves up: adds shine without changing the pitch.' }),
-  'patch.additive.p5': number(0, 2, { hint: 'The fifth partial, two octaves and a third up: a sweet, slightly major glint.' }),
-  'patch.additive.p6': number(0, 2, { hint: 'The sixth partial, two octaves and a fifth up: thin and glassy.' }),
-  'patch.additive.p7': number(0, 2, { hint: 'The seventh partial, a flat seventh two octaves up: the buzz in a brass tone.' }),
-  'patch.additive.p8': number(0, 2, { hint: 'The eighth partial, three octaves up: pure top, air and edge.' }),
-  'patch.additive.stretch': number(-0.1, 0.1, { hint: 'Pulls the upper partials off the harmonic series: at zero they sit in tune, to the right they go sharp and bell-like, to the left flat and dull.' }),
+  // 2026-11-06: P4 up are named by their place in THIS voice's own list, not
+  // as harmonics: the organ stab is 1, 2, 3, 4, 6, 8 and glass 1, 2, 3.01,
+  // 4.98, 6.97, so "two octaves and a fifth" was the stab's P5 and glass's
+  // nothing. P1–P3 are the same on both.
+  'patch.additive.p4': number(0, 2, { hint: 'The fourth partial this voice is built from (two octaves up on the stab, nearer two and a third on glass): adds shine without changing the pitch.' }),
+  'patch.additive.p5': number(0, 2, { hint: 'The fifth partial this voice is built from (two octaves and a fifth on the stab, near a flat seventh on glass): a higher, thinner glint.' }),
+  'patch.additive.p6': number(0, 2, { hint: 'The sixth partial this voice is built from (three octaves up on the organ stab): pure top, air and edge.' }),
+  'patch.additive.p7': number(0, 2, { hint: 'The seventh partial this voice is built from, higher still: more edge.' }),
+  'patch.additive.p8': number(0, 2, { hint: 'The eighth partial this voice is built from, the highest: pure top and air.' }),
+  'patch.additive.stretch': number(-0.1, 0.1, { hint: 'Pulls the upper partials further from where this voice puts them: zero is the voice as made, right goes sharp and bell-like, left flat and dull.' }),
   // v0.0.177 — the Modal engine section (docs/synthesis-programme.md § 2,
   // unit 6): a struck object. Read only by a voice whose defaults publish
   // `modal` (chimes, marimba). Material picks the overtone table — the

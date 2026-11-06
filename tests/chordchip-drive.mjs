@@ -97,6 +97,29 @@ export default async function drive(page) {
     audible || /decided by Complexity/.test(hint), (v) => v === true);
   results.push({ name: 'colour change was audible', ok: true, got: audible, want: '(informational)' });
 
+  // The button's words say what it IS: a nudge either side of the width
+  // Complexity gives (2026-11-06; it used to read triad / 7th / 9th, and its
+  // "7th" was "as played", which may be a triad).
+  const colourWords = await page.evaluate(() => [...document.querySelectorAll('#progression-chords .chord-chip-colour')]
+    .map((b) => ({ text: b.textContent.trim(), aria: b.getAttribute('aria-label') || '' })));
+  check('every colour button reads narrower, as played or wider',
+    colourWords.every((w) => ['narrower', 'as played', 'wider'].includes(w.text)), (v) => v === true);
+  check('…and its label says Complexity decides the width it steps from',
+    colourWords.every((w) => /Complexity/.test(w.aria)), (v) => v === true);
+  const cycle = [];
+  for (let i = 0; i < 3; i++) {
+    await page.click('#progression-chords .chord-chip:first-child .chord-chip-colour');
+    await page.waitForTimeout(300);
+    cycle.push({
+      text: await page.evaluate(() => document.querySelector('#progression-chords .chord-chip:first-child .chord-chip-colour')?.textContent.trim()),
+      ext: Number((await storedLoop(page)).split(' ')[0].split(':')[1]),
+    });
+  }
+  check('three presses go round all three widths', [...new Set(cycle.map((c) => c.text))].sort(), ['as played', 'narrower', 'wider']);
+  check('…and the ENGINE stores -1, 0 and +1 for them', [...new Set(cycle.map((c) => c.ext))].sort(), [-1, 0, 1]);
+  const WORD = { '-1': 'narrower', 0: 'as played', 1: 'wider' };
+  check('…each word naming the nudge the engine holds', cycle.every((c) => WORD[c.ext] === c.text), (v) => v === true);
+
   // Add and remove.
   await page.click('#progression-chords .chord-chip-add');
   await page.waitForTimeout(400);

@@ -5241,6 +5241,35 @@ const REVERB_RETURN_LEVEL = 0.9;
 const REVERB_OUT_MAX = 2;
 const REVERB_CURVE_POINTS = 64;
 
+/** An exponential ramp `{t0, v0, t1, v1}`'s value at `time` (both ends > 0). */
+export function outputRampAt(ramp, time) {
+  const x = (time - ramp.t0) / (ramp.t1 - ramp.t0);
+  if (!(x > 0)) return ramp.v0;
+  if (x >= 1) return ramp.v1;
+  return ramp.v0 * Math.pow(ramp.v1 / ramp.v0, x);
+}
+
+/**
+ * Hold the output gain at a FUTURE `time` without cancelAndHoldAtTime
+ * (Firefox) — the outro's closing bar (2026-11-06 audit). A plain
+ * cancelScheduledValues(time) removes the end of a volume ramp still running
+ * at `time`, so the gain falls back to the ramp's start at once, and a level
+ * read now then steps it again at `time`: two steps of a ranged Volume's span.
+ * The ramp the engine last wrote (`ramp`, or null when another writer set the
+ * level since) is known, so its value at `time` is too: a ramp still running
+ * then is re-ended there — the same exponential over [t0, time], nothing moves
+ * before the closing bar — and a finished one is held at its end. Only a level
+ * some other writer set falls back to the value read now.
+ */
+export function holdOutputAt(gain, time, ramp, floor = SILENCE) {
+  gain.cancelScheduledValues(time);
+  if (ramp && ramp.t0 <= time && time < ramp.t1) {
+    gain.exponentialRampToValueAtTime(outputRampAt(ramp, time), time);
+  } else {
+    gain.setValueAtTime(ramp && ramp.t1 <= time ? ramp.v1 : Math.max(gain.value, floor), time);
+  }
+}
+
 /** How long each side of a swap fades: { inSeconds, outSeconds }. */
 export function reverbSwapShape(oldSeconds) {
   const old = Number.isFinite(oldSeconds) && oldSeconds > 0 ? oldSeconds : REVERB_CROSSFADE;
@@ -11288,14 +11317,6 @@ export function createEngine(initialParams, options = {}) {
     resolve();
   }
 
-  /** An exponential ramp's value at `time` (both ends clear of zero). */
-  function outputRampAt(ramp, time) {
-    const x = (time - ramp.t0) / (ramp.t1 - ramp.t0);
-    if (!(x > 0)) return ramp.v0;
-    if (x >= 1) return ramp.v1;
-    return ramp.v0 * Math.pow(ramp.v1 / ramp.v0, x);
-  }
-
   /** Start the master fade as the closing bar begins, and arm its completion. */
   function beginOutro(time) {
     outroStarted = true;
@@ -11309,19 +11330,7 @@ export function createEngine(initialParams, options = {}) {
     if (typeof gain.cancelAndHoldAtTime === 'function') {
       gain.cancelAndHoldAtTime(time);
     } else {
-      // Firefox (2026-11-06 audit): the ramp the volume walk wrote is known,
-      // so its value AT `time` is too. A ramp still running then is
-      // re-ended there — the same exponential over [t0, time], so nothing
-      // moves before the closing bar — and a finished one is held at its end
-      // value. Only a level some other writer set (a resume's decay) falls
-      // back to the value read now.
-      const ramp = outputRamp;
-      gain.cancelScheduledValues(time);
-      if (ramp && ramp.t0 <= time && time < ramp.t1) {
-        gain.exponentialRampToValueAtTime(outputRampAt(ramp, time), time);
-      } else {
-        gain.setValueAtTime(ramp && ramp.t1 <= time ? ramp.v1 : Math.max(gain.value, SILENCE), time);
-      }
+      holdOutputAt(gain, time, outputRamp);
     }
     // 2026-10-30 (live click audit, tests/live-click-drive.mjs): NOT an
     // exponentialRampToValueAtTime. A ramp is measured from the PREVIOUS
@@ -11515,6 +11524,7 @@ export function createEngine(initialParams, options = {}) {
     const old = ctx;
     ctx = null;
     graph = null;
+    outputRamp = null; // its times were the old context's clock
     output = null;
     delayTarget = 0;
     resetReverbState();

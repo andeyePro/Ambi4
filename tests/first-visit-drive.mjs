@@ -454,9 +454,18 @@ export default async function drive(page) {
     const voicesFull = await stored(pg, 'ambi4:voices');
     const voiceLanded = JSON.stringify(voicesFull ?? null).includes('full pot voice');
     note('E: Save voice with the pot full', { landed: voiceLanded, said: s3.dial });
+    check('E: the full pot refused the voice (else the next two prove nothing)', voiceLanded, false);
     if (!voiceLanded) {
       check('E: a Save voice the full pot refused says save it again', /save it again/i.test(s3.dial), true);
       check('E: …and is not overwritten by the dial-move wording', /move it again/i.test(s3.dial), false);
+    }
+    // …but a dial moved AFTER that Save still says its own refusal: the
+    // Save quiets only its own settings write, not the rest of the visit.
+    await pg.waitForTimeout(1800);
+    await pg.selectOption('#root', 'F');
+    await pg.waitForTimeout(800);
+    if ((await stored(pg, 'ambi4:generator'))?.root !== 'F') {
+      check('E: a dial moved after the refused Save still says move it again', /move it again/i.test((await said(pg)).dial), true);
     }
     await clean(pg);
     await pg.selectOption('#root', 'D');
