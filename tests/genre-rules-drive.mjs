@@ -288,7 +288,9 @@ export default async function drive(page) {
     check('the dial was set first', kept.mine.release, (v) => Math.abs(Number(v) - 8.12) < 0.05);
     check('…and the dial you set on it', kept.releaseAfter, (v) => Math.abs(Number(v) - 8.12) < 0.05);
     check('…and says so, so the promise is on screen too',
-      /instruments and their dials are untouched/.test(kept.note), (v) => v === true);
+      // v0.0.299: "kept, apart from any Line-up rule you changed" — the old
+      // "untouched" was false when a Line-up row was applied.
+      /instruments and their dials are kept/.test(kept.note), (v) => v === true);
   }
 
   const failed = results.filter((r) => !r.ok);
