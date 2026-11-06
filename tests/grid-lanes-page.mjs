@@ -496,6 +496,26 @@ async function checkWords(ctx) {
   record('the engine sings the syllables the page shows', mismatch.length === 0, JSON.stringify(mismatch).slice(0, 300));
 }
 
+async function checkWordsOneBar(ctx) {
+  // #6: a one-bar Words write over a chained multi-bar line must clear the
+  // chain on the page AND in the engine (it sent nothing, so 'chain' stayed).
+  const { win, doc, engine } = ctx;
+  const before = live(engine, 'bass');
+  if (before.sequencerAdvance !== 'chain' || before.sequencers.length < 2) {
+    throw new Error(`precondition: bass should be a chained multi-bar line, got ${before.sequencers.length} bars, ${before.sequencerAdvance}`);
+  }
+  setSelect(win, doc, 'compose-words-track', 'bass');
+  doc.getElementById('compose-words-text').value = 'hello there';
+  clickEl(win, doc.getElementById('compose-words-write'));
+  await waitUntil(() => live(engine, 'bass').sequencers.length === 1, 3000);
+  await sleep(200);
+  const t = live(engine, 'bass');
+  const page = await stored(win, 'bass');
+  record('a one-bar Words write clears the chain', t.sequencers.length === 1 && t.sequencerAdvance !== 'chain'
+    && page.sequencerAdvance === undefined,
+    `${t.sequencers.length} sequencers, engine ${t.sequencerAdvance}, page ${page.sequencerAdvance}`);
+}
+
 async function checkStrip(ctx) {
   // #4: Strip notes cleared a user kit (it was not 'percussion'); Strip
   // rhythms left it alone for the same reason.
@@ -582,6 +602,7 @@ try {
   await checkBlock('[6] TYPED MELODY', () => checkMelodyChain(ctx));
   await checkBlock('[3] TUNE', () => checkTune(ctx));
   await checkBlock('[3] WORDS', () => checkWords(ctx));
+  await checkBlock('[6] WORDS ONE BAR', () => checkWordsOneBar(ctx));
   await checkBlock('[4] STRIP A LAYER', () => checkStrip(ctx));
   await checkBlock('[7] REMOVE LANE FOCUS', () => checkRemoveLaneFocus(ctx));
   await checkBlock('[5] WORDS METRE', () => checkWordsMetre(ctx));

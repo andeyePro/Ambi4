@@ -15586,7 +15586,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           addGrid.addEventListener('click', () => {
             const t = settings.tracks[track];
             const blankStep = () => ({ on: false, prob: 1, vmin: 0.6, vmax: 0.8 });
-            t.sequencers = [{ mode: 'auto', weights: [1], steps: Array.from({ length: SEQ_SLOTS }, blankStep) }];
+            // At the track's own rung: a twenty-slot lane on a demisemiquaver
+            // track drew a grid with no cells past slot 20.
+            t.sequencers = [{ mode: 'auto', weights: [1], steps: Array.from({ length: laneSlotsForBeats(t.stepBeats) }, blankStep) }];
             t.sequencer = t.sequencers[0];
             engine.setParams({ tracks: { [track]: { sequencers: structuredClone(t.sequencers) } } });
             persistSettings();
