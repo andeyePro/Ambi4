@@ -9729,8 +9729,11 @@ export function createEngine(initialParams, options = {}) {
     // re-aiming it at the next bar's chord would skip a chord.
     const changeAhead = Boolean(barChords && last) && barChords.some((chord) => chord.beat > last.beat + 1e-9
       && chord.degree !== chordAtBeat(last.beat).degree);
-    const target = chordBarsLeft <= 0 && last && !isStrongBeat(last.beat) && !changeAhead
-      ? nextChordAhead() : null;
+    // Captured with the bar (2026-11-06 hunt): on a repeat's replay the hook
+    // position is frozen, so reading the chord ahead afresh leaned the bass's
+    // approach note at the wrong chord (7 of 90 replays differed).
+    const target = once('bassApproach', () => (chordBarsLeft <= 0 && last && !isStrongBeat(last.beat) && !changeAhead
+      ? nextChordAhead() : null));
     if (target !== null) {
       last.midi = nearestTo(last, target);
       last.approach = true;
@@ -10836,6 +10839,14 @@ export function createEngine(initialParams, options = {}) {
     chordExtension = frame.extension;
     barChords = frame.chords ?? null;
     barPadPlan = null;
+    // A repeat coming round (2026-11-06 hunt): a chord struck in the loop's
+    // last bar for several bars rang on over the re-struck opening — two
+    // different chords at once. At the loop's start on every replay the old
+    // pad is released through its cancel fade. (A loop that opens mid-chord
+    // still replays its opening bar without the chord struck before the loop:
+    // re-striking it would add an onset the first pass did not have, against
+    // the law that every pass replays the first — the owner's call, TODO.)
+    if (replaying && loopRegion && barIndex === loopRegion.start) releaseSoundingPad(time);
     if (frame.fresh) {
       chordBarsLeft = frame.span;
       if (isActive('pad')) {

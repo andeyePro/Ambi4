@@ -11,7 +11,8 @@
  *     the next onset;
  *  3. kit hits written on the grid were clamped to 90 % of their pulse, so a
  *     hit in the last tenth sounded early;
- *  4. Stop then Play kept the kit's pattern bank from the last performance.
+ *  4. Stop then Play kept the kit's pattern bank from the last performance;
+ *  5. a repeat bracket's replays leaned the bass at the wrong chord (v0.0.310).
  *
  * The scheduler is ticked by hand (texture-grid-smoke's stand-in ticker), so
  * the results do not depend on how busy the machine is.
@@ -200,6 +201,51 @@ test('a mid-bar tempo change piles no notes onto one time and schedules none in 
   }
   assert.equal(pile, 0, `${pile} notes clamped to a barline that the tempo change had moved`);
   assert.equal(past, 0, `${past} notes scheduled before the clock`);
+});
+
+test('a repeat bracket replays its bass exactly', async () => {
+  // The bass's approach note read the frozen hook position afresh on each
+  // replay (it leaned at the wrong chord), and a loop opening mid-chord
+  // replayed its first bar with no pad at all.
+  let bassDiffer = 0;
+  let cases = 0;
+  // The hunt's own matrix (7 of 90 replays differed on v0.0.309).
+  for (const rhythm of ['auto', 2, 3]) for (const seed of [1, 2, 3, 4, 5]) for (const [s0, e0] of [[2, 4], [3, 6], [1, 2]]) for (const sig of ['4/4', '4/4+3/4']) {
+    let set = false;
+    const r = await run({ bpm: 140, timeSignature: sig, complexity: 0.8, structure: 'abab', harmony: { rhythm }, tracks: ALL_ON }, {
+      seed, seconds: 36, onStep: (t, en) => { if (!set) { set = true; en.setLoopRegion(s0, e0); } },
+    });
+    const bars = r.bars.sort((a, b) => a.time - b.time);
+    const passes = [];
+    for (let i = 0; i < bars.length; i++) if (bars[i].bar === s0) passes.push(i);
+    if (passes.length < 2) continue;
+    cases += 1;
+    const notesIn = (pi, track) => {
+      const out = [];
+      for (let k = 0; k < e0 - s0; k++) {
+        const b = bars[pi + k];
+        const nb = bars[pi + k + 1];
+        if (!nb) return null;
+        for (const n of r.notes) if (n.track === track && n.time >= b.time - 1e-6 && n.time < nb.time - 1e-6) out.push(`${k}|${n.midi}|${(n.time - b.time).toFixed(3)}`);
+      }
+      return out.sort().join(',');
+    };
+    // The FIRST traversal against its first replay: the approach note was
+    // re-aimed on the replay.
+    const b1 = notesIn(passes[0], 'bass');
+    const b2 = notesIn(passes[1], 'bass');
+    if (b1 !== null && b2 !== null && b1 !== b2) bassDiffer += 1;
+    // Where the FIRST pass opened with a pad sounding (struck, or ringing in
+    // from before the loop), the replay does too. (A pad the plan rests is
+    // silent on both.)
+    // (a strike may land up to a humanising nudge after the downbeat)
+    const soundingAt = (bar) => r.notes.some((n) => n.track === 'pad' && n.time <= bar.time + 0.08 && n.time + n.duration > bar.time + 0.1);
+    // (Not asserted since v0.0.310: re-striking a chord already under way
+    // would add an onset the first pass did not have — the owner's call.)
+    void soundingAt;
+  }
+  assert.ok(cases > 0, 'no loop came round twice — the case was not reached');
+  assert.equal(bassDiffer, 0, `${bassDiffer} of ${cases} replays played a different bass`);
 });
 
 test('grid notes on a mono track never overlap the next onset at fast rungs (short gates stay short)', async () => {

@@ -258,7 +258,10 @@ function digest({ notes, chords }) {
     ...notes.map((n) => `n ${n.track} ${n.midi} ${n.kind ?? ''} ${r(n.time)} ${r(n.duration)} ${r(n.velocity)}`),
     ...chords.map((c) => `c ${c.name} ${c.midis.join(',')} ${c.bar} ${r(c.time)}${c.beat === undefined ? '' : ` ${c.beat}`}`),
   ];
-  return createHash('sha256').update(lines.join('\n')).digest('hex');
+  // Sorted (2026-11-06): what was played and announced, not the order the
+  // scheduler handed it over in — the bass is now sent per pulse rather than
+  // all at the barline, the same notes in another order.
+  return createHash('sha256').update(lines.sort().join('\n')).digest('hex');
 }
 
 const tests = [];
@@ -413,9 +416,12 @@ test('beats as long as the bar is one chord a bar — note for note what rhythm 
 // v0.0.238 engine, before harmony.beats existed (see the commit message).
 // ---------------------------------------------------------------------------
 
+// Re-frozen 2026-11-06 when the digest became order-free: taken on the
+// v0.0.309 engine, which still matched the v0.0.238 order-sensitive digests
+// above to the byte, so these are the same notes and chords, sorted.
 const TODAY = {
-  strict: '4b180bf2c1726e85d0c3d6dda0251531c820500d510191c1ea5e5114345dbb59',
-  loose: 'e3a39118683c0c6e02e70bde21b5e30b886cc45bef2dc3dd9eaecc0a4c295e93',
+  strict: '760f6283d609e241c327645b76123bcfc6bfaed653fdcdcecfa3833923b1ea19',
+  loose: '4f9ae896738c41b77df1634b0dec21a9c91198a43adf3e029a3200b9c49e39d6',
 };
 
 function loose() {

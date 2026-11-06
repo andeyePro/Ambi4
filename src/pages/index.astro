@@ -4370,13 +4370,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         if (prefs.consent() === null && !deniedThisSession) {
           ensureConsent().then((granted) => {
-            if (granted) {
-              if (prefs.set(key, value) && key === 'generator') {
-                try {
-                  localStorage.removeItem(LEGACY_STORAGE_KEY);
-                } catch {}
-              }
-            }
+            // Through persistKey itself now consent is granted, so a write the
+            // store refuses at the moment of granting says so like any other
+            // (2026-11-06 hunt: it was refused in silence), and the legacy
+            // key is retired only when the settings land.
+            if (granted) persistKey(key, value);
           });
         }
         return kept;
