@@ -802,7 +802,9 @@ play(); RangeValue walk: w∈[0,1], ±0.15/bar, effective = min+(max-min)·w.
 - Power governor (src/scripts/power.js): quality tiers eco|low|med|full + auto.
   Auto senses: PressureObserver (feature-detected), rAF frame-time EMA, audio
   underrun proxy (ctx.outputLatency drift / currentTime stalls), hardwareConcurrency,
-  deviceMemory, battery discharging. Governor outputs a budget the engine + visuals
+  deviceMemory (absent in Firefox and Safari: then the cores alone pick the starting
+  tier — v0.0.301; read as 4 GB it started every visit there at Low), battery
+  discharging. Governor outputs a budget the engine + visuals
   honour: max simultaneous notes (voice-steal oldest/quietest), reverb IR length
   (full 6 s, the Reverb tail dial's whole range; med 4 s; low 2 s; eco 1 s), texture+arp density scale, visual fps cap, scope on/off.
 - Engine: engine.setPowerBudget(budget) + per-track live stats API

@@ -168,7 +168,15 @@ function staticPriorTier() {
   const hc = safeNav('hardwareConcurrency');
   const mem = safeNav('deviceMemory');
   const hcVal = Number.isFinite(hc) ? hc : 4;
-  const memVal = Number.isFinite(mem) ? mem : 4;
+  // 2026-11-06: Firefox and Safari do not expose deviceMemory at all. Read
+  // as "4 GB" it started every visit in those browsers at Low (2 s reverb,
+  // the busiest tracks trimmed, 14 notes) whatever the machine, and the
+  // first sixteen seconds played under that cap while the frame-time
+  // sensing climbed to Full (measured on an 8-core Mac: Chromium started at
+  // Med, Firefox and WebKit at Low). An absent reading now constrains
+  // nothing; the cores decide, and the sensing still steps down within one
+  // tick on a machine that cannot keep up.
+  const memVal = Number.isFinite(mem) ? mem : Infinity;
   if (hcVal <= 2 || memVal <= 2) return 'eco';
   if (hcVal <= 4 || memVal <= 4) return 'low';
   if (hcVal <= 8 || memVal <= 8) return 'med';

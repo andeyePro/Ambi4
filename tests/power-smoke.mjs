@@ -329,6 +329,13 @@ test('static hardwareConcurrency/deviceMemory priors pick the starting auto tier
     [{ hardwareConcurrency: 3, deviceMemory: 16 }, 'low'],
     [{ hardwareConcurrency: 6, deviceMemory: 16 }, 'med'],
     [{ hardwareConcurrency: 16, deviceMemory: 16 }, 'full'],
+    // Firefox and Safari expose no deviceMemory: the cores decide alone
+    // (2026-11-06; an absent reading used to count as 4 GB, so every visit
+    // there started at Low whatever the machine).
+    [{ hardwareConcurrency: 8, deviceMemory: undefined }, 'med'],
+    [{ hardwareConcurrency: 12, deviceMemory: undefined }, 'full'],
+    [{ hardwareConcurrency: 4, deviceMemory: undefined }, 'low'],
+    [{ hardwareConcurrency: undefined, deviceMemory: undefined }, 'low'],
   ];
   for (const [nav, expectedTier] of cases) {
     const restoreNav = installFakeNavigator(nav);

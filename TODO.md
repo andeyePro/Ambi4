@@ -30,6 +30,12 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## The drives in Firefox, 2026-11-06 (23 drives re-hosted in Playwright Firefox 132; keyboard-only-drive now runs all three engines)
+
+- [x] *(SHIPPED v0.0.301 — power-smoke red on v0.0.300)* No `navigator.deviceMemory` in Firefox or Safari counted as 4 GB, so every visit there started at Low for ~16 s. The cores decide alone now.
+- [x] *(FIXED 66c7117)* genre-rules-drive still asserted v0.0.298's "untouched" wording (red in every browser since v0.0.299).
+- 18 of 23 green in Firefox as they stand (chordchip, create, dial, first-visit, play-along, popover, presets, registry-dial, spread-all, structure-edges, transport, transport2, typed-beat, typed-melody, …). share-browser and sound-edges were the governor's Low start (above); undo-drive's one red ran while a probe took the same test-server slot — re-run on v0.0.301.
+
 ## Docs, CONTRIBUTING and genre data audit, 2026-11-06 (read-only opus review)
 
 - [x] *(DONE 2026-11-06, docs only)* CONTRIBUTING: a scale needs a `SCALES` entry AND a `modeGroups` label; a new genre ships hidden (`PUBLIC_GENRE_SLUGS`, the owner's call) and moves genre-smoke's `GENRE_COUNT`; `tests/all.mjs` is the runner. deploying.md's gate is `tests/all.mjs` + `tests/sweep-drives.sh`. engine-v2-contract: the expanded loop DOES reach the engine (`harmony.seed`), pocketMs writes `tracks.bass.timing`, bass defaults off. dial plan §2.1/D2 say today's gestures. rendering-host names all three sweeps, the URL form and the sweep script. Two stale code comments.
