@@ -238,19 +238,19 @@ Worst-first within each section: if a step fails, note it and keep going.
 - [ ] Click Play — audio starts within ~1 s.
 - [ ] Listen 60 s at defaults — pleasant, no clicks/pops/clipping, no runaway volume.
 - [ ] Button now reads "Finish" — click it: current bar completes, resolves to the tonic, fades out over ~8 s, then state returns to stopped.
-- [ ] Play again, use the "Stop now" affordance (small secondary control or long-press) — fast stop, ~0.5 s fade, no click.
+- [ ] Play again; while the key reads Finish, press it once more: it now reads Stop, and pressing it while it reads Stop cuts the outro — fast stop, ~0.5 s fade, no click. (There is no separate Stop button.)
 - [ ] Tabs "Simple" and "Advanced" present; arrow keys move between them; visualiser stays visible on both.
 
 ## 2. Simple sliders (playing)
 
-- [ ] Speed slider — tempo audibly changes AND the BPM field on Advanced moves with it (and vice versa: edit BPM, speed slider follows).
-- [ ] Complexity ("Calm – Complex") low → sparse/drone-ish; high → busier, more tracks join. Moving it also resets structure/arp/track-states to Auto on the Advanced tab — verify.
-- [ ] Repetition ("Random – Evolving – Repetitive") — each end audibly different over ~30 s.
-- [ ] Volume slider — smooth level change, no zipper noise.
+- [ ] Tempo dial (Slow/Fast) — tempo audibly changes AND Advanced's Tempo dial moves with it (and vice versa). Click the Tempo readout and type a number: the dial follows. (There is no BPM field.)
+- [ ] Energy (Calm/Lively) low → sparse/drone-ish; high → busier, more tracks join. Moving it also resets structure/arp/track-states to Auto on the Advanced tab — verify.
+- [ ] Change (Never · Now and then · Often) — each end audibly different over ~30 s. (The old Repetition is now Reprise, on Advanced → Sound → more.)
+- [ ] Volume dial (Quiet/Loud) — smooth level change, no zipper noise.
 
 ## 3. Tracks + voices (playing)
 
-- [ ] Each of the six tracks (pad, bass, melody, texture, arp, percussion) has Off / Auto / On + voice select.
+- [ ] Each of the six tracks (pad, bass, melody, texture, arp, percussion) has a lamp (click it to cycle Off / Auto / On) + voice select.
 - [ ] Set a quiet track to On — it joins; set a loud one to Off — it drops. No glitch on switch.
 - [ ] Switch pad voice Warm → Glass → Strings → Choir mid-play — new notes use the new voice, no click, old notes ring out.
 - [ ] Sample at least one alternate voice per track — note any that sound bad/harsh/too loud (per-voice verdicts wanted, see Report back).
@@ -269,7 +269,7 @@ Worst-first within each section: if a step fails, note it and keep going.
 ## 5. Arpeggiator + structure (Advanced, playing)
 
 - [ ] Arp track On, arp editor to Manual — pattern up/down/updown/random audibly differ; rate 1/4 vs 1/16 obvious; toggling steps off in the 16-step grid creates matching gaps.
-- [ ] Structure select → Custom: build A(2 bars, low intensity) B(2 bars, high). Blocks audibly alternate sparse/busy every 2 bars. Add/remove/reorder buttons work.
+- [ ] (Advanced → Music → more) Structure select → Custom: build A(2 bars, low intensity) B(2 bars, high). Blocks audibly alternate sparse/busy every 2 bars. Add/remove/reorder buttons work.
 - [ ] Structure Waves for 1–2 min — slow intensity swell/ebb.
 
 ## 6. Visualiser
@@ -296,19 +296,19 @@ Worst-first within each section: if a step fails, note it and keep going.
 - [ ] Click "Save on this device" — devtools now shows ONLY cookie `ambi4-consent` + localStorage keys namespaced `ambi4:*`. No third-party cookies anywhere.
 - [ ] Reload — settings persisted.
 - [ ] New private window, repeat, click "No thanks" — settings still work for the session (change a slider, it holds), but nothing lands in storage; reload loses them; not re-asked this session.
-- [ ] Still under "No thanks", Save a preset: it is listed, and the line under the dials says it is listed for this visit only and that a share link keeps it anywhere (v0.0.286). Reload: gone, as it said.
+- [ ] Still under "No thanks", (Advanced → Presets → more) Save a preset: it is listed, and the line under the dials says it is listed for this visit only and that a share link keeps it anywhere (v0.0.286). Reload: gone, as it said.
 
 ## 10. Presets
 
-- [ ] (Consented window) Name + Save a preset; change settings; Load it — settings restored. Delete removes it. (A damaged stored list — `tests/hostile-prefs.mjs` — boots with only its well-formed entries; the list holds 100.)
-- [ ] "Submit preset" — copy-to-clipboard yields valid-looking JSON (paste somewhere to check). The contact.andeye.com tab will 404 — EXPECTED for now, the form doesn't exist yet.
+- [ ] (Consented window; Advanced → Presets → more) Name + Save a preset; change settings; Load it — settings restored. Delete removes it. (A damaged stored list — `tests/hostile-prefs.mjs` — boots with only its well-formed entries; the list holds 100.)
+- [ ] (Advanced → Presets → more) "Submit" opens the contact form with the preset filled in; only a preset too long for a web address goes on the clipboard instead (paste somewhere to check it is valid-looking JSON).
 
 ## 11. Playlists + routes
 
 - [ ] `/playlists/` — single page, playlists grouped by genre, service pill selector (YouTube / Spotify / Deezer / SoundCloud / Apple).
 - [ ] Most services show "Not on X yet" — EXPECTED until playlist ids are supplied. Apple pills/embeds carry the lapsed-subscription note.
 - [ ] Old URLs all redirect: `/generator/` → `/`; `/ambient/eno/`, `/classical/mozart/`, `/instrumental/xander/` → `/playlists/`.
-- [ ] Header nav "Generator" / "Playlists" works both ways.
+- [ ] Playlists is not in the header nav (the page is reachable at /playlists/ only); the nav's Generator link takes you back to `/`.
 - [ ] Junk URL (e.g. `/nope/`) → proper 404 page.
 
 ## 12. iPhone Safari
@@ -316,7 +316,7 @@ Worst-first within each section: if a step fails, note it and keep going.
 - [ ] Open `/`, tap Play — audio starts. Note silent-switch behaviour (audio with switch on silent: yes/no).
 - [ ] Sliders/tabs/track controls usable with a thumb; nothing overflows or clips off-screen.
 - [ ] Finish works; lock the screen briefly — note whether audio survives (informational, not pass/fail).
-- [ ] (Dev unlock) Record while playing, then stop: the file is `ambi4-<time>.m4a` — Safari writes MP4, not WebM — and the phone opens it. Chrome and Firefox still write `.webm` (v0.0.286).
+- [ ] (Dev unlock) Record while playing, then stop: the file is `ambi4-<time>.m4a` — Safari writes MP4, not WebM — and the phone opens it. Chrome writes `.webm` and Firefox `.ogg` (v0.0.286).
 
 ## Report back
 
@@ -330,28 +330,30 @@ The six most valuable things to tell the orchestrator:
 6. iPhone: Play worked? silent-switch result? any layout overflow?
 
 ## v6 delta (2026-07-25)
+*(Superseded in parts by later sections; the items below are corrected to today's app, 2026-11-06.)*
 - [ ] Sleep timer and "Schedule start" both live behind the one clock icon by Play, in the Timers popover (one popover since v0.0.40; the tab-open warning appears only under Schedule start). Esc closes it, countdown chips show when armed.
-- [ ] Melody and Bass now DEFAULT TO OFF - expected silence from them on a fresh visit; click a track name/state to wake them.
-- [ ] Tracks list: per-track Level knob (click it to switch to a min-max drifting range, double-click resets). Random button, Hold toggle, Randomness knob per track.
+- [ ] Melody defaults to Auto and Bass to Off at the engine's defaults (a genre draw overrides defaults anyway, so a fresh visit follows its genre); click a track's lamp to change its state.
+- [ ] Tracks list: per-track Level knob (drag it sideways to make a min-max drifting range — a plain click does nothing; double-click resets). A Randomness dial per track; the Random button and Hold toggle are gone.
 - [ ] Step sequencers at the top of Melody/Bass/Arp/Percussion editors (Auto/Manual): click cells on/off, drag vertically for the velocity band, [ ] or , . for probability. Percussion has three lanes; the Arp lane length follows its rate.
 - [ ] Voice editors open when a track row gains focus; only applicable knobs show per voice (e.g. Wash shows no oscillator section).
 - [ ] Heat check: leave it playing 10 min - the machine should run much cooler than the previous build (30 fps visuals, no glow blur).
 
 ## v14/v15 delta — big UI pass (2026-07-25)
+*(Superseded in parts by later sections; the items below are corrected to today's app, 2026-11-06.)*
 
 Transport strip
-- [ ] The strip reads: ▶ Play (triangle icon), ■ Stop, ● Record, and — hard right — the clock and alarm-clock icons stacked, each about half the Play button's height. Popovers behave as before.
-- [ ] Playing: the button reads "Finish" with a final-barline icon AFTER the word; the triangle is gone. Stop is greyed when nothing is playing and live when it is.
-- [ ] Record: EXPECTED to be greyed with a tooltip saying recording arrives with the next engine update — the engine keeps its mixed output stream private, so the page cannot reach it yet. The MediaRecorder path is wired and lights up the moment the engine publishes a stream. (If your browser has no MediaRecorder, the tooltip says so instead.)
+- [ ] The row reads: Play / Pause / Back / Next / [Record / WAV, dev unlock only] / Create / one clock icon (Timers) / Processor. The Timers popover behaves as before.
+- [ ] Playing: the button reads "Finish" with a final-barline icon AFTER the word; the triangle is gone. One key does it all: Play → Finish → Stop; pressing it while it reads Stop cuts the outro, and while paused, Finish stops at once. There is no separate Stop button (gone v0.0.41).
+- [ ] Record and Save as WAV appear only under the dev unlock; without it there is no Record button at all.
 - [ ] All transport buttons show on BOTH tabs this build.
 
 Simple tab
-- [ ] FOUR dials now: Speed, Complexity, Randomness, Volume. Repetition has gone from Simple — it is fused into Randomness (and still has its own dial on Advanced).
-- [ ] Each dial is labelled ONCE (under the dial), with end-marks at the tick extremes: Slow/Fast, Calm/Complex, Repetitive/Random, Quiet/Loud. Randomness also carries "Evolving" at the top of its sweep. No duplicated label row above.
-- [ ] Randomness is ONE control for "how much does this change": turning it writes Advanced's Repetition (as its mirror, 1 − x) AND all six tracks' randomness in one go. Check on Advanced that Repetition moves the opposite way as you turn it.
-- [ ] Randomness at 0 reads "Hold": perfect loop, tightest hook — set it to 0 while playing and the material should stop re-rolling. At 1 everything wanders.
-- [ ] Hand-set Advanced's Repetition (or one track's own Randomness) to something inconsistent, then look at the Simple Randomness dial: it shows a blended average and must NOT have overwritten what you just set. Turning it again takes control back.
-- [ ] Click the Randomness dial to switch it to a drifting min–max range: the range goes to every track's randomness, and Repetition takes the mirror of the range's midpoint (Repetition itself can't drift — the engine only accepts a single number there).
+- [ ] FOUR dials: Tempo, Energy, Change, Volume. Repetition (now Reprise) is fused into Change and has its own dial on Advanced → Sound → more.
+- [ ] Each dial is labelled ONCE (under the dial), with end-marks at the tick extremes: Slow/Fast, Calm/Lively, Never · Now and then · Often, Quiet/Loud. No duplicated label row above.
+- [ ] Change is ONE control for "how much does this change": turning it writes Advanced's Reprise (as its mirror, 1 − x) AND all six tracks' randomness in one go. Check on Advanced → Sound → more that Reprise moves the opposite way as you turn it.
+- [ ] Change at the bottom reads "Never": perfect loop, tightest hook — set it to 0 while playing and the material should stop re-rolling. At 1 everything wanders.
+- [ ] Hand-set Advanced's Reprise (or one track's own Randomness) to something inconsistent, then look at the Simple Change dial: it shows a blended average and must NOT have overwritten what you just set. Turning it again takes control back.
+- [ ] Drag the Change dial sideways to make a drifting min–max range (a plain click does nothing): the range goes to every track's randomness, and Reprise takes the mirror of the range's midpoint (Reprise itself can't drift — the engine only accepts a single number there). Simple's Tempo refuses a range and says why.
 - [ ] Processor dial under the transport (Eco/Low/Med/Full) with a readout of the tier and note cap. Set Eco while playing: the machine should quieten down; the voice editor's scope drops to the static OFFLINE trace instead of the live one.
 - [ ] (v0.0.249) A fresh Processor dial reads as the span Eco – Full and the status says "Auto (…)": that span IS Auto. Drag it sideways to narrow it (say Low – Med): the status reads "Low–Med (low)" or "(med)", the small live pointer sits on the tier in force, and under load it never leaves the span. Narrow it to nothing (one tier): it pins, exactly as picking a tier always did. Double-click goes back to Eco – Full. Reload: the span you left is still there. Load a share link or preset: your span is NOT replaced — it belongs to this device, not to the piece.
 - [ ] (v0.0.249, D10) Open a share link carrying more modulation connections (routing edges) than the tier in force is budgeted for (Eco 4, Low 8, Med 16, Full 32): a sentence under the genre picker says how many, and which tier's budget they exceed — no popup. Pin Full and it goes away if the count is 32 or fewer. There is no socket UI yet, so a link or preset is the only way in.
@@ -363,7 +365,7 @@ Tracks (Advanced)
 - [ ] Clicking the lamp cycles off → auto → on and NEVER opens the editor. Turning a track off never expands or keeps open its editor.
 - [ ] Close an editor with Edit, then Tab through that row: it must NOT spring open again. Pressing Edit again re-arms that behaviour.
 - [ ] The Edit panel header has a small dice button (re-roll that track). (The Off/Auto/On pills that sat beside it went in the 2026-10-03 UI review — the row's lamp is the one state control.)
-- [ ] While playing, each row shows a live "level … · random …" readout and a thin cost bar in the track's colour.
+- [ ] While playing, each row shows a thin cost bar in the track's colour (the level and randomness values are on the dials' live pointers).
 
 Sequencer 2.0 (Edit panel of melody / bass / arp / percussion)
 - [ ] Percussion lanes render High at the TOP, Low at the bottom.
@@ -377,7 +379,7 @@ Sequencer 2.0 (Edit panel of melody / bass / arp / percussion)
 - [ ] Create → Write → **Beat**: `K H s H KH H S H` writes eight steps onto the kit — kicks on 1 and 5, hats on the odd steps and on 5 (the KH token), a QUIET snare on 3 and a hard one on 7. A line longer than a bar becomes tabs played In turn; `|` starts a new bar; letters that name no drum are reported and change nothing.
 - [ ] Import a MIDI file you have to hand (Create → Write → MIDI file → Import a MIDI file, picking an instrument): its notes appear as pinned steps on that grid, longer files become tabs played In turn, and the line under the buttons says how many notes landed plus anything that could not fit (chords sharing a step, bars past eight, a different time signature).
 - [ ] Under a melodic grid, press ÷2: the cells double in number, the readout names the note value (semiquavers → demi-semiquavers), and a step you draw on the fine grid sounds where you drew it. ×2 walks back up; the pair stops at crotchets and at hemi-demi-semiquavers.
-- [ ] Time signature → **Custom…**: the beat unit offers 2, 4, 8 and 16. Try 2/2 (16 cells at sixteenths, beat marks on beats 1 and 3), 7/16 (7 cells, marks grouped 2+2+3) and 20/16 (20 cells). Ask for 21/16 or 3/2 and the readout snaps back — five quarter-note beats is what a lane can hold.
+- [ ] (Advanced → Music → more) Time signature → **Custom…**: the beat unit offers 2, 4, 8 and 16. Try 2/2 (16 cells at sixteenths, beat marks on beats 1 and 3), 7/16 (7 cells, marks grouped 2+2+3) and 20/16 (20 cells). Ask for 21/16 or 3/2 and the readout snaps back — five quarter-note beats is what a lane can hold.
 - [ ] A long note under the dials (drag Simple's Tempo sideways) stays up long enough to read to the end, and clicking it dismisses it.
 - [ ] Press **Triplets**: the readout keeps the note value and adds "triplets" (semiquavers → semiquaver triplets), the bar's cell count goes to three where two sat (8 → 12 at quavers in 4/4), the beat marks still land on the beats, and a step drawn there sounds where you drew it. ×2 / ÷2 now walk the triplet values; pressing Triplets again returns to straight time at the same value.
 - [ ] Untie a tied note (T on its head), then confirm the two steps really play separately — the untie must reach the engine, not just split the boxes.
@@ -386,41 +388,42 @@ Sequencer 2.0 (Edit panel of melody / bass / arp / percussion)
 - [ ] The long key legend has moved behind the small ⓘ next to "Step sequencer".
 
 New dials
-- [ ] Repetition now lives on Advanced (Random ← Evolving → Repetitive) and still works on its own.
-- [ ] Swing appears on Advanced (global, Straight → Swung). Set it high with percussion on: an audible shuffle.
+- [ ] (Advanced → Sound → more) Reprise lives on Advanced and still works on its own.
+- [ ] (Advanced → Sound → more) Swing appears on Advanced (global, Straight → Swung). Set it high with percussion on: an audible shuffle.
 - [ ] Every tuned track's Edit panel has a Dissonance dial (0 = strict to the chord). Push melody's up and it should stray.
 
 Everything else
 - [ ] Shape 1 / Shape 2 readouts show a LIVE mini-waveform of the exact morphed shape, redrawn as you turn. Hovering a waveform mark on the tick ring shows what that shape sounds like. (The short text name stays beside it — it is what screen readers announce.)
 - [ ] Hovering or Tab-focusing a compact control shows a themed tooltip (not a native title); Escape dismisses it.
-- [ ] "?" beside "Transport" opens a docked guided tour on the right; Next/Back walk seven steps, each highlighting the control it describes and switching tabs as needed. The open state survives a reload.
-- [ ] Click the BPM number: it becomes a text box. Enter commits, Escape cancels.
-- [ ] Factory presets row (8 of them) on Advanced. Load one — everything changes and stays fully editable. Your own presets sit below, unchanged.
+- [ ] The "?" button in the site header opens a docked guided tour on the right; Next/Back walk fourteen steps, each highlighting the control it describes and switching tabs as needed. The open state survives a reload.
+- [ ] Click the Tempo readout: it becomes a text box (there is no BPM field). Enter commits, Escape cancels.
+- [ ] Factory presets row (12 of them) on Simple. Load one — everything changes and stays fully editable. Your own presets sit below, unchanged.
 - [ ] Melody now DEFAULTS TO AUTO (it used to be off); bass is still off by default.
 - [ ] Regression sweep: consent ask still appears on the first save-worthy change in a private window; save/load/delete/submit presets still work; sleep + alarm popovers unchanged; lock-screen transport keys still work; settings still persist across a reload.
 
 ## v15 delta — front scope, share links, kit editor (2026-07-25)
+*(Superseded in parts by later sections; the items below are corrected to today's app, 2026-11-06.)*
 
-Front-page oscilloscope (Simple tab, under the piano roll)
-- [ ] An "Oscilloscope" panel sits between the piano roll and the dials, with a
-      row of six coloured track chips under the canvas.
+Front-page oscilloscope (above the piano roll; it keeps drawing on Advanced)
+- [ ] The oscilloscope sits above the piano roll, with a legend (one key per
+      track, in that track's colour) under the trace.
 - [ ] Press Play: one trace per selected track, each in that track's colour,
       sharing one grid. A silent track draws nothing (not a flat line).
-- [ ] Chips toggle: click Percussion off — its trace goes; click it back on — it
+- [ ] Legend keys toggle: click Percussion off — its trace goes; click it back on — it
       returns. Default selection is every track that isn't switched off, so a
       track you set to Off drops out of the scope by itself.
-- [ ] Click the "Oscilloscope" heading to collapse the panel; reload — it stays
-      collapsed (and your chip selection survives too).
-- [ ] Switch to Advanced, or set Processor to Eco while playing: the trace stops
-      (the note beside the heading says why). Back to Simple / a higher tier
-      restarts it.
+- [ ] Click the twisty to collapse the panel; reload — it stays collapsed (and
+      your legend selection survives too).
+- [ ] Switch to Advanced: the scope keeps drawing. Set Processor to Eco while
+      playing: the trace stops (the note beside the twisty says why). A higher
+      tier restarts it.
 - [ ] Scroll the panel off screen while playing: no frames are drawn while it's
       out of view (heat check — the machine should not warm up with it scrolled
       away).
 - [ ] If this build ships against an older scope.js, the whole panel is absent
       rather than dead — expected, not a bug.
 
-Share links (Advanced → Presets)
+Share links (Advanced → Presets → more)
 - [ ] "Share" copies a link to the clipboard and confirms on the button. Paste it
       somewhere: it starts `https://ambi4.work/#p=` and is short — a base plus
       a diff, a hundred or two characters off a genre (sharelink-drive measures
@@ -456,26 +459,27 @@ Kit editor (Percussion → Edit)
       instrument tab (it clears only that instrument) and "↺ Back to factory" on
       Common.
 - [ ] Overrides persist across reload and travel in presets and share links.
-- [ ] EXPECTED until the engine's own pass lands: per-instrument overrides may
-      not be audible yet — the engine plays the common patch and ignores
-      `perKind`. The editing, persistence and capture are all live now.
+- [ ] The engine applies per-instrument overrides: an override on High is
+      heard on the high drum and Mid and Low sound as before.
 
 Dials
-- [ ] Simple reads Tempo / Complexity / Randomness / Volume (was Speed and
+- [ ] Simple reads Tempo / Energy / Change / Volume (was Speed and
       Master volume). Each name appears ONCE, under its dial — nothing repeated
       above it.
-- [ ] The same four dials sit at the foot of the Advanced tab under "Main
-      dials". They are views, not copies: turn one, its twin follows, and so
-      does the BPM field for Tempo. Double-click resets on either.
+- [ ] The same four dials, as Tempo / Complexity / Variation / Volume, are
+      the first row in Advanced → Sound (no "Main dials" heading, no BPM
+      field). They are views, not copies: turn one, its twin follows.
+      Double-click resets on either.
 - [ ] Percussion lanes still render High at the top, Low at the bottom.
-- [ ] Transport is ONE row: Play / Stop / Record, the clock + alarm icons, and
-      the Processor dial — which now reads "Processor" ABOVE the dial with its
+- [ ] Transport is ONE row: Play / Pause / Back / Next / [Record / WAV, dev
+      unlock] / Create, the clock icon, and the Processor dial — which now reads "Processor" ABOVE the dial with its
       status ("Auto (med) · 22 notes · 30 fps") in small secondary text BELOW
       it, and no repeated caption on the knob itself.
 - [ ] Narrow the window to ~360 px: the transport wraps gracefully — the
       Processor dial may drop to a second line, but nothing overlaps or clips.
 
 ## v16 delta — presets below the dials, preset URLs, block editor (2026-07-25)
+*(Superseded in parts by later sections; the items below are corrected to today's app, 2026-11-06.)*
 
 Presets gallery (Simple tab)
 - [ ] The factory presets sit on SIMPLE now, directly BELOW the four dials —
@@ -510,20 +514,21 @@ Min-max dials
       already reads the new value, not Auto. No editor has a separate row of
       randomness knobs. An old share link from before v0.0.275 still arrives
       with its settings on these dials.
-- [ ] Clicking Tempo, Complexity, Repetition, Volume, Swing, Processor, Octave,
-      Filter type or the Shape dials does NOTHING — those params take a single
-      value engine-side, so they deliberately have no range affordance.
+- [ ] A dial that cannot take a range (Simple's Tempo, Drive, a block's
+      intensity, a few chance dials) refuses a sideways drag and says why in
+      the line under the dials; every other dial — Advanced's Tempo,
+      Complexity, Reprise, Volume, Swing and the Processor among them —
+      spreads into a range. (A plain click does nothing on any dial.)
 
 Paid features hidden until launch
-- [ ] The transport strip is Play / Stop / clock / alarm / Processor. There is NO
-      Record button anywhere, on either tab — not greyed, not tooltipped, absent.
-      (This supersedes the v14/v15 delta's "Record is greyed" expectation.)
-- [ ] Sequencer panels show only the blocks icon; there is no `>_` JS-editor
-      icon. Nothing anywhere is greyed with a "coming soon" caption.
+- [ ] The transport row is Play / Pause / Back / Next / Create / clock /
+      Processor. Without the dev unlock there is NO Record or Save as WAV
+      button anywhere, on either tab — not greyed, not tooltipped, absent.
+- [ ] Sequencer panels show no `>_` JS-editor icon. Nothing anywhere is greyed with a "coming soon" caption.
 - [ ] Both are one flag away: `PAID_FEATURES_HIDDEN` at the top of the page
       script. The MediaRecorder wiring underneath is untouched and dormant.
 
-Block editor (sequencer panels)
+Block editor (sequencer panels) (not in this build: blocks.js is not in the repo)
 - [ ] Melody / Bass / Arp / Percussion Edit panels: one small button to the
       right of Auto/Manual — the blocks icon.
 - [ ] Click the blocks icon: the step grid is replaced by the block canvas
@@ -538,21 +543,23 @@ Block editor (sequencer panels)
       — expected, not a bug.
 
 ## v12 delta — UI round (2026-07-25)
-- [ ] Double-click ANY knob resets it to its declared default — a voice-editor knob resets to that VOICE's own factory value (not just whatever value it happened to load with, e.g. from a saved preset); a track's Level/Randomness knob resets to 80%/50%.
+*(Superseded in parts by later sections; the items below are corrected to today's app, 2026-11-06.)*
+- [ ] Double-click ANY knob resets it to its declared default — a voice-editor knob resets to that VOICE's own factory value (not just whatever value it happened to load with, e.g. from a saved preset); a track's Level knob resets to 80% and its Randomness knob to the range 35–65 %.
 - [ ] Voice editor Detune stays 0-50 cents (unipolar, no negative) and Octave stays -1/0/+1 — both intentionally NOT widened this round (the engine only accepts those ranges; a wider dial would silently clamp).
 - [ ] Track rows: the track name is now a lamp button — click it (or Tab to it + Enter/Space) to cycle Off -> Auto -> On; the dot goes dark/grey/lit to match. (The Off/Auto/On pills in the editor head were removed in the 2026-10-03 UI review; the lamp is the one state control.)
 - [ ] Pick ABAB (or Journey) in Structure: its blocks show bar by bar under it; turn one block's intensity dial and Structure flips to Custom with the same blocks and the music carries on from the same bar. Waves / Drone / Build say they are curves, not blocks.
 - [ ] Structure block labels in the custom builder now read "Section A", "Section B" etc, not a bare letter.
 - [ ] Voice editor Shape 1 / Shape 2 dials show sine/triangle/saw/square waveform icons at the four marks, and the readout shows the icon(s) too (one icon on a canonical shape, two either side of "~" mid-morph).
-- [ ] Simple tab is now five dials: Speed, Complexity, Repetition, Randomness, Master volume. Randomness is new — turning it sets ALL SIX tracks' randomness at once; if tracks disagree (e.g. you'd tweaked one individually) the dial shows their average and clicking it can switch to a drifting min-max range (per-track randomness supports that; Complexity/Repetition don't, so clicking them does nothing — expected, the engine only takes a single number for those two). Interlinks still work: dragging Speed moves the Advanced-tab BPM field and vice versa; dragging Complexity snaps structure/arp/track-states back to Auto.
+- [ ] Simple tab is four dials: Tempo, Energy, Change, Volume. Turning Change sets ALL SIX tracks' randomness at once; if tracks disagree (e.g. you'd tweaked one individually) the dial shows their average and a sideways drag makes a drifting min-max range (per-track randomness supports that; Tempo and Energy don't — the engine only takes a single number for those). Interlinks still work: dragging Tempo moves Advanced's Tempo dial and vice versa; dragging Energy snaps structure/arp/track-states back to Auto.
 
 ## v18 delta — design polish: alignment, colour, scope, honesty (2026-07-25)
+*(Superseded in parts by later sections; the items below are corrected to today's app, 2026-11-06.)*
 
 Panel rule (applies everywhere — report ANY breach as a bug)
 - [ ] Nothing moves or resizes when text changes. Press Play and watch the
-      transport: the key reads Play → Finish → Finishing… without changing
+      transport: the key reads Play → Finish → Stop without changing
       width, and the Processor dial beside it never jumps to a second line.
-- [ ] Start recording: "Recording 0:07" appears in the status line without
+- [ ] (Dev unlock) Start recording: "Recording 0:07" appears in the status line without
       shifting the transport status beside it, and stops without shifting it
       back. Same for the sleep/alarm countdown badges on their icons.
 - [ ] The Processor status ("Auto (med) · 22 notes · 30 fps") is now its own
@@ -565,13 +572,13 @@ Alignment
 - [ ] TRANSPORT and PROCESSOR are titles on ONE line at the top of the transport
       panel — same size, same baseline.
 - [ ] Every dial in a row lines up: the four Simple dials, the same four at the
-      foot of Advanced, the Level/Randomness pair in a track row, and every row
+      top of Advanced → Sound, the Level/Randomness pair in a track row, and every row
       of dials inside a voice editor. Faces on one baseline, names under them on
       one baseline, read-outs under those on one baseline.
-- [ ] The Randomness dial's "Evolving" mark now reads on the caption line UNDER
-      the dial, between "Repetitive" and "Random" — not above the face.
-- [ ] Turn a voice-editor dial into a range (click the read-out area / drag with
-      a second thumb) so it reads e.g. "2.0 kHz–8.0 kHz": the long read-out does
+- [ ] The Change dial's marks (Never · Now and then · Often) read on the
+      caption line UNDER the dial — not above the face.
+- [ ] Turn a voice-editor dial into a range (drag it
+      sideways) so it reads e.g. "2.0 kHz–8.0 kHz": the long read-out does
       not wrap, and the dials either side of it do not move.
 - [ ] On the kit tabs (Percussion → Edit → High), an overridden dial takes a
       coloured ring WITHOUT shifting down relative to its neighbours.
@@ -688,14 +695,15 @@ Sculpting surface (Advanced → Texture)
 - [ ] Call (Texture or Melody): Sweep sets how far each call slides in semitones
       (negative falls, positive rises), the two Formants place its vowel, and
       Cadence/Irregular set how many calls a bar and how evenly spaced.
-- [ ] Click any of these dials to split it into a min–max range: the value
+- [ ] Drag any of these dials sideways to split it into a min–max range: the value
       drifts between the two ends as it plays. None of them OPENS as a range —
       only Cutoff and the two Sends do that.
 - [ ] Double-click any of them: back to that voice's own factory value.
 
 Mono + Glide (Advanced → any tuned track → Edit)
-- [ ] Every tuned track's editor header (not Percussion) has a Mono toggle and a
-      Glide dial beside the state lamp. Melody and Bass ship Mono ON.
+- [ ] Every tuned track's editor (not Percussion) has a Poly | Mono pair and a
+      Glide dial; the editor head carries no state lamp. Melody and Bass ship
+      Mono ON.
 - [ ] Melody, Mono on, Glide up: the line slurs from note to note instead of
       re-striking each one. Glide at Off: clean steps.
 - [ ] Mono off on Melody with Randomness up: overlapping notes are audible again
@@ -703,7 +711,7 @@ Mono + Glide (Advanced → any tuned track → Edit)
 - [ ] Both survive a reload, and both travel in a saved preset.
 
 Reverb tail (Advanced) — only if this build's engine ships it
-- [ ] A "Reverb tail" dial appears beside Swing, reading in seconds (Room →
+- [ ] (Advanced → Sound → more) A "Reverb tail" dial appears beside Swing, reading in seconds (Room →
       Cathedral). Turn it up while playing: the tail lengthens within a second
       or two, without a click or a gap.
 - [ ] Set it long, then set Processor to Eco: the tail shortens (the tier caps
@@ -797,7 +805,7 @@ Scale (Advanced → Scale select)
       original six. Each audibly plays a normal 7-note scale, not a silent or
       broken one.
 
-Chord length (Advanced, near Structure)
+Chord length (Advanced → Music → more, near Structure)
 - [ ] A "Chord length" select sits directly under Structure: Auto / 1 / 2 / 4 /
       8 bars.
 - [ ] A preset or link carrying a chord length of 4 to 8 beats shows it in the
@@ -839,9 +847,9 @@ Osc 2 and Mix (Advanced → any track with a second oscillator → Edit)
       with no Mix dial at all, and grows one the moment you switch Osc 2 on.
 
 Dials pack horizontally (Advanced)
-- [ ] Tempo, Complexity, Randomness, Volume, Repetition, Swing and Reverb tail
-      are ONE wrapping row at the top of the tab, under Tracks — not seven
-      controls on seven lines. Narrow the window: they re-wrap into two or
+- [ ] Tempo, Complexity, Variation and Volume are the first row in Advanced →
+      Sound; Reprise, Swing, Reverb tail and Drive sit behind its closed "more"
+      at the default Rules show level — not seven controls on seven lines. Narrow the window: they re-wrap into two or
       three rows, still with their faces on a shared baseline and their names
       and read-outs below the faces.
 - [ ] Swing and Reverb tail are absent on an engine that doesn't take them,
@@ -876,33 +884,27 @@ Oscilloscope options (in the overlay, while playing)
 - [ ] A "Spread" toggle appears once the trace is live. On, each track gets its
       own flat line to wobble on, stacked up the display; off, they share one.
       The setting survives a reload.
-- [ ] A white "Total" toggle appears ONLY if this build's engine publishes a
-      master/post-effects analyser. It is OFF by default. If it is absent, that
-      is correct for now, not a bug: the engine's `getAnalysers()` publishes
-      per-track analysers only, and the page skips the toggle entirely rather
-      than shipping one that does nothing. It lights up with no page change the
-      moment the engine adds `getMasterAnalyser()` (or a `master` key on
-      `getAnalysers()`) — that is the engine's next pass, owed from here.
+- [ ] A white "Total" toggle is in the overlay and draws the master mix when
+      on. It is OFF by default. Its absence would be a bug.
 - [ ] Neither toggle shows on a build whose scope module has no `setSpread` /
       `setTotalVisible`, for the same reason.
 
 ## v26 delta — genre transport (picker, favourites, Pause, Next)
+*(Superseded in parts by later sections; the items below are corrected to today's app, 2026-11-06.)*
 
 Fresh load opens on a genre (private window, or clear this site's data first)
 - [ ] Open `/` with nothing stored: the genre picker under the Play button
       already names a genre, and the tempo/scale/tracks are that genre's, not
       the old defaults. Close the window and open a fresh one two or three
-      times — a different genre or at least a different piece each time. (The
-      opening draw is from the quieter, work-music end of the set: Ambient,
-      Cinematic, Downtempo, Lofi Beats, Minimalism, New Age. Arriving straight
-      into peak-time techno is not the intended first impression.)
+      times — a different piece each time. (The opening draw is from the public
+      genres only: Synthwave or Techno Tools.)
 - [ ] A reload of a session where you HAVE changed something restores your own
       setup instead — the opening draw only ever runs when there is nothing
       stored, no share link and no preset route.
 
 The genre picker (directly under Play/Finish)
-- [ ] Twelve genres, then "Surprise me" — and nothing else: no action
-      entries in the list. Keyboard only: tab to it, open with the keyboard,
+- [ ] The picker's groups are No genre, Stock (2), User, Favourite moods and
+      More — no action entries among the genres. Keyboard only: tab to it, open with the keyboard,
       arrow through it, choose with Enter.
 - [ ] Choosing a genre while STOPPED loads its setup — tempo, scale, metre,
       structure, which tracks play, the kit. Press Play: it sounds like that
@@ -926,12 +928,13 @@ The genre picker (directly under Play/Finish)
 - [ ] Reload: the genre you chose is still named in the picker.
 
 Favourites
-- [ ] The ☆ beside the genre picker opens a checkbox list of all twelve,
-      grouped by mood (Calm, Groove, Drive), without changing the genre
+- [ ] The ☆ beside the genre picker opens a checkbox list of the genres,
+      grouped by mood, without changing the genre
       playing. Once any genre is a favourite the button reads ★.
-- [ ] Tick two genres in different moods: both mood groups appear in the
-      picker under "Favourite moods", each showing how many favourites it
-      holds. Choosing one plays a random favourite from that mood.
+- [ ] Tick the one mood (Drive): its group appears in the picker under
+      "Favourite moods", showing how many favourites it holds. Choosing it plays
+      a random favourite from that mood. (Two moods at once needs more public
+      genres.)
 - [ ] "Hide the rest of the genres from the list" prunes the main list to your
       favourites (the genre currently playing stays listed either way, or the
       picker could not show its own value). Surprise me never gets pruned.
@@ -941,15 +944,15 @@ Favourites
 
 Pause
 - [ ] Play, then Pause: the sound stops immediately and the button reads
-      Resume. Stop stays available; the main key still reads Finish, because
-      the piece has not ended.
+      Resume. the main key still reads Finish, because the piece has not
+      ended (while paused, Finish stops it at once).
 - [ ] Resume: the piece continues from where it was — the same bar, the same
       chord loop, not a fresh build. (On an engine without a real pause the
       button says so in its tooltip and Resume starts it building again; that
       is the fallback, not the shipped behaviour.)
 - [ ] Pause, then leave the tab for a minute and come back: it is still
       paused, not quietly resumed.
-- [ ] Pause then Stop: stopped, and the button reads Pause again.
+- [ ] Pause then Finish: stopped at once, and the button reads Pause again.
 - [ ] Headphone/lock-screen pause key holds the piece as the button does. A
       second press on a piece already held does nothing — it never stops it
       or throws the position away (v0.0.285) — and the play key resumes it.
@@ -1034,8 +1037,8 @@ The Rules panel holds the whole essence (v0.0.178–179)
       knows that stamp reads it in full.
 
 A genre of your own (v0.0.180–181)
-- [ ] With rules edited, type a name in the Rules panel's save row and Save as
-      my genre: it appears in the picker under "My genres", selected; the
+- [ ] With rules edited, type a name in the Rules panel's save row and Save genre:
+      it appears in the picker under "User", selected; the
       Rules button reads plain again (the rules are baked in); the piece
       playing did not change.
 - [ ] Next draws a fresh piece from it — with your ruled pad still Off, your
@@ -1044,8 +1047,8 @@ A genre of your own (v0.0.180–181)
       Forget this genre removes it and returns you to the genre it came from;
       what is playing keeps playing.
 - [ ] Share while it is the current genre, open the link in a private window:
-      the piece rebuilds, the genre is under My genres for that visit, and Save
-      as my genre keeps it there.
+      the piece rebuilds, the genre is under User for that visit, and Save
+      genre keeps it there.
 
 A voice of your own (v0.0.182–183)
 - [ ] Edit a track, move a dial, press "more" under the dials, type a name in
@@ -1056,7 +1059,7 @@ A voice of your own (v0.0.182–183)
       this voice removes it; what is playing keeps playing.
 - [ ] Reload (consent granted): still listed, still plays its dials.
 - [ ] Share while it plays, open the link in a private window: the sound
-      arrives (it always did) and the NAME is under My voices for the visit.
+      arrives (it always did) and the NAME is under User for the visit.
 
 The engine lessons (v0.0.184)
 - [ ] Press the engine chip in Bell's editor: the tour panel opens "FM in three
@@ -1192,7 +1195,7 @@ Match a sample (v0.0.229)
       seconds). Refuse the prompt: a plain sentence, nothing left recording.
 
 Automated
-- [ ] `npm run build && node tests/all.mjs` — 24 suites, including
+- [ ] `npm run build && node tests/all.mjs` — 65 suites, including
       patch-words-smoke (the number law on all 36 voices), sound-finder-smoke
       (the table's integrity), registry-contract (every row has a hint; the
       page keeps no hint literal), and page-boot (every dial's accessible
@@ -1242,8 +1245,8 @@ owed to the bridge key (fromClaude 13).
 
 - [ ] Synthwave, Advanced, open the Melody editor: the Voice rule's Chance
       slot holds the Voice chance knob, with an "each bar / each section / each
-      piece" selector and a Pool… button beside it. Turn Voice chance to the bottom:
-      it reads Hold, the melody stays on Keys for the rest of the piece, and
+      piece" selector and a Pool… button beside it. Turn Voice chance one step up from
+      the bottom (the very bottom reads Auto): it reads Hold, the melody stays on Keys for the rest of the piece, and
       the picker shows plain Keys (no "· wandering").
 - [ ] Press Next: a fresh Synthwave piece, and the melody is STILL Keys, still
       held. Raise Voice chance: the picker reads "Keys · drawn" and the voice
@@ -1294,7 +1297,7 @@ owed to the bridge key (fromClaude 13).
 His "indecipherably complex", rebuilt on the one-model, progressive rule.
 
 - [ ] Open Create on a fresh visit: the panel shows the title and its ⓘ, ONE
-      Start row (Blank slate, Help me start, Seed voices from…, Strip a
+      Start row (Blank slate, Help me start, Voices from…, Strip a
       layer… with a Strip button greyed until a layer is chosen), ONE Write…
       picker, and Musical typing below. No text boxes, no Zero buttons, no
       Fit chords, no Re-fit.
@@ -1316,7 +1319,7 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       the same chords. Turn Complexity to Calm and press: fewer notes; to
       Complex: busier. Onto the bass: the same kind of line, low (E1–G3).
       Open the melody's grid: every note is a step that drags.
-      Chord length 4 bars, then press again: it becomes 2 bars (eight bars of
+      Chord length (Advanced → Music → more) 4 bars, then press again: it becomes 2 bars (eight bars of
       tune, four chords) and the tip says so; the same from Auto (to 1 bar)
       and One per section.
 - [ ] Write → MIDI file onto any instrument after Blank slate: it plays at
@@ -1351,7 +1354,7 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 ## UI review fixes 8–12 — the voice editor's layers (2026-10-03)
 
 - [ ] Rules show at "+ chance" (the default). Open any voice editor: the head
-      reads track name, engine chip, then the reset button (↺ Back to factory), then the dice and Randomness. There are NO Off/Auto/On
+      reads track name, engine chip, then the reset button (↺ Back to factory), then Rules show, then the dice and Randomness. There are NO Off/Auto/On
       pills in the head; the row's lamp just above still cycles the state.
 - [ ] Under the patch dials there is one underlined "more". Words, the save
       row and "A sound in mind?" are hidden until you press it; it then reads
@@ -1363,9 +1366,9 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
 - [ ] Arp editor: Octaves and Gate are dials beside each other under Pattern
       and Rate (Gate reads as a percentage). In Auto the Octaves dial is dimmed
       and its label reads "Octaves · auto"; turn it and the arp drops to
-      Manual, seeded from what Auto just played. Tap the centre: Octaves 2,
+      Manual, seeded from what Auto just played. Double-click each: Octaves 2,
       Gate 60 %.
-- [ ] Structure → Custom (or a preset's blocks): each block's intensity is a
+- [ ] (Advanced → Music → more) Structure → Custom (or a preset's blocks): each block's intensity is a
       dial; turning it on a preset's block takes the structure over as Custom.
 - [ ] LAYOUT UNMEASURED in the worktree that built this: run
       `.vibe/measure.sh local overlaps` and the 390×844 pass — the editor head
@@ -1418,7 +1421,7 @@ His "indecipherably complex", rebuilt on the one-model, progressive rule.
       press and hold a key about half a second (touch or mouse) solos it and
       letting go does not toggle it; a quick tap still toggles; a double-click
       still solos. Total: Alt-click or hold shows the mix alone.
-- [ ] Advanced, Presets: no explanatory paragraphs under the buttons. The
+- [ ] Advanced → Presets → more: no explanatory paragraphs under the buttons. The
       Share link name, Submit preset and Genre rules (the Rules popover's top
       and the line beside Save genre) each have an i button instead, and it
       opens and closes (Esc too).
@@ -1638,8 +1641,8 @@ Phone (390 wide or narrower; an iPhone SE/8 height too)
       `ambi4-<time>.m4a` and the phone opens it (section 12).
 
 Tour and help
-- [ ] ? opens the tour; Esc with focus still on the ? closes it (it used to
-      need focus inside the panel).
+- [ ] The header's ? button opens the tour; Esc with focus still on it closes it (it used to
+      need focus inside the panel). The ? KEY opens Keyboard shortcuts, not the tour.
 - [ ] The tour's Create step rings the orange piano ICON, not an invisible
       box.
 
@@ -1655,8 +1658,8 @@ Storage and links
       until it throws), then move a dial: the line under the dials says the
       change lasts this visit only and why (full, or a private window). Save a
       preset: it says the preset is listed for this visit only. Save a voice:
-      the line says Not saved on this device. Pin a dial: That choice lasts
-      this visit only. Move the dial again: no second line (one per streak).
+      the line says Not saved on this device. Pin a dial: the same Not saved
+      on this device wording. Move the dial again: no second line (one per streak).
       Reload with the store still full and touch nothing: no line at all.
       Remove the junk keys afterwards.
 - [ ] Consented window with a setup of your own: open someone's share link in

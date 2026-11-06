@@ -30,6 +30,10 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## The manual release pass audited, 2026-11-06 (docs/TESTING.md)
+
+- [x] *(DONE 2026-11-06, docs only)* About 40 of its 472 open items were false about today's app, most in old version sections later releases overrode without closing (no Stop button since v0.0.41, Simple's four dials and their marks, click-to-spread, the fresh-visit genre draw, folded controls the steps never mentioned, the front scope's place, the tour's length, 12 presets, …). Rewritten in place; seven superseded sections carry a one-line note. A cleaner pass would tick or retire the superseded sections outright — the owner's document, so left as corrected rather than pruned.
+
 ## Share-link words audit, 2026-11-06 (read-only opus review)
 
 - [x] *(SHIPPED v0.0.303 — sharelink-drive and first-visit-drive red on v0.0.302)* A link arrival kept none of the visitor's own parked voice edits or last take; "A share link keeps it anywhere" after a layout Save; genre-link stamp and size race in the contract; synthesis-programme units 9 and 13.
