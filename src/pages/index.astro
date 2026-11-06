@@ -3100,8 +3100,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
     // v0.0.181 (unit 13 of docs/synthesis-programme.md): a genre of the
     // person's own, carried INSIDE the link as data — the genre JSON itself,
     // never code — so a link minted on one device rebuilds on another. Only
-    // a compact link whose origin names a user genre carries one; the size
-    // race below still picks the whole setup when that is shorter.
+    // a compact link whose origin names a user genre carries one, and such a
+    // link is always compact (v0.0.190: the whole setup has nowhere to hold
+    // the genre, so the size race never trades it away).
     const SHARE_GENRE_KEY = 'g';
 
     const isCompactShare = (parsed) =>
@@ -4031,6 +4032,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         if (sharedParams) {
           const ui = settings.ui;
+          // 2026-11-06 (share-link audit): a link is a load like any other,
+          // and loadParamsSnapshot's rule holds — the visitor's own parked
+          // voice edits (Edited) and last take survive it. The arrival used
+          // to replace the whole settings tree, so they went the moment the
+          // visitor touched a dial and the store was written.
+          const ownTake = isPlainObject(settings.lastTake) ? settings.lastTake : null;
+          const ownDrafts = isPlainObject(settings.voiceDrafts) ? structuredClone(settings.voiceDrafts) : null;
           try {
             const clone = structuredClone(expandSharedParams(sharedParams));
             migrateLegacyArpSteps(clone);
@@ -4039,6 +4047,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             settings = deepMerge(DEFAULTS, clone);
             normaliseV6Tracks(settings);
             settings.ui = ui;
+            if (ownTake) settings.lastTake = ownTake;
+            if (ownDrafts) settings.voiceDrafts = ownDrafts;
             if (!routePreset) arrivedShareName = shareNameFor(arrivedSharePayload, SHARE_WORDS);
           } catch {
             sharedParams = null;
@@ -4273,11 +4283,19 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
        * preset Save did. The answer is honoured; the Save says what that means.
        * Empty when the store keeps things.
        */
-      function visitOnlyNote() {
+      function visitOnlyNote(kind) {
         const declined = prefs.consent() === 'denied' || deniedThisSession;
-        return declined
-          ? ' For this visit only \u2014 you chose not to keep settings on this device, so it goes when this tab closes. A share link keeps it anywhere.'
-          : '';
+        if (!declined) return '';
+        // 2026-11-06 (share-link audit): what a link carries differs by kind.
+        // A layout is a pref of its own and no link holds it; a voice of your
+        // own travels only on a track that uses it, a genre of your own only
+        // while it is the one playing.
+        const link = kind === 'voice'
+          ? ' A share link made while a track uses it carries it.'
+          : kind === 'genre'
+            ? ' A share link made while it plays carries it.'
+            : '';
+        return ' For this visit only \u2014 you chose not to keep settings on this device, so it goes when this tab closes.' + link;
       }
       // v0.0.289: the refusal is news only about something the visitor DID. A
       // write the boot makes on its own (a migration, a cleaned list) is not
@@ -5527,7 +5545,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (settings.tracks[track]) settings.tracks[track].userVoice = { id: mine.id, name: mine.name };
         persistSettings();
         syncMyVoicesEverywhere();
-        { const note = visitOnlyNote(); sayUnderDials(`Saved: "${clean}" is in this track's picker under User.${note}`, note ? 9000 : undefined, note ? { hold: true } : undefined); }
+        { const note = visitOnlyNote('voice'); sayUnderDials(`Saved: "${clean}" is in this track's picker under User.${note}`, note ? 9000 : undefined, note ? { hold: true } : undefined); }
         return mine;
       }
 
@@ -18377,7 +18395,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         persistKey('voices', persistable(USER_VOICES));
         persistSettings();
         syncMyVoicesEverywhere();
-        const note = visitOnlyNote();
+        const note = visitOnlyNote('voice');
         if (note) sayUnderDials(`Saved "${mine.name || 'your voice'}".${note}`, 9000, { hold: true });
       }
       /** Move on: the leaving voice's edit, parked under Edited (step 1's promise). */
@@ -21331,7 +21349,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         say(null);
         rulesModelDirty = false;
         syncGenreUI();
-        { const note = visitOnlyNote(); sayUnderDials(`Saved: "${name}" is in the picker under User, and Next draws fresh pieces from it.${note}`, note ? 9000 : undefined, note ? { hold: true } : undefined); }
+        { const note = visitOnlyNote('genre'); sayUnderDials(`Saved: "${name}" is in the picker under User, and Next draws fresh pieces from it.${note}`, note ? 9000 : undefined, note ? { hold: true } : undefined); }
       }
 
       /** v0.0.180: drop a genre of the person's own; the setup keeps playing, tagged with what it was made from. */
@@ -25623,7 +25641,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         layoutName.value = '';
         savePins();
         renderPins();
-        { const note = visitOnlyNote(); sayUnderDials(`Layout ${name} saved.${note}`, note ? 9000 : 1600, note ? { hold: true } : undefined); }
+        { const note = visitOnlyNote('layout'); sayUnderDials(`Layout ${name} saved.${note}`, note ? 9000 : 1600, note ? { hold: true } : undefined); }
       });
       layoutName?.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter' || event.isComposing) return;
@@ -26004,8 +26022,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         let name = '';
         try {
           const payload = sharePayload();
-          // v0.0.181: a link carrying a genre takes the latest stamp — a
-          // pre-181 build reads past the genre and plays the diff on defaults.
+          // v0.0.181: a link carrying a genre is stamped at least
+          // SHARE_SCHEMA_ROUTED (2; the latest when it shipped) — a pre-181
+          // build reads past the genre and plays the diff on defaults.
           const schemaOfParams = shareSchemaFor(paramsSnapshot(), engineModule && engineModule.DEFAULT_PARAMS, payload);
           const schema = payload[SHARE_GENRE_KEY]
             ? Math.max(SHARE_SCHEMA_ROUTED, schemaOfParams)

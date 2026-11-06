@@ -2723,10 +2723,13 @@ the compact payload's `g` key (v0.0.181, unit 13): the genre JSON, never code,
 accepted on arrival only if it is a user genre whose slug the origin names, of
 the compiler's shape, and not a slug the stock set holds. The base rebuilds
 from it exactly as from a stock file; the genre joins that visit's My genres
-(not persisted by arriving — Save as my genre keeps it); the link takes the
-latest schema stamp, and a pre-181 build plays the diff on the defaults, as it
-does for any genre it lacks. The size race still picks the whole setup when
-that is shorter.
+(not persisted by arriving — Save as my genre keeps it); the link is stamped
+at least 2 (`SHARE_SCHEMA_ROUTED`; higher if anything else in it needs a newer
+stamp), and a pre-181 build plays the diff on the defaults, as it does for any
+genre it lacks. A link carrying a genre is ALWAYS the compact form (v0.0.190):
+the whole-setup form has nowhere to hold the genre, so the size race never
+trades it away. (Corrected 2026-11-06; this paragraph said "the latest stamp"
+and "the size race still picks the whole setup".)
 
 ## A voice of the person's own (v0.0.182)
 

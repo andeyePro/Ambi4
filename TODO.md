@@ -30,6 +30,12 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Share-link words audit, 2026-11-06 (read-only opus review)
+
+- [x] *(SHIPPED v0.0.303 — sharelink-drive and first-visit-drive red on v0.0.302)* A link arrival kept none of the visitor's own parked voice edits or last take; "A share link keeps it anywhere" after a layout Save; genre-link stamp and size race in the contract; synthesis-programme units 9 and 13.
+- [ ] **Behaviour, the owner's call (with fromClaude 37):** the arrival note says "Save to keep it", but moving any dial writes the whole settings tree — the link's setup replaces the visitor's own stored one without a Save. Either the words change ("…until you change anything — then it replaces your own setup") or the store waits for Save.
+- [ ] Unconfirmed: docs/TESTING.md:425 says a link "is a few KB long" (compact links measure 116–150 characters in sharelink-drive; only the whole-tree fallback runs long); TESTING.md:1030 "the link is stamped 1" depends on what the draw puts in the diff; `shareSchemaFor` reads drive/voices/vowel/grid from the effective settings, so a compact link can be stamped higher than its diff needs (over-warns, never loses).
+
 ## The drives in WebKit, 2026-11-06 (24 drives re-hosted in Playwright WebKit)
 
 - [x] *(DONE 2026-11-06)* **tests/sweep-engines.sh** — the re-hosting is a tracked script now: `tests/sweep-engines.sh firefox|webkit [drive …]`, 21 drives green in both engines by default.

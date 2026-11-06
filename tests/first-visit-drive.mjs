@@ -265,6 +265,8 @@ export default async function drive(page) {
     const savedLayout = await said(pg);
     note('A: what a layout Save under No thanks says', savedLayout);
     check('A: a layout Save under No thanks says it is for this visit only', /saved/i.test(savedLayout.dial) && /this visit only/i.test(savedLayout.dial), true);
+    // …and promises no share link: a layout is a pref of its own, never in a link (v0.0.303).
+    check('A: …and does not say a share link keeps it', /share link/i.test(savedLayout.dial), false);
     await pg.selectOption('#root', 'F');
     await pg.waitForTimeout(450);
     check('A: a select after No thanks reaches the engine', (await params(pg)).root, 'F');

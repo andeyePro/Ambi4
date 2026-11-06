@@ -146,6 +146,30 @@ export default async function drive(page) {
   check('and is announced as a shared preset', /Save to keep it/.test(legacyLoaded.note), (v) => v === true);
   results.push({ name: 'legacy note', ok: true, got: legacyLoaded.note, want: '(informational)' });
 
+  // A link is a load: the visitor's OWN parked voice edits survive it
+  // (2026-11-06; the arrival used to replace the whole settings tree, so a
+  // parked edit went the moment a dial was touched). Seed one in the store,
+  // arrive by a link, and look for it under Edited in the pad's picker.
+  const linkForDrafts = await shareUrl(page);
+  if (linkForDrafts) {
+    const seeded = await page.evaluate(() => {
+      try {
+        const g = JSON.parse(localStorage.getItem('ambi4:generator') || 'null');
+        if (!g) return false;
+        g.voiceDrafts = { pad: { warm: { filter: { cutoff: 640 } } } };
+        localStorage.setItem('ambi4:generator', JSON.stringify(g));
+        return true;
+      } catch { return false; }
+    });
+    check('a parked pad edit was seeded in the store', seeded, true);
+    await openLink(page, await local(page, linkForDrafts));
+    const kept = await page.evaluate(() => {
+      const sel = document.querySelector('.track-row[data-track="pad"] select.track-voice');
+      return !!sel && [...sel.querySelectorAll('option.voice-draft-option')].some((o) => o.value === 'draft:warm');
+    });
+    check('…and a link arrival keeps it under Edited in the pad picker', kept, true);
+  }
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(
