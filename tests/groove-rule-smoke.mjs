@@ -173,7 +173,18 @@ function grooveParams(bassExtra = {}) {
   };
 }
 
-/** Play `bars` bars; log the resolved groove and the bass notes per bar. */
+/**
+ * Play `bars` bars; log the resolved groove and the bass notes per bar.
+ *
+ * The notes are those that START before a fixed time — the end of bar `bars`
+ * at the piece's tempo — not whatever had been sent when stop() landed. The
+ * clock here is advanced in half-second steps while the scheduler wakes on
+ * its own timer, so how far ahead it had scheduled at the stop is a race;
+ * since the bass is sent pulse by pulse (proto/bass-per-pulse) rather than a
+ * bar at a time, that race reached the compared arrays and two plays of the
+ * same stream differed in their last few notes. The play runs a bar past the
+ * cutoff, so everything before it has been scheduled on every run.
+ */
 async function play(params, seed, bars, { onBar } = {}) {
   const engine = createEngine(params, { rng: seededRng(seed) });
   const grooves = [];
@@ -183,8 +194,9 @@ async function play(params, seed, bars, { onBar } = {}) {
     grooves.push({ bar: bar.bar, groove: r.tracks.bass.groove ? JSON.stringify(r.tracks.bass.groove) : null });
     if (onBar) onBar(engine, bar);
   });
+  const cutoff = barSeconds(engine.getParams()) * bars;
   engine.on('note', (note) => {
-    if (note.track === 'bass') notes.push(`${note.midi}@${note.time.toFixed(5)}:${note.velocity.toFixed(4)}`);
+    if (note.track === 'bass' && note.time < cutoff) notes.push(`${note.midi}@${note.time.toFixed(5)}:${note.velocity.toFixed(4)}`);
   });
   await engine.start();
   await advance(barSeconds(engine.getParams()) * (bars + 1));

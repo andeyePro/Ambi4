@@ -265,36 +265,48 @@ function sketchbookMigrated() {
  * hashes the note stream, is unchanged in the same gate). The swap was that
  * build's only engine change; tests/reverb-swap-render.mjs measures it.
  */
+/**
+ * Re-taken 2026-11-06 (proto/bass-per-pulse), with this suite's own --print:
+ * the bass is now planned at the barline but SENT pulse by pulse, so its note
+ * events reach the stream interleaved with the other tracks' instead of all
+ * at the barline, and the voice library's seeded Math.random colours (LFO
+ * rates, noise seeds) are drawn in that new order. NO note moved: over the
+ * 24 shipped configs and both links, all 3,769 notes of the first twelve
+ * bars are the same multiset — track, pitch, velocity, length and pan
+ * identical, onset times equal to within 7e-15 s (the pulse clock's float
+ * rounding) — and tests/audio-reference.mjs is unchanged in the same gate.
+ * The 7 configs whose event order did not change kept their digests.
+ */
 const FROZEN_SHIPPED = Object.freeze({
-  'preset:deep-focus': 'b749a807083936cbfe4886e762848e3445c2cc325b423512cab88554e71ebe7c',
+  'preset:deep-focus': '47f18dc0aa720e6482708bc59cffb0fd308d3a7125b3b6b3a65fb5c04874d238',
   'preset:open-plan': '6a62dfa96a282afc1f59c969f28d8f0691d225ae37734b62877c0c9744e3eb8e',
   'preset:glass-office': 'b32284e253a13bc7f258a494e1d0ce40774d6817e8d3b86fa26fc6eb5dcb6753',
   'preset:long-read': 'e944770f69c9dca67e69af8494d556316bd716af8956d9075975ed9b92ced67b',
-  'preset:first-light': 'fe066688e29768000c86e95f01b93265a1c59973874045584f0080f8330c639a',
-  'preset:push': 'a586969143b7054ef92bc82965c71ab218fd55ec595cbb77832c0cb228ac0d2e',
-  'preset:sketchbook': '88c397fd130feb8721ffd5a6e0dee27277ae2c529a6bebb0282f2ddcda8bb258',
-  'preset:night-shift': 'ef4f0e8ece3cdf43418b2ef99b3b1e73021d089008e4c11f1a10b69ca9ce9377',
-  'preset:wind-down': '3e24fdc1ebb6e367b2997cc7040e485f636755e4dc98fd86586e0ebbf8e13c79',
+  'preset:first-light': '5ba5940ebfdda4392cb37dc826968ef6d523a11f7275fc082bbed84fc4223656',
+  'preset:push': '132888740c0eba35d97aa790035d54cad3818b821a641293a15d99669a97cc18',
+  'preset:sketchbook': 'c8fe6d49c99336d6d72c1b6e7a987c32fa64c513ad3ab99d65418f7e8767297b',
+  'preset:night-shift': '668a0fdd8c7feaf9518551dd6bc0460993e1caf1f4ece7e0469fd0f6fc628b61',
+  'preset:wind-down': 'dd456892a94e9b6ac0fe373afe876897a82e1e7e5ae50dd223ecaec89ac1e760',
   'preset:breathe': '45f02b9253095834a481cb990ec389ef21d968a81d231cedcc54413116c6d866',
   'preset:far-rain': '3760508861b1897ebedf4abbc8bade25011fe52d746fa215c25791a87e44b4e7',
   'preset:dawn-song': '97470ec851945941648aab1bf16808a05d2e9a74c073e38c78837d2867d2825f',
-  'genre:acid-jazz': '54db831c34545bc9b5b08847533008cf36524c1e7ab506cf64f942c7ce4c1d57',
+  'genre:acid-jazz': 'ee75cd9ec25ede9d3034ddd3919bff320952868e350faad2c055f9c4b77d7db6',
   'genre:ambient': 'db4e5640514661d71fb35f2f68e29243457357b29912d38eaafd962a735f2e9d',
-  'genre:bossa': 'a5422350d7ebb626c5198907190fb14709d4a4da06eda6796c6842ab05c40fb9',
-  'genre:cinematic': 'df8acea3fffc4187abd59e17f30ec5a97bd53ab097899de027addba36a29aab8',
-  'genre:deep-house': '41e9e7064fd903154195c1cca6e827725c4185ecab4eab54c3173aedbe9ddd3c',
-  'genre:downtempo': 'f5ca826f0c675f935b6c751dc0f8af5074b4ff6544452c77cf02347d33256cdd',
-  'genre:lofi-beats': 'b5a83c9854b65852614b54a9f921236a05f96423f22dfe70f6ba3f5d6928c9eb',
-  'genre:minimalism': '366c543a3af2daec94170427833f944918a3985bb580261f3ab2588ec728bed5',
-  'genre:new-age': 'ee2665622cd7de7cfd4708cb2ef5e09d01089add01f1fb198d346a75959659f2',
-  'genre:soul-groove': '1076041093df7632c796c978174a6efbb2f974a7719f07aaf4cc3a52719e2546',
-  'genre:synthwave': 'fd007a8a86fb67ba27997bc4d0f1323cda84b84d53f643c4edf54667b84b8124',
-  'genre:techno-tools': '840814e82a4e43f804fd228e0c5649d52f1695bb0ac4b3db228d8b1caf652545',
+  'genre:bossa': '2bded9fe3c4cb1211b1464fe843e728730170727366801f095b41dff073f5285',
+  'genre:cinematic': '749f24919860a8a6e4e2d25b2ebb322f8df14253cdad31e969c7e00fd3ea49c9',
+  'genre:deep-house': '09c940a8c3100109daacbcffe2ec0f3d7e38edce7a92906686b64e7448d303cd',
+  'genre:downtempo': 'c1053d7fd1346d550369c0a381c264fb01bb6d0440d91b85cdda392913e7e7c9',
+  'genre:lofi-beats': '0537ad6a11bf36747df0bbb5a150c5ffe649e54c798f044f1c7cfa19e8cb01b3',
+  'genre:minimalism': '556accf0f91c0fffab4be6edcef2a5206603812165f75a700822e172ba1c9f10',
+  'genre:new-age': '038fe6f5f65f2ea84a534463bb74b61daa2a1dae49a2d9572e04d0a108dc7641',
+  'genre:soul-groove': 'f24793168501946b061d044f97c8e3cc8c43ddcc217ad4b76cc3bac90a184fe8',
+  'genre:synthwave': '0c72c7017cdcf7542297842f365501880ee196cbc1572e4a0092731368a6f078',
+  'genre:techno-tools': '0dd94a740e5e38672a09279ddfba86c83e1d4389833abb2b1baa9721724c7cca',
 });
 
 const FROZEN = {
-  sketchbook: '88c397fd130feb8721ffd5a6e0dee27277ae2c529a6bebb0282f2ddcda8bb258',
-  hand: '3776e8ae8fa344e0c98e38f77bdf7f3a7b6f052208089871555aa86d33436fd3',
+  sketchbook: 'c8fe6d49c99336d6d72c1b6e7a987c32fa64c513ad3ab99d65418f7e8767297b',
+  hand: 'ea136ddadd3e0aee93229f8a7a008208bb55a0c8410f3d10b3eb3bf5ba476789',
 };
 
 // ---------------------------------------------------------------------------

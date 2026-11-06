@@ -5899,6 +5899,9 @@ export function createEngine(initialParams, options = {}) {
   const promoted = new Set();
   let silentRun = 0;
   let lastNoteEnd = 0;
+  // The bar's bass line, planned at the barline and SENT a pulse at a time
+  // (proto/bass-per-pulse): each entry waits for the pulse it falls in.
+  let bassQueue = [];
 
   // Melodic state — the v12 motif: one cell per section, developed bar by bar,
   // banked and recalled through the same machinery as the hook.
@@ -9638,6 +9641,43 @@ export function createEngine(initialParams, options = {}) {
     return ((hook.degrees[at] % n) + n) % n;
   }
 
+  /**
+   * proto/bass-per-pulse (fromClaude 56): the bass line is PLANNED at the
+   * barline — every draw it makes, in the order it always made them — but
+   * each note is SENT by the pulse it falls in, timed from that pulse at the
+   * tempo then in force. Sent whole at the barline, a mid-bar tempo change
+   * left the rest of the bar's bass on the old tempo, and a speed-up put
+   * notes past the real barline (where playNote's ceiling then piled them).
+   *
+   * `beat` picks the pulse, `at` is the (swung) position the note sounds at,
+   * `durationAt(secPerBeat)` its length at the tempo it is sent at. The end it
+   * would have at the planning tempo is credited to lastNoteEnd now, as the
+   * note sent here used to, so the silence floor's barWillSound — read later
+   * in this same beginBar — decides exactly what it decided before.
+   */
+  function queueBass(beat, at, nudge, durationAt, note) {
+    const pulse = pulseAtBeat(beat);
+    bassQueue.push({ pulse, offset: at - bar.starts[pulse], nudge, durationAt, note });
+    const floor = currentBarTime;
+    const ceiling = floor + bar.duration - 1e-4;
+    const when = clamp(floor + at * bar.secPerBeat + nudge, floor, Math.max(floor, ceiling));
+    const end = when + Math.max(0.02, durationAt(bar.secPerBeat) || 0.3);
+    if (end > lastNoteEnd) lastNoteEnd = end;
+  }
+
+  /** Send the queued bass notes that fall in this pulse, at the live tempo. */
+  function sendBassPulse(time, index) {
+    if (!bassQueue.length) return;
+    for (const entry of bassQueue) {
+      if (entry.pulse !== index) continue;
+      playNote('bass', {
+        ...entry.note,
+        when: time + entry.offset * bar.secPerBeat + entry.nudge,
+        duration: entry.durationAt(bar.secPerBeat),
+      });
+    }
+  }
+
   function scheduleBass(time, barDuration, plan) {
     const rootPc = pitchClass(params.root);
     // A perfect fifth above the root, NOT the scale's fifth degree: in a
@@ -9670,14 +9710,15 @@ export function createEngine(initialParams, options = {}) {
         // measured 1.8 s either way at 120 bpm, which is what he reported.
         // Sustain is now something the grid says: tie the steps, or set a gate.
         const at = swung(step.beat, 'bass');
-        const gated = drawnSpan(step, trackStepBeats('bass')) * bar.secPerBeat;
+        const gatedBeats = drawnSpan(step, trackStepBeats('bass'));
+        const stepBeats = trackStepBeats('bass');
         const tones = tonesAt(step.beat);
-        playNote('bass', {
-          midi: step.pinned ?? (step.fifth ? tones.fifth : tones.root),
-          when: time + at * bar.secPerBeat + step.nudge,
+        queueBass(step.beat, at, step.nudge, (spb) => (
           // As the melody's: a floor of at most 60 % of the slot, so a short
           // gate at a fast rung does not reach the next onset and slur.
-          duration: Math.max(Math.min(0.08, 0.6 * trackStepBeats('bass') * bar.secPerBeat), gated),
+          Math.max(Math.min(0.08, 0.6 * stepBeats * spb), gatedBeats * spb)
+        ), {
+          midi: step.pinned ?? (step.fifth ? tones.fifth : tones.root),
           velocity: step.velocity,
           source: 'step',
         });
@@ -9746,17 +9787,19 @@ export function createEngine(initialParams, options = {}) {
       const next = i + 1 < events.length ? events[i + 1].beat : bar.beats;
       const gate = clamp(event.gate ?? 0.9, 0.12, 1);
       const at = swung(event.beat, 'bass');
-      const span = (swung(next, 'bass') - at) * bar.secPerBeat;
-      // The floor is the shortest note worth playing, NOT a flat 0.1 s: a fixed
-      // floor is longer than a clipped sixteenth at anything above a slow tempo,
-      // so every short note in the line came out the same length whatever its
-      // gate said, and the staccato/held mix the groove had chosen never reached
-      // the ear. Capped at the span so it can never stretch a note past its slot.
-      const floor = Math.min(BASS_MIN_NOTE, span * 0.6);
-      playNote('bass', {
+      const spanBeats = swung(next, 'bass') - at;
+      queueBass(event.beat, at, event.nudge, (spb) => {
+        const span = spanBeats * spb;
+        // The floor is the shortest note worth playing, NOT a flat 0.1 s: a
+        // fixed floor is longer than a clipped sixteenth at anything above a
+        // slow tempo, so every short note in the line came out the same length
+        // whatever its gate said, and the staccato/held mix the groove had
+        // chosen never reached the ear. Capped at the span so it can never
+        // stretch a note past its slot.
+        const floor = Math.min(BASS_MIN_NOTE, span * 0.6);
+        return Math.max(floor, span * (gate >= 0.95 ? legato : gate));
+      }, {
         midi: event.midi,
-        when: time + at * bar.secPerBeat + event.nudge,
-        duration: Math.max(floor, span * (gate >= 0.95 ? legato : gate)),
         velocity: event.velocity,
         source: event.approach ? 'approach' : `groove-${event.tone === 'fifth' || event.tone === 'octave' ? event.tone : 'root'}`,
       });
@@ -9765,10 +9808,11 @@ export function createEngine(initialParams, options = {}) {
       // Under harmony.beats it owes every CHORD its root, each ending with
       // its own chord, so no root rings on under the chord after it.
       barChords.forEach((chord, i) => {
-        playNote('bass', {
+        // The pocket is drawn HERE, at the plan, in the order it always was.
+        const nudge = bassPocketFor();
+        const beats = barChordBeats(i);
+        queueBass(chord.beat, chord.beat, nudge, (spb) => beats * spb * 0.95, {
           midi: tonesAt(chord.beat).root,
-          when: time + chord.beat * bar.secPerBeat + bassPocketFor(),
-          duration: barChordBeats(i) * bar.secPerBeat * 0.95,
           velocity: 0.8,
           source: 'owed-root',
         });
@@ -9776,10 +9820,8 @@ export function createEngine(initialParams, options = {}) {
     } else if (!events.length) {
       // A pattern that emptied itself still owes the bar its root — in the
       // line's own pocket, like every other note it plays.
-      playNote('bass', {
+      queueBass(0, 0, bassPocketFor(), (spb) => bar.beats * spb * 0.95, {
         midi: root,
-        when: time + bassPocketFor(),
-        duration: barDuration * 0.95,
         velocity: 0.8,
         source: 'owed-root',
       });
@@ -10590,6 +10632,7 @@ export function createEngine(initialParams, options = {}) {
     const replaying = Boolean(loopRecord && loopRecord.captured);
     currentBarNumber = barIndex;
     currentBarTime = time;
+    bassQueue = [];
     if (params.timeSignature !== bankTimeSignature) {
       // Stored percussion patterns carry pulse indexes, and motif cells and
       // bass patterns carry beat positions, from the metre they were made in;
@@ -10914,6 +10957,10 @@ export function createEngine(initialParams, options = {}) {
 
   /** Schedule the events that fall inside one pulse of the current bar. */
   function schedulePulse(time, index) {
+    // The bass is planned in beginBar and sent here, pulse by pulse, so a
+    // tempo change mid-bar reaches it too. Before the outro check: the bar
+    // the outro starts in still plays the bass it planned.
+    sendBassPulse(time, index);
     // Melody, texture, arp and percussion all live at pulse level, and the
     // closing bar wants none of them.
     if (outroStarted) return;
@@ -11808,6 +11855,7 @@ export function createEngine(initialParams, options = {}) {
       barIndex = 0;
       currentBarNumber = 0;
       currentBarTime = 0;
+      bassQueue = [];
       structureBar = 0;
       structureKey = '';
       sectionAnnounced = false;

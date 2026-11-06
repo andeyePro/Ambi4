@@ -12,7 +12,10 @@
  *  3. kit hits written on the grid were clamped to 90 % of their pulse, so a
  *     hit in the last tenth sounded early;
  *  4. Stop then Play kept the kit's pattern bank from the last performance;
- *  5. a repeat bracket's replays leaned the bass at the wrong chord (v0.0.310).
+ *  5. a repeat bracket's replays leaned the bass at the wrong chord (v0.0.310);
+ *  6. the bass was SENT whole at the barline, so a mid-bar tempo change left
+ *     the rest of its bar on the old tempo and a speed-up put its notes past
+ *     the real barline (proto/bass-per-pulse; red on v0.0.311).
  *
  * The scheduler is ticked by hand (texture-grid-smoke's stand-in ticker), so
  * the results do not depend on how busy the machine is.
@@ -201,6 +204,44 @@ test('a mid-bar tempo change piles no notes onto one time and schedules none in 
   }
   assert.equal(pile, 0, `${pile} notes clamped to a barline that the tempo change had moved`);
   assert.equal(past, 0, `${past} notes scheduled before the clock`);
+});
+
+test('a mid-bar tempo change leaves no bass note of that bar at or past the next barline', async () => {
+  // The bass is planned at the barline and, until proto/bass-per-pulse, was
+  // sent there too: every note timed at the tempo the bar started in. A
+  // speed-up mid-bar moves the barline earlier (the pulses after it run at
+  // the new tempo) and the rest of the bass then sounded past it — on top of
+  // the next bar's own bass. Each note is now sent by its own pulse.
+  let late = 0;
+  let after = 0;
+  const cases = [];
+  for (const [from, to] of [[60, 120], [60, 240]]) for (const sig of ['4/4', '6/8']) for (const seed of [1, 2]) for (const at of [6.6, 7.3]) {
+    reset();
+    const engine = engineModule.createEngine({
+      bpm: from, timeSignature: sig, complexity: 0.9, structure: 'drone',
+      tracks: { ...ALL_ON, bass: { state: 'on' } },
+    }, { rng: seededRng(seed) });
+    const bars = [];
+    const bass = [];
+    engine.on('bar', (e) => bars.push(e));
+    // Each bass note belongs to the bar whose event came before it: planned
+    // in that bar's beginBar, sent there (old) or by one of its pulses (new).
+    engine.on('note', (e) => { if (e.track === 'bass') bass.push({ ...e, of: bars.length - 1 }); });
+    let changedAt = null;
+    await engine.start();
+    await advance(14, { onStep: (t) => { if (changedAt === null && t >= at) { changedAt = t; engine.setParams({ bpm: to }); } } });
+    engine.stop();
+    const bi = bars.findIndex((b, i) => b.time <= changedAt && (bars[i + 1]?.time ?? Infinity) > changedAt);
+    assert.ok(bi >= 0 && bars[bi + 1], `${from}->${to} ${sig} seed ${seed}: the change fell inside a bar`);
+    const barline = bars[bi + 1].time;
+    const mine = bass.filter((n) => n.of === bi);
+    after += mine.filter((n) => n.time > changedAt).length;
+    const past = mine.filter((n) => n.time >= barline - 1e-9);
+    late += past.length;
+    if (past.length) cases.push(`${from}->${to} ${sig} seed ${seed} @${at}: ${past.length} past ${barline.toFixed(3)} (${past.map((n) => n.time.toFixed(3)).join(' ')})`);
+  }
+  assert.ok(after >= 8, `the bars the tempo changed in should still have bass to come (${after} notes)`);
+  assert.equal(late, 0, `${late} bass notes at or past the moved barline:\n${cases.join('\n')}`);
 });
 
 test('a repeat bracket replays its bass exactly', async () => {
