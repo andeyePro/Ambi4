@@ -422,7 +422,9 @@ Front-page oscilloscope (Simple tab, under the piano roll)
 
 Share links (Advanced → Presets)
 - [ ] "Share" copies a link to the clipboard and confirms on the button. Paste it
-      somewhere: it starts `https://ambi4.work/#p=` and is a few KB long.
+      somewhere: it starts `https://ambi4.work/#p=` and is short — a base plus
+      a diff, a hundred or two characters off a genre (sharelink-drive measures
+      116–150); only a link that falls back to the whole setup runs long.
 - [ ] v29 link name: the "Link name" line under the Share row fills with three
       words (`misty-harbour-lantern`), the note names the same three words, and
       the Preset name box — if you left it empty — is filled with them too. A
@@ -1027,7 +1029,9 @@ The Rules panel holds the whole essence (v0.0.178–179)
       did not rule keep your own voice and level as before.
 - [ ] Share with a re-ruling in place, then paste the link into an older
       build if you have one: it plays with only the chord rules (the link is
-      stamped 2). Without a re-ruling the link is stamped 1 and reads in full.
+      stamped at least 2). Without a re-ruling the stamp is whatever else the
+      setup needs (1 when nothing newer is in play) and an older build that
+      knows that stamp reads it in full.
 
 A genre of your own (v0.0.180–181)
 - [ ] With rules edited, type a name in the Rules panel's save row and Save as
