@@ -1694,3 +1694,23 @@ Structure, chords, Write
       "C4 D4 E4 F4" lands one note per beat in ONE bar.
 - [ ] Write → MIDI file with two tracks of notes: the report says both landed
       on this one grid; the ⓘ says every track's notes are merged.
+
+## Accessibility delta — focus returns, quiet clocks (2026-11-06)
+
+- [ ] Screen reader on. Back to factory with three or more changes: Cancel,
+      Esc and Go each close the confirmation with focus on the button that
+      opened it — or, when Go hid that button, on the genre picker; never on
+      the page.
+- [ ] A voice picker's New…: Close, Esc and picking a voice put focus back on
+      that picker. Edit → Pool…: Cancel, No pool, Done and Esc put it back on
+      Pool…. The leave-guard's Move on and Keep editing put it back on the
+      voice picker.
+- [ ] Start a 15-minute sleep timer: the reader says "Sleep timer set: 15
+      minutes" once, not the countdown every second. Record and Save as WAV
+      say "Recording" / "Saving as WAV" once and then the result; the clocks
+      still tick on screen.
+- [ ] Tab to a dial's readout: it is read as "<dial>: 68%, type a value".
+- [ ] While playing, focus a spread dial whose walk moves: its value is read
+      as "min X, max Y, drifting" and is not re-read as "now" changes; Tab
+      away and back, the line under it still shows "now".
+- [ ] Automated: `node tests/page-boot.mjs` (the 2026-11-06 a11y block).

@@ -97,7 +97,10 @@
  * aria-valuetext reads "min X, max Y, drifting" — except when the ends have
  * collapsed onto each other (value === valueMax), which reads "X (range
  * collapsed)" instead, since "min X, max X, drifting" describes a spread that
- * no longer exists. onInput emits a number in single mode and {min,max} in
+ * no longer exists. With a live value (setLive) an unfocused spread reads
+ * "min X, max Y, now Z"; while the dial has FOCUS the "now Z" is left out,
+ * because the page polls it several times a second and a focused control's
+ * valuetext is re-read on every change. onInput emits a number in single mode and {min,max} in
  * range mode; set() accepts both and switches mode to match silently;
  * `rangeDefault` starts a plain numeric value split (min=max=value).
  *
@@ -121,6 +124,8 @@
  * greater than the current max PUSHES max along (never swaps the two).
  * Unparsable text is discarded silently, leaving the value unchanged. The
  * input is keyboard reachable with no pointer required.
+ * The readout button is named "<dial name>: <readout>, type a value" (its
+ * text alone, "68%", would not say which dial it belongs to).
  *
  * The value scale is strictly linear between min and max. Log-feel (e.g. a
  * filter-cutoff dial) is the CALLER's job: pass a mapped domain (such as
@@ -708,7 +713,22 @@ export function createKnob(container, options) {
   // readout); the text survives in a visually-hidden span so click-to-type
   // and AT labelling keep working, and aria-valuetext is unaffected.
   const glyphOnly = glyphFn && opts.glyphOnly === true;
+  // a11y (2026-11-06): the readout is a button whose text is only a number
+  // ("68%"), which says nothing about which dial it is. Its name carries the
+  // dial's own name and what pressing it does — "Level: 68%, type a value" —
+  // read from the dial's current aria-label, since a page may rename a dial
+  // after making it (kept in step by the observer below).
+  let readoutText = '';
+  function nameReadout() {
+    if (typeof valueEl.setAttribute !== 'function') return;
+    const own = (typeof root.getAttribute === 'function' && root.getAttribute('aria-label')) || label;
+    // A name that already says "click to type a value" would say it twice.
+    const name = String(own || '').replace(/\s*[—–-]\s*click to type a value\s*$/i, '').trim();
+    valueEl.setAttribute('aria-label', name ? `${name}: ${readoutText}, type a value` : `${readoutText}, type a value`);
+  }
   function setValueText(text) {
+    readoutText = text;
+    nameReadout();
     if (!glyphFn) {
       valueEl.textContent = text;
       return;
@@ -791,6 +811,19 @@ export function createKnob(container, options) {
     root.setAttribute('data-zeroed', zeroed ? 'true' : 'false');
   }
 
+  // a11y (2026-11-06): a spread dial's "now Z" moves several times a second
+  // while the page polls the engine, and a focused control's aria-valuetext
+  // is re-read on every change — so a screen reader would recite it without
+  // pause. While the dial has focus its valuetext leaves "now" out (the
+  // visible line under the readout still moves); blur puts it back.
+  function dialHasFocus() {
+    try {
+      const doc = root.ownerDocument || (typeof document !== 'undefined' ? document : null);
+      return Boolean(doc) && doc.activeElement === root;
+    } catch {
+      return false;
+    }
+  }
   function applyLive() {
     // Only meaningful inside a span: in single mode the main pointer already
     // IS the live value, and a second mark on top of it would be noise.
@@ -809,7 +842,9 @@ export function createKnob(container, options) {
     liveEl.textContent = `now ${fmt(v)}`;
     liveEl.style.display = '';
     if (value !== valueMax) {
-      root.setAttribute('aria-valuetext', `min ${fmt(value)}, max ${fmt(valueMax)}, now ${fmt(v)}`);
+      root.setAttribute('aria-valuetext', dialHasFocus()
+        ? `min ${fmt(value)}, max ${fmt(valueMax)}, drifting`
+        : `min ${fmt(value)}, max ${fmt(valueMax)}, now ${fmt(v)}`);
     }
   }
 
@@ -1643,6 +1678,21 @@ export function createKnob(container, options) {
 
   updateView();
   applyGhost(opts.ghostValue != null ? opts.ghostValue : null);
+  listen('focus', applyLive);
+  listen('blur', applyLive);
+  let nameObserver = null;
+  // The root's own window's observer: a MutationObserver from another realm
+  // (an iframe, a test harness's second page) refuses to observe this node.
+  const Observer = root.ownerDocument?.defaultView?.MutationObserver
+    || (typeof MutationObserver === 'function' ? MutationObserver : null);
+  if (typeof Observer === 'function') {
+    try {
+      nameObserver = new Observer(nameReadout);
+      nameObserver.observe(root, { attributes: true, attributeFilter: ['aria-label'] });
+    } catch {
+      nameObserver = null;
+    }
+  }
   if (container && typeof container.appendChild === 'function') {
     container.appendChild(root);
   }
@@ -1702,6 +1752,7 @@ export function createKnob(container, options) {
       if (destroyed) return;
       destroyed = true;
       dragging = false;
+      if (nameObserver) nameObserver.disconnect();
       closeEditor();
       try {
         valueEl.removeEventListener('click', onValueClick);

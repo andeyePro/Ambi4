@@ -217,13 +217,17 @@ it.
   second pointer, already drawn, already themed, already tested.
 - **Click-to-type is already shipped.** The value readout is its own focusable
   `<button>`; click, Enter or Space swaps it for a number field in the dial's
-  own units (`knob.js` v14). No work needed.
+  own units (`knob.js` v14). No work needed. Its accessible name is
+  "<dial name>: <readout>, type a value", not the bare number (2026-11-06).
 
 ### 2.2 Walks show their live Now
 
 A dial fed its resolved value prints "now X" beneath it (`knob.js`, v0.0.198),
-and `aria-valuetext` reads it. A spread dial therefore shows both its layers at
-once: the span (Pool) and where the walk has taken the value (Now).
+and `aria-valuetext` reads it — except while the dial has focus, when "now"
+is left out, since the poll below would otherwise have a screen reader recite
+it four times a second; blur puts it back (2026-11-06). A spread dial therefore
+shows both its layers at once: the span (Pool) and where the walk has taken
+the value (Now).
 
 The one `engine.getResolved()` poll (4 Hz while playing, `applyResolved` in
 index.astro) feeds every one of those marks: the globals, each row's Level and
