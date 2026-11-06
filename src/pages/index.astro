@@ -10629,7 +10629,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
 
       const SEQ_LEGEND_BASE =
-        'Keys: arrows move · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
+        'Keys: arrows move (on a one-lane grid ↑/↓ shift the step\'s velocity band) · Enter/Space toggles a step · Shift+↑/↓ velocity top · ' +
         'Alt+↑/↓ velocity bottom · [ and ] (or , and .) probability, Shift+[ / Shift+] ' +
         '(or Shift+, / Shift+.) narrows/widens a drifting probability range · T ties a ' +
         'step to the next one · G paints the step into the selected probability group ' +
@@ -19246,7 +19246,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       }
       {
         const slot = document.getElementById('preset-submit-info');
-        if (slot) infoButton(slot, 'submitting a preset', 'Submitting opens our contact form prefilled with the preset; if that doesn\u2019t load, copy the JSON and send it however suits.');
+        if (slot) infoButton(slot, 'submitting a preset', 'Submitting opens our contact form prefilled with the preset (one too long for a web address goes on your clipboard instead, to paste in); if that doesn\u2019t load, copy the JSON and send it however suits.');
       }
       {
         const slot = document.getElementById('genre-rules-info');
@@ -23112,7 +23112,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               typingInfo,
               'Musical typing',
-              'Your computer keyboard plays the selected track: z x c v b n m are one octave and q w e r t y u the next, black keys on the rows above, - and = shift octave. A MIDI keyboard plays the same track the moment it is connected \u2014 nothing to set up (Chrome and Edge; iOS Safari has no MIDI). On a touch screen the keys under the row play the same track \u2014 one note per finger, louder the lower you strike (or by pressure, where the screen or pen reports one); on the kit they are one pad per sound. Capture records the rhythm, velocity and note length you play into that track\u2019s step grid \u2014 pitches follow the piece\u2019s own harmony \u2014 and Undo puts the old grid back. Follow my chords turns it round: the notes you hold choose the piece\u2019s chords (its own \u24d8 says how).'
+              'Your computer keyboard plays the selected track: z x c v b n m are one octave and q w e r t y u the next, black keys on the rows above, - and = shift octave. While Keys is on, a MIDI keyboard plays the same track the moment it is connected \u2014 nothing else to set up (Chrome and Edge; iOS Safari has no MIDI). On a touch screen the keys under the row play the same track \u2014 one note per finger, louder the lower you strike (or by pressure, where the screen or pen reports one); on the kit they are one pad per sound. Capture records the rhythm, velocity and note length you play into that track\u2019s step grid \u2014 pitches follow the piece\u2019s own harmony \u2014 and Undo puts the old grid back. Follow my chords turns it round: the notes you hold choose the piece\u2019s chords (its own \u24d8 says how).'
             );
           }
         }

@@ -34,7 +34,8 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 - [x] *(SHIPPED v0.0.299 — doc-drift 12 hits on v0.0.298)* Eight false statements: chord numerals' case, link-name words, "tap the middle to start again", Journey/Build, Apply's "untouched", "Seed voices", "Repetition" ×4, the Processor's Auto. The keyboard help checked out row by row.
 - [ ] **[BLOCKED — fromClaude 51]** Create's ⓘ promises a "zero-AI badge" that does not exist.
-- [ ] Unconfirmed, worth a drive: Musical typing's ⓘ says a MIDI keyboard plays "the moment it is connected"; MIDI is only requested while Keys is on. The preset-submit ⓘ says "prefilled with the preset", but above 1,800 characters the preset goes to the clipboard instead. On a single-lane step grid ↑/↓ nudge the velocity band, which the grid's ⓘ calls moving. The picker's "Hidden: N presets…" entry calls hidden stock genres presets.
+- [x] *(SHIPPED v0.0.300)* Three of its four suspicions confirmed and fixed: MIDI plays only while Keys is on; a preset too long for a web address goes on the clipboard; on a one-lane grid ↑/↓ shift the velocity band.
+- [ ] The picker's "Hidden: N presets…" entry calls hidden stock genres presets — page-boot asserts that wording for genres too, so it may be the chosen word for any stock item. Left.
 
 ## Tour, tooltip and README audit, 2026-11-06 (read-only opus review)
 
