@@ -134,6 +134,24 @@ class MockAudioContext {
 
 globalThis.AudioContext = MockAudioContext;
 
+// The scheduler is ticked BY HAND (texture-grid-smoke's stand-in ticker), once
+// per clock step. Left to its own 25 ms timer it raced this loop's 0.5 s
+// steps: on a slow event-loop turn the clock ran more than RESYNC_GAP ahead,
+// the engine resynced to a fresh barline, and the digest moved with it — a
+// different preset red on each failing run (f32182e's own engine: glass-office
+// in 1 of 3 solo runs; night-shift in a full tests/all.mjs). Ticked by hand
+// the render is a function of the piece alone, and the frozen digests (taken
+// on runs that did not resync) are unchanged.
+const handTickers = new Set();
+globalThis.Worker = class {
+  constructor() { this.onmessage = null; handTickers.add(this); }
+  postMessage() {}
+  terminate() { handTickers.delete(this); }
+};
+globalThis.Blob = class { constructor() {} };
+globalThis.URL.createObjectURL = () => 'blob:x';
+globalThis.URL.revokeObjectURL = () => {};
+
 // AMBI4_SRC points the suite at another tree's src/scripts (how FROZEN was
 // taken from the v0.0.271 engine); unset, it is this tree's.
 const SRC = process.env.AMBI4_SRC ? `file://${process.env.AMBI4_SRC.replace(/\/$/, '')}/` : new URL('../src/scripts/', import.meta.url).href;
@@ -340,6 +358,7 @@ async function renderDigest(params) {
     await engine.start();
     for (let i = 0; i < 4000 && cuts.length <= BARS; i++) {
       for (const ctx of liveContexts) ctx.currentTime += 0.5;
+      for (const ticker of [...handTickers]) ticker.onmessage?.({ data: 0 });
       await new Promise((resolve) => setTimeout(resolve, 3));
     }
     assert.ok(cuts.length > BARS, `only ${cuts.length} bars played`);

@@ -265,12 +265,21 @@ export const SWING_UNIT = 0.5;
  * inside each half is stretched or squeezed with it, so a sixteenth between
  * two swung eighths keeps its place in the figure instead of colliding with
  * them. Pair starts (the downbeats) never move.
+ *
+ * `origin` and `span` (proto/swing-from-pulse): the pairs are counted from
+ * `origin` — the start of the pulse `beat` falls in — so the pulse onsets
+ * themselves never move, and a pair that would run past `span` beats from it
+ * (the third eighth of a 6/8 dotted crotchet, a 7/16 pulse shorter than a
+ * pair) is a remainder with no partner to swing against: it stays straight
+ * rather than being pushed into the next pulse. With whole-beat pulses the
+ * arithmetic is exactly the beat-paired original.
  */
-export function swungBeat(beat, unit = SWING_UNIT, swing = 0) {
+export function swungBeat(beat, unit = SWING_UNIT, swing = 0, { origin = 0, span = Infinity } = {}) {
   const amount = clamp(Number(swing) || 0, 0, 1);
   if (amount <= 0 || !(unit > 0) || !Number.isFinite(beat)) return beat;
   const pair = unit * 2;
-  const base = Math.floor(beat / pair) * pair;
+  const base = origin + Math.floor((beat - origin) / pair) * pair;
+  if (base - origin + pair > span + 1e-9) return beat;
   const phase = beat - base;
   const split = unit * (1 + amount * 0.5);
   if (phase <= unit) return base + phase * (split / unit);
@@ -9339,9 +9348,21 @@ export function createEngine(initialParams, options = {}) {
    * asking (v21). Without a track it is the global amount — what the bar as a
    * whole is swung by.
    */
-  const swung = (beat, track = null) => swungBeat(
-    beat, SWING_UNIT, track === null ? bar.swing : bar.swings[track] ?? bar.swing,
-  );
+  const swung = (beat, track = null) => {
+    // Swing pairs eighths from each PULSE's own start, not from each whole
+    // beat (proto/swing-from-pulse): in 6/8, 9/8, 7/16 and 11/16 the pulses
+    // do not sit on whole beats, and pairing from the beat swung the main
+    // pulse itself (6/8's second dotted crotchet landed at 1.625 at swing
+    // 0.5). In a metre whose pulses are whole beats this is the same arithmetic.
+    const amount = track === null ? bar.swing : bar.swings[track] ?? bar.swing;
+    if (!(amount > 0) || !Number.isFinite(beat)) return beat;
+    // Outside the bar (a span closing on or past the next barline) there is
+    // no pulse to measure in: the bar-paired reading, as before.
+    if (beat < 0 || beat >= bar.beats) return swungBeat(beat, SWING_UNIT, amount);
+    const index = pulseAtBeat(beat);
+    const start = bar.starts[index] ?? 0;
+    return swungBeat(beat, SWING_UNIT, amount, { origin: start, span: bar.pulses[index] ?? Infinity });
+  };
 
   /** Which pulse of the current bar a beat position falls in. */
   function pulseAtBeat(beat) {

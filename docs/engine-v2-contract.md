@@ -1056,6 +1056,14 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
 - SWING: global param swing 0-1 (default ~0, global scope default; per-track
   override param reserved); delays off-beat subdivision onsets musically
   (classic 50-75% range mapping); sequencers, arp and percussion all honour it.
+  The eighth pairs are counted from each PULSE's own start, never from the
+  whole beat (proto/swing-from-pulse): a pulse onset never moves, in any metre.
+  Up to v0.0.311 they were counted from the beat, so in 6/8, 9/8, 7/16 and
+  11/16 the main pulse itself was swung (6/8's second dotted crotchet at 1.75
+  at swing 1). A pair that would run past its pulse's end — the third eighth
+  of a dotted crotchet, a 7/16 or 11/16 pulse shorter than a pair — stays
+  straight: it has no partner to swing against. In a metre of whole-beat
+  pulses (4/4, 3/4, 2/2…) the arithmetic is exactly the old one.
 - Kit editor (percussion per-instrument overrides): selector tabs
   Common | (instruments, HIGH at top ... LOW at bottom everywhere lanes render);
   dials show the common value as a GHOST pointer; editing with an instrument

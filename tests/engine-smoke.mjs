@@ -5575,6 +5575,51 @@ test('swing warps an offbeat onset toward 0.75 of its pulse at swing 1; the down
   assert.ok(Math.abs(swung[1] - 0.75 * secPerBeat) < 1e-6, `swing 1 offbeat should sit at 0.75 beats, got ${swung[1]}`);
 }));
 
+test('swing pairs from each pulse: in 6/8, 9/8 and 7/16 every pulse onset stays put at swing 1 (proto/swing-from-pulse)', () => hiddenTab(async () => {
+  // Swing paired eighths from every whole BEAT, so in a metre whose pulses
+  // do not sit on whole beats the main pulse itself was swung: 6/8's second
+  // dotted crotchet (beat 1.5) landed at 1.75 at swing 1, 7/16's second pulse
+  // (beat 0.5) at 0.75. Red on v0.0.311. Pairs now count from each pulse's own
+  // start; the subdivision inside it still swings (6/8's beat 0.5 -> 0.75).
+  const secPerBeat = 60 / (120 * 2);
+  for (const [sig, starts, sub] of [
+    ['6/8', [0, 1.5], [0.5, 0.75]],
+    ['9/8', [0, 1.5, 3], [2, 2.25]],
+    ['7/16', [0, 0.5, 1], null],
+  ]) {
+    const steps = { low: seqLane({ on: false }), mid: seqLane({ on: false }), high: seqLane({ on: false }) };
+    for (const beat of starts) steps.low[Math.round(beat * 4)] = { on: true, prob: 1, vmin: 0.5, vmax: 0.5 };
+    if (sub) steps.mid[Math.round(sub[0] * 4)] = { on: true, prob: 1, vmin: 0.5, vmax: 0.5 };
+    const engine = createEngine({
+      bpm: 120, speed: 2, complexity: 0.5, repetition: 0.5, structure: 'custom', swing: 1,
+      timeSignature: sig,
+      customStructure: [{ label: 'A', bars: 8, intensity: 1 }],
+      tracks: {
+        ...tracksAll('off'),
+        percussion: { state: 'on', randomness: 0, sequencer: { mode: 'manual', steps } },
+      },
+    }, { rng: seededRng(1) });
+    const log = record(engine);
+    await engine.start();
+    await advance(16, FAST);
+    engine.stop();
+    const byBar = log.byBar('percussion');
+    const bars = [...byBar.keys()].filter((b) => b >= TRACK_ORDER.indexOf('percussion') + 1).slice(0, 3);
+    assert.ok(bars.length >= 2, `${sig}: too few bars with percussion`);
+    for (const b of bars) {
+      const offsets = byBar.get(b).map((n) => n.offset / secPerBeat);
+      for (const beat of starts) {
+        assert.ok(offsets.some((o) => Math.abs(o - beat) < 1e-6),
+          `${sig} bar ${b}: no hit on the pulse at beat ${beat} (hits at ${offsets.map((o) => o.toFixed(3)).join(' ')})`);
+      }
+      if (sub) {
+        assert.ok(offsets.some((o) => Math.abs(o - sub[1]) < 1e-6),
+          `${sig} bar ${b}: the eighth at ${sub[0]} should swing to ${sub[1]} (hits at ${offsets.map((o) => o.toFixed(3)).join(' ')})`);
+      }
+    }
+  }
+}));
+
 test('dissonance 0 never leaves the scale; dissonance 1 produces substantial out-of-scale (borrowed) notes', () => hiddenTab(async () => {
   if (!v14Shipped()) { console.log('SKIP v14 dissonance: v14 params not present yet'); return; }
   // Out-of-scale is the uncontaminated ground truth here: ordinary melodic
