@@ -289,7 +289,7 @@ const CONFIGS = [
  * Play one config and digest bars BAR_FROM…BAR_TO-1.
  *
  * Per bar: the note count, the sounding track set (in TRACK_ORDER), the
- * quantised note tuples in the order the engine scheduled them, and a sha256
+ * quantised note tuples (sorted — what was scheduled, not the emission order), and a sha256
  * over those tuples. The HASH is what PASS/DRIFT is decided on; the tuple list
  * is what a failure report and a git diff of the baseline are read from.
  */
@@ -315,13 +315,19 @@ async function digestConfig(config) {
     const span = next.time - bar.time;
     const secondsPerBeat = span / bar.beatsPerBar;
     const inBar = log.notes.filter((n) => n.time >= bar.time - 1e-9 && n.time < next.time - 1e-9);
+    // SORTED (2026-11-06): the digest is of WHAT was scheduled, not of the
+    // order the scheduler happened to emit it in. A change that moves when a
+    // note is HANDED to the engine — the bass sent per pulse rather than all
+    // at the barline — without moving a single note no longer reads as a
+    // sound change. The regenerated baseline was checked to hold exactly the
+    // same tuples per bar as the one before it, only reordered.
     const tuples = inBar.map((n) => [
       n.track,
       round3((n.time - bar.time) / secondsPerBeat),
       n.midi === null || n.midi === undefined ? '-' : n.midi,
       round3(n.velocity),
       round3(n.duration),
-    ].join(':'));
+    ].join(':')).sort();
     const digest = tuples.join(';');
     total += inBar.length;
     bars.push({
