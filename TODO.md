@@ -30,6 +30,17 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## The engine's musical logic hunted, 2026-11-06 (harmony/pitch; time/rhythm)
+
+- [x] *(SHIPPED v0.0.306 — audio-reference unchanged; rhythm-hunt-smoke and three engine-smoke cases red on v0.0.305)* Mid-bar tempo change, key change mid-chord, Finish's old pad, auto arp Density at repetition 1, kit bank across Stop/Play, mono grid floors, grid kit hits clamped.
+- [ ] **[BLOCKED — fromClaude 53]** Swing moves the main beat in 6/8, 9/8, 7/16, 11/16.
+- [ ] **[BLOCKED — fromClaude 54]** The bass goes above its documented range (6 % of notes; fifth = root + 7, root unfolded). Moves Push and Night shift.
+- [ ] **[BLOCKED — fromClaude 55]** The mono melody is trimmed to the unswung gap.
+- [ ] The bass keeps the OLD tempo for the rest of a bar after a mid-bar tempo change (it is placed once at the barline; the other tracks re-read tempo per pulse): 54 of 720 notes in such bars land past the real next barline. Fix: send bass notes from schedulePulse as the melody does — check audio-reference's event order.
+- [ ] A repeat bracket's replays do not hold the pad the first pass had (a loop opening mid-chord replays a silent first bar; a chord struck in the loop's last bar rings over the re-struck first), and the bass's approach note reads the frozen hook position (7 of 90 runs differ from the first pass).
+- [ ] A scale round trip loses the chord loop: the stored `harmony.seed` is re-filtered against each new mode, so i–iv–VII–v through a pentatonic comes back null while the page still shows the old loop. Keeping the stored seed and playing it only where the scale can is the likely shape, but the page then needs to say the loop is parked — a design call.
+- [ ] Unconfirmed: a resync during the closing bar (the clock more than 1.5 s behind) may plan an ordinary bar after the closing chord.
+
 ## The visual layer hunted, 2026-11-06 (scope.js, visualiser.js)
 
 - [x] *(SHIPPED v0.0.305 — scope-hunt-smoke 5 red on v0.0.304)* Hidden-canvas growth (scope and piano roll), traces after an audio rebuild, piano-roll lamps for added/removed tracks, the legend's solo-restore, the static trace's observer after a rebuild.

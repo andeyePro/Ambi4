@@ -23473,7 +23473,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
           if (!parsed.notes.length) {
             say(parsed.skipped && parsed.skipped.length
-              ? `That file has no notes this could read (skipped: ${parsed.skipped.join('; ')}).`
+              ? `That file could not be read: ${parsed.skipped.join('; ')}.`
               : 'That file has no notes in it.');
             return;
           }

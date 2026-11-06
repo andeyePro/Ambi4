@@ -2124,6 +2124,113 @@ test('finish() is idempotent, resolves when idle, and start() cancels an ending'
 // tests/outro-hold-timeline.mjs; a whole-engine version lived here for
 // v0.0.297 and flaked on when the mock clock reached the closing bar.
 
+test('finish(): the last chord\'s pad is released at the closing bar, not left ringing under the tonic', async () => {
+  // 2026-11-06 hunt: a pad struck for the bars its chord still had to run
+  // rang on under the closing tonic triad (F and A over C–E–G for 2.7 s).
+  const bank = bankFor('pad');
+  const spy = spyOnBank(bank);
+  try {
+    let checked = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      spy.plays.length = 0;
+      const engine = createEngine({
+        bpm: 90, complexity: 0.7, structure: 'drone', mode: 'ionian', root: 'C',
+        harmony: { rhythm: 4 },
+        tracks: { pad: { state: 'on' }, bass: { state: 'off' }, melody: { state: 'off' }, arp: { state: 'off' }, texture: { state: 'off' }, percussion: { state: 'off' } },
+      }, { rng: seededRng(9000 + seed) });
+      await engine.start();
+      await advance(4 + seed * 0.7, { step: 0.1, sleep: 10 });
+      const ending = engine.finish({ fadeSeconds: 3 });
+      assert.ok(await settleWithin(ending, 40), 'finish() never resolved');
+      engine.stop();
+      // The closing triad is the last pad strike of the piece.
+      if (!spy.plays.length) continue;
+      const T = Math.max(...spy.plays.map((p) => p.note.when));
+      const over = spy.plays.filter((p) => p.note.when < T - 1e-9 && p.note.when + p.note.duration > T + 0.05);
+      for (const p of over) {
+        // Released AT the closing bar — not merely by stop() at the very end.
+        assert.ok(p.cancelled && Math.abs(p.cancelAt - T) < 0.01,
+          `a pad note from ${p.note.when.toFixed(2)} s for ${p.note.duration.toFixed(2)} s rang past the closing bar at ${T.toFixed(2)} s (cancelled at ${p.cancelAt})`);
+        checked += 1;
+      }
+    }
+    assert.ok(checked > 0, 'no seed left a pad sounding into the closing bar — the case was not reached');
+  } finally {
+    spy.restore();
+  }
+});
+
+test('a key change mid-chord releases the old pad at the barline and strikes a chord of the new key', async () => {
+  // 2026-11-06 hunt: with 8-bar chords the pad kept sounding the old key's
+  // chord for up to seven bars under a bass and melody already in the new
+  // key, while the chord readout named the new chord.
+  const bank = bankFor('pad');
+  const spy = spyOnBank(bank);
+  try {
+    let checked = 0;
+    for (const seed of [1, 2, 3, 4]) {
+      spy.plays.length = 0;
+      const engine = createEngine({
+        bpm: 120, complexity: 0.5, structure: 'drone', mode: 'ionian', root: 'C',
+        harmony: { rhythm: 8 },
+        tracks: { pad: { state: 'on' }, bass: { state: 'off' }, melody: { state: 'off' }, arp: { state: 'off' }, texture: { state: 'off' }, percussion: { state: 'off' } },
+      }, { rng: seededRng(9100 + seed) });
+      const bars = [];
+      engine.on('bar', (e) => bars.push(e));
+      await engine.start();
+      await advanceUntil(() => bars.length >= 10, 40, { step: 0.1, sleep: 10 });
+      const planned = bars.length;
+      engine.setParams({ root: 'F#' });
+      await advanceUntil(() => bars.length >= planned + 4, 40, { step: 0.1, sleep: 10 });
+      engine.stop();
+      // The first bar PLANNED after the change: its downbeat is when the key moves.
+      const T = bars[planned] ? bars[planned].time : null;
+      if (T === null) continue;
+      const old = spy.plays.filter((p) => p.note.when < T - 1e-9 && p.note.when + p.note.duration > T + 0.05);
+      for (const p of old) {
+        assert.ok(p.cancelled && Math.abs(p.cancelAt - T) < 0.01,
+          `an old-key pad note (midi ${p.note.midi}) struck at ${p.note.when.toFixed(2)} s ran past the key change at ${T.toFixed(2)} s (cancelled at ${p.cancelAt})`);
+        checked += 1;
+      }
+      const fresh = spy.plays.filter((p) => p.note.when >= T - 1e-9 && p.note.when < T + 2.1);
+      assert.ok(fresh.length > 0, 'no pad chord was struck in the new key');
+    }
+    assert.ok(checked > 0, 'no pad was sounding across the key change — the case was not reached');
+  } finally {
+    spy.restore();
+  }
+});
+
+test('the auto arp follows its Density dial even at repetition 1 (every stock genre compiles 1)', async () => {
+  // 2026-11-06 hunt: the auto arp's mask was drawn once and only re-rolled
+  // when rng() > repetition — never at 1 — so Density 2 → 0 left six notes a
+  // bar playing for the rest of the piece.
+  const engine = createEngine({
+    bpm: 120, structure: 'drone', timeSignature: '4/4', complexity: 0.5, repetition: 1, mode: 'dorian', root: 'D',
+    tracks: { pad: { state: 'off' }, bass: { state: 'off' }, melody: { state: 'off' }, texture: { state: 'off' }, percussion: { state: 'off' },
+      arp: { state: 'on', density: 2, randomness: 0.5 } },
+    arp: { mode: 'auto' },
+  }, { rng: seededRng(3) });
+  const notes = [];
+  const bars = [];
+  engine.on('note', (e) => notes.push(e));
+  engine.on('bar', (e) => bars.push(e));
+  await engine.start();
+  await advanceUntil(() => bars.length >= 16, 60, { step: 0.1, sleep: 10 });
+  engine.setParams({ tracks: { arp: { density: 0 } } });
+  await advanceUntil(() => bars.length >= 30, 60, { step: 0.1, sleep: 10 });
+  engine.stop();
+  const inBars = (from, to) => {
+    const t0 = bars[from].time;
+    const t1 = bars[to].time;
+    return notes.filter((n) => n.track === 'arp' && n.source !== 'double' && n.time >= t0 && n.time < t1).length / (to - from);
+  };
+  const before = inBars(8, 15);
+  const after = inBars(20, 29);
+  assert.ok(before > 2, `the dense arp played ${before.toFixed(2)} notes a bar — the case was not reached`);
+  assert.ok(after < before / 2, `Density 0 still played ${after.toFixed(2)} notes a bar (was ${before.toFixed(2)})`);
+});
+
 test('finish() clamps its fade and defaults to 8 s', async () => {
   const run = async (options, audioSeconds) => {
     const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' });
@@ -9790,6 +9897,7 @@ function spyOnBank(bank) {
             ...handle,
             cancel: (...args) => {
               entry.cancelled = true;
+              if (entry.cancelAt === undefined) entry.cancelAt = args[0];
               return handle.cancel(...args);
             },
           };

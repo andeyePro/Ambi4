@@ -5959,6 +5959,12 @@ export function createEngine(initialParams, options = {}) {
   let arpAdditiveNext = null;
   let arpAdditiveBar = null;
   let autoArpSteps = null;
+  // The dial-set density the auto arp's mask was drawn at (2026-11-06 hunt):
+  // every stock genre compiles repetition 1, so the "reroll" below never
+  // fires, and the mask drawn in the first bar outlived every turn of the
+  // arp's Density or Complexity — 6 notes a bar at Density 0. A change in
+  // what the DIALS ask for redraws it; the section's intensity does not.
+  let autoArpKey = null;
   let percussionBank = [];
   let bankTimeSignature = null; // metre the phrase/percussion banks were made in
 
@@ -7924,6 +7930,16 @@ export function createEngine(initialParams, options = {}) {
    * now: the lookahead schedules a bar before it sounds, so cancelling on the
    * spot would leave a hole where the rest of the previous note should be.
    */
+  /** End every pad note still sounding at `time`, through its own cancel fade. */
+  function releaseSoundingPad(time) {
+    for (const entry of liveNotes) {
+      if (entry.track !== 'pad' || !(entry.when < time) || !(entry.until > time)) continue;
+      try { entry.handle && entry.handle.cancel && entry.handle.cancel(time); } catch { /* one note */ }
+      entry.until = time;
+      entry.end = time + CANCEL_TAIL;
+    }
+  }
+
   function releaseMono(previous, at) {
     // Same trim as a legato handover: the note stops here, whatever span it
     // was scheduled with.
@@ -9659,7 +9675,9 @@ export function createEngine(initialParams, options = {}) {
         playNote('bass', {
           midi: step.pinned ?? (step.fifth ? tones.fifth : tones.root),
           when: time + at * bar.secPerBeat + step.nudge,
-          duration: Math.max(0.08, gated),
+          // As the melody's: a floor of at most 60 % of the slot, so a short
+          // gate at a fast rung does not reach the next onset and slur.
+          duration: Math.max(Math.min(0.08, 0.6 * trackStepBeats('bass') * bar.secPerBeat), gated),
           velocity: step.velocity,
           source: 'step',
         });
@@ -10130,7 +10148,10 @@ export function createEngine(initialParams, options = {}) {
     // Repetition decides how often the auto step mask is rewritten — unless the
     // arp is sitting at randomness 0, where the mask it has is the mask it keeps.
     const reroll = rng() > params.repetition && !isFrozenTrack('arp');
-    if (!autoArpSteps || reroll) {
+    const key = `${auto.density}|${trackDensity('arp')}`;
+    const dialsMoved = autoArpKey !== null && key !== autoArpKey && !isFrozenTrack('arp');
+    if (!autoArpSteps || reroll || dialsMoved) {
+      autoArpKey = key;
       autoArpSteps = new Array(ARP_STEP_COUNT);
       for (let i = 0; i < ARP_STEP_COUNT; i++) {
         const weight = i % 4 === 0 ? 0.35 : i % 2 === 0 ? 0.15 : 0;
@@ -10319,6 +10340,13 @@ export function createEngine(initialParams, options = {}) {
     const rootPc = pitchClass(params.root);
     const hold = Math.max(bar.duration, finishRequest ? finishRequest.fadeSeconds : FINISH_FADE);
 
+    // The last chord's pad, struck for the bars its chord still had to run,
+    // used to ring on under the closing tonic — F and A for 2.7 s over C–E–G
+    // (2026-11-06 hunt: 516 pad notes over 216 finishes, 188 outside the
+    // tonic). It is released at the closing bar, through each note's own
+    // cancel fade, so nothing steps.
+    releaseSoundingPad(time);
+
     if (isActive('pad')) {
       const midis = [0, 2, 4].map((degree) => scaleDegreeToMidi(degree, scale(), rootPc, 3));
       const velocity = clamp(0.85 / Math.sqrt(midis.length), 0.15, 1);
@@ -10403,6 +10431,7 @@ export function createEngine(initialParams, options = {}) {
           index: i,
           pulse,
           offset: beat - bar.starts[pulse],
+          grid: true,
           lane: lane.id,
           kind: lane.kind,
           velocity: between(step.vmin, step.vmax, rng) * velocityJitter('percussion'),
@@ -10588,6 +10617,7 @@ export function createEngine(initialParams, options = {}) {
       starts.push(acc);
       acc += p;
     }
+    const keyBefore = bar ? { scale: bar.scale, rootPc: bar.rootPc } : null;
     bar = {
       // When the bar starts — read by the note-role telemetry to place a
       // note on its own beat under harmony.beats; nothing schedules from it.
@@ -10609,6 +10639,18 @@ export function createEngine(initialParams, options = {}) {
       swing: clamp(params.swing, 0, 1),
       swings: Object.fromEntries(trackOrder().map((name) => [name, trackSwing(name)])),
     };
+
+    // A key or scale change lands on this barline for every track — but the
+    // pad was struck for the bars its chord still had to run, so it went on
+    // sounding the old key's chord for up to seven bars under a bass and
+    // melody already in the new one, while the chord readout named the new
+    // chord (2026-11-06 hunt). The chord span ends here instead: the old pad
+    // is released through its cancel fade and the harmony steps to a chord of
+    // the new key this bar.
+    if (keyBefore && (keyBefore.scale !== bar.scale || keyBefore.rootPc !== bar.rootPc)) {
+      chordBarsLeft = 0;
+      releaseSoundingPad(time);
+    }
 
     retuneDelay(time, secPerBeat);
 
@@ -10944,7 +10986,12 @@ export function createEngine(initialParams, options = {}) {
           while (midi > centre + MELODY_BAND) midi -= 12;
           while (midi < centre - MELODY_BAND) midi += 12;
         }
-        const melodyDuration = clamp(Math.min(note.duration, gap) * bar.secPerBeat * overlap, 0.1, 3);
+        // A grid note's floor is at most 60 % of its own slot: the fixed 0.1 s
+        // was longer than a slot at fast rungs, so a short gate overlapped the
+        // next onset and the mono track slurred into it (2026-11-06 hunt:
+        // 4,746 overlaps, all from these floors). The auto line keeps 0.1 s.
+        const melodyFloor = isManual('melody') ? Math.min(0.1, 0.6 * trackStepBeats('melody') * bar.secPerBeat) : 0.1;
+        const melodyDuration = clamp(Math.min(note.duration, gap) * bar.secPerBeat * overlap, melodyFloor, 3);
         playNote(responder ?? 'melody', {
           midi,
           when: at,
@@ -11101,7 +11148,11 @@ export function createEngine(initialParams, options = {}) {
 
     for (const hit of percussionPlan) {
       if (hit.pulse !== index) continue;
-      const offset = Math.min(hit.offset, length * 0.9);
+      // The 90 % ceiling is for the AUTO kit's drawn offsets. A hit written on
+      // the grid sits on its own slot: clamped, every hit in the last tenth
+      // of a pulse sounded early (2026-11-06 hunt: 282 off their slot — 6/8
+      // and 7/8 at 32nds, 2/2 at eighths, every metre at the finest rungs).
+      const offset = hit.grid ? hit.offset : Math.min(hit.offset, length * 0.9);
       // Swing is felt across the bar, so the hit is swung at its ABSOLUTE
       // position and then read back as an offset inside its own pulse.
       const swingOffset = swung(from + offset, 'percussion') - from;
@@ -11122,7 +11173,8 @@ export function createEngine(initialParams, options = {}) {
       if (plan.kit) {
         for (const hit of plan.events) {
           if (hit.pulse !== index) continue;
-          const offset = Math.min(hit.offset, length * 0.9);
+          // A user kit is always written on its grid (see the built-in kit).
+          const offset = hit.offset;
           const swingOffset = swung(from + offset, name) - from;
           playNote(name, {
             midi: null,
@@ -11209,7 +11261,14 @@ export function createEngine(initialParams, options = {}) {
           : 60 / clamp(params.bpm * params.speed, 10, 400);
         if (live !== bar.secPerBeat) {
           bar.secPerBeat = live;
-          bar.duration = bar.beats * live;
+          // The bar's END moves: what has played stays at the old tempo, the
+          // rest runs at the new one. `bar.beats * live` treated the whole
+          // bar as new-tempo, so a speed-up put the barline in the past and
+          // playNote's ceiling piled the rest of the bar's notes onto one
+          // time, some before currentTime (2026-11-06 hunt: 55 notes in 33
+          // of 192 bars with a mid-bar change).
+          const start = Array.isArray(bar.starts) && Number.isFinite(bar.starts[pulseIndex]) ? bar.starts[pulseIndex] : 0;
+          bar.duration = (nextPulseTime - currentBarTime) + (bar.beats - start) * live;
           retuneDelay(nextPulseTime, live);
         }
       }
@@ -11740,6 +11799,15 @@ export function createEngine(initialParams, options = {}) {
       arpAdditiveBar = null;
       arpPlan = null;
       percussionPlan = [];
+      // A new performance starts a new kit bank (2026-11-06 hunt): after Stop
+      // then Play, 7 of 10 restarts opened on a pattern from the last one,
+      // which a fresh engine never does.
+      percussionBank = [];
+      percussionBankBand = null;
+      // …and a new auto arp mask: the last performance's carried into the
+      // next piece (2026-11-06 hunt).
+      autoArpSteps = null;
+      autoArpKey = null;
       melodyPlan = emptyMelodyPlan();
       responder = null;
       texturePlan = [];
