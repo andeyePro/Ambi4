@@ -2231,6 +2231,39 @@ test('the auto arp follows its Density dial even at repetition 1 (every stock ge
   assert.ok(after < before / 2, `Density 0 still played ${after.toFixed(2)} notes a bar (was ${before.toFixed(2)})`);
 });
 
+test('a ranged arp Density at repetition 1 keeps the auto mask from bar to bar', async () => {
+  // 2026-11-06 review: the redraw check compared the WALKED density, so a
+  // ranged Density with randomness > 0 looked like a moved dial every bar
+  // and the mask was redrawn each time — Repetition 1 kept nothing.
+  const engine = createEngine({
+    bpm: 120, structure: 'drone', timeSignature: '4/4', complexity: 0.5, repetition: 1, mode: 'dorian', root: 'D',
+    tracks: { pad: { state: 'off' }, bass: { state: 'off' }, melody: { state: 'off' }, texture: { state: 'off' }, percussion: { state: 'off' },
+      arp: { state: 'on', density: { min: 0.4, max: 1.6 }, randomness: 0.8 } },
+    arp: { mode: 'auto' },
+  }, { rng: seededRng(11) });
+  const notes = [];
+  const bars = [];
+  engine.on('note', (e) => notes.push(e));
+  engine.on('bar', (e) => bars.push(e));
+  await engine.start();
+  await advanceUntil(() => bars.length >= 14, 60, { step: 0.1, sleep: 10 });
+  engine.stop();
+  const barSeconds = bars[3].time - bars[2].time;
+  const masks = [];
+  for (let b = 2; b < 13; b++) {
+    const t0 = bars[b].time;
+    const t1 = bars[b + 1].time;
+    const onsets = notes
+      .filter((n) => n.track === 'arp' && n.source !== 'double' && n.time >= t0 - 1e-6 && n.time < t1 - 1e-6)
+      .map((n) => Math.round(((n.time - t0) / barSeconds) * 16) % 16); // sixteenths: onsets are humanised by a hair
+    masks.push([...new Set(onsets)].sort((a, c) => a - c).join(','));
+  }
+  // From the arp's first sounding bar on (it may enter a bar or two late).
+  const sounding = masks.slice(Math.max(0, masks.findIndex((m) => m.length)));
+  assert.ok(masks.some((m) => m.length) && sounding.length >= 6, 'the arp barely played — the case was not reached');
+  assert.equal(new Set(sounding).size, 1, `the mask changed between bars at repetition 1:\n${sounding.join('\n')}`);
+});
+
 test('a clock jump during the ending plans nothing after the closing chord', async () => {
   // 2026-11-06 hunt (traced): a resync (the clock more than 1.5 s behind)
   // reset the pulse to 0 mid-closing-bar, and the next pass planned an

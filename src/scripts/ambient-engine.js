@@ -10151,7 +10151,10 @@ export function createEngine(initialParams, options = {}) {
     // Repetition decides how often the auto step mask is rewritten — unless the
     // arp is sitting at randomness 0, where the mask it has is the mask it keeps.
     const reroll = rng() > params.repetition && !isFrozenTrack('arp');
-    const key = `${auto.density}|${trackDensity('arp')}`;
+    // The dials as STORED, not as walked: a ranged Density with randomness
+    // above 0 walks every bar, and comparing the walked value redrew the mask
+    // every bar — Repetition 1 kept nothing (2026-11-06 review).
+    const key = `${params.complexity}|${JSON.stringify(params.tracks.arp.density ?? null)}`;
     const dialsMoved = autoArpKey !== null && key !== autoArpKey && !isFrozenTrack('arp');
     if (!autoArpSteps || reroll || dialsMoved) {
       autoArpKey = key;
