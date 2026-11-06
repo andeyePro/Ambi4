@@ -79,6 +79,43 @@ export default async function drive(page) {
   check('handing it back to the app empties it', cleared.value, '');
   check('and there is then nothing left to clear', cleared.clearDisabled, true);
 
+  // REAL gestures, not a dispatched change (2026-11-06). The box commits on
+  // `change`, which fires as focus leaves it, and the commit used to rebuild
+  // the box and its button: a click on Let the app choose straight after
+  // typing hit a button destroyed between its mousedown and its click (the
+  // loop stayed), and Tab out of the box landed on <body>.
+  const focusNow = () => page.evaluate(() => document.activeElement?.className || document.activeElement?.tagName);
+  await page.click('.progression-input');
+  await page.fill('.progression-input', 'i VI III VII');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(400);
+  check('Tab out of the box commits the loop', /i\s+VI\s+III\s+VII/i.test(await page.evaluate(() => document.querySelector('.progression-input')?.value || '')), (v) => v === true);
+  // The button was disabled when Tab was pressed (nothing to clear yet), so
+  // focus goes on past it — to the next control, never the page.
+  check('…and focus moves on to a control, not the page', await focusNow(), (v) => !!v && v !== 'BODY');
+
+  // A loop is playing, so the button is live: type a different one and
+  // click it straight away (the click is what commits the typing).
+  await page.click('.progression-input');
+  await page.fill('.progression-input', 'i iv v i');
+  await page.click('.progression-clear', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  check('typing a loop then clicking Let the app choose hands it back in ONE click', await page.evaluate(() => document.querySelector('.progression-input')?.value), '');
+
+  await page.click('.progression-input');
+  await page.fill('.progression-input', 'i VI III VII');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('Enter commits and stays in the box', await focusNow(), (v) => /progression-input/.test(v || ''));
+  // Now a loop is set and the button is live: Tab reaches it.
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(400);
+  check('Tab from the box lands on Let the app choose', await focusNow(), (v) => /progression-clear/.test(v || ''));
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('Enter on Let the app choose empties the box', await page.evaluate(() => document.querySelector('.progression-input')?.value), '');
+  check('…and focus goes to the box, not the page (the button is now disabled)', await focusNow(), (v) => /progression-input/.test(v || ''));
+
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     throw new Error(

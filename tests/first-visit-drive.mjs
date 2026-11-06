@@ -432,6 +432,32 @@ export default async function drive(page) {
     const presetLanded = Array.isArray(presetsFull) && presetsFull.some((p) => p && p.name === 'full pot');
     note('E: preset Save with the pot full', { landed: presetLanded, said: s2.dial });
     if (!presetLanded) check('E: a preset Save the full pot refused says so', /storage is full|could not be kept/i.test(s2.dial), true);
+    // A Save voice the full pot refuses says "save it again" — and the
+    // settings write the Save makes 250 ms later (the voice's tag), refused
+    // too, must not replace it with "move it again" (2026-11-06 review).
+    const padEdit = '.track-row[data-track="pad"] .voice-edit-toggle';
+    await pg.$eval(padEdit, (b) => b.scrollIntoView({ block: 'center' }));
+    await pg.click(padEdit);
+    await pg.waitForTimeout(500);
+    const voiceSaved = await pg.evaluate(() => {
+      const ed = document.getElementById('voice-editor-pad');
+      const name = ed?.querySelector('.ve-voice-name');
+      const btn = ed?.querySelector('.ve-save-voice');
+      if (!name || !btn) return false;
+      name.value = 'full pot voice';
+      btn.click();
+      return true;
+    });
+    check('E: Save voice was pressed', voiceSaved, true);
+    await pg.waitForTimeout(800);
+    const s3 = await said(pg);
+    const voicesFull = await stored(pg, 'ambi4:voices');
+    const voiceLanded = JSON.stringify(voicesFull ?? null).includes('full pot voice');
+    note('E: Save voice with the pot full', { landed: voiceLanded, said: s3.dial });
+    if (!voiceLanded) {
+      check('E: a Save voice the full pot refused says save it again', /save it again/i.test(s3.dial), true);
+      check('E: …and is not overwritten by the dial-move wording', /move it again/i.test(s3.dial), false);
+    }
     await clean(pg);
     await pg.selectOption('#root', 'D');
     await pg.waitForTimeout(500);

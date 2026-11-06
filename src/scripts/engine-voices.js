@@ -708,7 +708,12 @@ function createRig(ctx, destination, note) {
     // the same glide the pitch is taking. A slur is one continuous sound; its
     // amplitude should arrive the way its pitch does. Where the method is
     // missing, glide() has already refused the takeover (above).
-    const settle = Math.min(constant * 3, 0.03);
+    // Never past the note's own end (2026-11-06): a slurred note shorter than
+    // the ramp (a swung off-16th at 220 bpm is ~20 ms) put the ramp's end
+    // AFTER the release, so the ramp was the last event and the level stuck
+    // until the sources stopped — a held note ending in a hard cut
+    // (tests/onset-render.mjs, short slur: nine voices red).
+    const settle = Math.min(constant * 3, 0.03, sustainEnd - at);
     held.amp.cancelAndHoldAtTime(at);
     held.amp.linearRampToValueAtTime(held.level, at + settle);
     held.amp.setValueAtTime(held.level, sustainEnd);

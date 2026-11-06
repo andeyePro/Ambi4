@@ -1250,6 +1250,13 @@ space, so users sculpt real-world impressions themselves:
   the return HAS (its own rise, computed exactly) one render quantum after a
   cancelAndHold, so nothing steps. tests/reverb-swap-render.mjs renders it
   through real convolvers against the v0.0.293 schedule (two linear 0.5 s ramps).
+  Without cancelAndHoldAtTime (Firefox) the RISE is the same sine drawn as
+  linear ramps through the same 64 points: Firefox cannot cancel a value curve
+  once it has started (from any time), every event inside one throws, and a
+  second swap inside the half-second fade-in used to throw after the new tail
+  was wired, leaving it on for the visit (v0.0.297). tests/reverb-swap-timeline.mjs
+  models both browsers' timeline rules; tests/firefox-drive.mjs counts the
+  convolvers still wired in a real Firefox.
 - harmony.rhythm: 'auto' | 'section' | 1..16 bars-per-chord (hook pass length
   adapts). v0.0.77 widened this from the Auto/1/2/4/8 whitelist: 3, 5, 6 and 12
   bars are ordinary chord lengths that the whitelist had no room for, and a

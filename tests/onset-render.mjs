@@ -256,6 +256,45 @@ const PROBE = async (moduleUrl, targets) => {
         slur = { error: String(err && err.message ? err.message : err) };
       }
 
+      // A SHORT slurred note (2026-11-06 audit): glide() re-holds the level
+      // with a ramp over min(3 x its time constant, 30 ms), then holds to the
+      // note's end and releases. A note shorter than that ramp (a swung
+      // off-16th at 220 bpm is ~20 ms) put the ramp's END after the release,
+      // so the ramp was the last event and the level stuck there until the
+      // sources stopped — a held note ending in a hard cut. Rendered twice,
+      // 21 ms and 40 ms long; the tail after each note's end must decay the
+      // same way, not sit at the held level.
+      let shortSlur = null;
+      try {
+        const tailOf = async (dur) => {
+          const c = new OfflineAudioContext(1, SR * 3, SR);
+          const b = c.createGain();
+          b.gain.value = 1;
+          b.connect(c.destination);
+          const h1 = voice.play(c, b, { when: 0.25, freq: 110, midi: 45, velocity: 0.9, duration: 0.2 }, null);
+          const h2 = voice.play(c, b, { when: 0.37, freq: 146.83, midi: 50, velocity: 0.9, duration: dur,
+            legatoFrom: { freq: 110, handle: h1, glide: 0.12 } }, null);
+          const took = !!(h2 && h2.legato === true);
+          const d = (await c.startRendering()).getChannelData(0);
+          const rms = (a, z) => {
+            let sum = 0; const i0 = Math.round(a * SR), i1 = Math.round(z * SR);
+            for (let i = i0; i < i1; i++) sum += d[i] * d[i];
+            return Math.sqrt(sum / Math.max(1, i1 - i0));
+          };
+          const end = 0.37 + dur;
+          return { took, tail: rms(end + 0.08, end + 0.3), body: rms(0.30, 0.36) };
+        };
+        const short = await tailOf(0.021);
+        const long = await tailOf(0.04);
+        shortSlur = {
+          took: [short.took, long.took],
+          shortTail: short.tail, longTail: long.tail, body: short.body,
+          ratio: long.tail > 0 ? +(short.tail / long.tail).toFixed(2) : null,
+        };
+      } catch (err) {
+        shortSlur = { error: String(err && err.message ? err.message : err) };
+      }
+
       out.push({
         track,
         id,
@@ -277,6 +316,7 @@ const PROBE = async (moduleUrl, targets) => {
         fastLine: fast,
         cancelCut: cut,
         slurChain: slur,
+        shortSlur,
       });
     } catch (err) {
       out.push({ track, id, error: String(err && err.message ? err.message : err) });
@@ -485,6 +525,17 @@ export default async function drive(page) {
     claim(`${label} slur handover 3`, row.slurChain?.handoverJump3,
       row.slurChain?.handoverSteepness3, row.slurChain?.bodySteepness, row.slurChain?.spikes3,
       row.slurChain?.recurs3);
+  }
+  // The short slur's tail: a stuck level shows as a 21 ms note whose tail is
+  // several times louder than a 40 ms one's (both take over the same note).
+  for (const row of rows) {
+    const ss = row.shortSlur;
+    if (!ss || ss.error || !ss.took?.[0] || !ss.took?.[1]) continue;
+    if (!(ss.body > 1e-4)) continue;
+    if (ss.ratio !== null && ss.ratio > 1.5 && ss.shortTail > ss.body * 0.05) {
+      problems.push(`${row.track}/${row.id} short slur: a 21 ms slurred note's tail is ${ss.ratio}x a 40 ms one's `
+        + `(${ss.shortTail.toFixed(4)} vs ${ss.longTail.toFixed(4)}, body ${ss.body.toFixed(4)}) — the level stuck past the note`);
+    }
   }
   if (problems.length) {
     throw new Error('onset-render: ' + problems.length + ' click(s)\n  ' + problems.join('\n  '));

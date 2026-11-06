@@ -5284,10 +5284,29 @@ export function scheduleReverbSwap(previousGain, nextGain, { time, sampleRate = 
   fall[n - 1] = 0;
   const quantum = 128 / sampleRate;
   nextGain.setValueAtTime(0, time);
-  nextGain.setValueCurveAtTime(rise, time + quantum, inSeconds);
+  if (typeof nextGain.cancelAndHoldAtTime === 'function') {
+    nextGain.setValueCurveAtTime(rise, time + quantum, inSeconds);
+  } else {
+    // Firefox (2026-11-06): it has no cancelAndHoldAtTime, AND it cannot
+    // cancel a value curve once the curve has started — cancelScheduledValues
+    // leaves it, from any time, and every event inside it then throws
+    // ("Can't add events during a curve event"; measured in Firefox 132 by
+    // tests/firefox-drive.mjs). The next swap must re-hold this return
+    // mid-rise, so here the rise is the same sine drawn as linear ramps
+    // through the same points, which a cancel does remove. The outgoing FALL
+    // stays a curve: nothing schedules on a retiring return again.
+    for (let i = 1; i < n; i++) nextGain.linearRampToValueAtTime(rise[i], time + quantum + (inSeconds * i) / (n - 1));
+  }
   if (typeof previousGain.cancelAndHoldAtTime === 'function') {
     previousGain.cancelAndHoldAtTime(time);
   } else {
+    // Without cancelAndHoldAtTime the outgoing return's rise is ramps (above),
+    // so a swap landing mid-rise cancels the ramps still to come and holds
+    // the value the rise HAS (outFrom). `time` is now, so nothing is heard
+    // between the cancel and the hold. Before v0.0.297 the rise here was a
+    // curve, the hold landed inside it and threw, after the new tail was
+    // wired and before anything could retire it: a second reverb for the
+    // rest of the visit.
     previousGain.cancelScheduledValues(time);
     previousGain.setValueAtTime(outFrom, time);
   }
@@ -5778,6 +5797,11 @@ export function createEngine(initialParams, options = {}) {
   // Graceful ending state
   let finishRequest = null;    // { promise, resolve, fadeSeconds } while finishing
   let outroStarted = false;    // the closing bar has begun and the fade is running
+  // The last exponential ramp written to the output gain ({t0, v0, t1, v1}),
+  // or null when something else (a pause's or a resume's target decay) wrote
+  // it since. beginOutro's Firefox fallback reads the ramp's own value at the
+  // closing bar from it (2026-11-06 audit) — see outputRampAt.
+  let outputRamp = null;
   let outroScheduled = false;  // the closing bar is fully scheduled: stop generating
   let finishDeadline = 0;      // ctx time at which the outro is silent
   let finishTimer = null;
@@ -7332,9 +7356,12 @@ export function createEngine(initialParams, options = {}) {
     // fade cancelled it and ramped back up, so the suspend cut a sounding
     // mix after all. resume() brings the level back.
     if (!outroStarted && !paused) {
+      const v0 = Math.max(graph.output.gain.value, SILENCE);
+      const v1 = isRunning ? target : SILENCE;
       graph.output.gain.cancelScheduledValues(now);
-      graph.output.gain.setValueAtTime(Math.max(graph.output.gain.value, SILENCE), now);
-      graph.output.gain.exponentialRampToValueAtTime(isRunning ? target : SILENCE, now + rampSeconds);
+      graph.output.gain.setValueAtTime(v0, now);
+      graph.output.gain.exponentialRampToValueAtTime(v1, now + rampSeconds);
+      outputRamp = { t0: now, v0, t1: now + rampSeconds, v1 };
     }
 
     applyTracks(rampSeconds);
@@ -8173,9 +8200,11 @@ export function createEngine(initialParams, options = {}) {
     chain.input.gain.setTargetAtTime(Math.max(liveGain(name), SILENCE), at, LIVE_OPEN);
     if (isRunning || outroStarted) return;
     const target = Math.max(params.volume, SILENCE);
+    const v0 = Math.max(graph.output.gain.value, SILENCE);
     graph.output.gain.cancelScheduledValues(at);
-    graph.output.gain.setValueAtTime(Math.max(graph.output.gain.value, SILENCE), at);
+    graph.output.gain.setValueAtTime(v0, at);
     graph.output.gain.exponentialRampToValueAtTime(target, at + LIVE_OPEN * 4);
+    outputRamp = { t0: at, v0, t1: at + LIVE_OPEN * 4, v1: target };
   }
 
   /** Let go of one held key: fade its note, drop it from the polyphony ledger. */
@@ -11259,6 +11288,14 @@ export function createEngine(initialParams, options = {}) {
     resolve();
   }
 
+  /** An exponential ramp's value at `time` (both ends clear of zero). */
+  function outputRampAt(ramp, time) {
+    const x = (time - ramp.t0) / (ramp.t1 - ramp.t0);
+    if (!(x > 0)) return ramp.v0;
+    if (x >= 1) return ramp.v1;
+    return ramp.v0 * Math.pow(ramp.v1 / ramp.v0, x);
+  }
+
   /** Start the master fade as the closing bar begins, and arm its completion. */
   function beginOutro(time) {
     outroStarted = true;
@@ -11272,8 +11309,19 @@ export function createEngine(initialParams, options = {}) {
     if (typeof gain.cancelAndHoldAtTime === 'function') {
       gain.cancelAndHoldAtTime(time);
     } else {
+      // Firefox (2026-11-06 audit): the ramp the volume walk wrote is known,
+      // so its value AT `time` is too. A ramp still running then is
+      // re-ended there — the same exponential over [t0, time], so nothing
+      // moves before the closing bar — and a finished one is held at its end
+      // value. Only a level some other writer set (a resume's decay) falls
+      // back to the value read now.
+      const ramp = outputRamp;
       gain.cancelScheduledValues(time);
-      gain.setValueAtTime(Math.max(gain.value, SILENCE), time);
+      if (ramp && ramp.t0 <= time && time < ramp.t1) {
+        gain.exponentialRampToValueAtTime(outputRampAt(ramp, time), time);
+      } else {
+        gain.setValueAtTime(ramp && ramp.t1 <= time ? ramp.v1 : Math.max(gain.value, SILENCE), time);
+      }
     }
     // 2026-10-30 (live click audit, tests/live-click-drive.mjs): NOT an
     // exponentialRampToValueAtTime. A ramp is measured from the PREVIOUS
@@ -11542,6 +11590,7 @@ export function createEngine(initialParams, options = {}) {
         const now = ctx.currentTime;
         holdParam(graph.output.gain, now);
         graph.output.gain.setTargetAtTime(Math.max(params.volume, SILENCE), now, PAUSE_FADE / 4);
+        outputRamp = null;
       }
       if (isRunning) {
         startScheduler();
@@ -11593,6 +11642,7 @@ export function createEngine(initialParams, options = {}) {
       const now = ctx.currentTime;
       holdParam(graph.output.gain, now);
       graph.output.gain.setTargetAtTime(SILENCE, now, PAUSE_FADE / 6);
+      outputRamp = null;
       cancelPauseSuspend();
       pauseTimer = setTimeout(suspendNow, PAUSE_FADE * 1000 + 20);
     } else {

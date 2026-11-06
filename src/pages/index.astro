@@ -4315,7 +4315,12 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (kept) {
             if (key === 'generator') storeRefusedSaid = false;
           } else if (key !== 'presets' && storeUserActed && (key !== 'generator' || !storeRefusedSaid)) {
-            if (key === 'generator') storeRefusedSaid = true;
+            // A refused Save (voice, genre, layout) also quiets the settings
+            // notice: the Save's own write to the settings (a voice's tag)
+            // lands 250 ms later, is refused too, and used to replace "save
+            // it again" with "move it again" — after a Save, with nothing
+            // moved (2026-11-06 review).
+            if (key === 'generator' || key === 'voices' || key === 'genres' || key === 'layout') storeRefusedSaid = true;
             if (onStoreRefused) onStoreRefused(key);
           }
           return kept;
@@ -7687,38 +7692,49 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         renderChordChips();
         try { refreshHookRule(); } catch {}
         if (!progressionRow) return;
-        // v0.0.290: the rebuild replaces the box and its button, so a commit
-        // by Enter (or Enter on Let the app choose) left focus on <body> and
-        // the next letters typed were the page's shortcuts (a "1" loaded
-        // favourite 1; keyboard-only-drive). Focus that was in the row comes
-        // back to the new box — the button may now be disabled.
-        const hadFocus = progressionRow.contains(document.activeElement);
-        progressionRow.innerHTML = '';
-        const text = progressionText();
-        const field = document.createElement('input');
-        field.type = 'text';
-        field.className = 'progression-input';
-        field.value = text;
-        field.placeholder = 'the app is choosing';
-        field.setAttribute('aria-labelledby', 'progression-label');
-        field.setAttribute('spellcheck', 'false');
-        field.addEventListener('change', () => commitProgression(field.value));
-        field.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter') { event.preventDefault(); commitProgression(field.value); }
-          // Escape puts the playing loop back and STAYS in the box (it used
-          // to blur, which drops a keyboard user's focus to the page).
-          if (event.key === 'Escape') { event.preventDefault(); field.value = progressionText(); field.select(); }
-        });
-        progressionRow.append(field);
+        // 2026-11-06: the box and its button are built ONCE and updated in
+        // place. Rebuilding them on every commit (v0.0.290 and before) lost
+        // the gesture that caused the commit: the box commits on `change`,
+        // which fires as focus LEAVES it, so a click on Let the app choose
+        // after typing destroyed that very button between its mousedown and
+        // its click (the click did nothing), and Tab out of the box landed
+        // on <body> — the button it was moving to was gone.
+        let field = progressionRow.querySelector('.progression-input');
+        let clear = progressionRow.querySelector('.progression-clear');
+        if (!field || !clear) {
+          progressionRow.innerHTML = '';
+          field = document.createElement('input');
+          field.type = 'text';
+          field.className = 'progression-input';
+          field.placeholder = 'the app is choosing';
+          field.setAttribute('aria-labelledby', 'progression-label');
+          field.setAttribute('spellcheck', 'false');
+          const box = field;
+          box.addEventListener('change', () => commitProgression(box.value));
+          box.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') { event.preventDefault(); commitProgression(box.value); }
+            // Escape puts the playing loop back and STAYS in the box (it used
+            // to blur, which drops a keyboard user's focus to the page).
+            if (event.key === 'Escape') { event.preventDefault(); box.value = progressionText(); box.select(); }
+          });
+          progressionRow.append(box);
 
-        const clear = document.createElement('button');
-        clear.type = 'button';
-        clear.className = 'secondary-button progression-clear';
-        clear.textContent = 'Let the app choose';
+          clear = document.createElement('button');
+          clear.type = 'button';
+          clear.className = 'secondary-button progression-clear';
+          clear.textContent = 'Let the app choose';
+          clear.addEventListener('click', () => commitProgression(''));
+          progressionRow.append(clear);
+        }
+        const text = progressionText();
+        // Written only when it differs: a rewrite while someone is typing
+        // would move their caret to the end.
+        if (field.value !== text) field.value = text;
+        // A focused button that becomes disabled drops focus to <body> (Enter
+        // on Let the app choose, v0.0.290's keyboard-only-drive red): hand it
+        // to the box instead.
+        if (!text && document.activeElement === clear) field.focus();
         clear.disabled = !text;
-        clear.addEventListener('click', () => commitProgression(''));
-        progressionRow.append(clear);
-        if (hadFocus) field.focus();
 
         if (progressionHint) {
           // Deliberately does NOT claim the loop is yours. A genre supplies one,

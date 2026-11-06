@@ -30,6 +30,14 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Review of v0.0.289–296, 2026-11-06 (read-only opus review)
+
+- [x] *(SHIPPED v0.0.297 — reverb-swap-timeline 6/20 red on v0.0.296)* Firefox: two Reverb tail changes inside the 0.5 s fade-in threw in scheduleReverbSwap's no-cancelAndHold fallback and left a second tail on for the visit.
+- [x] *(SHIPPED v0.0.297 — progression-drive 4 red on v0.0.296)* The chord loop box rebuilt itself on every commit: Let the app choose did nothing on the first click after typing; Tab/Enter left focus on the page. (The review's "unconfirmed suspicion" here, confirmed in Chromium and worse than suspected.)
+- [x] *(SHIPPED v0.0.297)* A refused Save voice/genre/layout had its "save it again" replaced 250 ms later by the settings notice's "move it again".
+- [x] *(SHIPPED v0.0.297 — audit of every AudioParam automation, 2026-11-06)* glide() on a slurred note shorter than its 30 ms level ramp held the level past the note (onset-render short slur, 9 voices red); Firefox's outro hold stepped twice under a ranged Volume (engine-smoke case red). Audit found no other throw, no unguarded cancelAndHoldAtTime, no exponential ramp to zero.
+- [x] *(SHIPPED v0.0.297)* **tests/firefox-drive.mjs** — the first Firefox run of the app (Playwright Firefox 132 on the test Mac). Covers desktop only: Playwright cannot emulate Firefox for Android.
+
 ## Browser sweep, 2026-10-30 (fifteen area agents in headless Chromium and WebKit plus a read-only review; 22 fixed in v0.0.285, 5 in v0.0.286, 11 in v0.0.287)
 
 - [ ] **Add track accepts a name already in use** (built-in or own); the engine suffixes the id and two rows share a label. fromClaude 33. Built default: refuse and say so, pending.
@@ -141,7 +149,7 @@ Shipped from it: fixes 1 (v0.0.208), 2–4 and 14 (v0.0.207), 6–7 (v0.0.209), 
 - [x] *(SHIPPED v0.0.219)* **"Rules show" where it acts** — mirrored in each voice editor head (fix 17).
 - [x] *(SHIPPED v0.0.232)* **Advanced collapses to its Now** — Sound / Music / Presets sections, each a heading with "more" (fix 18). Not measured: the layout on the bridge (no SSH) and the six updated drives.
 - [ ] **Genre rules on the rule primitive** — each of the 11 sections collapsed to its summary line with "more" (fix 20). Waits on fromClaude 24 (live versus Apply).
-- [ ] **Phone: the voice editor head is 297 px tall** (v0.0.210 measurement; 149 on desktop) — tidy, no overlap, but tall; look again once the head's remaining contents settle.
+- [ ] **Phone: the voice editor head is 297 px tall** (v0.0.210 measurement; 149 on desktop) — tidy, no overlap, but tall; look again once the head's remaining contents settle. *(Re-measured v0.0.297 at 390×844: 308 px, 339 on melody; 151 on desktop. The cause is one wrap: the extras row — re-roll 28, Randomness 84, Poly/Mono 101, Glide 84 px plus gaps — needs ~310 px in a 290 px box, so Glide takes a 109 px row of its own. A narrower Poly/Mono or tighter gaps would bring it back to one row.)*
 
 ## Factory, edited and your own — owner brief 2026-10-03 (TOP of the queue, his placement)
 
