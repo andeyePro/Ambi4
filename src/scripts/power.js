@@ -340,7 +340,11 @@ export function createGovernor({ engine, onTierChange } = {}) {
     if (!sensing || destroyed) return;
     if (PRESSURE_BAD.has(pressureState) && !atFloor() && hysteresisOk()) {
       headroomStreak = 0;
-      stepTier(-1);
+      // A bad pressure reading is a sustained one: mark the tier this load
+      // could not hold, as decideTierStep does, or the raise walks straight
+      // back into it (2026-11-06 review: med/full every 10-60 s).
+      const failed = currentTier;
+      if (stepTier(-1)) noteFailedTier(failed);
     }
   }
 

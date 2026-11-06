@@ -12,6 +12,8 @@
  *  3. auto → pin → auto before getBattery() answered left a battery listener
  *     attached after destroy();
  *  4. the engine was sent maxNotes alone, which lifted its reverb cap.
+ * And one a review of that fix found (red on v0.0.311): a PressureObserver
+ * step-down did not mark the failed tier, so the tier see-sawed med/full.
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -24,6 +26,7 @@ const CASES = {
   "osc": "\nconst g = mk(); g.setTier('auto');\nadvance(30000, () => 15);\nconst mark = log.length;\nadvance(180000, () => (g.stats().tier === 'full' ? 45 : 15));\nconsole.log(JSON.stringify({ changes: log.slice(mark) }));\n",
   "hidden": "\nconst g = mk(); advance(40000, () => 16);\nconst before = g.stats().tier;\nsetHidden(true); advance(5 * 60000); engineMock.late += 1;\nconst mark = log.length;\nsetHidden(false); advance(60000, () => 16);\nconsole.log(JSON.stringify({ before, after: g.stats().tier, changes: log.slice(mark) }));\n",
   "battery": "\nconst g = mk(); g.setTier('low'); g.setTier('auto');\nbatteryResolvers.forEach((r) => r(battery)); await flush(); await flush();\ng.destroy();\nconsole.log(JSON.stringify({ listeners: battListeners.size }));\n",
+  "pressure": "\nconst g = mk(); g.setTier('auto'); await flush();\nadvance(20000, () => 15);\nconst mark = log.length;\nlet sent = null;\nfor (let i = 0; i < 180; i++) { const want = g.stats().tier === 'full' ? 'serious' : 'nominal'; if (pressureCb && want !== sent) { sent = want; pressureCb([{ state: want }]); } advance(1000, () => 15); }\nconsole.log(JSON.stringify({ observed: !!pressureCb, changes: log.slice(mark) }));\n",
   "budget": "\nconst g = mk(); g.setTier('low');\nconst last = engineMock.budgets[engineMock.budgets.length - 1] || {};\nconsole.log(JSON.stringify({ reverbSeconds: last.reverbSeconds ?? null, maxNotes: last.maxNotes ?? null }));\ng.destroy();\n"
 };
 const run = (name) => {
@@ -36,6 +39,15 @@ const tests = [
   ['a tier the load drove out of is not raised straight back into (the flips die away)', () => {
     const { changes } = run('osc');
     assert.ok(changes.length <= 4, `the tier changed ${changes.length} times in three minutes: ${changes.join(' ')}`);
+  }],
+  ['a PressureObserver step-down marks the failed tier too (no med/full see-saw)', () => {
+    // 2026-11-06 review: maybeReactToPressure stepped down without noting the
+    // tier, so the raise walked straight back into it (30s med, 40s full,
+    // 50s med, 110s full, 120s med …).
+    const r = run('pressure');
+    assert.ok(r.observed, 'the governor never attached a PressureObserver — the case was not reached');
+    assert.ok(r.changes.length >= 1, 'the pressure never stepped the tier down — the case was not reached');
+    assert.ok(r.changes.length <= 3, `the tier changed ${r.changes.length} times in three minutes: ${r.changes.join(' ')}`);
   }],
   ['lateness counted while the tab was hidden does not step the tier down on return', () => {
     const r = run('hidden');
