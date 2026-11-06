@@ -547,6 +547,28 @@ export default async function drive(harnessPage) {
         }
       }
 
+      // ---- a press inside a popover keeps focus there (2026-11-06) -----------
+      // Safari does not focus a button on a click, so a press inside the
+      // Timers popover left focus on <body> and Escape no longer closed it
+      // (the popover's keydown listener heard nothing). Pressed the way each
+      // context presses: the mouse on the desktop, a finger on the phone.
+      if (await pressSel('#timers-toggle')) {
+        await page.waitForTimeout(300);
+        const preset = await boxOf(page, '.sleep-preset[data-minutes="15"]');
+        if (preset) {
+          await press(preset);
+          await page.waitForTimeout(300);
+          const inside = await page.evaluate(() => { const p = document.getElementById('timers-popover') || document.querySelector('#sleep-custom')?.closest('.popover'); return { open: !!p && !p.hidden, focusInside: !!p && p.contains(document.activeElement) }; });
+          check(`${P} after a press on a Timers preset, focus is still inside the popover`, inside, { open: true, focusInside: true });
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
+          check(`${P} …so Escape closes it`, await page.evaluate(() => { const p = document.getElementById('timers-popover') || document.querySelector('#sleep-custom')?.closest('.popover'); return !!p && p.hidden; }), true);
+          await page.evaluate(() => document.getElementById('sleep-cancel')?.click());
+        } else {
+          check(`${P} the Timers popover has a 15 min preset`, false, true);
+        }
+      }
+
       // ---- localStorage persistence across a reload --------------------------
       await pressSel('#tab-advanced');
       await page.waitForTimeout(300);

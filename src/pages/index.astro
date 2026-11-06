@@ -22941,6 +22941,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           }
         });
 
+        // 2026-11-06 (the drives in WebKit): Safari does not focus a button
+        // on a click, so a press inside the popover left focus outside it —
+        // on <body> — and the keydown listener above heard nothing: Escape no
+        // longer closed the Timers popover after a preset was pressed, and
+        // Tab walked the page instead of the dialog. After any click inside,
+        // focus that is not inside comes back to what was pressed (or, if the
+        // press hid it, to the first control). A no-op where the browser
+        // already focused it.
+        popover.addEventListener('click', (event) => {
+          queueMicrotask(() => {
+            if (popover.hidden || popover.contains(document.activeElement)) return;
+            const pressed = event.target instanceof Element
+              ? event.target.closest('button, input, select, textarea, a[href], [tabindex]')
+              : null;
+            if (!pressed) return; // a press on text is not a move into a control
+            const visible = (el) => !!el && popover.contains(el) && !el.closest('[hidden]') && !el.disabled && el.getClientRects().length > 0;
+            const target = visible(pressed) ? pressed : focusables().find(visible);
+            (target || popover).focus({ preventScroll: true });
+          });
+        });
+
         document.addEventListener('pointerdown', (event) => {
           if (popover.hidden) return;
           // AUDIT FIX: `anchor.contains` was too generous where two popovers

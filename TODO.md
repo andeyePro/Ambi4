@@ -30,6 +30,11 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## The drives in WebKit, 2026-11-06 (24 drives re-hosted in Playwright WebKit)
+
+- [x] *(SHIPPED v0.0.302 — webkit-drive 4 red on v0.0.301)* Safari does not focus a clicked button: a press inside a popover left focus on the page, so Escape stopped closing the Timers popover. setupPopover refocuses after a click inside.
+- Expected, not faults: progression-drive's Tab checks fail in WebKit because Safari's plain Tab skips buttons (keyboard-only-drive uses Option+Tab there). transport2's lock-screen checks need navigator.mediaSession, which Playwright's WebKit build may not carry — check on a real iPhone (docs/TESTING.md has the manual step).
+
 ## The drives in Firefox, 2026-11-06 (23 drives re-hosted in Playwright Firefox 132; keyboard-only-drive now runs all three engines)
 
 - [x] *(SHIPPED v0.0.301 — power-smoke red on v0.0.300)* No `navigator.deviceMemory` in Firefox or Safari counted as 4 GB, so every visit there started at Low for ~16 s. The cores decide alone now.
