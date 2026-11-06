@@ -6254,16 +6254,16 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         'Auto — the piece picks its own shape, and re-picks it when you move Energy or Complexity.',
         'Drone — one continuous stretch. Nothing arrives, nothing leaves.',
         'Waves — long swells up and back down again.',
-        'Build — starts sparse and adds layers as it goes.',
+        'Build — starts sparse and adds layers over 32 bars, eases off, then builds again.',
         'ABAB — two moods alternating, so each one returns.',
-        'Journey — a longer arc that does not repeat itself.',
+        'Journey — a longer arc, six sections over 48 bars, that goes further before it comes round again.',
         'Custom — your own blocks, below: how many bars each lasts and how busy it is. They loop in order, forever.',
       ].join('\n');
 
       const SHARE_NAME_INFO = [
         'Every share link has its own three words, so you can say which link you mean out loud. It is a nickname the link works out for itself \u2014 not a web address, and not reserved to you.',
         '',
-        'A preset can be called anything you like. The three words are separate: they are worked out from the settings themselves, so anyone who types them gets exactly this piece with no account and nothing stored on a server.',
+        'A preset can be called anything you like. The three words are separate: they are worked out from the settings in the link itself, so whoever you send it to sees the same three words, with no account and nothing stored on a server. They name the link; typing them does not open the piece \u2014 the link does.',
         '',
         'That means two things worth knowing. Renaming a preset does not change the words. Changing any setting does — even slightly — so the words you say out loud are the words for the piece as it was when you read them.',
       ].join('\n');
@@ -6733,7 +6733,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         if (spreadTaught || !isPlainObject(value)) return;
         spreadTaught = true;
         sayUnderDials(
-          'Dragging sideways gives that dial a range to drift between. Drag back the other way to settle it on one value, or tap the middle to start again.',
+          'Dragging sideways gives that dial a range to drift between. Drag back the other way to settle it on one value, or double-click it to put it back to its default.',
           undefined,
           { hold: true }
         );
@@ -7290,11 +7290,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         '',
         'Chords are written as numbers of the scale, in roman numerals — the same way the built-in styles are written. I is the home chord, IV and V are the two it leans on most.',
         '',
-        'Small letters are minor, capitals are major: i is a minor home chord, I a major one. Add a 7 or a 9 for a wider, jazzier chord.',
+        'Every chord is the scale\u2019s own: whether it sounds major or minor comes from the scale, not from how you write it, so i and I are the same chord. A plain numeral is a step narrower than Complexity plays it, a 7 is as played, and a 9 a step wider.',
         '',
         'So "i VI III VII" is a common minor loop, and "I IV V IV" is about as ordinary as music gets.',
         '',
-        'Voicing, under the cards, is how the loop is played. Now is each chord\u2019s lowest note (root position or turned over once or twice) and how wide it is. Chance is how likely the loop is to change each time round, each section or once a piece: Hold keeps it exactly, Auto lets Repetition decide as it always has. Pool is the voicings a change may pick from; empty, the loop changes its own way.',
+        'Voicing, under the cards, is how the loop is played. Now is each chord\u2019s lowest note (root position or turned over once or twice) and how wide it is. Chance is how likely the loop is to change each time round, each section or once a piece: Hold keeps it exactly, Auto lets Reprise decide as it always has. Pool is the voicings a change may pick from; empty, the loop changes its own way.',
       ].join('\n');
 
       const PROGRESSION_MAX = 8;
@@ -8138,7 +8138,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         hookRuleHandle = handle;
         mountedRules.add(handle, handle.el);
         // Chance: Auto (follows Repetition) at the left detent, then Hold, then up to always.
-        const chanceHint = 'Chance: how likely the chord loop is to move at each When. Hold keeps the voicing for good \u2014 no chord changes, nothing comes back. At the left detent (Auto) it follows Repetition, as it always has. It holds one value rather than a range: it is already a chance, rolled afresh each time.';
+        const chanceHint = 'Chance: how likely the chord loop is to move at each When. Hold keeps the voicing for good \u2014 no chord changes, nothing comes back. At the left detent (Auto) it follows Reprise, as it always has. It holds one value rather than a range: it is already a chance, rolled afresh each time.';
         if (knobApi) {
           const cell = document.createElement('div');
           cell.className = 'vary-knob';
@@ -9052,7 +9052,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         own.type = 'button';
         own.className = 'secondary-button motif-pool-auto';
         own.textContent = "Engine's own mix";
-        describe(own, 'Hand the developments back to the engine: Repetition and Complexity decide the mix, as they did before you touched this.');
+        describe(own, 'Hand the developments back to the engine: Reprise and Complexity decide the mix, as they did before you touched this.');
         own.addEventListener('click', () => {
           const r = ensureMotifRule();
           r.pool = null;
@@ -9120,7 +9120,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             labelOf: (id) => MOTIF_OP_LABELS[id] || id,
             words: {
               empty: 'empty - the cell, stated plain every bar',
-              auto: "the engine's own mix - Repetition and Complexity decide",
+              auto: "the engine's own mix - Reprise and Complexity decide",
             },
             hint: 'What each bar of a phrase may do with the cell: repeat it, move it onto another chord tone, push it later in the bar, turn it upside down, or run it backwards. The first bar of a phrase always states it plain.',
             ids: { edit: 'motif-rule-pool' },
@@ -19230,7 +19230,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // v0.0.241: the ⓘ on the sections that still had none.
       {
         const slot = document.getElementById('processor-info');
-        if (slot) infoButton(slot, 'the Processor', 'How hard the generator may work. Eco, Low, Med and Full each cap how many notes can sound at once and how often the visuals redraw \u2014 the readout under the dial shows both, and Full has no note cap. Auto watches CPU pressure and frame times and picks a tier for you, showing the one it chose in brackets. A lower tier only trims what the engine is sent (the busiest tracks sit a little lower, the longest reverb tails are shortened); your own Level and Reverb tail settings are never overwritten, so raising the tier brings them back.');
+        if (slot) infoButton(slot, 'the Processor', 'How hard the generator may work. Eco, Low, Med and Full each cap how many notes can sound at once and how often the visuals redraw \u2014 the readout under the dial shows both, and Full has no note cap. Left across the whole dial (the readout says Auto), or dragged sideways to a narrower span, it watches CPU pressure and frame times and picks a tier inside that span, naming the one it chose in brackets; set one tier to pin it. A lower tier only trims what the engine is sent (the busiest tracks sit a little lower, the longest reverb tails are shortened); your own Level and Reverb tail settings are never overwritten, so raising the tier brings them back.');
       }
       {
         const slot = document.getElementById('sleep-timer-info');
@@ -21209,8 +21209,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         syncGenreRulesUI();
         sayUnderDials(
           'Re-drawn from your rules — same dice, so only what you changed, changes. '
-          + 'Your instruments and their dials are untouched: the rules decide what is played, '
-          + 'the voice editor decides how it sounds.'
+          + 'Your instruments and their dials are kept, apart from any Line-up rule you changed: '
+          + 'the rules decide what is played, the voice editor decides how it sounds.'
         );
       }
 
@@ -23096,7 +23096,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             infoButton(
               createInfo,
               'Create',
-              'Two doors. START: Blank slate silences and empties everything \u2014 instruments off, grids cleared, no genre, FX zeroed \u2014 so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing); start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. Help me start asks what you want to make and names what that genre\u2019s composers usually start with. Seed voices borrows a genre\u2019s instruments without playing a note. Strip a layer takes ONE layer away \u2014 voices back to stock, chords to one, melodic notes, the drum pattern, or the FX \u2014 and keeps the rest, so any preset or genre can be your starting material. WRITE: choose what to write and only that row opens. Melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). The texture has no grid until you write one: a line written onto it gives it one, and it plays your notes instead of drifting. Chords takes roman numerals typed straight in (I vi IV V) \u2014 Write it makes them the chord loop and switches the pad on \u2014 and Chord editor opens the editor; once an instrument carries a tune \u2014 typed, sung, imported or drawn \u2014 Fit chords to the tune appears beside it and writes the chord loop that fits, notes on the beat deciding each bar\u2019s chord and notes between passing. The other way round, Write a tune over these chords writes a melody over whatever chord loop is set \u2014 typed, edited or a genre\u2019s \u2014 onto the instrument you pick, in its own register: chord tones on the beats, a step at a time between them, rising and falling over each four-bar phrase, ending on the home note when the last chord holds it, as busy as Complexity says. Press it again for another tune over the same chords; every note is an ordinary step you can drag. Beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, the pitches from your chords. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. Tap a rhythm turns Space into a drum and writes your taps into the grid of the kit you pick \u2014 the built-in one or one of your own; the raw timing is kept, so once there is a take Re-fit the last take appears and lands the same performance on a new time signature or tempo. MIDI file brings in a phrase composed elsewhere. The panel remembers your last Write choice.'
+              'Two doors. START: Blank slate silences and empties everything \u2014 instruments off, grids cleared, no genre, FX zeroed \u2014 so what follows is entirely yours (a step you tap on a silent instrument switches it on, and a line, a beat or words you type start the piece if nothing is playing); start from Blank slate or from a zero-AI preset to be eligible for a zero-AI badge. Help me start asks what you want to make and names what that genre\u2019s composers usually start with. Voices from\u2026 borrows a genre\u2019s instruments without playing a note. Strip a layer takes ONE layer away \u2014 voices back to stock, chords to one, melodic notes, the drum pattern, or the FX \u2014 and keeps the rest, so any preset or genre can be your starting material. WRITE: choose what to write and only that row opens. Melody writes note names straight onto any tuned instrument\u2019s grid \u2014 each plays exactly the note you name (C4 E4 G4, dash holds, dot rests). The texture has no grid until you write one: a line written onto it gives it one, and it plays your notes instead of drifting. Chords takes roman numerals typed straight in (I vi IV V) \u2014 Write it makes them the chord loop and switches the pad on \u2014 and Chord editor opens the editor; once an instrument carries a tune \u2014 typed, sung, imported or drawn \u2014 Fit chords to the tune appears beside it and writes the chord loop that fits, notes on the beat deciding each bar\u2019s chord and notes between passing. The other way round, Write a tune over these chords writes a melody over whatever chord loop is set \u2014 typed, edited or a genre\u2019s \u2014 onto the instrument you pick, in its own register: chord tones on the beats, a step at a time between them, rising and falling over each four-bar phrase, ending on the home note when the last chord holds it, as busy as Complexity says. Press it again for another tune over the same chords; every note is an ordinary step you can drag. Beat writes drums onto the kit grid, one token per step (K kick, S snare, H hat, two letters together for both at once, . a rest, | a bar break; CAPITALS hit hard and lower case is a ghost note). Words \u2014 lyrics, a line at a time, like a poem \u2014 and the app reads the METRE out of them and writes a melody on whichever instrument you point it at: one note per syllable, the stressed syllables on the beat, the pitches from your chords. English stress is guessed at, not looked up, so it is sometimes wrong \u2014 every note it writes is an ordinary step you can drag. Tap a rhythm turns Space into a drum and writes your taps into the grid of the kit you pick \u2014 the built-in one or one of your own; the raw timing is kept, so once there is a take Re-fit the last take appears and lands the same performance on a new time signature or tempo. MIDI file brings in a phrase composed elsewhere. The panel remembers your last Write choice.'
             );
           }
           const followInfo = document.getElementById('follow-chords-info');
@@ -24185,7 +24185,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           if (!seed || !seed.length || kept !== asked) {
             if (guidedTip) {
               const size = currentScale() ? currentScale().length : 7;
-              guidedTip.textContent = `Those chords were not written — write roman numerals I to ${['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][size] || 'VII'} (this scale has ${size}), lower case for minor, 7 or 9 for colour.`;
+              guidedTip.textContent = `Those chords were not written — write roman numerals I to ${['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][size] || 'VII'} (this scale has ${size}); major or minor comes from the scale, 7 or 9 for colour.`;
             }
             return;
           }

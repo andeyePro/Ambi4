@@ -67,6 +67,15 @@ const RETIRED = [
   { re: /\bTap the centre for the middle\b/i, retired: 'v0.0.298', now: 'Double-click for the middle (no hub on a dial that cannot spread)' },
   { re: /\bfourth partial, two octaves up\b|\bfifth partial, two octaves and a third\b|\bsixth partial, two octaves and a fifth\b/i, retired: 'v0.0.298', now: 'the Nth partial this voice is built from' },
   { re: /\bLEFT AND RIGHT to give it a range to drift between, or\b/, retired: 'v0.0.298', now: '…(all but Tempo, which holds one steady speed here)' },
+  // v0.0.299 (ⓘ and under-dial audit): more words false about controls still there.
+  { re: /\bcapitals are major\b|\blower case for minor\b/i, retired: 'v0.0.299', now: 'major or minor comes from the scale; case is ignored' },
+  { re: /\banyone who types them gets exactly this piece\b/i, retired: 'v0.0.299', now: 'the three words name the link; the link opens the piece' },
+  { re: /\btap the middle to start again\b/i, retired: 'v0.0.299', now: 'double-click it to put it back to its default (a hub tap goes to the floor)' },
+  { re: /\ba longer arc that does not repeat itself\b/i, retired: 'v0.0.299', now: 'six sections over 48 bars, then round again' },
+  { re: /\b(?:lets|follows) Repetition\b|\bRepetition and Complexity decide\b/, retired: 'v0.0.299', now: 'Reprise (the dial\'s label)' },
+  { re: /\bYour instruments and their dials are untouched\b/, retired: 'v0.0.299', now: 'kept, apart from any Line-up rule you changed' },
+  { re: /\bSeed voices borrows\b/, retired: 'v0.0.299', now: 'Voices from… (the control\'s label)' },
+  { re: /\bAuto watches CPU pressure and frame times and picks a tier for you\b/, retired: 'v0.0.299', now: 'the whole span (Auto) or a narrower one, picked inside' },
   { re: /\bSurprise me, last in the list\b/, retired: 'v0.0.298', now: "under More, every genre you have not hidden" },
 ];
 
