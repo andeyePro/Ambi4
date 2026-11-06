@@ -21433,7 +21433,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         }
         // Two of your own under one name were two identical entries in the
         // picker (2026-11-06 hunt); presets already refuse a repeated name.
-        if (USER_GENRES.some((g) => String(g.name || '').toLowerCase() === name.toLowerCase())) {
+        // A genre a link brought (transient) is not one of your own yet: saving
+        // it under its own name is what replaces it, below (2026-11-06 review).
+        if (USER_GENRES.some((g) => !(g.transient && g.slug === genre.slug)
+          && String(g.name || '').toLowerCase() === name.toLowerCase())) {
           say(`You already have a genre called "${name}" — choose another name, or forget that one first.`);
           nameInput?.focus();
           return;
@@ -23704,8 +23707,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             return;
           }
           if (!parsed.notes.length) {
-            say(parsed.skipped && parsed.skipped.length
-              ? `That file could not be read: ${parsed.skipped.join('; ')}.`
+            // Only a TRACK the reader lost (cut short, bad bytes) makes the
+            // file unreadable; a vendor chunk it stepped over (XFIH, …) is
+            // harmless, and a file with nothing else has no notes
+            // (2026-11-06 review). midi-file.js names a lost track 'track N (…)'.
+            const lostTracks = (parsed.skipped || []).filter((entry) => /^track \d/.test(entry));
+            say(lostTracks.length
+              ? `That file could not be read: ${lostTracks.join('; ')}.`
               : 'That file has no notes in it.');
             return;
           }
