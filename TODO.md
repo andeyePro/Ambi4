@@ -45,6 +45,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] *(DONE 2026-11-06)* **tests/sweep-engines.sh** — the re-hosting is a tracked script now: `tests/sweep-engines.sh firefox|webkit [drive …]`, 21 drives green in both engines by default.
 
 - [x] *(SHIPPED v0.0.302 — webkit-drive 4 red on v0.0.301)* Safari does not focus a clicked button: a press inside a popover left focus on the page, so Escape stopped closing the Timers popover. setupPopover refocuses after a click inside.
+- [ ] **Selects in desktop Safari are 22–23 px tall** (layout-states-drive's tap-target check, WebKit at 390 px): Safari's native select ignores author padding and min-height, so the genre picker's 44 px minimum and every voice picker's 32 px become 23 px. Only `appearance: none` with a drawn chevron would honour them — a visual change in every browser, so a design call. (Playwright's WebKit renders the macOS control even with an iPhone user agent; a real iPhone's selects may differ — check on the device.)
 - Expected, not faults: progression-drive's Tab checks fail in WebKit because Safari's plain Tab skips buttons (keyboard-only-drive uses Option+Tab there). transport2's lock-screen checks need navigator.mediaSession, which Playwright's WebKit build may not carry — check on a real iPhone (docs/TESTING.md has the manual step).
 
 ## The drives in Firefox, 2026-11-06 (23 drives re-hosted in Playwright Firefox 132; keyboard-only-drive now runs all three engines)
