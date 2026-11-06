@@ -13307,6 +13307,13 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       function teardownEditor(track) {
         const mic = micTakes.get(track);
         if (mic) mic.drop();
+        // Every static trace in the editor lets go of its resize observer.
+        try {
+          const box = document.getElementById(`voice-editor-${track}`);
+          if (box && scopeApi && typeof scopeApi.releasePatchWave === 'function') {
+            for (const c of box.querySelectorAll('canvas')) scopeApi.releasePatchWave(c);
+          }
+        } catch {}
         const ed = openEditors.get(track);
         if (!ed) return;
         unregisterExtras(track, ed.extras);

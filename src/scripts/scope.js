@@ -1018,6 +1018,20 @@ async function pumpJobs(canvas, job) {
   job.busy = false;
 }
 
+/**
+ * Let go of a static trace's canvas: its resize observer and its job. The
+ * editor calls this on teardown (2026-11-06: an observer was released only
+ * when a resize reached a detached canvas, and a canvas hidden before it was
+ * detached never reported one — churn-drive counted one observation left
+ * behind per editor opened).
+ */
+export function releasePatchWave(canvas) {
+  const job = canvas ? patchJobs.get(canvas) : null;
+  if (!job) return;
+  try { job.ro && job.ro.disconnect && job.ro.disconnect(); } catch { /* gone already */ }
+  patchJobs.delete(canvas);
+}
+
 export function renderPatchWave(canvas, patch, opts) {
   if (!canvas || typeof canvas.getContext !== 'function') return Promise.resolve();
   let job = patchJobs.get(canvas);
