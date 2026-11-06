@@ -191,6 +191,15 @@ const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 const REDUCED_MOTION_FPS = 2;
 const REDUCED_MOTION_INTERVAL_MS = 1000 / REDUCED_MOTION_FPS;
 let reducedMotionMedia; // undefined until first asked; null where matchMedia is missing
+// The Processor tier's visual frame rate (power.js visualFps), shared by every
+// scope on the page (2026-11-06 hunt: the scope ran at 30 fps whatever the
+// tier asked — Low asks 24). Never above TARGET_FPS; reduced motion still wins.
+let tierFps = TARGET_FPS;
+export function setScopeFps(fps) {
+  const n = Number(fps);
+  tierFps = Number.isFinite(n) && n > 0 ? Math.min(TARGET_FPS, Math.max(1, n)) : TARGET_FPS;
+  return tierFps;
+}
 function frameIntervalMs() {
   if (reducedMotionMedia === undefined) {
     try {
@@ -201,7 +210,9 @@ function frameIntervalMs() {
       reducedMotionMedia = null;
     }
   }
-  return reducedMotionMedia && reducedMotionMedia.matches ? REDUCED_MOTION_INTERVAL_MS : FRAME_INTERVAL_MS;
+  return reducedMotionMedia && reducedMotionMedia.matches
+    ? REDUCED_MOTION_INTERVAL_MS
+    : Math.max(FRAME_INTERVAL_MS, 1000 / tierFps);
 }
 // v14 05:4xZ: MAX_DPR=2 rendered soft under browser zoom on retina (effective
 // dpr ~2.5-3). Raised to 3 — this canvas is small (device pixel count stays
@@ -1164,9 +1175,18 @@ function updateGainPeak(state, target, ts) {
   }
 }
 
-function scaleWindow(win, factor) {
+// One scratch buffer per caller slot, reused frame to frame (2026-11-06 hunt:
+// a fresh Float32Array per track per frame was ~2.9 MB/s of garbage at 30 fps
+// with six tracks). A trace is drawn before the next is scaled, so a slot is
+// free again by the time it is asked for.
+const scaleScratch = new Map();
+function scaleWindow(win, factor, slot = 'default') {
   if (factor === 1) return win;
-  const out = new Float32Array(win.length);
+  let out = scaleScratch.get(slot);
+  if (!out || out.length !== win.length) {
+    out = new Float32Array(win.length);
+    scaleScratch.set(slot, out);
+  }
   for (let i = 0; i < win.length; i++) out[i] = win[i] * factor;
   return out;
 }

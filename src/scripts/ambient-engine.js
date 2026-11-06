@@ -11229,6 +11229,15 @@ export function createEngine(initialParams, options = {}) {
     // downbeat fragments and races the structure.
     if (nextPulseTime < ctx.currentTime - RESYNC_GAP) {
       noteLate(ctx.currentTime - nextPulseTime);
+      // During the ending the closing bar is already planned and its fade is
+      // running: a resync used to reset the pulse to 0, and the next pass
+      // planned an ORDINARY bar of pad and bass after the closing chord
+      // (2026-11-06 hunt, traced). Generation simply ends here instead.
+      if (outroStarted) {
+        outroScheduled = true;
+        stopScheduler();
+        return;
+      }
       if (bar) {
         const missed = Math.floor((ctx.currentTime - nextPulseTime) / bar.duration);
         barIndex += missed;

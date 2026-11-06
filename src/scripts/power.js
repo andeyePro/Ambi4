@@ -86,7 +86,8 @@
  *       // budget = { tier, maxNotes, visualFps, scopeEnabled,
  *       //            reverbSeconds, textureDensityScale }
  *       visualiser.setFps?.(budget.visualFps);
- *       scope.setEnabled?.(budget.scopeEnabled);
+ *       scope.setScopeFps?.(budget.visualFps); // scopeEnabled: the page
+       //   detaches the scopes itself on Eco (updateAllScopeModes)
  *       texture.setDensityScale?.(budget.textureDensityScale);
  *       // reverbSeconds: only call an engine reverb-length hook once one
  *       // exists — feature-detect it, this budget field is forward-looking.
@@ -142,6 +143,13 @@ const HIDDEN_EVAL_MS = 30000;
 const HYSTERESIS_MS = 10000;
 const RAISE_STREAK_TICKS = 3;
 const LATE_HOLD_MS = 30000; // no raise this long after the scheduler ran late
+// 2026-11-06 audit: a machine that cannot keep up at Full but can at Med
+// stepped down, raised straight back three good ticks later, failed again —
+// a flip every 10–14 s for ever, each one rebuilding the reverb on the very
+// machine that was struggling. A tier that FAILED is not raised back into
+// for a while, and the wait doubles each time it fails again.
+const FAILED_TIER_BACKOFF_MS = 60000;
+const FAILED_TIER_BACKOFF_MAX_MS = 8 * 60000;
 const FRAME_EMA_ALPHA = 0.3;
 const BAD_FRAME_MS = 40; // ~<25 fps
 const GOOD_FRAME_MS = 20; // ~>50 fps
@@ -205,6 +213,7 @@ export function createGovernor({ engine, onTierChange } = {}) {
 
   let batteryObj = null;
   let onBatteryChange = null;
+  let batteryGeneration = 0;
   let batteryDischarging = false;
 
   let visListenerAttached = false;
@@ -234,7 +243,10 @@ export function createGovernor({ engine, onTierChange } = {}) {
     const budget = budgetFor(currentTier);
     if (engine && typeof engine.setPowerBudget === 'function') {
       try {
-        engine.setPowerBudget({ maxNotes: budget.maxNotes });
+        // The reverb cap travels with the note cap (2026-11-06 audit): sent
+        // alone, maxNotes made the engine read reverbSeconds as undefined and
+        // lift its cap until the page put it back.
+        engine.setPowerBudget({ maxNotes: budget.maxNotes, reverbSeconds: budget.reverbSeconds });
       } catch {
         // engine misbehaving must not break the governor
       }
@@ -284,6 +296,20 @@ export function createGovernor({ engine, onTierChange } = {}) {
     return grew;
   }
 
+  // Tier → { until, backoff }: a tier the load drove us out of.
+  const failedTiers = new Map();
+  function noteFailedTier(tier) {
+    const prev = failedTiers.get(tier);
+    const backoff = prev ? Math.min(FAILED_TIER_BACKOFF_MAX_MS, prev.backoff * 2) : FAILED_TIER_BACKOFF_MS;
+    failedTiers.set(tier, { until: Date.now() + backoff, backoff });
+  }
+  function raiseAllowed() {
+    const idx = TIER_ORDER.indexOf(currentTier);
+    const next = TIER_ORDER[Math.min(rangeHi, idx + 1)];
+    const failed = failedTiers.get(next);
+    return !failed || Date.now() >= failed.until;
+  }
+
   function isBadSignal() {
     if (PRESSURE_BAD.has(pressureState)) return true;
     if (frameEma != null && frameEma >= BAD_FRAME_MS) return true;
@@ -324,14 +350,21 @@ export function createGovernor({ engine, onTierChange } = {}) {
     // Read every tick, bad signal or not, so the count never piles up into
     // a step that a later, calmer tick then pays for.
     const late = schedulerLate();
-    if (late || isBadSignal()) {
+    const bad = isBadSignal();
+    if (late || bad) {
       headroomStreak = 0;
-      if (!atFloor() && hysteresisOk()) stepTier(-1);
+      if (!atFloor() && hysteresisOk()) {
+        const failed = currentTier;
+        // A sustained bad reading (frame time, pressure) marks the tier as one
+        // this load cannot hold; a late pulse is an event with its own hold
+        // (LATE_HOLD_MS) and does not.
+        if (stepTier(-1) && bad) noteFailedTier(failed);
+      }
       return;
     }
     if (isGoodSignal()) {
       headroomStreak += 1;
-      if (headroomStreak >= RAISE_STREAK_TICKS && !atCeiling() && hysteresisOk()) {
+      if (headroomStreak >= RAISE_STREAK_TICKS && !atCeiling() && hysteresisOk() && raiseAllowed()) {
         headroomStreak = 0;
         stepTier(1);
       }
@@ -390,6 +423,11 @@ export function createGovernor({ engine, onTierChange } = {}) {
     evalTimer = null;
     if (destroyed || !sensing) return;
     const hidden = isHiddenDoc();
+    // While hidden the browser throttles timers (and a laptop sleeps): the
+    // engine resyncs and counts a late pulse that no tier could have
+    // prevented. Absorbed here, so the first visible tick does not step down
+    // for it and hold every raise for 30 s (2026-11-06 audit).
+    if (hidden) schedulerLate();
     if (!hidden) {
       measureFrame((dt) => {
         if (destroyed || !sensing) return;
@@ -402,6 +440,9 @@ export function createGovernor({ engine, onTierChange } = {}) {
 
   function onVisibilityChange() {
     if (!sensing) return;
+    // Back from hidden (or going): discard lateness accrued while throttled.
+    schedulerLate();
+    lateAt = 0;
     if (evalTimer != null) {
       clearTimeout(evalTimer);
       evalTimer = null;
@@ -458,9 +499,13 @@ export function createGovernor({ engine, onTierChange } = {}) {
     // `sensing` flips false synchronously the moment stopSensing() runs, so
     // checking it here after the promise settles is enough to drop a stale
     // resolution from a since-stopped watch — no separate cancel token needed.
+    // A generation, not just `sensing`: auto → pin → auto before the first
+    // lookup returned let BOTH lookups attach a listener, and destroy()
+    // removed only the second (2026-11-06 audit).
+    const generation = ++batteryGeneration;
     Promise.resolve(navigator.getBattery())
       .then((battery) => {
-        if (destroyed || !sensing || !battery) return;
+        if (destroyed || !sensing || !battery || generation !== batteryGeneration) return;
         batteryObj = battery;
         batteryDischarging = !battery.charging;
         onBatteryChange = () => {
@@ -474,6 +519,7 @@ export function createGovernor({ engine, onTierChange } = {}) {
   }
 
   function stopBatteryWatch() {
+    batteryGeneration += 1;
     if (batteryObj && onBatteryChange && typeof batteryObj.removeEventListener === 'function') {
       try {
         batteryObj.removeEventListener('chargingchange', onBatteryChange);

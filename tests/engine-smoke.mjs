@@ -2231,6 +2231,33 @@ test('the auto arp follows its Density dial even at repetition 1 (every stock ge
   assert.ok(after < before / 2, `Density 0 still played ${after.toFixed(2)} notes a bar (was ${before.toFixed(2)})`);
 });
 
+test('a clock jump during the ending plans nothing after the closing chord', async () => {
+  // 2026-11-06 hunt (traced): a resync (the clock more than 1.5 s behind)
+  // reset the pulse to 0 mid-closing-bar, and the next pass planned an
+  // ordinary bar of pad and bass after the closing chord.
+  const engine = createEngine({
+    bpm: 90, complexity: 0.5, structure: 'drone',
+    tracks: { pad: { state: 'on' }, bass: { state: 'on' }, melody: { state: 'off' }, arp: { state: 'off' }, texture: { state: 'off' }, percussion: { state: 'off' } },
+  }, { rng: seededRng(4711) });
+  const notes = [];
+  engine.on('note', (e) => notes.push(e));
+  await engine.start();
+  await advance(5, { step: 0.1, sleep: 10 });
+  const ending = engine.finish({ fadeSeconds: 6 });
+  // Into the closing bar: its pad strike is the newest note.
+  const before = notes.length;
+  await advanceUntil(() => notes.length > before, 20, { step: 0.05, sleep: 10 });
+  const closingAt = Math.max(...notes.map((n) => n.time));
+  // The tab freezes: the audio clock runs on three seconds with no tick.
+  const ctx = liveContexts[liveContexts.length - 1];
+  ctx.currentTime += 3;
+  await advance(1, { step: 0.1, sleep: 10 });
+  const after = notes.filter((n) => n.time > closingAt + 1e-6);
+  assert.deepEqual(after.map((n) => `${n.track}@${n.time.toFixed(2)}`), [], 'notes were planned after the closing chord');
+  await settleWithin(ending, 20);
+  engine.stop();
+});
+
 test('finish() clamps its fade and defaults to 8 s', async () => {
   const run = async (options, audioSeconds) => {
     const engine = createEngine({ bpm: 120, speed: 2, structure: 'drone' });

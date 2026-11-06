@@ -14,7 +14,8 @@
  *  4. the piano roll's lamps were built once: a track added later had none,
  *     a removed one kept its lamp;
  *  5. after the engine rebuilt its AudioContext the traces kept reading the
- *     closed one (the scope listened only for 'state').
+ *     closed one (the scope listened only for 'state');
+ *  6. the scope ran at 30 fps whatever the Processor tier asked (v0.0.307).
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -34,6 +35,30 @@ const CASES = {
   "r7": "// G: engine.resume() -> rebuildContext() swaps every analyser and emits only 'rebuilt'. The multi-scope never re-fetches.\nconst rafs = new Map(); let id = 0;\nglobalThis.requestAnimationFrame = (cb) => { rafs.set(++id, cb); return id; };\nglobalThis.cancelAnimationFrame = (i) => rafs.delete(i);\nglobalThis.window = { devicePixelRatio: 1, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) };\nconst scope = await import('__ROOT__/src/scripts/scope.js');\nconst ctx = new Proxy({}, { get: (t, p) => (p in t ? t[p] : () => ({ width: 10 })), set: (t, p, v) => ((t[p] = v), true) });\nconst canvas = { width: 300, height: 120, clientWidth: 300, clientHeight: 120, getContext: () => ctx, getBoundingClientRect: () => ({ width: 300, height: 120 }), addEventListener() {}, removeEventListener() {} };\nconst reads = { old: 0, fresh: 0 };\nconst mk = (tag) => ({ fftSize: 8192, getFloatTimeDomainData(b) { reads[tag]++; b.fill(tag === 'old' ? 0 : 0.3); } });\nlet graph = { pad: mk('old'), total: mk('old') };\nconst handlers = {};\nconst engine = { running: true, getAnalysers: () => graph, on: (t, f) => { (handlers[t] ||= []).push(f); return () => {}; } };\nconst h = scope.attachMultiScope(canvas, engine, { tracks: ['pad'], totalAnalyser: graph.total });\nh.setTotalVisible(true);\nconst step = (ts) => { const c = [...rafs.values()]; rafs.clear(); c.forEach((f) => f(ts)); };\nstep(0);\ngraph = { pad: mk('fresh'), total: mk('fresh') }; // rebuildContext(): new nodes\nfor (const f of handlers.rebuilt || []) f({});      // the only event emitted\n// the page then runs updateAllScopeModes -> updateFrontScope: key unchanged -> no setTracks / re-attach\nreads.old = reads.fresh = 0;\nfor (let i = 1; i <= 10; i++) step(i * 40);\nconsole.log(JSON.stringify(reads));\nh.destroy();\n"
 };
 
+
+const FPS_CASE = `
+const rafs = new Map(); let id = 0;
+globalThis.requestAnimationFrame = (cb) => { rafs.set(++id, cb); return id; };
+globalThis.cancelAnimationFrame = (i) => rafs.delete(i);
+globalThis.window = { devicePixelRatio: 1, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) };
+const scope = await import('__ROOT__/src/scripts/scope.js');
+let draws = 0;
+const ctx = new Proxy({}, { get: (t, p) => (p in t ? t[p] : () => ({ width: 10 })), set: (t, p, v) => ((t[p] = v), true) });
+const canvas = { width: 300, height: 120, clientWidth: 300, clientHeight: 120, getContext: () => ctx, getBoundingClientRect: () => ({ width: 300, height: 120 }), addEventListener() {}, removeEventListener() {} };
+const an = { fftSize: 2048, getFloatTimeDomainData(b) { draws++; for (let i = 0; i < b.length; i++) b[i] = Math.sin(i / 9) * 0.3; } };
+const engine = { running: true, getAnalysers: () => ({ pad: an }), on: () => () => {} };
+const count = (fps) => {
+  if (typeof scope.setScopeFps === 'function') scope.setScopeFps(fps);
+  const h = scope.attachMultiScope(canvas, engine, { tracks: ['pad'] });
+  draws = 0;
+  // 1 ms frames for two seconds, so the frame gate is not quantised by the
+  // display's own rate.
+  for (let f = 1; f <= 2000; f++) { const c = [...rafs.values()]; rafs.clear(); c.forEach((cb) => cb(f)); }
+  h.destroy();
+  return draws;
+};
+console.log(JSON.stringify({ full: count(30), low: count(24), eco: count(5), hasApi: typeof scope.setScopeFps === 'function' }));
+`;
 const tests = [
   ['a hidden scope canvas keeps its backing size (no growth by the pixel ratio)', () => {
     const r = run(CASES.r1);
@@ -55,6 +80,12 @@ const tests = [
     assert.ok(r.added.includes('user-1'), JSON.stringify(r.added));
     assert.ok(!r.removed.includes('texture'), JSON.stringify(r.removed));
     assert.equal(r.removed.length, 5);
+  }],
+  ['the scope draws at the Processor tier\'s frame rate (Low asks 24, not the fixed 30)', () => {
+    const r = run(FPS_CASE);
+    assert.equal(r.hasApi, true, 'scope.js has no setScopeFps');
+    assert.ok(r.low < r.full * 0.9, `Low drew ${r.low} frames to Full's ${r.full}`);
+    assert.ok(r.eco < r.low / 2, `a 5 fps cap drew ${r.eco}`);
   }],
   ['after the engine rebuilds its AudioContext the traces read the NEW analysers', () => {
     const r = run(CASES.r7);

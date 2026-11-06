@@ -5892,7 +5892,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
 
       try {
       const m = await import('../scripts/scope.js');
-        if (m && typeof m.renderPatchWave === 'function') scopeApi = m;
+        if (m && typeof m.renderPatchWave === 'function') {
+          scopeApi = m;
+          // A tier chosen before the scope module loaded applies now.
+          try { if (powerBudget && typeof m.setScopeFps === 'function') m.setScopeFps(powerBudget.visualFps); } catch {}
+        }
       } catch {}
       // v0.0.173 (docs/synthesis-programme.md § 4): "what makes this sound",
       // the patch in words under every editor's dials. Pure module; absent or
@@ -16896,6 +16900,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
         // equivalent yet and self-caps instead.
         try {
           visualiserHandle?.setFps?.(budget.visualFps);
+        } catch {}
+        // …and the scopes (2026-11-06: scope.js grew setScopeFps; it used to
+        // self-cap at 30 whatever the tier asked).
+        try {
+          scopeApi?.setScopeFps?.(budget.visualFps);
         } catch {}
         // reverbSeconds: the tier's ceiling on IR length. The user's own
         // Reverb tail setting is untouched; only what the engine is sent is
