@@ -6467,6 +6467,23 @@ try {
         const entry = typeof engine.entryBar === 'function' ? engine.entryBar('bass') : 'no entryBar';
         if (entry !== 0) failures.push(`start with any track: an imported bass line enters at bar ${entry}, not at once`);
       }
+      // 2026-11-06 review: a file with no notes and a harmless vendor chunk
+      // (XFIH) was reported as unreadable; it has no notes, and says so.
+      const noNotes = new Uint8Array([
+        0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0, 0x60,
+        0x58, 0x46, 0x49, 0x48, 0, 0, 0, 2, 0x00, 0x00,
+        0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4,
+        0x00, 0xff, 0x2f, 0x00,
+      ]);
+      const tipEl = doc.getElementById('guided-tip');
+      if (tipEl) tipEl.textContent = '';
+      Object.defineProperty(midiInput, 'files', { configurable: true, get: () => [{ name: 'empty.mid', arrayBuffer: async () => noNotes.buffer.slice(0) }] });
+      midiInput.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await waitUntil(() => tipEl && tipEl.textContent, 3000);
+      const emptyTip = tipEl ? tipEl.textContent : '';
+      if (!/has no notes/.test(emptyTip) || /could not be read/.test(emptyTip)) {
+        failures.push(`a MIDI file with no notes and a vendor chunk was reported as ${JSON.stringify(emptyTip)}, not as having no notes`);
+      }
       Object.defineProperty(midiInput, 'files', { configurable: true, value: null });
 
       choose('');
@@ -7339,6 +7356,28 @@ try {
         const group = Array.from(carryDoc.querySelectorAll('#genre-select optgroup')).find((g) => g.label === 'User');
         const entry = group && group.querySelector('option[value="g:u-carriedtest"]');
         if (!entry || entry.textContent !== 'Carried') failures.push('a carried genre is not listed under My genres for this visit');
+        // 2026-11-06 review: Save as my genre under the carried genre's own
+        // name is how it is kept (it replaces the transient entry) — the
+        // duplicate-name check must not refuse it as "already yours".
+        const rulesToggle = carryDoc.getElementById('genre-rules-toggle');
+        const rulesPanel = carryDoc.getElementById('genre-rules');
+        const nameBox = carryDoc.getElementById('genre-rules-name');
+        const saveBtn = carryDoc.getElementById('genre-rules-save');
+        if (rulesToggle && rulesPanel && nameBox && saveBtn) {
+          await waitUntil(() => !rulesToggle.hidden);
+          if (rulesPanel.hidden) rulesToggle.click();
+          await waitUntil(() => !rulesPanel.hidden);
+          nameBox.value = 'Carried';
+          saveBtn.click();
+          const errorEl = carryDoc.getElementById('genre-rules-error');
+          const kept = await waitUntil(() => {
+            const g = Array.from(carryDoc.querySelectorAll('#genre-select optgroup')).find((x) => x.label === 'User');
+            return Boolean(errorEl) && errorEl.hidden && g && g.querySelectorAll('option').length === 1;
+          }, 3000);
+          if (!kept) failures.push(`saving a genre a link brought under its own name was refused or not kept (${JSON.stringify(errorEl && !errorEl.hidden ? errorEl.textContent : '')})`);
+        } else {
+          failures.push('the carried-genre page has no rules panel to save from');
+        }
       }
     } catch (err) {
       failures.push(`booting on a link carrying a genre threw: ${err && err.stack ? err.stack : err}`);
