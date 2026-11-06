@@ -23,6 +23,7 @@ over SSH.
 | `.vibe/measure.sh local eval '<one-line expression>'` | runs JS in the page |
 | `.vibe/measure.sh local drive tests/dial-drive.mjs` | ships a local `.mjs` over and scripts the page with Playwright |
 | `.vibe/measure.sh https://mcdev.ambi4.work/ eval '<expr>'` | the same, against a deployed site (any mode takes a URL in place of `local`) |
+| `tests/sweep-engines.sh firefox` (or `webkit`) | re-hosts Chromium drives inside Firefox or WebKit — 21 that are green in both by default, or name some |
 | `tests/sweep-drives.sh` | runs EVERY `tests/*-drive.mjs` (and the render drives) one after another, re-runs a failure alone after a rest, and splits RED from FLAKY |
 
 Both take `[width] [height]`, and honour `SHOT_CLICKS` (comma-separated

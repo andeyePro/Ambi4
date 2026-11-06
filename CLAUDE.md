@@ -84,6 +84,7 @@ Browser tests run against a headless Chromium on a Mac test account over SSH:
 
 ```
 tests/sweep-drives.sh                                 # EVERY drive, one command
+tests/sweep-engines.sh firefox                        # drives re-hosted in Firefox (or webkit)
 .vibe/measure.sh local drive tests/<name>-drive.mjs   # run one browser test
 .vibe/measure.sh local overlaps                       # layout sweep: three SWEEPS, one viewport per run
 .vibe/measure.sh local overlaps 390 844               # …so pass a viewport to check a phone
