@@ -79,7 +79,10 @@ class Reader {
 function readTrack(reader, length) {
   const end = reader.at + length;
   const notes = [];
-  const open = new Map(); // `${channel}|${midi}` → { start, velocity }
+  // `${channel}|${midi}` → a FIRST-IN-FIRST-OUT list of { start, velocity }:
+  // a second note-on for a key already held used to overwrite the first,
+  // which was lost (2026-11-06 hunt). Each note-off now ends the oldest.
+  const open = new Map();
   const meta = { tempoMicrosPerBeat: null, timeSignature: null, name: null };
   let ticks = 0;
   let status = 0;
@@ -88,13 +91,18 @@ function readTrack(reader, length) {
     ticks += reader.varint();
     let byte = reader.byte();
     if (byte & 0x80) {
-      status = byte;
+      // Only a CHANNEL message (0x80–0xEF) sets running status. A meta or
+      // sysex event between running-status notes used to become the "running
+      // status", so the next data bytes were read as a meta type and length
+      // and the notes after it vanished (2026-11-06 hunt; tolerant readers
+      // such as mido keep the channel status, and real files rely on it).
+      if (byte < 0xf0) status = byte;
     } else {
       // Running status: this byte is the first DATA byte of the last message.
       reader.at -= 1;
       if (!status) throw new Error('data byte with no running status');
+      byte = status;
     }
-    byte = status;
     const kind = byte & 0xf0;
     const channel = byte & 0x0f;
 
@@ -124,11 +132,13 @@ function readTrack(reader, length) {
       const velocity = reader.byte() & 0x7f;
       const key = `${channel}|${midi}`;
       if (kind === 0x90 && velocity > 0) {
-        open.set(key, { start: ticks, velocity });
+        if (!open.has(key)) open.set(key, []);
+        open.get(key).push({ start: ticks, velocity });
       } else {
-        const started = open.get(key);
+        const held = open.get(key);
+        const started = held && held.length ? held.shift() : null;
         if (started) {
-          open.delete(key);
+          if (!held.length) open.delete(key);
           notes.push({
             midi,
             channel,
@@ -150,15 +160,17 @@ function readTrack(reader, length) {
 
   // A note still held at the end of the track ends there: a file that forgot
   // its note-off is common, and dropping the note would lose music.
-  for (const [key, started] of open) {
+  for (const [key, held] of open) {
     const midi = Number(key.split('|')[1]);
-    notes.push({
-      midi,
-      channel: Number(key.split('|')[0]),
-      startTicks: started.start,
-      endTicks: ticks,
-      velocity: started.velocity,
-    });
+    for (const started of held) {
+      notes.push({
+        midi,
+        channel: Number(key.split('|')[0]),
+        startTicks: started.start,
+        endTicks: ticks,
+        velocity: started.velocity,
+      });
+    }
   }
 
   reader.at = end;
@@ -194,6 +206,7 @@ export function parseMidiFile(bytes) {
   if (format === 2) {
     throw new Error('format 2 files are a set of independent songs — open one song and export that');
   }
+  if (format > 2) throw new Error(`format ${format} is not a Standard MIDI File format (0, 1 or 2)`);
   // A negative division is SMPTE timecode: frames per second, not beats. That
   // is video-sync work and has no bar to land on, so it is refused outright
   // rather than imported at a silently wrong speed.
@@ -205,7 +218,11 @@ export function parseMidiFile(bytes) {
   const tracks = [];
   let tempoMicrosPerBeat = null;
   let timeSignature = null;
-  for (let i = 0; i < trackCount && !reader.done; i++) {
+  // Only MTrk chunks count towards the header's track count (the spec: other
+  // chunk types are skipped and are not tracks). Counting a vendor chunk used
+  // to leave the last real track unread (2026-11-06 hunt).
+  let read = 0;
+  while (read < trackCount && reader.at + 8 <= reader.bytes.length) {
     const id = reader.string(4);
     const length = reader.uint(4);
     if (id !== 'MTrk') {
@@ -213,7 +230,18 @@ export function parseMidiFile(bytes) {
       reader.skip(length);
       continue;
     }
-    const { notes, meta } = readTrack(reader, length);
+    read += 1;
+    let parsed;
+    try {
+      parsed = readTrack(reader, length);
+    } catch (err) {
+      // A track cut short (the file ends inside it, or its bytes are bad)
+      // loses that track only; the tracks already read are kept and the
+      // loss is named, rather than refusing the whole file.
+      skipped.push(`track ${read} (${err && err.message ? err.message : 'unreadable'})`);
+      break;
+    }
+    const { notes, meta } = parsed;
     if (meta.tempoMicrosPerBeat && tempoMicrosPerBeat === null) {
       tempoMicrosPerBeat = meta.tempoMicrosPerBeat;
     }
@@ -267,7 +295,9 @@ export function notesToBars(notes, { stepBeats = 0.25, slotsPerBar = 16, maxBars
   let collapsed = 0;
   const barBeats = stepBeats * slotsPerBar;
   const list = Array.isArray(notes) ? [...notes].sort((a, b) => a.start - b.start) : [];
-  const origin = list.length ? Math.min(...list.map((n) => n.start)) : 0;
+  // A loop, not Math.min(...spread): a spread of ~110,000 notes (65,536 in
+  // Safari) overflows the call stack (2026-11-06 hunt). The list is sorted.
+  const origin = list.length ? list[0].start : 0;
 
   for (const note of list) {
     if (!Number.isFinite(note.midi) || note.midi < 0 || note.midi > 127) { dropped += 1; continue; }
@@ -300,7 +330,7 @@ export function notesToBars(notes, { stepBeats = 0.25, slotsPerBar = 16, maxBars
     written,
     dropped,
     collapsed,
-    beats: list.length ? Math.max(...list.map((n) => n.end ?? n.start)) - origin : 0,
+    beats: list.length ? list.reduce((m, n) => Math.max(m, n.end ?? n.start), -Infinity) - origin : 0,
   };
 }
 

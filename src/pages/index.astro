@@ -5927,6 +5927,11 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // answer line and buttons as the run's `ui`, so progress always lands
       // in the editor on screen.
       const sampleMatchRuns = new Map();
+      // A microphone take per track (2026-11-06 hunt): held here, not in one
+      // editor build, so closing or rebuilding the editor can stop it and
+      // close the microphone — a take that outlived its editor kept the
+      // stream open and let the new editor open a second one.
+      const micTakes = new Map();
       let sampleMatchApi = null;
       try {
         const m = await import('../scripts/sample-match.js');
@@ -13277,6 +13282,8 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       if (typeof window !== 'undefined') window.__ambi4Editors = openEditors;
 
       function teardownEditor(track) {
+        const mic = micTakes.get(track);
+        if (mic) mic.drop();
         const ed = openEditors.get(track);
         if (!ed) return;
         unregisterExtras(track, ed.extras);
@@ -15980,16 +15987,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             showRunning(job.ui, true);
             // Every line the run says goes to the editor on screen now.
             const say = (text) => { job.text = text; job.ui.answer.textContent = text; };
+            // The voice the match was started on (2026-11-06 hunt): a kit match
+            // that finishes after the person picked another kit must not write
+            // the old kit's sound under the new one.
+            const startVoice = settings.tracks[track] ? settings.tracks[track].voice : null;
             try {
               say(`Listening to ${source.name}…`);
-              const bytes = await source.bytes();
-              const decoder = new OfflineAudioContext(1, 1, 44100);
-              const decoded = await decoder.decodeAudioData(bytes);
+              // Only the READ is blamed on the file (2026-11-06 hunt): every
+              // later throw used to be reported as an unreadable file too.
+              let decoded;
+              try {
+                const bytes = await source.bytes();
+                const decoder = new OfflineAudioContext(1, 1, 44100);
+                decoded = await decoder.decodeAudioData(bytes);
+              } catch {
+                say(source.kind === 'file'
+                  ? 'That file could not be read as audio. WAV, MP3, OGG, FLAC and M4A all work in most browsers.'
+                  : 'This browser recorded the note in a form it cannot read back. Choose a sound file instead.');
+                return;
+              }
               const channels = [];
               for (let c = 0; c < decoded.numberOfChannels; c++) channels.push(decoded.getChannelData(c));
               const target = sampleMatchApi.analyseSample(sampleMatchApi.mixDown(channels), decoded.sampleRate);
               if (!target) {
-                say(`That ${source.kind} is silent — nothing to match.`);
+                say(`That ${source.kind} is silent or too short to measure — nothing to match.`);
                 return;
               }
               const hidden = new Set(hiddenPrefs.voices || []);
@@ -16038,6 +16059,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
                 const c = document.getElementById(`voice-editor-${track}`);
                 const a = document.activeElement;
                 focusWasHere = !!c && (!a || a === document.body || c.contains(a));
+              }
+              if (kitMatch && settings.tracks[track] && settings.tracks[track].voice !== startVoice) {
+                say(`The kit changed while matching (${voiceLabel(track, startVoice)} → ${voiceLabel(track, settings.tracks[track].voice)}), so nothing was set. Match again on this kit.`);
+                return;
               }
               if (kitMatch) {
                 // The sound's own dials, exactly as turning them on its tab:
@@ -16100,9 +16125,7 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               settleMatchFocus();
               sayUnderDials(line);
             } catch (error) {
-              say(source.kind === 'file'
-                ? 'That file could not be read as audio. WAV, MP3, OGG, FLAC and M4A all work in most browsers.'
-                : 'This browser recorded the note in a form it cannot read back. Choose a sound file instead.');
+              say(`The match stopped part-way: ${error && error.message ? error.message : 'an unexpected error'}. Nothing after that point was set.`);
             } finally {
               if (sampleMatchRuns.get(track) === job) sampleMatchRuns.delete(track);
               showRunning(job.ui, false);
@@ -16118,11 +16141,10 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           // to stop sooner), then the same match. The browser asks first, as
           // it always does; the stream is closed the moment the take ends,
           // and the take is matched and dropped like a file.
-          let take = null;
           let asking = false;
-          const stopTake = () => { if (take && take.recorder.state === 'recording') take.recorder.stop(); };
+          const stopTake = () => { const take = micTakes.get(track); if (take && take.recorder.state === 'recording') take.recorder.stop(); };
           record.addEventListener('click', async () => {
-            if (take) { stopTake(); return; }
+            if (micTakes.has(track)) { stopTake(); return; }
             // A second press while the browser is still asking for the
             // microphone opened a second stream; the first recorder's take
             // was then overwritten, so neither Stop nor the four-second cap
@@ -16143,19 +16165,48 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
               asking = false;
             }
             const chunks = [];
-            const recorder = new MediaRecorder(stream);
-            take = { recorder, timer: 0 };
+            const closeMic = () => { for (const t of stream.getTracks()) t.stop(); };
+            let recorder;
+            try {
+              recorder = new MediaRecorder(stream);
+            } catch {
+              closeMic();
+              matchAnswer.textContent = 'This browser cannot record from the microphone here. Choose a sound file instead.';
+              return;
+            }
+            const take = {
+              recorder,
+              timer: 0,
+              dropped: false,
+              // The editor closed or rebuilt under the take: stop, close the
+              // microphone, and match nothing.
+              drop() {
+                take.dropped = true;
+                clearTimeout(take.timer);
+                try { if (recorder.state === 'recording') recorder.stop(); } catch {}
+                closeMic();
+                if (micTakes.get(track) === take) micTakes.delete(track);
+              },
+            };
+            micTakes.set(track, take);
             recorder.addEventListener('dataavailable', (event) => { if (event.data && event.data.size) chunks.push(event.data); });
             recorder.addEventListener('stop', () => {
-              clearTimeout(take && take.timer);
-              for (const t of stream.getTracks()) t.stop();
-              take = null;
+              clearTimeout(take.timer);
+              closeMic();
+              if (micTakes.get(track) === take) micTakes.delete(track);
+              if (take.dropped) return;
               record.textContent = 'Record a note';
               record.setAttribute('aria-pressed', 'false');
               const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
               matchFrom({ name: 'your note', kind: 'recording', bytes: () => blob.arrayBuffer() });
             });
-            recorder.start();
+            try {
+              recorder.start();
+            } catch {
+              take.drop();
+              matchAnswer.textContent = 'The microphone would not start recording. Choose a sound file instead.';
+              return;
+            }
             take.timer = setTimeout(stopTake, 4000);
             record.textContent = 'Stop recording';
             record.setAttribute('aria-pressed', 'true');
@@ -22045,14 +22096,30 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
           recordButton.setAttribute('aria-pressed', 'false');
           recordButton.classList.remove('recording');
           updateRecordStatus();
+          // A take with no data (stopped at once, or the stream gave nothing)
+          // used to download an empty .webm/.m4a; say so instead, as the WAV
+          // path does (2026-11-06 hunt).
+          if (!blob.size) {
+            recordStatus.textContent = 'Nothing was recorded — no sound reached the recorder.';
+            return;
+          }
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
           link.download = `ambi4-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
+          document.body.append(link);
           link.click();
+          link.remove();
           setTimeout(() => URL.revokeObjectURL(url), 10000);
         });
-        recorder.start();
+        try {
+          recorder.start();
+        } catch {
+          // A recorder that will not start leaves nothing running.
+          recorder = null;
+          recordChunks = [];
+          return;
+        }
         recordStartedAt = Date.now();
         recordButton.setAttribute('aria-pressed', 'true');
         recordButton.classList.add('recording');
@@ -22194,6 +22261,20 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
       // suspends the context, so the paused stretch is simply not in the file.
       if (typeof engine.on === 'function') {
         engine.on('state', ({ running }) => { if (!running && wavCapture) finishWav(); });
+        // The engine rebuilt its audio (an iOS interruption, a device or
+        // sample-rate change): the tap hangs off the old graph, so the take
+        // ends here and keeps what it had, and says why (2026-11-06 hunt —
+        // it used to freeze while the button still said Stop and save).
+        engine.on('rebuilt', () => {
+          // A MediaRecorder take on the old graph's stream is saved as far
+          // as it got, the same way.
+          if (typeof recorder !== 'undefined' && recorder) stopRecording();
+          if (!wavCapture) return;
+          finishWav().then(() => {
+            const el = document.getElementById('wav-status');
+            if (el && el.textContent) el.textContent += ' — the audio restarted, so the take ended there.';
+          });
+        });
       }
       if (!PAID_FEATURES_HIDDEN) {
         describe(
@@ -23391,17 +23472,27 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             return;
           }
           if (!parsed.notes.length) {
-            say('That file has no notes in it.');
+            say(parsed.skipped && parsed.skipped.length
+              ? `That file has no notes this could read (skipped: ${parsed.skipped.join('; ')}).`
+              : 'That file has no notes in it.');
             return;
           }
           const track = SEQ_TRACKS.includes(midiTrackSelect.value) ? midiTrackSelect.value : 'melody';
           const stepBeats = trackStepBeats(track);
           const slotsPerBar = stepsPerBarFor(track);
-          const fitted = midiModule.notesToBars(parsed.notes, {
-            stepBeats,
-            slotsPerBar,
-            maxBars: 8,
-          });
+          // Inside a try (2026-11-06): a throw here used to be an unhandled
+          // rejection, and the person was told nothing at all.
+          let fitted;
+          try {
+            fitted = midiModule.notesToBars(parsed.notes, {
+              stepBeats,
+              slotsPerBar,
+              maxBars: 8,
+            });
+          } catch (error) {
+            say(`That file could not be fitted to the grid: ${error && error.message ? error.message : 'unknown error'}.`);
+            return;
+          }
           if (!fitted.bars.length) {
             say('Nothing in that file fitted the grid.');
             return;
@@ -23468,6 +23559,9 @@ const PAID_FEATURES_HIDDEN = !DEV_UNLOCK;
             notes.push(`The file has ${partsWithNotes} parts with notes in them (its own MIDI tracks); all of them landed on this one grid.`);
           }
           if (parsed.tempoBpm) notes.push(`The file says ${parsed.tempoBpm} bpm.`);
+          // What the reader could not read is said, not hidden (the module's
+          // own promise; 2026-11-06: `skipped` was never shown).
+          if (parsed.skipped && parsed.skipped.length) notes.push(`Not read: ${parsed.skipped.join('; ')}.`);
           if (parsed.timeSignature && parsed.timeSignature !== settings.timeSignature) {
             notes.push(`It is written in ${parsed.timeSignature}; this piece is in ${settings.timeSignature}.`);
           }

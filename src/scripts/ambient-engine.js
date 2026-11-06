@@ -11545,6 +11545,11 @@ export function createEngine(initialParams, options = {}) {
       applyLevels(FADE_IN);
       playOutputElement();
     }
+    // 2026-11-06: anything tapped off the OLD graph (the WAV tap, a
+    // MediaRecorder on its stream) is now listening to a closed context; the
+    // page ends those takes on this event rather than leave them recording
+    // silence while the UI says "recording".
+    emit('rebuilt', { sampleRate: ctx.sampleRate });
   }
 
   /**

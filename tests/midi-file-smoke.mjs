@@ -101,7 +101,10 @@ test('a chunk that is not a track is skipped and NAMED, not silently eaten', () 
   const D = 480;
   const junk = chunk('XFIR', [1, 2, 3, 4]);
   const events = [...varint(0), 0x90, 60, 100, ...varint(D), 0x80, 60, 0];
-  const file = parseMidiFile(new Uint8Array([...header(1, 2, D), ...junk, ...trackChunk(events)]));
+  // The header counts ONE track: a chunk that is not MTrk is not a track
+  // (the spec), so it must not use up the count. This fixture used to say 2,
+  // which matched the bug rather than the spec (2026-11-06).
+  const file = parseMidiFile(new Uint8Array([...header(1, 1, D), ...junk, ...trackChunk(events)]));
   assert.equal(file.notes.length, 1);
   assert.equal(file.skipped.length, 1);
   assert.match(file.skipped[0], /XFIR/);
@@ -145,6 +148,57 @@ test('notesToBars quantises onto the caller\'s own grid, and says what it could 
   // A gate carries the note's real length: a note held two slots is gate 2.
   const held = notesToBars([{ midi: 60, start: 0, end: 0.5 }], { stepBeats: 0.25, slotsPerBar: 16 });
   assert.equal(held.bars[0][0].gate, 2);
+});
+
+// -- 2026-11-06 hunt: each of these failed on v0.0.303 -----------------------
+
+test('running status survives a meta or sysex event between notes (the notes after it are kept)', () => {
+  const D = 96;
+  const events = [
+    ...varint(0), 0x90, 60, 90, //            status given once
+    ...varint(D), 60, 0, //                   running: off
+    ...varint(0), 0xff, 0x06, 2, 0x41, 0x42, // a marker meta event
+    ...varint(0), 64, 90, //                  running status AFTER the meta: E4 on
+    ...varint(D), 64, 0,
+    ...varint(0), 0xf0, 2, 0x7e, 0xf7, //     a sysex
+    ...varint(0), 67, 90, //                  running again: G4
+    ...varint(D), 67, 0,
+  ];
+  const file = parseMidiFile(new Uint8Array([...header(0, 1, D), ...trackChunk(events)]));
+  assert.deepEqual(file.notes.map((n) => n.midi), [60, 64, 67]);
+});
+
+test('overlapping notes on one pitch are both kept (each note-off ends the oldest)', () => {
+  const D = 480;
+  const events = [
+    ...varint(0), 0x90, 60, 100, //   on at beat 0
+    ...varint(D), 0x90, 60, 90, //    on again at beat 1, the first still held
+    ...varint(D), 0x80, 60, 0, //     off at beat 2 — ends the first
+    ...varint(D * 2), 0x80, 60, 0, // off at beat 4 — ends the second
+  ];
+  const file = parseMidiFile(new Uint8Array([...header(0, 1, D), ...trackChunk(events)]));
+  assert.deepEqual(file.notes.map((n) => [n.start, n.end]), [[0, 2], [1, 4]]);
+});
+
+test('a file cut short inside its last track keeps the tracks before it and names the loss', () => {
+  const D = 480;
+  const good = trackChunk([...varint(0), 0x90, 60, 100, ...varint(D), 0x80, 60, 0]);
+  const cut = trackChunk([...varint(0), 0x90, 62, 100, ...varint(D), 0x80, 62, 0]).slice(0, 12);
+  const file = parseMidiFile(new Uint8Array([...header(1, 2, D), ...good, ...cut]));
+  assert.deepEqual(file.notes.map((n) => n.midi), [60]);
+  assert.ok(file.skipped.some((s) => /track 2/.test(s)), JSON.stringify(file.skipped));
+});
+
+test('a format above 2 is refused, not read as if it were 0 or 1', () => {
+  assert.throws(() => parseMidiFile(new Uint8Array([...header(3, 1, 480), ...trackChunk([])])), /format 3/i);
+});
+
+test('notesToBars on 200,000 notes fits them rather than overflowing the call stack', () => {
+  const notes = [];
+  for (let i = 0; i < 200000; i++) notes.push({ midi: 60 + (i % 12), start: i * 0.25, end: i * 0.25 + 0.2, velocity: 0.8 });
+  const fitted = notesToBars(notes, { stepBeats: 0.25, slotsPerBar: 16, maxBars: 8 });
+  assert.equal(fitted.written, 128);
+  assert.ok(fitted.beats > 49999, String(fitted.beats));
 });
 
 test('an empty file parses to nothing rather than throwing', () => {

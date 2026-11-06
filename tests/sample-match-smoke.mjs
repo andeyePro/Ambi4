@@ -147,6 +147,62 @@ test('analyseSample: silence is null, not a crash', () => {
   assert.equal(analyseSample(new Float32Array(0), SR), null);
 });
 
+// -- 2026-11-06 hunt: each failed on v0.0.303. The page decodes every file
+// at 44.1 kHz, so these analyse at that rate, not the stand-in synth's.
+const R44 = 44100;
+const pluck44 = (freq, seconds, lead = 0) => {
+  const n = Math.round((lead + seconds) * R44);
+  const out = new Float32Array(n);
+  for (let i = Math.round(lead * R44); i < n; i++) {
+    const t = i / R44 - lead;
+    let v = 0;
+    for (let k = 1; k <= 12 && freq * k < R44 / 2; k++) v += Math.sin(2 * Math.PI * freq * k * t) / k;
+    out[i] = 0.5 * v * Math.exp(-t / 0.6) * Math.min(1, t / 0.004);
+  }
+  return out;
+};
+
+test('analyseSample: a note after a second of room noise 38 dB down is found where it starts', () => {
+  const x = pluck44(220, 1.5, 1);
+  const rand = prng(11);
+  let peak = 0;
+  for (const v of x) peak = Math.max(peak, Math.abs(v));
+  const noise = peak * 10 ** (-38 / 20);
+  for (let i = 0; i < x.length; i++) x[i] += noise * (rand() * 2 - 1) * 1.7;
+  const a = analyseSample(x, R44);
+  assert.ok(Math.abs(a.onset - 1) < 0.03, `onset ${a.onset} (the note starts at 1.0 s)`);
+  assert.ok(a.attack < 0.05, `attack ${a.attack}`);
+});
+
+test('analyseSample: a bass low E (41.2 Hz) reads as E1 at 44.1 kHz', () => {
+  const a = analyseSample(pluck44(41.2, 1.5), R44);
+  assert.equal(a.note && a.note.name, 'E1');
+});
+
+test('analyseSample: a 10 ms file is refused (null), not matched to the first voice', () => {
+  assert.equal(analyseSample(pluck44(220, 0.01), R44), null);
+});
+
+test('analyseSample: a ten-minute file is measured, not a stack overflow', () => {
+  const x = new Float32Array(R44 * 600);
+  x.set(pluck44(220, 1.5));
+  const a = analyseSample(x, R44);
+  assert.ok(a && a.pitched, 'pitched');
+});
+
+test('analyseSample: a constant offset is not sound, and one NaN sample does not silence the file', () => {
+  const clean = analyseSample(pluck44(220, 1.5), R44);
+  const offset = pluck44(220, 1.5).map((v) => v + 0.05);
+  const withDc = analyseSample(offset, R44);
+  assert.ok(Math.abs(withDc.length - clean.length) < 0.05, `length ${withDc.length} vs ${clean.length}`);
+  const dc = new Float32Array(R44).fill(0.3);
+  assert.equal(analyseSample(dc, R44), null, 'pure DC is silence');
+  const nan = pluck44(220, 1.5);
+  nan[1000] = NaN;
+  const withNaN = analyseSample(nan, R44);
+  assert.ok(withNaN && withNaN.pitched, 'a NaN sample is dropped, the note still measured');
+});
+
 test('the ruler: zero on itself, symmetric, level-blind, and orders near before far', () => {
   const note = { freq: 220, duration: 0.6 };
   const a = analyseSample(toySynth('pluck', TOY.pluck, note), SR);

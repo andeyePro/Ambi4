@@ -127,6 +127,8 @@ const off = engine.on(type, cb);   // returns unsubscribe fn
 // 'section': { label, intensity, bar, time }
 // 'bar':     { bar, beatsPerBar, time }
 // 'state':   { running }
+// 'rebuilt': { sampleRate }   (v0.0.304: the AudioContext was rebuilt — an iOS
+//            interruption or a rate change; anything tapped off the old graph is dead)
 engine.now();          // AudioContext.currentTime, 0 if not started
 engine.getAnalysers(); // { pad: AnalyserNode|null, ... } per track, null before start()
 engine.getParams(); engine.setParams(partial); await engine.start(); engine.stop(); engine.running;

@@ -2790,10 +2790,15 @@ test('resume() and onstatechange recover a non-running context', async () => {
   // A sample-rate change under the context (iOS after an interruption) means
   // the graph is corrupt: resume() must rebuild rather than play through it.
   const contextsBefore = liveContexts.length;
+  // 2026-11-06: the rebuild is ANNOUNCED, so the page can end a WAV or
+  // Record take tapped off the old graph instead of leaving it "recording".
+  const rebuilt = [];
+  engine.on('rebuilt', (e) => rebuilt.push(e));
   ctx.state = 'suspended';
   ctx.sampleRate = 96000;
   await engine.resume();
   assert.equal(liveContexts.length, contextsBefore + 1, 'a rate mismatch must rebuild the context');
+  assert.equal(rebuilt.length, 1, 'the rebuild must emit one rebuilt event');
   assert.equal(engine.running, true, 'the rebuild must not stop the piece');
   const bars = [];
   engine.on('bar', (e) => bars.push(e));

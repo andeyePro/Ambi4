@@ -129,6 +129,7 @@ function powerSpectrum(x, from, size) {
 
 /** The largest power of two not above `n`. */
 const pow2Below = (n) => 2 ** Math.floor(Math.log2(Math.max(2, n)));
+const pow2Above = (n) => 2 ** Math.ceil(Math.log2(Math.max(2, n)));
 
 /**
  * YIN (de Cheveigné & Kawahara, 2002) over one window: the fundamental and how
@@ -240,8 +241,21 @@ export function noteOf(freq) {
  *   attack: number, decay: number, sustain: number, note: object|null,
  * }}
  */
-export function analyseSample(input, sampleRate) {
-  if (!input || !input.length || !(sampleRate > 0)) return null;
+export function analyseSample(raw, sampleRate) {
+  if (!raw || !raw.length || !(sampleRate > 0)) return null;
+  // 2026-11-06 hunt: a constant offset (DC) is not sound — it held up the
+  // measured tail and made pure DC a "held sound" — and one NaN or Infinity
+  // sample (a float WAV can carry them) made the whole file read as silent
+  // or flat. Non-finite samples become 0 and the mean is taken off.
+  let mean = 0;
+  let finite = 0;
+  for (let i = 0; i < raw.length; i++) if (Number.isFinite(raw[i])) { mean += raw[i]; finite += 1; }
+  mean = finite ? mean / finite : 0;
+  let input = raw;
+  if (finite < raw.length || Math.abs(mean) > 1e-6) {
+    input = new Float32Array(raw.length);
+    for (let i = 0; i < raw.length; i++) input[i] = Number.isFinite(raw[i]) ? raw[i] - mean : 0;
+  }
   let peak = 0;
   for (let i = 0; i < input.length; i++) peak = Math.max(peak, Math.abs(input[i]));
   if (!(peak > 1e-5)) return null;
@@ -256,13 +270,19 @@ export function analyseSample(input, sampleRate) {
     for (let i = start; i < end; i++) sum += input[i] * input[i];
     frames.push(Math.sqrt(sum / Math.max(1, end - start)));
   }
-  const maxRms = Math.max(...frames);
+  // A loop, not Math.max(...frames): one argument per 5 ms overflowed the
+  // call stack on a file of about ten minutes (2026-11-06 hunt).
+  let maxRms = 0;
+  for (const r of frames) if (r > maxRms) maxRms = r;
   // The onset: the first frame within 26 dB of the loudest.
   let onsetFrame = frames.findIndex((r) => r >= maxRms * 0.05);
   if (onsetFrame < 0) onsetFrame = 0;
   // Back up while the level is still rising out of the floor, so a slow swell
-  // is measured from where it starts, not from where it got loud.
-  while (onsetFrame > 0 && frames[onsetFrame - 1] >= maxRms * 0.01) onsetFrame -= 1;
+  // is measured from where it starts, not from where it got loud — and only
+  // while it IS still falling, going back: a steady room noise within 40 dB
+  // of the peak used to walk the onset back to the start of the take, and a
+  // note one second into a microphone take matched at 2 % (2026-11-06 hunt).
+  while (onsetFrame > 0 && frames[onsetFrame - 1] >= maxRms * 0.01 && frames[onsetFrame - 1] < frames[onsetFrame]) onsetFrame -= 1;
   const onset = (onsetFrame * hop) / sampleRate;
   const end = Math.min(input.length, Math.round((onset + MAX_SECONDS) * sampleRate));
   const x = input.subarray(Math.round(onset * sampleRate), end);
@@ -353,7 +373,8 @@ export function analyseSample(input, sampleRate) {
       b = clamp(b, 0, BAND_COUNT - 1);
       bands[b] += power[k];
     }
-    const top = Math.max(...bands);
+    let top = 0;
+    for (const p of bands) if (p > top) top = p;
     spec.push(bands.map((p) => +(top > 0 ? Math.max(FLOOR_DB, 10 * Math.log10(p / top)) : FLOOR_DB).toFixed(2)));
     centroid.push(den > 0 ? +(num / den).toFixed(1) : null);
     if (t === SPEC_TIMES[1] || flatness === 0) {
@@ -371,8 +392,17 @@ export function analyseSample(input, sampleRate) {
     }
   }
 
+  // A note too short to measure (every loudness point and spectrum frame
+  // unknown — a file of about 20 ms or less) used to score every voice the
+  // same and "match" the first in the list; it is refused instead.
+  if (env.every((v) => v === null) && spec.every((v) => v === null)) return null;
+
   // Pitch: YIN over the body, where a note has settled after its strike.
-  const yinSize = pow2Below(Math.min(sampleRate * 0.09, Math.max(256, x.length * 0.5)));
+  // The window holds TWO periods of the lowest pitch searched: at 44.1 kHz
+  // (the rate every file is decoded at) the old 0.09 s rounded down to 2048
+  // samples, so nothing below 43 Hz could be read — a bass's low E came back
+  // as F1 (2026-11-06 hunt).
+  const yinSize = Math.min(pow2Above((2 * sampleRate) / PITCH_LO), pow2Below(Math.max(256, x.length * 0.5)));
   const reads = [];
   for (const t of [0.06, 0.12, 0.2, 0.3]) {
     const from = Math.round(t * sampleRate);
@@ -382,7 +412,7 @@ export function analyseSample(input, sampleRate) {
   }
   if (!reads.length && x.length >= yinSize) reads.push(yin(x, sampleRate, 0, yinSize));
   const good = reads.filter((r) => r.freq && r.aperiodicity < PITCHED_BELOW);
-  const aperiodicity = reads.length ? Math.min(...reads.map((r) => r.aperiodicity)) : 1;
+  const aperiodicity = reads.length ? reads.reduce((m, r) => Math.min(m, r.aperiodicity), Infinity) : 1;
   let freq = null;
   if (good.length) {
     const sorted = good.map((r) => r.freq).sort((a, b) => a - b);
