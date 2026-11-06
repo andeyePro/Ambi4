@@ -4915,6 +4915,50 @@ try {
           midiMock.input.onmidimessage({ data: new Uint8Array([0x80, 67, 0]) });
         }
 
+        // 2026-11-06 play-along hunt — each of these was red on f32182e. Read
+        // at the ENGINE (getCapture().held is its own ledger of keys down):
+        // a page that thinks it let go and an engine still sounding is the
+        // failure, and only the engine can say which it is.
+        {
+          const engineRef = window.__ambi4Engine;
+          const heldNow = () => engineRef.getCapture().held;
+          const codeKey = (type, k, code, extra = {}) => doc.body.dispatchEvent(
+            new window.KeyboardEvent(type, { key: k, code, bubbles: true, cancelable: true, ...extra })
+          );
+          engineRef.allNotesOff();
+          // Shift pressed while ',' is held: its keyup says '<'. The physical
+          // key is the same, and the note must stop.
+          codeKey('keydown', ',', 'Comma');
+          if (heldNow() !== 1) failures.push(`play-along: ',' did not sound (engine holds ${heldNow()})`);
+          codeKey('keydown', 'Shift', 'ShiftLeft', { shiftKey: true });
+          codeKey('keyup', '<', 'Comma', { shiftKey: true });
+          codeKey('keyup', 'Shift', 'ShiftLeft');
+          if (heldNow() !== 0) failures.push('play-along: Shift pressed while , was held left the note stuck (keyup said <)');
+          engineRef.allNotesOff();
+
+          // Two keys, one pitch (',' and 'q' are both the C above): letting go
+          // of one must not stop the note the other still holds.
+          codeKey('keydown', ',', 'Comma');
+          codeKey('keydown', 'q', 'KeyQ');
+          codeKey('keyup', ',', 'Comma');
+          if (heldNow() !== 1) failures.push('play-along: releasing , stopped the note q was still holding');
+          codeKey('keyup', 'q', 'KeyQ');
+          if (heldNow() !== 0) failures.push('play-along: the shared pitch was still held after both keys were up');
+          engineRef.allNotesOff();
+
+          // A MIDI instrument unplugged mid-note: its note-off never comes.
+          if (typeof midiMock.input.onmidimessage === 'function' && typeof midiMock.access.onstatechange === 'function') {
+            midiMock.input.onmidimessage({ data: new Uint8Array([0x90, 60, 100]) });
+            if (heldNow() !== 1) failures.push(`MIDI: a note-on did not reach the engine (holds ${heldNow()})`);
+            midiMock.access.onstatechange({ port: { id: 'stub-1', type: 'input', state: 'disconnected' } });
+            if (heldNow() !== 0) failures.push('MIDI: unplugging the instrument left its held note sounding');
+            if (typeof midiMock.input.onmidimessage !== 'function') failures.push('MIDI: a state change stopped listening to the inputs');
+          } else {
+            failures.push('MIDI: no statechange handler to unplug an instrument through');
+          }
+          engineRef.allNotesOff();
+        }
+
         // Follow my chords: off by default, and while on the notes HELD on
         // the computer keys and on a MIDI keyboard reach the engine's harmony
         // as a chord degree. Read at the ENGINE (getChordFollow), not at the
