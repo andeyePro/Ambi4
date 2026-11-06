@@ -13,6 +13,7 @@ export const SOURCE_WORDS = Object.freeze({
   voicing: 'the chord struck as it begins',
   breath: 'the chord re-struck halfway through the bar',
   closing: 'the closing chord of the final bar',
+  restrike: 'the chord struck again as a repeat comes round mid-chord',
   // the safety floor, on every track that has one
   cover: 'a note added so the track is never silent',
   // bass
