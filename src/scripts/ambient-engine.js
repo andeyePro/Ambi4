@@ -4278,8 +4278,9 @@ const BASS_RANGE = Object.freeze({ low: 28, high: 55 });
  * response) keeps the melody's sources. See docs/engine-v2-contract.md.
  */
 export const NOTE_SOURCES = Object.freeze({
-  // the chord struck on its span / the half-bar re-attack / silence floor / final bar
-  pad: Object.freeze(['voicing', 'breath', 'cover', 'closing']),
+  // the chord struck on its span / the half-bar re-attack / silence floor / final bar /
+  // a repeat's replay striking again the chord its opening bar sits inside
+  pad: Object.freeze(['voicing', 'breath', 'cover', 'closing', 'restrike']),
   // groove step by tone / the off-beat lean into the next chord / the root an
   // empty pattern still owes / a hand-sequenced step / floor / final bar
   bass: Object.freeze(['groove-root', 'groove-fifth', 'groove-octave', 'approach', 'owed-root', 'step', 'cover', 'closing']),
@@ -5892,6 +5893,10 @@ export function createEngine(initialParams, options = {}) {
   // Pad breathing (v11)
   let padSwellPhase = 0;       // position in the pad's four-bar dynamic contour
   let padRested = false;       // the chord span just gone was a rest
+  // The plan of the chord the pad last struck (null when it rested on it or
+  // the pad was off), so a repeat that opens mid-chord can strike that chord
+  // again on each replay (proto/repeat-restrike).
+  let lastPadStrike = null;
 
   // The v14 silence floor: tracks promoted for one bar to cover a gap, how
   // many bars have now passed with nothing audible, and the end of the last
@@ -9214,14 +9219,14 @@ export function createEngine(initialParams, options = {}) {
     });
   }
 
-  function playChordVoicing(time, duration, plan) {
-    attackChord(time, duration, plan, 1);
+  function playChordVoicing(time, duration, plan, source = 'voicing') {
+    attackChord(time, duration, plan, 1, source);
     if (!plan.reattack) return;
     // The breath: the same voicing struck again, softer, half a bar in and
     // ringing to the end of the chord span.
     const half = bar.duration * 0.5;
     if (duration - half < 0.2) return;
-    attackChord(time + half, duration - half, plan, PAD_REATTACK_LEVEL, 'breath');
+    attackChord(time + half, duration - half, plan, PAD_REATTACK_LEVEL, source === 'voicing' ? 'breath' : source);
   }
 
   // -- the silence floor -----------------------------------------------------
@@ -10842,13 +10847,34 @@ export function createEngine(initialParams, options = {}) {
     // A repeat coming round (2026-11-06 hunt): a chord struck in the loop's
     // last bar for several bars rang on over the re-struck opening — two
     // different chords at once. At the loop's start on every replay the old
-    // pad is released through its cancel fade. (A loop that opens mid-chord
-    // still replays its opening bar without the chord struck before the loop:
-    // re-striking it would add an onset the first pass did not have, against
-    // the law that every pass replays the first — the owner's call, TODO.)
-    if (replaying && loopRegion && barIndex === loopRegion.start) releaseSoundingPad(time);
+    // pad is released through its cancel fade.
+    //
+    // A loop that opens MID-chord (proto/repeat-restrike): the chord sounding
+    // over its first bar was struck before the loop, so the release above left
+    // every replay's opening bars with no pad at all. The first traversal
+    // captures the plan that chord was struck with ('padCarry' — no new draws,
+    // so the stream is unchanged), and each replay strikes it again at the
+    // loop's start for the bars it still runs inside the loop (the run of
+    // captured frames that are not fresh). This is the one onset a replay has
+    // that the first pass did not: the first pass heard that chord ring in
+    // from before the bracket, and a replay can only have it by striking it.
+    const loopOpening = loopRegion && barIndex === loopRegion.start;
+    const padCarry = loopOpening && !frame.fresh ? once('padCarry', () => lastPadStrike) : null;
+    if (replaying && loopOpening) {
+      releaseSoundingPad(time);
+      if (padCarry && isActive('pad')) {
+        let carried = 0;
+        for (let b = loopRegion.start; b < loopRegion.end; b += 1) {
+          const harmony = loopCapture.get(b)?.harmony;
+          if (!harmony || harmony.fresh) break;
+          carried += 1;
+        }
+        if (carried > 0) playChordVoicing(time, bar.duration * carried, padCarry, 'restrike');
+      }
+    }
     if (frame.fresh) {
       chordBarsLeft = frame.span;
+      lastPadStrike = null;
       if (isActive('pad')) {
         const plan = planFor('pad', undefined, planPad);
         // The no-two-consecutive-rests rule is enforced HERE rather than in the
@@ -10856,6 +10882,7 @@ export function createEngine(initialParams, options = {}) {
         // instead of going silent for the length of the hold.
         const resting = once('padRest', () => plan.rest && !padRested);
         padRested = resting;
+        lastPadStrike = resting ? null : plan;
         // Under harmony.beats the pad voices the bar's FIRST chord here, for
         // that chord's length only; each later chord is voiced by the pulse
         // it starts in (schedulePulse), struck as the one before it ends —
@@ -11880,6 +11907,7 @@ export function createEngine(initialParams, options = {}) {
       nextPulseTime = ctx.currentTime + 0.15;
       padSwellPhase = 0;
       padRested = false;
+      lastPadStrike = null;
       promoted.clear();
       silentRun = 0;
       lastNoteEnd = 0;

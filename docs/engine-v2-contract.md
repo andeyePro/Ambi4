@@ -294,7 +294,8 @@ Patch = {
   it was chosen — the mechanism that decided its pitch and onset. Every pitched
   'note' event carries one, from `NOTE_SOURCES` (exported) for its track. Pad:
   `voicing` (the chord struck on its span), `breath` (the half-bar re-attack),
-  `cover`, `closing`. Bass: `groove-root` / `groove-fifth` / `groove-octave` (a
+  `cover`, `closing`, `restrike` (a repeat's replay striking again the chord
+  its opening bar sits inside, see the repeat brackets below). Bass: `groove-root` / `groove-fifth` / `groove-octave` (a
   groove step, by the tone it asked for — the fifth is a perfect fifth, interval
   7), `approach` (the last off-beat of a bar that turns to a known next chord,
   re-pitched to the tone nearest that chord's root), `owed-root` (the root an
@@ -1104,6 +1105,14 @@ tracks[t].sequencers[] with weights — sequencer (singular) stays as alias to [
   the close mark again (or the open mark to cancel). Engine API:
   engine.setLoopRegion(startBar, endBar) / engine.clearLoopRegion(); visualiser
   draws the brackets + dims bars outside; 'bar' events carry loop info.
+  At the loop's start on every replay the pad still sounding is released
+  (v0.0.310). When the open bracket sits MID-chord — the chord over its first
+  bar was struck before the loop — each replay strikes that chord again at the
+  loop's start (source `restrike`, the plan it was struck with, captured on the
+  first pass with no new draw), for the bars it runs inside the loop: the
+  consecutive captured harmony frames that are not fresh. This is the one onset
+  a replay has that the first pass did not (proto/repeat-restrike); without it
+  every replay opened with no pad.
 
 ---
 

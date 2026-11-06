@@ -5833,10 +5833,11 @@ test("getResolved() reports the shape and values the v14 live-readout contract p
  * Indexed by position in the bar stream rather than by bar number, because a
  * repeat plays the same bar number many times over.
  */
-function occurrenceSignatures(log) {
+function occurrenceSignatures(log, { skip = () => false } = {}) {
   const index = new Map(log.bars.map((bar, i) => [bar, i]));
   const sigs = log.bars.map(() => []);
   for (const note of log.notes) {
+    if (skip(note)) continue;
     const owner = log.barOf(note);
     if (!owner) continue;
     sigs[index.get(owner)].push(
@@ -5983,7 +5984,20 @@ test('a repeat over a held track is still the repeat that decides the material',
 
   const starts = occurrencesOf(log, 6);
   assert.ok(starts.length >= 3, `only ${starts.length} passes of the repeat`);
-  const sigs = occurrenceSignatures(log);
+  // Every replay equals the first pass, with ONE allowed difference: when the
+  // loop opens mid-chord, a replay strikes that chord again at the loop's
+  // start (source 'restrike', proto/repeat-restrike). The first pass heard the
+  // chord ring in from before the bracket; a replay has nothing ringing in
+  // (the old pad is released at the restart), so it can only have the chord
+  // by striking it. Those notes are set aside from the comparison — and must
+  // be ONLY that: on a replay's opening bar, never on the first pass.
+  const isRestrike = (note) => note.track === 'pad' && note.source === 'restrike';
+  const sigs = occurrenceSignatures(log, { skip: isRestrike });
+  const index = new Map(log.bars.map((bar, i) => [bar, i]));
+  for (const note of log.notes.filter(isRestrike)) {
+    const at = index.get(log.barOf(note));
+    assert.ok(starts.slice(1).includes(at), `a restrike outside a replay's opening bar (occurrence ${at})`);
+  }
   const first = sigs.slice(starts[0], starts[0] + 3);
   assert.ok(first.some((sig) => sig.length), 'nothing sounded inside the repeat');
   for (const at of starts.slice(1)) {
@@ -5991,6 +6005,53 @@ test('a repeat over a held track is still the repeat that decides the material',
     if (at + 3 >= log.bars.length) continue;
     assert.deepEqual(sigs.slice(at, at + 3), first, 'hold and the repeat disagreed');
   }
+}));
+
+test('a repeat that opens mid-chord has the pad sounding on every replay (proto/repeat-restrike)', () => hiddenTab(async () => {
+  // Four-bar chords from bar 0: bar 6 sits inside the chord struck at bar 4,
+  // so the loop 6–8 opens mid-chord and its first two bars belong to a chord
+  // struck before the loop. Up to v0.0.311 the replay released that pad at
+  // the restart and struck nothing, so every replay's opening two bars had no
+  // pad at all; the first pass had the chord ringing through them.
+  const engine = createEngine({
+    bpm: 120, speed: 2, structure: 'drone', complexity: 0.5,
+    harmony: { rhythm: 4 },
+    tracks: { ...tracksAll('off'), pad: { state: 'on', randomness: 0 } },
+  }, { rng: seededRng(4242) });
+  const log = record(engine);
+  try {
+    engine.setLoopRegion(6, 9);
+    await engine.start();
+    await advance(30, FAST);
+  } finally {
+    engine.stop();
+  }
+  const starts = occurrencesOf(log, 6);
+  assert.ok(starts.length >= 3, `only ${starts.length} passes of the repeat`);
+  const pads = log.notes.filter((n) => n.track === 'pad');
+  // The 'note' event carries the length a note was SCHEDULED with; the
+  // release at a replay's start cancels every pad note struck before it
+  // without re-announcing it. So on a replay a note only counts as sounding
+  // if it began at the restart or after it (a pad nudge is at most ±25 ms).
+  const sounding = (t, from) => pads.filter((n) => n.time >= from - 0.05
+    && n.time <= t + 1e-6 && n.time + n.duration > t);
+  let judged = 0;
+  for (const [k, at] of starts.entries()) {
+    const opening = log.bars[at];
+    const next = log.bars[at + 1];
+    if (!next || at + 2 >= log.bars.length) continue;
+    // The first pass inherits the chord struck at bar 4; a replay must have
+    // struck its own.
+    const from = k === 0 ? -Infinity : opening.time;
+    const middle = opening.time + (next.time - opening.time) / 2;
+    assert.ok(sounding(middle, from).length > 0,
+      `pass ${k}: no pad sounding halfway through the loop's opening bar (t=${middle.toFixed(3)})`);
+    // The second bar still belongs to that chord.
+    const second = next.time + (next.time - opening.time) / 2;
+    assert.ok(sounding(second, from).length > 0, `pass ${k}: no pad sounding in the loop's second bar`);
+    if (k > 0) judged += 1;
+  }
+  assert.ok(judged >= 2, `only ${judged} replays judged`);
 }));
 
 test('bar events carry the repeat brackets while they are set', () => hiddenTab(async () => {
