@@ -42,7 +42,7 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 - [x] *(SHIPPED v0.0.297 — progression-drive 4 red on v0.0.296)* The chord loop box rebuilt itself on every commit: Let the app choose did nothing on the first click after typing; Tab/Enter left focus on the page. (The review's "unconfirmed suspicion" here, confirmed in Chromium and worse than suspected.)
 - [x] *(SHIPPED v0.0.297)* A refused Save voice/genre/layout had its "save it again" replaced 250 ms later by the settings notice's "move it again".
 - [x] *(SHIPPED v0.0.297 — audit of every AudioParam automation, 2026-11-06)* glide() on a slurred note shorter than its 30 ms level ramp held the level past the note (onset-render short slur, 9 voices red); Firefox's outro hold stepped twice under a ranged Volume (tests/outro-hold-timeline.mjs since v0.0.298). Audit found no other throw, no unguarded cancelAndHoldAtTime, no exponential ramp to zero.
-- [x] *(SHIPPED v0.0.297)* **tests/firefox-drive.mjs** — the first Firefox run of the app (Playwright Firefox 132 on the test Mac). Covers desktop only: Playwright cannot emulate Firefox for Android.
+- [x] *(SHIPPED v0.0.297)* **tests/firefox-drive.mjs** — the first Firefox run of the app (Playwright Firefox 132 on the test Mac). Playwright cannot emulate Firefox for Android; since 2026-11-06 it also runs the three layout sweeps at 390 px (default page, Advanced, the melody editor) in Gecko's metrics — clean on v0.0.298.
 
 ## Browser sweep, 2026-10-30 (fifteen area agents in headless Chromium and WebKit plus a read-only review; 22 fixed in v0.0.285, 5 in v0.0.286, 11 in v0.0.287)
 

@@ -24,7 +24,8 @@
  *   - Tempo by mouse drag, wheel and keyboard reaches the engine; an editor
  *     opens and its first dial reaches the engine;
  *   - a setting survives a reload from localStorage;
- *   - the three layout sweeps (Gecko's font metrics are its own).
+ *   - the three layout sweeps (Gecko's font metrics are its own), at the
+ *     desktop width and again at 390 px: default page, Advanced, an editor.
  */
 
 import { join } from 'node:path';
@@ -315,12 +316,17 @@ export default async function drive(harnessPage) {
       if (rt) {
         await page.evaluate(() => [...document.querySelectorAll('#panel-advanced .knob')].find((k) => k.getAttribute('aria-label') === 'Reverb tail').focus());
         const tails = [];
-        // Two presses 250-350 ms apart, five times over: each second press
-        // lands after the 200 ms settle and inside the 0.5 s fade-in.
+        // A fresh visit draws the genre, and its tail can sit at either end:
+        // press AWAY from the nearer end, or the presses move nothing.
+        const t0tail = await page.evaluate(() => window.__ambi4Engine.getParams().reverbTail);
+        const key = typeof t0tail === 'number' && t0tail > 3 ? 'ArrowDown' : 'ArrowUp';
+        notes.push({ P, reverbStart: t0tail, key });
+        // Two presses 300 ms apart, five times over: each second press lands
+        // after the 200 ms settle and inside the 0.5 s fade-in.
         for (let i = 0; i < 5; i++) {
-          await page.keyboard.press('ArrowUp');
+          await page.keyboard.press(key);
           await sleep(300);
-          await page.keyboard.press('ArrowUp');
+          await page.keyboard.press(key);
           await sleep(300);
           tails.push(await page.evaluate(() => [window.__ambi4Engine.getParams().reverbTail, [...document.querySelectorAll('#panel-advanced .knob')].find((k) => k.getAttribute('aria-label') === 'Reverb tail')?.getAttribute('aria-valuetext')]));
         }
@@ -409,6 +415,54 @@ export default async function drive(harnessPage) {
     }
     check(`${P} no console errors or page errors`, errors, []);
     await ctx.close();
+
+    // ---- a phone-width window (Firefox for Android's metrics are Gecko's) --
+    // Playwright cannot emulate Firefox on a phone (no isMobile), but the
+    // layout at 390 px is Gecko's own text measurement, which is what moves.
+    {
+      const Q = '[firefox 390]';
+      const pctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const pg = await pctx.newPage();
+      const perr = [];
+      pg.on('pageerror', (e) => perr.push('pageerror: ' + (e && e.message ? e.message : String(e))));
+      pg.on('console', (m) => { if (m.type() === 'error') perr.push('console: ' + m.text()); });
+      await pg.goto('about:blank');
+      await pg.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
+      const ok = await pg.waitForSelector('#generator-app:not([hidden])', { timeout: 20000 }).then(() => true).catch(() => false);
+      check(`${Q} the page boots`, ok, true);
+      if (ok) {
+        await pg.waitForTimeout(600);
+        await pg.click('#consent-slot button:has-text("Save on this device")').catch(() => {});
+        await pg.waitForTimeout(300);
+        const widthNow = () => pg.evaluate(() => ({ vw: innerWidth, sw: document.documentElement.scrollWidth }));
+        const w0 = await widthNow();
+        check(`${Q} the page is no wider than the window`, w0.sw <= w0.vw, (v) => v === true);
+        const s0 = await sweep(pg);
+        check(`${Q} no text collisions on the default page`, s0.collisions.slice(0, 5), []);
+        check(`${Q} no text overflow on the default page`, s0.overflows.slice(0, 5), []);
+        check(`${Q} nothing clipped on the default page`, s0.clipped.slice(0, 5), []);
+        await pg.click('#tab-advanced');
+        await pg.waitForTimeout(500);
+        const s1 = await sweep(pg);
+        check(`${Q} no text collisions on Advanced`, s1.collisions.slice(0, 5), []);
+        check(`${Q} no text overflow on Advanced`, s1.overflows.slice(0, 5), []);
+        check(`${Q} nothing clipped on Advanced`, s1.clipped.slice(0, 5), []);
+        const edit = '.track-row[data-track="melody"] .voice-edit-toggle';
+        if (await pg.$(edit)) {
+          await pg.$eval(edit, (b) => b.scrollIntoView({ block: 'center' }));
+          await pg.click(edit);
+          await pg.waitForTimeout(600);
+          const s2 = await sweep(pg);
+          check(`${Q} no text collisions with the melody editor open`, s2.collisions.slice(0, 5), []);
+          check(`${Q} no text overflow with the melody editor open`, s2.overflows.slice(0, 5), []);
+          check(`${Q} nothing clipped with the melody editor open`, s2.clipped.slice(0, 5), []);
+          const w2 = await widthNow();
+          check(`${Q} the open editor does not widen the page`, w2.sw <= w2.vw, (v) => v === true);
+        }
+      }
+      check(`${Q} no console errors or page errors`, perr, []);
+      await pctx.close();
+    }
   } finally {
     await browser.close();
   }
