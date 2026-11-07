@@ -32,7 +32,8 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ## Pending at wrap-up, 2026-11-07
 
-- [ ] **v0.0.312 is merged locally on dev but NOT pushed.** Before pushing dev: (1) read the cloud integration gate's result for fix/integrate-v0312 (routine "Ambi4 integration gate v0.0.312", claude.ai/code/routines/trig_015a5Lsdz1akadmgkV5xQaE1); if it pushed a merge fix, merge that branch in; (2) run the browser sweep with AMBI4_SHOT_MAC=mbp08l against a dist built ON MBP08L (~/builds/ambi4), never on the host Mac. Protos for fromClaude 53/54/56/57 are on proto/* branches (routine trig_01Y9eErbofJr5rhFwJ2hrCTT), waiting on his answers.
+- [ ] **v0.0.312 pushed to dev (2026-11-07) without a browser sweep.** The cloud gate of the merge (fix/integrate-v0312) was 68/69: the one red, vary-migration-smoke's every-preset render check, fails on a different preset each run and fails the same way on v0.0.311 (2 of 5 runs), so it is a flaky test, not the merge. Still to do: the browser sweep with AMBI4_SHOT_MAC=mbp08l against a dist built ON MBP08L (~/builds/ambi4), never on the host Mac. Protos for fromClaude 53/54/56/57 are on proto/* branches, waiting on his answers.
+- [ ] **vary-migration-smoke's every-preset render check is flaky** — it steps a mock clock with real 3 ms setTimeouts that race the scheduler, so under load a different preset or genre fails each run. Make the clock advance deterministic.
 
 ## Rules, storage, undo and your own voices audited, 2026-11-06
 
