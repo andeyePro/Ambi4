@@ -134,6 +134,24 @@ class MockAudioContext {
 
 globalThis.AudioContext = MockAudioContext;
 
+// The scheduler is ticked BY HAND (texture-grid-smoke's stand-in ticker), once
+// per clock step. Left to its own 25 ms timer it raced this loop's 0.5 s
+// steps: on a slow event-loop turn the clock ran more than RESYNC_GAP ahead,
+// the engine resynced to a fresh barline, and the digest moved with it — a
+// different preset red on each failing run (f32182e's own engine: glass-office
+// in 1 of 3 solo runs; night-shift in a full tests/all.mjs). Ticked by hand
+// the render is a function of the piece alone, and the frozen digests (taken
+// on runs that did not resync) are unchanged.
+const handTickers = new Set();
+globalThis.Worker = class {
+  constructor() { this.onmessage = null; handTickers.add(this); }
+  postMessage() {}
+  terminate() { handTickers.delete(this); }
+};
+globalThis.Blob = class { constructor() {} };
+globalThis.URL.createObjectURL = () => 'blob:x';
+globalThis.URL.revokeObjectURL = () => {};
+
 // AMBI4_SRC points the suite at another tree's src/scripts (how FROZEN was
 // taken from the v0.0.271 engine); unset, it is this tree's.
 const SRC = process.env.AMBI4_SRC ? `file://${process.env.AMBI4_SRC.replace(/\/$/, '')}/` : new URL('../src/scripts/', import.meta.url).href;
@@ -265,15 +283,23 @@ function sketchbookMigrated() {
  * hashes the note stream, is unchanged in the same gate). The swap was that
  * build's only engine change; tests/reverb-swap-render.mjs measures it.
  */
+/**
+ * Re-taken 2026-11-07 (proto/bass-in-range), with this suite's own --print:
+ * the bass root now folds into BASS_RANGE and its fifth drops a fourth when
+ * root + 7 would pass G3, so the pieces whose bass reached above MIDI 55 in
+ * the rendered bars moved — First light, Push and Night shift (the same three
+ * tests/audio-reference.mjs moved, re-baselined in the same commit) and the
+ * hand link. Nothing else moved.
+ */
 const FROZEN_SHIPPED = Object.freeze({
   'preset:deep-focus': 'b749a807083936cbfe4886e762848e3445c2cc325b423512cab88554e71ebe7c',
   'preset:open-plan': '6a62dfa96a282afc1f59c969f28d8f0691d225ae37734b62877c0c9744e3eb8e',
   'preset:glass-office': 'b32284e253a13bc7f258a494e1d0ce40774d6817e8d3b86fa26fc6eb5dcb6753',
   'preset:long-read': 'e944770f69c9dca67e69af8494d556316bd716af8956d9075975ed9b92ced67b',
-  'preset:first-light': 'fe066688e29768000c86e95f01b93265a1c59973874045584f0080f8330c639a',
-  'preset:push': 'a586969143b7054ef92bc82965c71ab218fd55ec595cbb77832c0cb228ac0d2e',
+  'preset:first-light': '0ddd7473891fcb0570c82dadb3a058799f055632c65f5af0dd3aa5c21ebbd94f',
+  'preset:push': '463867996fc145bff05cdc424496f092e6d9a3af29f892e14e07be331abbb99c',
   'preset:sketchbook': '88c397fd130feb8721ffd5a6e0dee27277ae2c529a6bebb0282f2ddcda8bb258',
-  'preset:night-shift': 'ef4f0e8ece3cdf43418b2ef99b3b1e73021d089008e4c11f1a10b69ca9ce9377',
+  'preset:night-shift': '758d0aa4c0cedd0b1f53d0d8cfcc3004f108cb3e6291ef6fa1730599cd1f30b8',
   'preset:wind-down': '3e24fdc1ebb6e367b2997cc7040e485f636755e4dc98fd86586e0ebbf8e13c79',
   'preset:breathe': '45f02b9253095834a481cb990ec389ef21d968a81d231cedcc54413116c6d866',
   'preset:far-rain': '3760508861b1897ebedf4abbc8bade25011fe52d746fa215c25791a87e44b4e7',
@@ -294,7 +320,7 @@ const FROZEN_SHIPPED = Object.freeze({
 
 const FROZEN = {
   sketchbook: '88c397fd130feb8721ffd5a6e0dee27277ae2c529a6bebb0282f2ddcda8bb258',
-  hand: '3776e8ae8fa344e0c98e38f77bdf7f3a7b6f052208089871555aa86d33436fd3',
+  hand: 'dafb927e84ac2721fedccddb6bcc95632bb174eea5ec97ced57a25ec6c6013bc',
 };
 
 // ---------------------------------------------------------------------------
@@ -340,6 +366,7 @@ async function renderDigest(params) {
     await engine.start();
     for (let i = 0; i < 4000 && cuts.length <= BARS; i++) {
       for (const ctx of liveContexts) ctx.currentTime += 0.5;
+      for (const ticker of [...handTickers]) ticker.onmessage?.({ data: 0 });
       await new Promise((resolve) => setTimeout(resolve, 3));
     }
     assert.ok(cuts.length > BARS, `only ${cuts.length} bars played`);

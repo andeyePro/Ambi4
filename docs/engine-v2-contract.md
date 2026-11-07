@@ -1880,8 +1880,15 @@ into a change) is unchanged and still property-tested.
   lays a 2–3 note run off the pulse into the next bar; every felt pulse survives
   it, still voicing the root, and the run's last note is what the approach logic
   re-pitches towards the chord ahead.
-- **Register**: `BASS_RANGE` = MIDI 28–55 (E1–G3). The octave tone pops up if it
-  fits, drops an octave if not, and stays on the root if neither does.
+- **Register**: `BASS_RANGE` = MIDI 28–55 (E1–G3), and every generated bass
+  note is inside it. The chord root (octave 2) is FOLDED into the range by
+  octaves — up to v0.0.311 it was placed unfolded, so a high degree in a high
+  key (B's V, F#3 + a fifth) reached past G3. The fifth is root + 7 when that
+  fits and root − 5 (the same pitch class, a fourth below) when it does not;
+  the octave tone pops up if it fits, drops an octave if not, and stays on the
+  root if neither does. The approach note, the silence-floor cover and the
+  closing root read the same folded root. A grid note with a pinned pitch is
+  never moved. Gated by `tests/bass-range-smoke.mjs` (12 genres × 12 roots).
 - **Internal pulse**: with no kit to lock to, the groove draws a stride through
   the bar's felt pulses and treats it exactly as it treats a kick — chance 1 on
   the grid, a (thinner) density draw off it. One code path, drums or not.
@@ -3197,8 +3204,8 @@ over every Bossa V7.
   note in the top octave, 85–96) is DROPPED, not struck twice at one pitch.
 - Texture (67–108) and user tracks (24–108) fold the same way. Pinned pitches
   are never folded: a stated note plays as stated.
-- Bass and pad have no ceiling to hit: bass picks its octave pop inside
-  `BASS_RANGE`, the pad voices upward from octave 3.
+- Bass folds its chord root into `BASS_RANGE` and picks its fifth and octave
+  pop inside it (proto/bass-in-range); the pad voices upward from octave 3.
 - Gated by `tests/arp-range-smoke.mjs`: every stock genre at Complexity 0.95,
   six seeds each — every arp note's pitch class inside its chord, none out of
   range, none struck twice. Red on v0.0.220 (870 foreign notes, all on 96).

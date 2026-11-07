@@ -9287,7 +9287,8 @@ export function createEngine(initialParams, options = {}) {
       return;
     }
     const octave = track === 'texture' ? 6 : track === 'bass' ? 2 : 4;
-    const midi = scaleDegreeToMidi(chordDegree, scale(), rootPc, octave);
+    const midi = track === 'bass' ? bassRoot(chordDegree, rootPc)
+      : scaleDegreeToMidi(chordDegree, scale(), rootPc, octave);
     const length = bar.duration * (track === 'texture' ? 1.5 : 0.9);
     playNote(track, {
       midi,
@@ -9638,6 +9639,11 @@ export function createEngine(initialParams, options = {}) {
     return ((hook.degrees[at] % n) + n) % n;
   }
 
+  /** A chord degree's bass root: octave 2, folded into BASS_RANGE. */
+  function bassRoot(degree, rootPc) {
+    return foldIntoRange(scaleDegreeToMidi(degree, scale(), rootPc, 2), BASS_RANGE.low, BASS_RANGE.high);
+  }
+
   function scheduleBass(time, barDuration, plan) {
     const rootPc = pitchClass(params.root);
     // A perfect fifth above the root, NOT the scale's fifth degree: in a
@@ -9652,11 +9658,16 @@ export function createEngine(initialParams, options = {}) {
     //
     // Chord length in beats: the tones are those of the chord in force at the
     // step's own beat; with one chord a bar every beat answers the same.
+    //
+    // proto/bass-in-range: the root is FOLDED into BASS_RANGE (a high chord
+    // degree in a high key — B's V — reached past G3), and the fifth goes BELOW
+    // the root, a fourth down, when root + 7 would leave the range. A pinned
+    // grid note is never moved: a stated pitch plays as stated.
     const tonesAt = (beat) => {
-      const root = scaleDegreeToMidi(chordAtBeat(beat).degree, scale(), rootPc, 2);
+      const root = bassRoot(chordAtBeat(beat).degree, rootPc);
       return {
         root,
-        fifth: root + 7,
+        fifth: root + 7 <= BASS_RANGE.high ? root + 7 : root - 5,
         octave: root + 12 <= BASS_RANGE.high ? root + 12
           : root - 12 >= BASS_RANGE.low ? root - 12 : root,
       };
@@ -9695,7 +9706,7 @@ export function createEngine(initialParams, options = {}) {
     // keeps its rhythm, and it only ever takes an off-beat, so every felt pulse
     // still voices the root.
     const nearestTo = (event, degree) => {
-      const to = scaleDegreeToMidi(degree, scale(), rootPc, 2);
+      const to = bassRoot(degree, rootPc);
       const tones = tonesAt(event.beat);
       const options = [tones.root, tones.fifth, tones.octave];
       return options.reduce(
@@ -10360,7 +10371,7 @@ export function createEngine(initialParams, options = {}) {
     }
     if (isActive('bass')) {
       playNote('bass', {
-        midi: scaleDegreeToMidi(0, scale(), rootPc, 2),
+        midi: bassRoot(0, rootPc),
         when: time,
         duration: hold,
         velocity: 0.75,
