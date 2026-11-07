@@ -30,6 +30,10 @@ History audit: brain2 `Ambi4-history-audit-2026-07-27`. UX brief: brain2
 
 ---
 
+## Pending at wrap-up, 2026-11-07
+
+- [ ] **v0.0.312 is merged locally on dev but NOT pushed.** Before pushing dev: (1) read the cloud integration gate's result for fix/integrate-v0312 (routine "Ambi4 integration gate v0.0.312", claude.ai/code/routines/trig_015a5Lsdz1akadmgkV5xQaE1); if it pushed a merge fix, merge that branch in; (2) run the browser sweep with AMBI4_SHOT_MAC=mbp08l against a dist built ON MBP08L (~/builds/ambi4), never on the host Mac. Protos for fromClaude 53/54/56/57 are on proto/* branches (routine trig_01Y9eErbofJr5rhFwJ2hrCTT), waiting on his answers.
+
 ## Rules, storage, undo and your own voices audited, 2026-11-06
 
 - [x] *(SHIPPED v0.0.308 — genre-rules, undo and prefs-smoke checks red on v0.0.307)* Rules: unmodelled Line-up keys dropped (Deep House/Lo-fi Apply of nothing), whole-row landing, all-zero weights, repeated genre names. Storage: legacy key deleted on a failed write, bad duplicate consent cookie, stored `transient` flags. Your own voice merged into the engine's patch. Quick ⌘Z.
